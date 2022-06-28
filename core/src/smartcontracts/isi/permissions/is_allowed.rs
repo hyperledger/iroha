@@ -89,11 +89,15 @@ impl IsAllowed for IsAllowedBoxed {
     }
 }
 
+/// Box with permissions validator for generic operation
+pub type IsOperationAllowedBoxed<O: NeedsPermission> =
+    Box<dyn IsAllowed<Operation = O> + Send + Sync>;
+
 /// Box with permissions validator for [`Instruction`].
-pub type IsInstructionAllowedBoxed = Box<dyn IsAllowed<Operation = Instruction> + Send + Sync>;
+pub type IsInstructionAllowedBoxed = IsOperationAllowedBoxed<Instruction>;
 
 /// Box with permissions validator for [`QueryBox`].
-pub type IsQueryAllowedBoxed = Box<dyn IsAllowed<Operation = QueryBox> + Send + Sync>;
+pub type IsQueryAllowedBoxed = IsOperationAllowedBoxed<QueryBox>;
 
 /// Box with permissions validator for [`Expression`].
-pub type IsExpressionAllowedBoxed = Box<dyn IsAllowed<Operation = Expression> + Send + Sync>;
+pub type IsExpressionAllowedBoxed = IsOperationAllowedBoxed<Expression>;

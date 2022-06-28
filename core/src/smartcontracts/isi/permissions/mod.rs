@@ -51,7 +51,7 @@ impl NeedsPermission for Expression {
     }
 }
 
-#[derive(Debug, FromVariant)]
+#[derive(Debug, derive_more::From, derive_more::TryInto)]
 pub enum NeedsPermissionBox {
     Instruction(Instruction),
     Query(QueryBox),
@@ -88,6 +88,20 @@ pub enum ValidatorVerdict {
     Deny(DenialReason),
     /// Instruction is skipped cause it is not supported by the validator
     Skip,
+}
+
+impl ValidatorVerdict {
+    pub fn is_allow(&self) -> bool {
+        matches!(self, ValidatorVerdict::Allow)
+    }
+
+    pub fn is_deny(&self) -> bool {
+        matches!(self, ValidatorVerdict::Deny(_))
+    }
+
+    pub fn is_skip(&self) -> bool {
+        matches!(self, ValidatorVerdict::Skip)
+    }
 }
 
 impl From<Result<()>> for ValidatorVerdict {
@@ -150,7 +164,7 @@ pub mod prelude {
     pub use super::{
         builder::Validator as ValidatorBuilder,
         error::DenialReason,
-        judge::AllowAll,
+        judge::{AllowAll, JudgeBox},
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
         HasTokenBoxed, IsAllowedBoxed,
     };
@@ -170,12 +184,6 @@ mod tests {
     #[derive(Debug, Clone, Serialize)]
     struct DenyBurn;
 
-    impl From<DenyBurn> for IsInstructionAllowedBoxed {
-        fn from(permissions: DenyBurn) -> Self {
-            Box::new(permissions)
-        }
-    }
-
     impl GetValidatorType for DenyBurn {
         fn get_validator_type(&self) -> ValidatorType {
             ValidatorType::Instruction
@@ -192,8 +200,10 @@ mod tests {
             _wsv: &WorldStateView,
         ) -> ValidatorVerdict {
             match instruction {
-                Instruction::Burn(_) => Err("Denying sequence isi.".to_owned().into()),
-                _ => Ok(()),
+                Instruction::Burn(_) => {
+                    ValidatorVerdict::Deny("Denying sequence isi.".to_owned().into())
+                }
+                _ => ValidatorVerdict::Skip,
             }
         }
     }
@@ -217,16 +227,10 @@ mod tests {
             _wsv: &WorldStateView,
         ) -> ValidatorVerdict {
             if authority.name.as_ref() == "alice" {
-                Err("Alice account is denied.".to_owned().into())
+                ValidatorVerdict::Deny("Alice account is denied.".to_owned().into())
             } else {
-                Ok(())
+                ValidatorVerdict::Skip
             }
-        }
-    }
-
-    impl From<DenyAlice> for IsInstructionAllowedBoxed {
-        fn from(value: DenyAlice) -> Self {
-            Box::new(value)
         }
     }
 
@@ -268,11 +272,10 @@ mod tests {
 
     #[test]
     pub fn multiple_validators_combined() {
-        let permissions_validator: IsInstructionAllowedBoxed =
-            ValidatorBuilder::with_validator(DenyBurn)
-                .with_validator(DenyAlice)
-                .all_should_succeed()
-                .build();
+        let permissions_validator = ValidatorBuilder::with_validator(Box::new(DenyBurn))
+            .with_validator(Box::new(DenyAlice))
+            .no_denies()
+            .build();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
@@ -282,23 +285,23 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check(&account_bob, &instruction_burn, &wsv)
+            .judge(&account_bob, &instruction_burn.into(), &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_fail, &wsv)
+            .judge(&account_alice, &instruction_fail.into(), &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_burn, &wsv)
+            .judge(&account_alice, &instruction_burn.into(), &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_bob, &instruction_fail, &wsv)
+            .judge(&account_bob, &instruction_fail.into(), &wsv)
             .is_ok());
     }
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator = ValidatorBuilder::with_recursive_validator(DenyBurn)
-            .all_should_succeed()
+        let permissions_validator = ValidatorBuilder::with_recursive_validator(Box::new(DenyBurn))
+            .no_denies()
             .build();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
@@ -310,13 +313,13 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_fail, &wsv)
+            .judge(&account_alice, &instruction_fail.into(), &wsv)
             .is_ok());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_burn, &wsv)
+            .judge(&account_alice, &instruction_burn.into(), &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_alice, &nested_instruction_sequence, &wsv)
+            .judge(&account_alice, &nested_instruction_sequence.into(), &wsv)
             .is_err());
     }
 
@@ -337,8 +340,10 @@ mod tests {
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         let validator: HasTokenBoxed = Box::new(GrantedToken);
-        assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
-        assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
+        assert!(validator
+            .check(&alice_id, &instruction_burn, &wsv)
+            .is_deny());
+        assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_allow());
         Ok(())
     }
 

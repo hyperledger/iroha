@@ -8,6 +8,8 @@ mod sealed {
     impl Sealed for super::NoDenies {}
 }
 
+pub type JudgeBox = Box<dyn Judge + Send + Sync>;
+
 pub trait Judge: GetValidatorType + std::fmt::Debug {
     fn judge_type_independent(
         &self,

@@ -2,7 +2,7 @@
 
 use super::{
     combinators::CheckNested,
-    judge::{AtLeastOneAllow, Judge, NoDenies},
+    judge::{AtLeastOneAllow, Judge, JudgeBox, NoDenies},
     *,
 };
 
@@ -72,18 +72,20 @@ pub struct WithJudge<O: NeedsPermission, V: Into<IsAllowedBoxed>, J: Judge> {
 
 impl Validator {
     /// Returns new [`ValidatorBuilderWithValidators`][WithValidators] with provided `validator`
-    pub fn with_validator<O, V>(validator: impl Into<V>) -> WithValidators<O, V>
+    pub fn with_validator<O>(
+        validator: Box<impl IsAllowed<Operation = O> + Send + Sync + 'static>,
+    ) -> WithValidators<O, IsOperationAllowedBoxed<O>>
     where
         O: NeedsPermission,
-        V: IsAllowed<Operation = O> + Into<IsAllowedBoxed>,
+        IsOperationAllowedBoxed<O>: Into<IsAllowedBoxed>,
     {
-        WithValidators::new(validator)
+        WithValidators::new(validator as IsOperationAllowedBoxed<O>)
     }
 
     /// Returns new [`ValidatorBuilderWithValidators`][WithValidators]
     /// with provided recursive instruction `validator`
     pub fn with_recursive_validator(
-        validator: impl Into<IsInstructionAllowedBoxed>,
+        validator: IsInstructionAllowedBoxed,
     ) -> WithValidators<Instruction, IsInstructionAllowedBoxed> {
         let instruction_validator: IsInstructionAllowedBoxed =
             Box::new(CheckNested::new(validator.into()));
@@ -96,17 +98,17 @@ where
     O: NeedsPermission,
     V: Into<IsAllowedBoxed>,
 {
-    fn new(validator: impl Into<V>) -> Self {
+    fn new(validator: V) -> Self {
         Self {
-            validators: vec![validator.into().into()],
+            validators: vec![validator.into()],
             _phantom_operation: PhantomData,
             _phantom_validator: PhantomData,
         }
     }
 
     /// Adds a validator to the list.
-    pub fn with_validator(mut self, validator: impl Into<V>) -> Self {
-        self.validators.push(validator.into().into());
+    pub fn with_validator(mut self, validator: V) -> Self {
+        self.validators.push(validator.into());
         self
     }
 
@@ -119,7 +121,7 @@ where
     }
 
     /// Returns [`NoDenies`] *judge* builder
-    pub fn no_denies(self, check_name: String) -> WithJudge<O, V, NoDenies> {
+    pub fn no_denies(self) -> WithJudge<O, V, NoDenies> {
         let no_denies = NoDenies {
             validators: self.validators,
         };
@@ -130,7 +132,7 @@ where
 
 impl WithValidators<Instruction, IsInstructionAllowedBoxed> {
     /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
-    pub fn with_recursive_validator(self, validator: impl Into<IsInstructionAllowedBoxed>) -> Self {
+    pub fn with_recursive_validator(self, validator: IsInstructionAllowedBoxed) -> Self {
         let instruction_validator: IsInstructionAllowedBoxed =
             Box::new(CheckNested::new(validator.into()));
         self.with_validator(instruction_validator)
@@ -141,7 +143,7 @@ impl<O, V, J> WithJudge<O, V, J>
 where
     O: NeedsPermission,
     V: Into<IsAllowedBoxed>,
-    J: Judge,
+    J: Judge + Sync + Send + 'static,
 {
     #[inline]
     fn new(judge: J) -> Self {
@@ -154,21 +156,25 @@ where
 
     /// Builds *judge*
     #[inline]
-    pub fn build(self) -> J {
-        self.judge
+    pub fn build(self) -> JudgeBox {
+        Box::new(self.judge)
     }
 }
 
-impl<O, V, J> WithJudge<O, V, J>
+impl<O, J> WithJudge<O, IsOperationAllowedBoxed<O>, J>
 where
-    O: NeedsPermission,
-    V: Into<IsAllowedBoxed> + From<Box<J>>,
-    J: Judge + IsAllowed<Operation = NeedsPermissionBox>,
+    O: NeedsPermission + Clone + Into<NeedsPermissionBox> + Send + Sync + 'static,
+    J: Judge + IsAllowed<Operation = NeedsPermissionBox> + Send + Sync + 'static,
+    IsOperationAllowedBoxed<O>: Into<IsAllowedBoxed>,
 {
     /// Adds a validator to the list.
     #[inline]
-    pub fn with_validator(self, validator: impl Into<V>) -> WithValidators<O, V> {
-        WithValidators::new(Box::new(self.judge)).with_validator(validator)
+    pub fn with_validator(
+        self,
+        validator: IsOperationAllowedBoxed<O>,
+    ) -> WithValidators<O, IsOperationAllowedBoxed<O>> {
+        let proxy = Box::new(JudgeOperationProxy::new(self.judge));
+        WithValidators::new(proxy as IsOperationAllowedBoxed<O>).with_validator(validator)
     }
 }
 
@@ -180,7 +186,7 @@ where
     #[inline]
     pub fn with_recursive_validator(
         self,
-        validator: impl Into<IsInstructionAllowedBoxed>,
+        validator: IsInstructionAllowedBoxed,
     ) -> WithValidators<Instruction, IsInstructionAllowedBoxed> {
         let proxy = Box::new(JudgeOperationProxy::new(self.judge));
         WithValidators::new(proxy as IsInstructionAllowedBoxed).with_recursive_validator(validator)
