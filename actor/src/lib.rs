@@ -161,16 +161,9 @@ impl<A: Actor> Addr<A> {
         A: ContextHandler<M>,
     {
         let envelope = SyncEnvelopeProxy::pack(message, None);
-        let sender = self.sender.clone();
-        // TODO: BUG: remove deadlock from iroha (probably issue inside of `iroha_p2p` crate) and remove this task::spawn
-        tokio::spawn(
-            async move {
-                if let Err(error) = sender.send(envelope).await {
-                    iroha_logger::error!(%error, "Error sending actor message");
-                }
-            }
-            .in_current_span(),
-        );
+        if let Err(error) = self.sender.send(envelope).await {
+            iroha_logger::error!(%error, "Error sending actor message");
+        }
     }
 
     /// Constructs recipient for sending only specific messages (without answers)
