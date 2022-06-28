@@ -21,7 +21,7 @@ pub trait IsGrantAllowed: Debug {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()>;
+    ) -> ValidatorVerdict;
 }
 
 impl IsGrantAllowed for IsGrantAllowedBoxed {
@@ -30,7 +30,7 @@ impl IsGrantAllowed for IsGrantAllowedBoxed {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         IsGrantAllowed::check(self.as_ref(), authority, instruction, wsv)
     }
 }
@@ -49,7 +49,7 @@ pub trait IsRevokeAllowed: Debug {
         authority: &AccountId,
         instruction: &RevokeBox,
         wsv: &WorldStateView,
-    ) -> Result<()>;
+    ) -> ValidatorVerdict;
 }
 
 impl IsRevokeAllowed for IsRevokeAllowedBoxed {
@@ -58,42 +58,58 @@ impl IsRevokeAllowed for IsRevokeAllowedBoxed {
         authority: &AccountId,
         instruction: &RevokeBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         IsRevokeAllowed::check(self.as_ref(), authority, instruction, wsv)
     }
 }
 
-impl IsAllowed<Instruction> for IsGrantAllowedBoxed {
+impl GetValidatorType for IsGrantAllowedBoxed {
+    fn get_validator_type(&self) -> ValidatorType {
+        ValidatorType::Instruction
+    }
+}
+
+impl IsAllowed for IsGrantAllowedBoxed {
+    type Operation = Instruction;
+
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         if let Instruction::Grant(isi) = instruction {
             <Self as IsGrantAllowed>::check(self, authority, isi, wsv)
         } else {
-            Ok(())
+            ValidatorVerdict::Skip
         }
     }
 }
 
-impl IsAllowed<Instruction> for IsRevokeAllowedBoxed {
+impl GetValidatorType for IsRevokeAllowedBoxed {
+    fn get_validator_type(&self) -> ValidatorType {
+        ValidatorType::Instruction
+    }
+}
+
+impl IsAllowed for IsRevokeAllowedBoxed {
+    type Operation = Instruction;
+
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         if let Instruction::Revoke(isi) = instruction {
             <Self as IsRevokeAllowed>::check(self, authority, isi, wsv)
         } else {
-            Ok(())
+            ValidatorVerdict::Skip
         }
     }
 }
 
-/// Used in `unpack_` function below
+/// Used in `unpack_` functions below
 macro_rules! unpack {
     ($i:ident, $w:ident, Instruction::$v:ident => $t:ty) => {{
         let operation = if let Instruction::$v(operation) = &$i {
