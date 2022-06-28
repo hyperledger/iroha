@@ -6,46 +6,6 @@ use super::{
     *,
 };
 
-#[derive(Debug)]
-struct JudgeOperationProxy<O: NeedsPermission, J: Judge> {
-    judge: J,
-    _phantom_operation: PhantomData<O>,
-}
-
-impl<O: NeedsPermission, J: Judge> JudgeOperationProxy<O, J> {
-    fn new(judge: J) -> Self {
-        JudgeOperationProxy {
-            judge,
-            _phantom_operation: PhantomData,
-        }
-    }
-}
-
-impl<O: NeedsPermission, J: Judge> GetValidatorType for JudgeOperationProxy<O, J> {
-    fn get_validator_type(&self) -> ValidatorType {
-        self.judge.get_validator_type()
-    }
-}
-
-impl<O: NeedsPermission + Clone + Into<NeedsPermissionBox>, J> IsAllowed
-    for JudgeOperationProxy<O, J>
-where
-    J: Judge,
-{
-    type Operation = O;
-
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &O,
-        wsv: &WorldStateView,
-    ) -> ValidatorVerdict {
-        self.judge
-            .judge(authority, &operation.clone().into(), wsv)
-            .into()
-    }
-}
-
 /// Builder to combine multiple validation checks into one.
 #[derive(Debug, Copy, Clone)]
 pub struct Validator;
@@ -173,7 +133,7 @@ where
         self,
         validator: IsOperationAllowedBoxed<O>,
     ) -> WithValidators<O, IsOperationAllowedBoxed<O>> {
-        let proxy = Box::new(JudgeOperationProxy::new(self.judge));
+        let proxy = Box::new(judge::proxy::IsAllowed::new(self.judge));
         WithValidators::new(proxy as IsOperationAllowedBoxed<O>).with_validator(validator)
     }
 }
@@ -188,7 +148,7 @@ where
         self,
         validator: IsInstructionAllowedBoxed,
     ) -> WithValidators<Instruction, IsInstructionAllowedBoxed> {
-        let proxy = Box::new(JudgeOperationProxy::new(self.judge));
+        let proxy = Box::new(judge::proxy::IsAllowed::new(self.judge));
         WithValidators::new(proxy as IsInstructionAllowedBoxed).with_recursive_validator(validator)
     }
 }
@@ -200,7 +160,7 @@ where
     IsAllowedBoxed: From<Box<dyn IsAllowed<Operation = O>>>,
 {
     pub fn no_denies(self) -> WithJudge<O, V, NoDenies> {
-        let proxy = Box::new(JudgeOperationProxy::new(self.judge));
+        let proxy = Box::new(judge::proxy::IsAllowed::new(self.judge));
         let no_denies = NoDenies {
             validators: vec![(proxy as Box<dyn IsAllowed<Operation = O>>).into()],
         };
@@ -215,7 +175,7 @@ where
     IsAllowedBoxed: From<Box<dyn IsAllowed<Operation = O>>>,
 {
     pub fn at_least_one_allow(self) -> WithJudge<O, V, AtLeastOneAllow> {
-        let proxy = Box::new(JudgeOperationProxy::new(self.judge));
+        let proxy = Box::new(judge::proxy::IsAllowed::new(self.judge));
         let at_least_one_allow = AtLeastOneAllow {
             validators: vec![(proxy as Box<dyn IsAllowed<Operation = O>>).into()],
         };

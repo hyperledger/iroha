@@ -4,8 +4,52 @@ mod sealed {
     pub trait Sealed {}
 
     impl Sealed for super::AtLeastOneAllow {}
-
     impl Sealed for super::NoDenies {}
+    impl Sealed for super::AllowAll {}
+    impl Sealed for super::DenyAll {}
+}
+
+pub mod proxy {
+    use super::*;
+
+    #[derive(Debug, Clone)]
+    pub struct IsAllowed<O: NeedsPermission, J: Judge> {
+        judge: J,
+        _phantom_operation: PhantomData<O>,
+    }
+
+    impl<O: NeedsPermission, J: Judge> IsAllowed<O, J> {
+        pub fn new(judge: J) -> Self {
+            IsAllowed {
+                judge,
+                _phantom_operation: PhantomData,
+            }
+        }
+    }
+
+    impl<O: NeedsPermission, J: Judge> GetValidatorType for IsAllowed<O, J> {
+        fn get_validator_type(&self) -> ValidatorType {
+            self.judge.get_validator_type()
+        }
+    }
+
+    impl<O: NeedsPermission + Clone + Into<NeedsPermissionBox>, J> super::IsAllowed for IsAllowed<O, J>
+    where
+        J: Judge,
+    {
+        type Operation = O;
+
+        fn check(
+            &self,
+            authority: &AccountId,
+            operation: &O,
+            wsv: &WorldStateView,
+        ) -> ValidatorVerdict {
+            self.judge
+                .judge(authority, &operation.clone().into(), wsv)
+                .into()
+        }
+    }
 }
 
 pub type JudgeBox = Box<dyn Judge + Send + Sync>;
@@ -109,7 +153,8 @@ pub struct NoDenies {
 
 impl GetValidatorType for NoDenies {
     fn get_validator_type(&self) -> ValidatorType {
-        // Since [`Self`] can be constructed only with TODO it's always panic-safe
+        // Since [`Self`] can be constructed only with
+        // [`super::builder::WithJudge`] it's always panic-safe
         let first: &IsAllowedBoxed = self
             .validators
             .first()

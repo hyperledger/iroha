@@ -373,6 +373,12 @@ mod tests {
         .into();
         let wsv = WorldStateView::new(World::new());
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &DenyAll.into()).is_err())
+        let judge = ValidatorBuilder::with_validator(Box::new(judge::proxy::IsAllowed::<
+            Instruction,
+            _,
+        >::new(DenyAll)))
+        .no_denies()
+        .build();
+        assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &judge).is_err())
     }
 }
