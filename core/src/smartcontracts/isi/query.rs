@@ -36,8 +36,8 @@ impl ValidQueryRequest {
 /// Query errors.
 #[derive(Error, Debug, Decode, Encode, IntoSchema)]
 pub enum Error {
-    /// Query can not be decoded.
-    #[error("Query can not be decoded")]
+    /// Query cannot be decoded.
+    #[error("Query cannot be decoded")]
     Decode(#[from] Box<iroha_version::error::Error>),
     /// Query has wrong signature.
     #[error("Query has the wrong signature: {0}")]

@@ -167,7 +167,7 @@ fn account_can_query_only_its_own_domain() {
         .request(client::domain::by_id(domain_id))
         .is_ok());
 
-    // Alice can not query other domains.
+    // Alice cannot query other domains.
     assert!(iroha_client
         .request(client::domain::by_id(new_domain_id))
         .is_err());

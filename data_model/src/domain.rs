@@ -457,12 +457,6 @@ impl Id {
     pub const fn new(name: Name) -> Self {
         Self { name }
     }
-
-    pub(crate) const fn empty() -> Self {
-        Self {
-            name: Name::empty(),
-        }
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
