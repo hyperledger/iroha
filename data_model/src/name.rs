@@ -142,7 +142,7 @@ mod tests {
 
     use super::*;
 
-    const INVALID_NAMES: [&str; 3] = [" ", "@", "#"];
+    const INVALID_NAMES: [&str; 4] = ["", " ", "@", "#"];
 
     #[test]
     fn deserialize_name() {
