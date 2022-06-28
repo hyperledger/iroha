@@ -99,8 +99,6 @@ static constexpr iroha::consensus::yac::ConsistencyModel
 
 static constexpr uint32_t kStaleStreamMaxRoundsDefault = 2;
 static constexpr uint32_t kMstExpirationTimeDefault = 1440;
-static constexpr uint32_t kMaxRoundsDelayDefault = 3000;
-static constexpr uint32_t kProposalDelayMultiplier = 2;
 
 /**
  * Configuring iroha daemon
@@ -745,9 +743,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
   ordering_gate = ordering_init->initOrderingGate(
       config_.max_proposal_size,
       config_.getMaxpProposalPack(),
-      std::chrono::milliseconds(
-          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)
-          * kProposalDelayMultiplier),
+      std::chrono::milliseconds(config_.getProposalDelay()),
       transaction_factory,
       batch_parser,
       transaction_batch_factory_,
@@ -756,8 +752,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
       persistent_cache,
       log_manager_->getChild("Ordering"),
       inter_peer_client_factory_,
-      std::chrono::milliseconds(
-          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)),
+      std::chrono::milliseconds(config_.getProposalCreationTimeout()),
       config_.syncing_mode);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));

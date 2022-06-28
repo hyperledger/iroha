@@ -10,8 +10,10 @@
 #include <fmt/core.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+
 #include "common/bind.hpp"
 #include "interfaces/common_objects/peer.hpp"
+#include "network/channel_constants.hpp"
 
 using namespace iroha::expected;
 using namespace iroha::network;
@@ -106,6 +108,9 @@ class ChannelFactory::ChannelArgumentsProvider {
       args_ = detail::makeInterPeerChannelArguments(service_names_,
                                                     *maybe_params_.value());
     }
+
+    args_.SetMaxSendMessageSize(kMaxMessageSize);
+    args_.SetMaxReceiveMessageSize(kMaxMessageSize);
     return args_;
   }
 
