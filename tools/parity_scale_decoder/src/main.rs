@@ -34,7 +34,7 @@ struct DecodeArgs {
 
 /// Function pointer to [`DumpDecoded::dump_decoded()`]
 ///
-/// Function pointer is used cause trait object can not be used
+/// Function pointer is used cause trait object cannot be used
 /// due to [`Sized`] bound in [`Decode`] trait
 pub type DumpDecodedPtr = fn(&[u8], &mut dyn io::Write) -> Result<(), eyre::Error>;
 

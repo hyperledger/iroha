@@ -429,13 +429,6 @@ pub struct Id {
 }
 
 impl Id {
-    pub(crate) const fn empty() -> Self {
-        Self {
-            name: Name::empty(),
-            domain_id: DomainId::empty(),
-        }
-    }
-
     /// Construct [`Id`] from an account `name` and a `domain_name` if
     /// these names are valid.
     #[inline]
@@ -461,7 +454,9 @@ impl FromStr for Id {
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
         if string.is_empty() {
-            return Ok(Self::empty());
+            return Err(ParseError {
+                reason: "`AccountId` cannot be empty",
+            });
         }
 
         let vector: Vec<&str> = string.split('@').collect();
