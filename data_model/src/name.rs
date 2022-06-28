@@ -22,9 +22,9 @@ use crate::{ParseError, ValidationError};
 pub struct Name(ConstString);
 
 impl Name {
-    pub(crate) const fn empty() -> Self {
-        Self(ConstString::new())
-    }
+    // pub(crate) const fn empty() -> Self {
+    // Self(ConstString::new())
+    // }
 
     /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
     ///
@@ -52,9 +52,10 @@ impl Name {
     /// Fails if not valid [`Name`].
     fn validate_str(candidate: &str) -> Result<(), ParseError> {
         if candidate.is_empty() {
-            return Ok(());
+            return Err(ParseError {
+                reason: "`Name` can not be empty",
+            });
         }
-
         if candidate.chars().any(char::is_whitespace) {
             return Err(ParseError {
                 reason: "White space not allowed in `Name` constructs",
@@ -80,12 +81,7 @@ impl FromStr for Name {
     type Err = ParseError;
 
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
-        Self::validate_str(candidate).map(|_| {
-            if candidate.is_empty() {
-                return Self::empty();
-            }
-            Self(ConstString::from(candidate))
-        })
+        Self::validate_str(candidate).map(|_| Self(ConstString::from(candidate)))
     }
 }
 
@@ -126,12 +122,7 @@ impl<'de> Deserialize<'de> for Name {
 
         let name = ConstString::deserialize(deserializer)?;
         Self::validate_str(&name)
-            .map(|_| {
-                if name.is_empty() {
-                    return Self::empty();
-                }
-                Self(name)
-            })
+            .map(|_| Self(name))
             .map_err(D::Error::custom)
     }
 }
@@ -139,12 +130,7 @@ impl Decode for Name {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let name = ConstString::decode(input)?;
         Self::validate_str(&name)
-            .map(|_| {
-                if name.is_empty() {
-                    return Self::empty();
-                }
-                Self(name)
-            })
+            .map(|_| Self(name))
             .map_err(|error| error.reason.into())
     }
 }
