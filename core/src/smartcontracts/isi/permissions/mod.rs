@@ -82,12 +82,34 @@ pub enum ValidatorType {
 /// Verdict returned by validators
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
 pub enum ValidatorVerdict {
-    /// Instruction is allowed
-    Allow,
     /// Instruction is denied
     Deny(DenialReason),
     /// Instruction is skipped cause it is not supported by the validator
     Skip,
+    /// Instruction is allowed
+    Allow,
+}
+
+impl PartialOrd for ValidatorVerdict {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+impl Ord for ValidatorVerdict {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (ValidatorVerdict::Deny(_), ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Equal,
+            (ValidatorVerdict::Deny(_), ValidatorVerdict::Skip) => std::cmp::Ordering::Less,
+            (ValidatorVerdict::Deny(_), ValidatorVerdict::Allow) => std::cmp::Ordering::Less,
+            (ValidatorVerdict::Skip, ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Greater,
+            (ValidatorVerdict::Skip, ValidatorVerdict::Skip) => std::cmp::Ordering::Equal,
+            (ValidatorVerdict::Skip, ValidatorVerdict::Allow) => std::cmp::Ordering::Less,
+            (ValidatorVerdict::Allow, ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Greater,
+            (ValidatorVerdict::Allow, ValidatorVerdict::Skip) => std::cmp::Ordering::Greater,
+            (ValidatorVerdict::Allow, ValidatorVerdict::Allow) => std::cmp::Ordering::Equal,
+        }
+    }
 }
 
 impl ValidatorVerdict {
@@ -101,6 +123,18 @@ impl ValidatorVerdict {
 
     pub fn is_skip(&self) -> bool {
         matches!(self, ValidatorVerdict::Skip)
+    }
+
+    pub fn least_permissive(self, other: Self) -> Self {
+        std::cmp::min(self, other)
+    }
+
+    pub fn least_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
+        if let Self::Deny(_) = &self {
+            self
+        } else {
+            self.least_permissive(f())
+        }
     }
 }
 

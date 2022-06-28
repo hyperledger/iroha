@@ -17,13 +17,21 @@ impl CheckNested {
     }
 }
 
-impl IsAllowed<Instruction> for CheckNested {
+impl GetValidatorType for CheckNested {
+    fn get_validator_type(&self) -> ValidatorType {
+        ValidatorType::Instruction
+    }
+}
+
+impl IsAllowed for CheckNested {
+    type Operation = Instruction;
+
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         match instruction {
             Instruction::Register(_)
             | Instruction::Unregister(_)
@@ -36,20 +44,30 @@ impl IsAllowed<Instruction> for CheckNested {
             | Instruction::Revoke(_)
             | Instruction::Fail(_)
             | Instruction::ExecuteTrigger(_) => self.validator.check(authority, instruction, wsv),
-            Instruction::If(if_box) => {
-                self.check(authority, &if_box.then, wsv)
-                    .and_then(|_| match &if_box.otherwise {
-                        Some(this_instruction) => self.check(authority, this_instruction, wsv),
-                        None => Ok(()),
-                    })
-            }
+            Instruction::If(if_box) => self
+                .check(authority, &if_box.then, wsv)
+                .least_permissive_with(|| match if_box.otherwise {
+                    Some(otherwise) => self.check(authority, &otherwise, wsv),
+                    None => ValidatorVerdict::Skip,
+                }),
             Instruction::Pair(pair_box) => self
                 .check(authority, &pair_box.left_instruction, wsv)
-                .and(self.check(authority, &pair_box.right_instruction, wsv)),
-            Instruction::Sequence(sequence_box) => sequence_box
-                .instructions
-                .iter()
-                .try_for_each(|this_instruction| self.check(authority, this_instruction, wsv)),
+                .least_permissive_with(|| self.check(authority, &pair_box.right_instruction, wsv)),
+            Instruction::Sequence(sequence_box) => {
+                if sequence_box.instructions.is_empty() {
+                    ValidatorVerdict::Skip
+                } else {
+                    let mut verdict = ValidatorVerdict::Allow;
+                    for this_instruction in &sequence_box.instructions {
+                        verdict = verdict
+                            .least_permissive_with(|| self.check(authority, this_instruction, wsv));
+                        if let ValidatorVerdict::Deny(_) = &verdict {
+                            break;
+                        }
+                    }
+                    verdict
+                }
+            }
         }
     }
 }
