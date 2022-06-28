@@ -184,8 +184,8 @@ impl NewDomain {
     IntoFfi,
     TryFromFfi,
 )]
-#[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
+#[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
 pub struct Domain {
     /// Identification of this [`Domain`].

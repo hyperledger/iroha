@@ -235,9 +235,9 @@ impl NewAccount {
     IntoFfi,
     TryFromFfi,
 )]
-#[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
 #[display(fmt = "({id})")] // TODO: Add more?
+#[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,

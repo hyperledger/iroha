@@ -13,6 +13,8 @@
 //! u8, u16 -> u32
 //! i8, i16 -> i32
 
+use core::marker::PhantomData;
+
 pub use iroha_ffi_derive::*;
 
 const NONE: isize = -1;
@@ -35,13 +37,15 @@ pub unsafe trait Handle {
 
 /// Indicates that type is converted into an opaque pointer when crossing the FFI boundary
 // TODO: Make it unsafe?
-pub trait Opaque {}
+pub trait Opaque: FfiType {}
 
-/// Robust type which conforms to C ABI and can be safely shared across FFI boundaries. This
-/// is a shallow representation meaning that it does not ensure the ABI of the referent for pointers.
-/// If you need to dereference the pointer it is up to the you to ensure compatible representations
-// TODO: Make it an unsafe trait?
-pub trait ReprC {
+/// Robust type which conforms to C ABI and can be safely shared across FFI boundaries. This does
+/// not ensure the ABI of the referent for pointers in which case the pointer should be made opaque
+///
+/// # Safety
+///
+/// Type implementing the trait must be a robust type with a guaranteed C ABI
+pub unsafe trait ReprC {
     /// Type used to represent Rust function output as an argument in an FFI function. Must be a repr(C) as well
     type OutPtr;
 
@@ -50,10 +54,7 @@ pub trait ReprC {
 }
 
 // TODO: Make it an unsafe trait?
-pub trait FromOption: IntoFfi + Sized {
-    /// Robust C ABI compliant representation of [Option<`Self`>]
-    type FfiType: ReprC;
-
+pub trait FromOption<'store>: OptionWrapped + IntoFfi {
     /// Type into which state can be stored during conversion. Useful for returning
     /// non-owning types but performing some conversion which requires allocation.
     /// Serves similar purpose as does context in a closure
@@ -62,43 +63,63 @@ pub trait FromOption: IntoFfi + Sized {
     /// Performs the conversion from [Option<`Self`>] into [`<Self as FromOption>::FfiType`]
     fn into_ffi(
         source: Option<Self>,
-        store: &mut <Self as FromOption>::Store,
-    ) -> <Self as FromOption>::FfiType;
+        store: &'store mut <Self as FromOption<'store>>::Store,
+    ) -> <Self as OptionWrapped>::FfiType;
 }
 
-//pub trait IntoOption<'store>: TryFromFfi<'store> + Sized {
-//    type Store;
-//
-//    unsafe fn try_from_ffi(
-//        source: <Self as IntoOption>::FfiType,
-//        store: &mut <Self as IntoOption>::Store,
-//    ) -> Result<Option<Self>, FfiResult>;
-//}
+pub trait AsFfi: FfiRef {
+    type Store: Default;
+
+    fn as_ffi_ref<'store>(&'store self, store: &'store mut Self::Store) -> Self::FfiRef;
+    fn as_ffi_mut<'store>(&'store mut self, store: &'store mut Self::Store) -> Self::FfiMut;
+}
+
+pub trait AsFfiSlice: Sized {
+    /// Robust C ABI compliant representation of [Option<`Self`>]
+    type FfiType: ReprC;
+
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
+
+    /// Performs the conversion from [`&[Self]`] into [`SliceRef`] with a defined C ABI
+    fn into_ffi_slice<'store>(
+        source: &'store [Self],
+        store: &'store mut Self::Store,
+    ) -> SliceRef<Self::FfiType>;
+
+    /// Performs the conversion from [`&mut [Self]`] into [`SliceMut`] with a defined C ABI
+    fn into_ffi_slice_mut<'store>(
+        source: &'store mut [Self],
+        store: &'store mut Self::Store,
+    ) -> SliceMut<Self::FfiType>;
+}
 
 /// Conversion into an FFI compatible representation that consumes the input value
 ///
 // TODO: Make it an unsafe trait?
-pub trait IntoFfi {
-    /// Robust C ABI compliant representation of [`Self`]
-    type FfiType;
-
-    /// Type into which state can be stored during conversion. Useful for returning
-    /// non-owning types but performing some conversion which requires allocation.
-    /// Serves similar purpose as does context in a closure
-    type Store: Default;
-
+pub trait IntoFfi: FfiType {
     /// Performs the conversion from [`Self`] into [`Self::FfiType`]
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType;
+    fn into_ffi(self) -> Self::FfiType;
+}
+
+pub trait FfiType: Sized {
+    /// Robust C ABI compliant representation of [`Self`]
+    type FfiType: ReprC;
+}
+
+pub trait FfiRef {
+    /// Robust C ABI compliant representation of [`&Self`]
+    type FfiRef: ReprC;
+
+    /// Robust C ABI compliant representation of [`&mut Self`]
+    type FfiMut: ReprC;
 }
 
 /// Conversion from an FFI compatible representation that consumes the input value
 // TODO: Make it an unsafe trait?
-pub trait TryFromFfi<'store>: IntoFfi + Sized {
-    /// Type into which state can be stored during conversion. Useful for returning
-    /// non-owning types but performing some conversion which requires allocation.
-    /// Serves similar purpose as does context in a closure
-    type Store: Default;
-
+pub trait TryFromFfi: FfiType {
     /// Performs the fallible conversion
     ///
     /// # Errors
@@ -111,26 +132,58 @@ pub trait TryFromFfi<'store>: IntoFfi + Sized {
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
     #[allow(unsafe_code)]
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        store: &'store mut <Self as TryFromFfi<'store>>::Store,
-    ) -> Result<Self, FfiResult>;
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult>;
 }
 
-pub struct IteratorWrapper<T: IntoIterator>(T);
+pub trait TryAsRust: FfiRef {
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
 
-pub struct IntoWrapper<T: Into<U>, U>(T, core::marker::PhantomData<U>);
+    /// Performs the fallible conversion of a reference
+    ///
+    /// # Errors
+    ///
+    /// * given pointer is null
+    /// * given id doesn't identify any known handle
+    /// * given id is not a valid enum discriminant
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    #[allow(unsafe_code)]
+    unsafe fn try_as_rust_ref<'store>(
+        source: Self::FfiRef,
+        store: &'store mut Self::Store,
+    ) -> Result<&'store Self, FfiResult>;
 
-/// Slice with a C ABI
-#[derive(Clone)]
+    unsafe fn try_as_rust_mut<'store>(
+        source: Self::FfiMut,
+        store: &'store mut Self::Store,
+    ) -> Result<&'store mut Self, FfiResult>;
+}
+
+pub struct IteratorWrapper<'iter, T: IntoIterator>(T, PhantomData<&'iter mut T>);
+
+pub struct IntoWrapper<T: Into<U>, U>(T, PhantomData<U>);
+
+/// Mutable slice with a defined C ABI
 #[repr(C)]
-pub struct Slice<T: ReprC>(*mut T, usize);
+pub struct SliceMut<T>(*mut T, usize);
 
-/// Slice with a C ABI when being used as a function return type
-#[derive(Clone, Copy)]
+/// Immutable slice with a defined C ABI
+#[repr(C)]
+pub struct SliceRef<T>(*const T, usize);
+
 #[repr(C)]
 // NOTE: Returned size is isize to be able to support Option<&[T]>
-pub struct OutSlice<T: ReprC>(*mut T, usize, *mut isize);
+pub struct OutSliceMut<T>(*mut *mut T, *mut isize);
+
+/// Slice with a C ABI when being used as a function return type
+#[repr(C)]
+// NOTE: Returned size is isize to be able to support Option<&[T]>
+pub struct OutSliceRef<T>(*mut *const T, *mut isize);
 
 /// Result of execution of an FFI function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,7 +205,7 @@ pub enum FfiResult {
     Ok = 0_i32,
 }
 
-impl<T> ReprC for *const T {
+unsafe impl<T> ReprC for *const T {
     type OutPtr = *mut Self;
 
     unsafe fn write_out(self, dest: Self::OutPtr) {
@@ -160,7 +213,7 @@ impl<T> ReprC for *const T {
     }
 }
 
-impl<T> ReprC for *mut T {
+unsafe impl<T> ReprC for *mut T {
     type OutPtr = *mut Self;
 
     unsafe fn write_out(self, dest: Self::OutPtr) {
@@ -168,229 +221,307 @@ impl<T> ReprC for *mut T {
     }
 }
 
-impl<T: ReprC> ReprC for Slice<T> {
-    type OutPtr = OutSlice<T>;
+unsafe impl<'slice, T: ReprC> ReprC for SliceMut<T> {
+    type OutPtr = OutSliceMut<T>;
 
     unsafe fn write_out(self, dest: Self::OutPtr) {
         if self.is_null() {
-            dest.write_null();
+            dest.write_none();
         } else {
-            dest.2.write(self.len() as isize);
-
-            for (i, elem) in self.into_iter().take(dest.1).enumerate() {
-                let offset = i.try_into().expect("allocation too large");
-                dest.0.offset(offset).write(elem);
-            }
+            dest.1
+                .write(self.len().try_into().expect("Allocation too large"));
+            dest.0.write(self.0);
         }
     }
 }
 
-impl<T: Opaque> IntoFfi for &T {
-    type FfiType = *const T;
-    type Store = ();
+unsafe impl<'slice, T: ReprC> ReprC for SliceRef<T> {
+    type OutPtr = OutSliceRef<T>;
 
-    fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
-        Self::FfiType::from(self)
+    unsafe fn write_out(self, dest: Self::OutPtr) {
+        if self.is_null() {
+            dest.write_none();
+        } else {
+            dest.1
+                .write(self.len().try_into().expect("Allocation too large"));
+            dest.0.write(self.0);
+        }
     }
 }
 
-impl<T: Opaque> IntoFfi for &mut T {
-    type FfiType = *mut T;
-    type Store = ();
+impl<T: Opaque> FfiType for T {
+    type FfiType = *mut Self;
+}
 
-    fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
-        Self::FfiType::from(self)
+impl<T: Opaque> FfiRef for T {
+    type FfiRef = *const Self;
+    type FfiMut = *mut Self;
+}
+
+impl<T: Opaque + FfiType<FfiType = *mut Self>> IntoFfi for T {
+    fn into_ffi(self) -> Self::FfiType {
+        Box::into_raw(Box::new(self))
     }
 }
 
-impl<T: Opaque> TryFromFfi<'_> for &T {
+impl<T: Opaque> AsFfi for T {
     type Store = ();
 
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        _: &mut <Self as TryFromFfi>::Store,
-    ) -> Result<Self, FfiResult> {
+    fn as_ffi_ref(&self, _: &mut Self::Store) -> *const T {
+        self as *const _
+    }
+    fn as_ffi_mut(&mut self, _: &mut Self::Store) -> *mut T {
+        self as *mut _
+    }
+}
+
+impl<T: Opaque> TryFromFfi for T
+where
+    T: FfiType<FfiType = *mut Self>,
+{
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+        if source.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        Ok(*Box::from_raw(source))
+    }
+}
+
+impl<T: Opaque> TryAsRust for T {
+    type Store = ();
+
+    unsafe fn try_as_rust_ref(
+        source: Self::FfiRef,
+        _: &mut Self::Store,
+    ) -> Result<&Self, FfiResult> {
         source.as_ref().ok_or(FfiResult::ArgIsNull)
     }
-}
 
-impl<T: Opaque> TryFromFfi<'_> for &mut T {
-    type Store = ();
-
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        _: &mut <Self as TryFromFfi>::Store,
-    ) -> Result<Self, FfiResult> {
+    unsafe fn try_as_rust_mut(
+        source: Self::FfiMut,
+        _: &mut Self::Store,
+    ) -> Result<&mut Self, FfiResult> {
         source.as_mut().ok_or(FfiResult::ArgIsNull)
     }
 }
 
-impl<T: IntoIterator<Item = U>, U: IntoFfi> IntoFfi for IteratorWrapper<T>
-where
-    U::FfiType: ReprC,
-{
-    type FfiType = Slice<U::FfiType>;
-    type Store = (Vec<U::FfiType>, Vec<U::Store>);
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        self.0.into_iter().for_each(|item| {
-            store.1.push(Default::default());
-            let inner_store = store.1.last_mut().expect("Defined");
-            store.0.push(item.into_ffi(inner_store));
-        });
-
-        Slice(store.0.as_mut_ptr(), store.0.len())
-    }
-}
-
-impl<T: Into<U>, U: IntoFfi> IntoFfi for IntoWrapper<T, U> {
-    type FfiType = U::FfiType;
-    type Store = U::Store;
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        self.0.into().into_ffi(store)
-    }
-}
-
-impl<T, U> FromOption for &T
-where
-    Self: IntoFfi<FfiType = *const U>,
-{
-    type FfiType = <Self as IntoFfi>::FfiType;
-    type Store = <Self as IntoFfi>::Store;
-
-    fn into_ffi(
-        source: Option<Self>,
-        store: &mut <Self as FromOption>::Store,
-    ) -> <Self as FromOption>::FfiType {
-        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
-    }
-}
-
-impl<T, U> FromOption for &mut T
-where
-    Self: IntoFfi<FfiType = *mut U>,
-{
-    type FfiType = <Self as IntoFfi>::FfiType;
-    type Store = <Self as IntoFfi>::Store;
-
-    fn into_ffi(
-        source: Option<Self>,
-        store: &mut <Self as FromOption>::Store,
-    ) -> <Self as FromOption>::FfiType {
-        source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
-    }
-}
-
-impl<T: FromOption> IntoFfi for Option<T>
-where
-    <T as FromOption>::Store: Default,
-{
-    type FfiType = <T as FromOption>::FfiType;
-    type Store = <T as FromOption>::Store;
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        FromOption::into_ffi(self, store)
-    }
-}
-
-// TODO:
-//impl<T: FromOption> TryFromFfi<'_> for Option<T>
+//impl<'store, 'iter: 'store, T: IntoIterator<Item = U>, U: IntoFfi<'store>> IntoFfi<'store> for IteratorWrapper<'iter, T>
 //where
-//    <T as FromOption>::Store: Default,
+//    U::FfiType: ReprC + 'store,
 //{
-//    type Store = <T as FromOption>::Store;
+//    type FfiType = SliceMut<'store, U::FfiType>;
+//    type Store = (Vec<U::FfiType>, Vec<U::Store>);
 //
-//    unsafe fn try_from_ffi(
-//        source: Self::FfiType,
-//        store: &mut <Self as TryFromFfi>::Store,
-//    ) -> Result<Self, FfiResult> {
-//        FromOption::try_from_ffi(source, store)
+//    fn into_ffi(self, store: &'store mut Self::Store) -> Self::FfiType {
+//        store.1 = (0..self.len()).map(|_| Default::default()).collect();
+//
+//        let mut slice = &mut store.1[..];
+//        self.0.into_iter().for_each(|item| {
+//            let (inner_store, rest) = slice.split_first_mut().expect("Defined");
+//            store.0.push(item.as_ffi(inner_store));
+//            slice = rest;
+//            store.1.push(Default::default());
+//            let inner_store = store.1.last_mut().expect("Defined");
+//            store.0.push(item.into_ffi(inner_store));
+//        });
+//
+//        SliceMut::from_slice(&mut store.0)
 //    }
 //}
 
-impl<T: ReprC> Slice<T> {
-    fn null() -> Self {
+//impl<'store, T: Into<U> + 'store, U: IntoFfi<'store>> IntoFfi<'store> for IntoWrapper<T, U> {
+//    type FfiType = U::FfiType;
+//    type Store = U::Store;
+//
+//    fn into_ffi(self, store: &'store mut Self::Store) -> Self::FfiType {
+//        self.0.into().into_ffi(store)
+//    }
+//}
+//
+//impl<'store, T, U> FromOption<'store> for &'store T
+//where
+//    Self: IntoFfi<FfiType = *const U>,
+//{
+//    type Store = <Self as IntoFfi<'store>>::Store;
+//
+//    fn into_ffi(
+//        source: Option<Self>,
+//        store: &'store mut <Self as FromOption<'store>>::Store,
+//    ) -> <Self as OptionWrapped>::FfiType {
+//        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
+//    }
+//}
+//
+//impl<'store, T, U> FromOption<'store> for &'store mut T
+//where
+//    Self: IntoFfi<'store, FfiType = *mut U>,
+//{
+//    type Store = <Self as IntoFfi<'store>>::Store;
+//
+//    fn into_ffi(
+//        source: Option<Self>,
+//        store: &'store mut <Self as FromOption<'store>>::Store,
+//    ) -> <Self as OptionWrapped>::FfiType {
+//        source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
+//    }
+//}
+
+pub trait OptionWrapped: FfiType {
+    /// Robust C ABI compliant representation of [Option<`Self`>]
+    type FfiType: ReprC;
+}
+
+impl<T> OptionWrapped for &T
+where
+    Self: FfiType,
+{
+    type FfiType = <Self as FfiType>::FfiType;
+}
+
+impl<T> OptionWrapped for &mut T
+where
+    Self: FfiType,
+{
+    type FfiType = <Self as FfiType>::FfiType;
+}
+
+impl<T: OptionWrapped> FfiType for Option<T> {
+    type FfiType = <T as OptionWrapped>::FfiType;
+}
+
+//impl<'store, T: FromOption<'store>> IntoFfi for Option<T>
+//where
+//    <T as FromOption<'store>>::Store: Default,
+//{
+//    fn into_ffi(self) -> Self::FfiType {
+//        // TODO: Fix this
+//        let store = Default::default();
+//        FromOption::into_ffi(self, &mut store)
+//    }
+//}
+
+impl<T> SliceRef<T> {
+    pub fn from_slice(slice: &[T]) -> Self {
+        Self(slice.as_ptr(), slice.len())
+    }
+
+    pub unsafe fn into_slice<'slice>(self) -> Option<&'slice [T]> {
+        if self.0.is_null() {
+            return None;
+        }
+
+        Some(core::slice::from_raw_parts(self.0, self.1))
+    }
+
+    pub fn null() -> Self {
         // TODO: size should be uninitialized and never read from
         Self(core::ptr::null_mut(), 0)
     }
 
-    fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         self.0.is_null()
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.1
     }
 }
 
-impl<T: ReprC> IntoIterator for Slice<T> {
-    type Item = T;
-    type IntoIter = <Vec<Self::Item> as IntoIterator>::IntoIter;
+impl<T> SliceMut<T> {
+    pub fn from_slice(slice: &mut [T]) -> Self {
+        Self(slice.as_mut_ptr(), slice.len())
+    }
 
-    fn into_iter(self) -> Self::IntoIter {
-        let slice = unsafe {
-            Box::<[_]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1)).into_vec()
-        };
+    pub unsafe fn into_slice<'slice>(self) -> Option<&'slice mut [T]> {
+        if self.0.is_null() {
+            return None;
+        }
 
-        slice.into_iter()
+        Some(core::slice::from_raw_parts_mut(self.0, self.1))
+    }
+
+    pub fn null() -> Self {
+        // TODO: size should be uninitialized and never read from
+        Self(core::ptr::null_mut(), 0)
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+
+    pub fn len(&self) -> usize {
+        self.1
     }
 }
 
-impl<T: ReprC> OutSlice<T> {
-    unsafe fn write_null(self) {
-        self.2.write(NONE);
+impl<T> OutSliceMut<T> {
+    unsafe fn write_none(self) {
+        self.1.write(NONE);
     }
 }
 
-impl<'slice, T> IntoFfi for &'slice [T]
+impl<T> OutSliceRef<T> {
+    unsafe fn write_none(self) {
+        self.1.write(NONE);
+    }
+}
+
+impl<T: Opaque> AsFfiSlice for T {
+    type FfiType = *const T;
+    type Store = Vec<*const T>;
+
+    /// Performs the conversion from [`&[Self]`] into [`SliceRef`] with a defined C ABI
+    fn into_ffi_slice<'store>(
+        source: &'store [Self],
+        store: &'store mut Self::Store,
+    ) -> SliceRef<Self::FfiType> {
+        let start = store.len();
+        store.extend(source.into_iter().map(|item| item as *const _));
+        SliceRef::from_slice(&store[start + 1..])
+    }
+
+    /// Performs the conversion from [`&mut [Self]`] into [`SliceMut`] with a defined C ABI
+    fn into_ffi_slice_mut<'store>(
+        source: &'store mut [Self],
+        store: &'store mut Self::Store,
+    ) -> SliceMut<Self::FfiType> {
+        let start = store.len();
+        store.extend(source.into_iter().map(|item| item as *const _));
+        SliceMut::from_slice(&mut store[start + 1..])
+    }
+}
+
+impl<T: AsFfiSlice> AsFfi for [T]
 where
-    &'slice T: IntoFfi,
-    <&'slice T as IntoFfi>::FfiType: ReprC,
+    [T]: FfiRef<FfiRef = SliceRef<T>, FfiMut = SliceMut<T>>,
 {
-    type FfiType = Slice<<&'slice T as IntoFfi>::FfiType>;
-    type Store = (
-        Vec<<&'slice T as IntoFfi>::FfiType>,
-        Vec<<&'slice T as IntoFfi>::Store>,
-    );
+    type Store = Vec<T>;
 
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        IteratorWrapper(self).into_ffi(store)
+    fn as_ffi_ref(&self, _: &mut Self::Store) -> SliceRef<T> {
+        SliceRef::from_slice(self)
     }
-}
-
-impl<'slice, T> IntoFfi for &'slice mut [T]
-where
-    &'slice mut T: IntoFfi,
-    <&'slice mut T as IntoFfi>::FfiType: ReprC,
-{
-    type FfiType = Slice<<&'slice mut T as IntoFfi>::FfiType>;
-    type Store = (
-        Vec<<&'slice mut T as IntoFfi>::FfiType>,
-        Vec<<&'slice mut T as IntoFfi>::Store>,
-    );
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        IteratorWrapper(self).into_ffi(store)
+    fn as_ffi_mut(&mut self, _: &mut Self::Store) -> SliceMut<T> {
+        SliceMut::from_slice(self)
     }
 }
 
 //impl<'store, T> TryFromFfi<'store> for &'store [T]
 //where
 //    &'store T: TryFromFfi<'store>,
-//    <&'store T as IntoFfi>::FfiType: Copy,
+//    <&'store T as IntoFfi<'store>>::FfiType: Copy,
 //{
 //    type Store = Vec<<&'store T as TryFromFfi<'store>>::Store>;
 //
 //    unsafe fn try_from_ffi(
 //        source: Self::FfiType,
-//        store: &'store mut <Self as TryFromFfi<'store>>::Store,
+//        store: &'store mut Self::Store,
 //    ) -> Result<Self, FfiResult> {
 //        if source.is_null() {
 //            return Err(FfiResult::ArgIsNull);
 //        }
 //
-//        let slice: &'store [<&'store T as IntoFfi>::FfiType] =
+//        let slice: &'store [<&'store T as IntoFfi<'store>>::FfiType] =
 //            core::slice::from_raw_parts(source.0, source.1);
 //
 //        //for item in slice {
@@ -410,171 +541,164 @@ where
 //    }
 //}
 
-impl<'slice, T> IntoFfi for Option<&'slice [T]>
-where
-    &'slice [T]: IntoFfi<FfiType = Slice<<&'slice T as IntoFfi>::FfiType>>,
-    &'slice T: IntoFfi,
-    <&'slice T as IntoFfi>::FfiType: ReprC,
-{
-    type FfiType = <&'slice [T] as IntoFfi>::FfiType;
-    type Store = <&'slice [T] as IntoFfi>::Store;
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        self.map_or_else(Slice::null, |item| item.into_ffi(store))
-    }
+impl<'store, T: AsFfiSlice> FfiType for Option<&'store [T]> {
+    type FfiType = SliceRef<<T as AsFfiSlice>::FfiType>;
 }
 
-impl<'slice, T> IntoFfi for Option<&'slice mut [T]>
-where
-    &'slice mut [T]: IntoFfi<FfiType = Slice<<&'slice mut T as IntoFfi>::FfiType>>,
-    &'slice mut T: IntoFfi,
-    <&'slice mut T as IntoFfi>::FfiType: ReprC,
-{
-    type FfiType = <&'slice mut [T] as IntoFfi>::FfiType;
-    type Store = <&'slice mut [T] as IntoFfi>::Store;
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        self.map_or_else(Slice::null, |item| item.into_ffi(store))
-    }
+impl<'store, T: AsFfiSlice> FfiType for Option<&'store mut [T]> {
+    type FfiType = SliceMut<<T as AsFfiSlice>::FfiType>;
 }
 
-impl<'store, T> TryFromFfi<'store> for Option<&'store [T]>
-where
-    &'store [T]: TryFromFfi<'store, FfiType = Slice<<&'store T as IntoFfi>::FfiType>>,
-    &'store T: TryFromFfi<'store>,
-    <&'store T as IntoFfi>::FfiType: ReprC,
-{
-    type Store = <&'store [T] as TryFromFfi<'store>>::Store;
-
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        store: &'store mut <Self as TryFromFfi<'store>>::Store,
-    ) -> Result<Self, FfiResult> {
-        Ok(if !source.is_null() {
-            Some(TryFromFfi::try_from_ffi(source, store)?)
-        } else {
-            None
+impl<'store, T: AsFfiSlice> IntoFfi for Option<&'store [T]> {
+    fn into_ffi(self) -> Self::FfiType {
+        self.map_or_else(SliceRef::null, |item| {
+            // TODO: Fix this
+            let mut store = Default::default();
+            AsFfiSlice::into_ffi_slice(item, &mut store)
         })
     }
 }
 
-impl<'store, T> TryFromFfi<'store> for Option<&'store mut [T]>
-where
-    &'store mut [T]: TryFromFfi<'store, FfiType = Slice<<&'store mut T as IntoFfi>::FfiType>>,
-    &'store mut T: TryFromFfi<'store>,
-    <&'store mut T as IntoFfi>::FfiType: ReprC,
-{
-    type Store = <&'store mut [T] as TryFromFfi<'store>>::Store;
-
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        store: &'store mut <Self as TryFromFfi<'store>>::Store,
-    ) -> Result<Self, FfiResult> {
-        Ok(if !source.is_null() {
-            Some(TryFromFfi::try_from_ffi(source, store)?)
-        } else {
-            None
+impl<'store, T: AsFfiSlice> IntoFfi for Option<&'store mut [T]> {
+    fn into_ffi(self) -> Self::FfiType {
+        self.map_or_else(SliceMut::null, |item| {
+            // TODO: Fix this
+            let mut store = Default::default();
+            AsFfiSlice::into_ffi_slice_mut(item, &mut store)
         })
     }
+}
+
+//impl<'store, T> TryFromFfi<'store> for Option<&'store [T]>
+//where
+//    &'store [T]: TryFromFfi<'store, FfiType = SliceRef<'store, <&'store T as IntoFfi<'store>>::FfiType>>,
+//    &'store T: TryFromFfi<'store>,
+//    <&'store T as IntoFfi<'store>>::FfiType: ReprC,
+//{
+//    type Store = <&'store [T] as TryFromFfi<'store>>::Store;
+//
+//    unsafe fn try_from_ffi(
+//        source: Self::FfiType,
+//        store: &'store mut Self::Store,
+//    ) -> Result<Self, FfiResult> {
+//        Ok(if !source.is_null() {
+//            Some(TryFromFfi::try_from_ffi(source, store)?)
+//        } else {
+//            None
+//        })
+//    }
+//}
+//
+//impl<'store, T> TryFromFfi<'store> for Option<&'store mut [T]>
+//where
+//    &'store mut [T]:
+//        TryFromFfi<'store, FfiType = SliceMut<'store, <&'store mut T as IntoFfi<'store>>::FfiType>>,
+//    &'store mut T: TryFromFfi<'store>,
+//    <&'store mut T as IntoFfi<'store>>::FfiType: ReprC,
+//{
+//    type Store = <&'store mut [T] as TryFromFfi<'store>>::Store;
+//
+//    unsafe fn try_from_ffi(
+//        source: Self::FfiType,
+//        store: &'store mut Self::Store,
+//    ) -> Result<Self, FfiResult> {
+//        Ok(if !source.is_null() {
+//            Some(TryFromFfi::try_from_ffi(source, store)?)
+//        } else {
+//            None
+//        })
+//    }
+//}
+
+impl FfiType for bool {
+    type FfiType = u8;
+}
+
+impl FfiRef for bool {
+    type FfiRef = *const u8;
+    type FfiMut = *mut u8;
 }
 
 impl IntoFfi for bool {
-    type FfiType = u8;
+    fn into_ffi(self) -> Self::FfiType {
+        Self::FfiType::from(self).into_ffi()
+    }
+}
+
+//impl AsFfi for bool {
+//    type Store = u8;
+//
+//    fn as_ffi_ref(&self, store: &mut Self::Store) -> Self::FfiRef {
+//        *store = (*self).into();
+//        IntoFfi::into_ffi(store)
+//    }
+//
+//    fn as_ffi_mut(&mut self, store: &mut Self::Store) -> Self::FfiMut {
+//        *store = (*self).into();
+//        IntoFfi::into_ffi(store)
+//    }
+//}
+
+impl OptionWrapped for bool {
+    type FfiType = <Self as FfiType>::FfiType;
+}
+
+impl<'store> FromOption<'store> for bool {
     type Store = ();
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        u8::from(self).into_ffi(store)
-    }
-}
-
-impl IntoFfi for &bool {
-    type FfiType = *const u8;
-    type Store = u8;
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        *store = (*self).into();
-        IntoFfi::into_ffi(store, &mut ())
-    }
-}
-
-impl IntoFfi for &mut bool {
-    type FfiType = *mut u8;
-    type Store = u8;
-
-    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-        *store = (*self).into();
-        IntoFfi::into_ffi(store, &mut ())
-    }
-}
-
-impl FromOption for bool {
-    type FfiType = *mut <Self as IntoFfi>::FfiType;
-    type Store = u8;
 
     fn into_ffi(
         source: Option<Self>,
-        store: &mut <Self as FromOption>::Store,
-    ) -> <Self as FromOption>::FfiType {
-        source.map_or_else(core::ptr::null_mut, |item| {
-            *store = <u8>::from(item);
-            IntoFfi::into_ffi(store, &mut ())
-        })
+        _: &mut <Self as FromOption<'store>>::Store,
+    ) -> <Self as OptionWrapped>::FfiType {
+        // NOTE: Relying on trap representation to represent None values
+        source.map_or(u8::MAX, |item| IntoFfi::into_ffi(item))
     }
 }
 
-impl TryFromFfi<'_> for bool {
-    type Store = ();
-
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        _: &mut <Self as TryFromFfi>::Store,
-    ) -> Result<Self, FfiResult> {
+impl TryFromFfi for bool {
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
         Ok(source != 0)
     }
 }
 
-impl<'store> TryFromFfi<'store> for &'store bool {
-    type Store = bool;
+//impl<'store> TryFromFfi<'store> for &'store bool {
+//    type Store = bool;
+//
+//    unsafe fn try_from_ffi(
+//        source: Self::FfiType,
+//        store: &'store mut Self::Store,
+//    ) -> Result<Self, FfiResult> {
+//        let source = source.as_ref().ok_or(FfiResult::ArgIsNull)?;
+//        *store = TryFromFfi::try_from_ffi(*source, &mut ())?;
+//        Ok(store)
+//    }
+//}
+//
+//impl<'store> TryFromFfi<'store> for &'store mut bool {
+//    type Store = bool;
+//
+//    unsafe fn try_from_ffi(
+//        source: Self::FfiType,
+//        store: &'store mut Self::Store,
+//    ) -> Result<Self, FfiResult> {
+//        let source = source.as_ref().ok_or(FfiResult::ArgIsNull)?;
+//        *store = TryFromFfi::try_from_ffi(*source, &mut ())?;
+//        Ok(store)
+//    }
+//}
 
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        store: &'store mut <Self as TryFromFfi<'store>>::Store,
-    ) -> Result<Self, FfiResult> {
-        let source = source.as_ref().ok_or(FfiResult::ArgIsNull)?;
-        *store = TryFromFfi::try_from_ffi(*source, &mut ())?;
-        Ok(store)
-    }
-}
-
-impl<'store> TryFromFfi<'store> for &'store mut bool {
-    type Store = bool;
-
-    unsafe fn try_from_ffi(
-        source: Self::FfiType,
-        store: &'store mut <Self as TryFromFfi<'store>>::Store,
-    ) -> Result<Self, FfiResult> {
-        let source = source.as_ref().ok_or(FfiResult::ArgIsNull)?;
-        *store = TryFromFfi::try_from_ffi(*source, &mut ())?;
-        Ok(store)
-    }
+impl FfiType for core::cmp::Ordering {
+    type FfiType = i8;
 }
 
 impl IntoFfi for core::cmp::Ordering {
-    type FfiType = i8;
-    type Store = ();
-
-    fn into_ffi(self, _: &mut Self::Store) -> <Self as IntoFfi>::FfiType {
-        self as <Self as IntoFfi>::FfiType
+    fn into_ffi(self) -> <Self as FfiType>::FfiType {
+        self as <Self as FfiType>::FfiType
     }
 }
 
-impl TryFromFfi<'_> for core::cmp::Ordering {
-    type Store = ();
-
-    unsafe fn try_from_ffi(
-        source: <Self as IntoFfi>::FfiType,
-        _: &mut <Self as TryFromFfi>::Store,
-    ) -> Result<Self, FfiResult> {
+impl TryFromFfi for core::cmp::Ordering {
+    unsafe fn try_from_ffi(source: <Self as FfiType>::FfiType) -> Result<Self, FfiResult> {
         match source {
             -1 => Ok(core::cmp::Ordering::Less),
             0 => Ok(core::cmp::Ordering::Equal),
@@ -585,11 +709,28 @@ impl TryFromFfi<'_> for core::cmp::Ordering {
     }
 }
 
+// TODO: This is vec
+//unsafe impl<T: ReprC> ReprC for Vec<'_, T> {
+//    type OutPtr = OutSlice<T>;
+//
+//    unsafe fn write_out(self, dest: Self::OutPtr) {
+//        if self.is_null() {
+//            dest.write_none();
+//        } else {
+//            dest.2.write(self.len().try_into().expect("Allocation too large"));
+//
+//            for (i, elem) in self.into_iter().take(dest.1).enumerate() {
+//                dest.0.offset(i as isize).write(elem);
+//            }
+//        }
+//    }
+//}
+
 //impl<T: IntoFfi> IntoFfi for Vec<T> {
 //    type FfiType = Slice<T>;
 //    type Store = T::;
 //
-//    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+//    fn into_ffi(self, store: &'store mut Self::Store) -> Self::FfiType {
 //        let vec: Vec<_> = self.into_iter().map(|item| item.into_ffi(store)).collect();
 //    }
 //}
@@ -597,7 +738,7 @@ impl TryFromFfi<'_> for core::cmp::Ordering {
 //impl IntoFfi for String {
 //    type FfiType = *mut u8;
 //    type Store = ();
-//    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+//    fn into_ffi(self, store: &'store mut Self::Store) -> Self::FfiType {
 //        unimplemented!()
 //    }
 //}
@@ -605,22 +746,21 @@ impl TryFromFfi<'_> for core::cmp::Ordering {
 //impl TryFromFfi<'_> for String {
 //    type Store = ();
 //    unsafe fn try_from_ffi(
-//        source: <Self as IntoFfi>::FfiType,
-//        _: &mut <Self as TryFromFfi>::Store,
+//        source: Self::FfiType,
+//        _: &mut Self::Store,
 //    ) -> Result<Self, FfiResult> {
 //        unimplemented!()
 //    }
 //}
 
 macro_rules! impl_tuples {
-    // TODO: Add implementations for references
     ( $( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ),+ $(,)?) => { $(
         /// FFI compatible tuple with n elements
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         #[repr(C)]
-        pub struct $ffi_ty<$($ty: IntoFfi),+>($($ty::FfiType),+);
+        pub struct $ffi_ty<$($ty: FfiType),+>($($ty::FfiType),+);
 
-        impl<$($ty: IntoFfi),+> ReprC for $ffi_ty<$($ty),+> {
+        unsafe impl<$($ty: FfiType),+> ReprC for $ffi_ty<$($ty),+> {
             type OutPtr = *mut Self;
 
             unsafe fn write_out(self, dest: Self::OutPtr) {
@@ -628,37 +768,54 @@ macro_rules! impl_tuples {
             }
         }
 
-        impl<$($ty),+> IntoFfi for ($( $ty, )+) where $( $ty: IntoFfi ),+ {
+        impl<$($ty: FfiType),+> FfiType for ($( $ty, )+) {
             type FfiType = $ffi_ty<$($ty),+>;
-            type Store = ($($ty::Store,)+);
+        }
 
-            #[allow(non_snake_case)]
-            fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
-                mod private {
-                    // NOTE: This is a trick to index tuples
-                    pub struct Store<'tup, $($ty: super::IntoFfi),+>{
-                        $(pub $ty: &'tup mut $ty::Store),+
-                    }
+        impl<$($ty: FfiRef),+> FfiRef for ($( $ty, )+) {
+            type FfiRef = *const Self;
+            type FfiMut = *mut Self;
+        }
 
-                    impl<'tup, $($ty: super::IntoFfi),+> From<&'tup mut ($($ty::Store,)+)> for Store<'tup, $($ty),+> {
-                        fn from(($($ty,)+): &'tup mut ($($ty::Store,)+)) -> Self {
-                            Self {$($ty,)+}
-                        }
-                    }
-                }
-
+        #[allow(non_snake_case)]
+        impl<$($ty),+> IntoFfi for ($( $ty, )+) where $( $ty: IntoFfi ),+ {
+            fn into_ffi(self) -> Self::FfiType {
                 let ($($ty,)+) = self;
-                let store: private::Store<$($ty),+> = store.into();
 
-                $ffi_ty::<$($ty),+>($( <$ty as IntoFfi>::into_ffi($ty, store.$ty)),+)
+                $ffi_ty::<$($ty),+>($( <$ty as IntoFfi>::into_ffi($ty)),+)
             }
-        } )+
-    };
+        }
+    )+ }
+
+        // TODO: Add implementations for references
+        //impl<$($ty),+> AsFfi for ($( $ty, )+) where $( $ty: AsFfi ),+ {
+        //    type Store = ($($ty::Store,)+);
+
+        //    #[allow(non_snake_case)]
+        //    fn as_ffi_ref<'store>(&'store self, store: &'store mut Self::Store) -> Self::FfiRef {
+        //        mod private {
+        //            // NOTE: This is a trick to index tuples
+        //            pub struct Store<'tup, $($ty: super::AsFfi),+>{
+        //                $(pub $ty: &'tup mut $ty::Store),+
+        //            }
+
+        //            impl<'store, 'tup, $($ty: super::AsFfi),+> From<&'tup mut ($($ty::Store,)+)> for Store<'tup, $($ty),+> {
+        //                fn from(($($ty,)+): &'tup mut ($($ty::Store,)+)) -> Self {
+        //                    Self {$($ty,)+}
+        //                }
+        //            }
+        //        }
+
+        //        let ($($ty,)+) = self;
+        //        let store: private::Store<$($ty),+> = store.into();
+
+        //        $ffi_ty::<$($ty),+>($( <$ty as AsFfi>::as_ffi($ty, store.$ty)),+)
+        //    }
 }
 
 macro_rules! primitive_impls {
     ( $( $ty:ty ),+ $(,)? ) => { $(
-        impl ReprC for $ty {
+        unsafe impl ReprC for $ty {
             type OutPtr = *mut Self;
 
             unsafe fn write_out(self, dest: Self::OutPtr) {
@@ -666,65 +823,102 @@ macro_rules! primitive_impls {
             }
         }
 
-        impl IntoFfi for $ty {
-            type FfiType = Self;
-            type Store = ();
+        impl FfiRef for $ty {
+            type FfiRef = *const $ty;
+            type FfiMut = *mut $ty;
+        }
 
-            fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
+        impl FfiRef for [$ty] {
+            type FfiRef = *const $ty;
+            type FfiMut = *mut $ty;
+        }
+
+        impl FfiType for $ty {
+            type FfiType = Self;
+        }
+
+        impl FfiType for &$ty {
+            type FfiType = *const $ty;
+        }
+
+        impl FfiType for &mut $ty {
+            type FfiType = *mut $ty;
+        }
+
+        impl IntoFfi for $ty {
+            fn into_ffi(self) -> Self::FfiType {
                 self
             }
         }
 
-        impl IntoFfi for &$ty {
-            type FfiType = *const $ty;
+        impl AsFfi for $ty {
             type Store = ();
 
-            fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
-                Self::FfiType::from(self)
+            fn as_ffi_ref(&self, _: &mut Self::Store) -> Self::FfiRef {
+                Self::FfiRef::from(self)
+            }
+
+            fn as_ffi_mut(&mut self, _: &mut Self::Store) -> Self::FfiMut {
+                Self::FfiMut::from(self)
             }
         }
 
-        impl IntoFfi for &mut $ty {
-            type FfiType = *mut $ty;
+        impl AsFfiSlice for $ty {
+            type FfiType = <$ty as FfiType>::FfiType;
             type Store = ();
 
-            fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
-                Self::FfiType::from(self)
+            /// Performs the conversion from [`&[Self]`] into [`SliceRef`] with a defined C ABI
+            fn into_ffi_slice<'store>(
+                source: &'store [Self],
+                store: &'store mut Self::Store,
+            ) -> SliceRef<Self::FfiType> {
+                unimplemented!();
+            }
+
+            /// Performs the conversion from [`&mut [Self]`] into [`SliceMut`] with a defined C ABI
+            fn into_ffi_slice_mut<'store>(
+                source: &'store mut [Self],
+                store: &'store mut Self::Store,
+            ) -> SliceMut<Self::FfiType> {
+                unimplemented!();
             }
         }
 
-        impl FromOption for $ty {
-            type FfiType = *mut <Self as IntoFfi>::FfiType;
-            type Store = Self;
-
-            fn into_ffi(source: Option<Self>, store: &mut <Self as FromOption>::Store) -> <Self as FromOption>::FfiType {
-                source.map_or_else(core::ptr::null_mut, |item| {
-                    *store = item;
-                    IntoFfi::into_ffi(store, &mut ())
-                })
-            }
+        impl OptionWrapped for $ty {
+            type FfiType = *mut <Self as FfiType>::FfiType;
         }
 
-        impl TryFromFfi<'_> for $ty {
-            type Store = ();
+        //impl<'store> FromOption<'store> for $ty {
+        //    type Store = Self;
 
-            unsafe fn try_from_ffi(source: Self::FfiType, _: &mut <Self as TryFromFfi>::Store) -> Result<Self, FfiResult> {
+        //    fn into_ffi(source: Option<Self>, store: &mut <Self as FromOption<'store>>::Store) -> <Self as OptionWrapped>::FfiType {
+        //        source.map_or_else(core::ptr::null_mut, |item| {
+        //            *store = item;
+        //            IntoFfi::into_ffi(store)
+        //        })
+        //    }
+        //}
+
+        impl TryFromFfi for $ty {
+            unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
                 Ok(source)
             }
         }
 
-        impl TryFromFfi<'_> for &$ty {
+        impl TryAsRust for $ty {
             type Store = ();
 
-            unsafe fn try_from_ffi(source: Self::FfiType, _: &mut <Self as TryFromFfi>::Store) -> Result<Self, FfiResult> {
+            unsafe fn try_as_rust_ref(
+                source: Self::FfiRef,
+                _: &mut Self::Store,
+            ) -> Result<&Self, FfiResult> {
                 source.as_ref().ok_or(FfiResult::ArgIsNull)
             }
-        }
 
-        impl TryFromFfi<'_> for &mut $ty {
-            type Store = ();
-
-            unsafe fn try_from_ffi(source: Self::FfiType, _: &mut <Self as TryFromFfi>::Store) -> Result<Self, FfiResult> {
+            unsafe fn try_as_rust_mut<'store>(
+                source: Self::FfiMut,
+                _: &mut Self::Store,
+            ) -> Result<&mut Self, FfiResult> {
                 source.as_mut().ok_or(FfiResult::ArgIsNull)
             }
         } )+
@@ -790,12 +984,11 @@ macro_rules! gen_ffi_impl {
             gen_ffi_impl!(@catch_unwind {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let (handle_ptr, mut handle_store) = (handle_ptr.cast::<$other>(), Default::default());
-                        let handle = <&$other as iroha_ffi::TryFromFfi>::try_from_ffi(handle_ptr, &mut handle_store)?;
+                        let (handle_ptr, mut handle_store) = (handle_ptr.cast::<$other>(), ());
+                        let handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(handle_ptr, &mut handle_store)?;
 
                         let new_handle = Clone::clone(handle);
-                        let mut new_handle_store = Default::default();
-                        let new_handle_ptr = iroha_ffi::IntoFfi::into_ffi(new_handle, &mut new_handle_store);
+                        let new_handle_ptr = iroha_ffi::IntoFfi::into_ffi(new_handle);
                         output_ptr.cast::<*mut $other>().write(new_handle_ptr);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
@@ -823,14 +1016,14 @@ macro_rules! gen_ffi_impl {
             gen_ffi_impl!(@catch_unwind {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let (mut lhandle_store, mut rhandle_store) = (Default::default(), Default::default());
+                        let (mut lhandle_store, mut rhandle_store) = (Default::default(), ());
 
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
-                        let left_handle = <&$other as iroha_ffi::TryFromFfi>::try_from_ffi(lhandle_ptr, &mut lhandle_store)?;
-                        let right_handle = <&$other as iroha_ffi::TryFromFfi>::try_from_ffi(rhandle_ptr, &mut rhandle_store)?;
+                        let left_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(lhandle_ptr, &mut lhandle_store)?;
+                        let right_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(rhandle_ptr, &mut rhandle_store)?;
 
-                        let res = iroha_ffi::IntoFfi::into_ffi(left_handle == right_handle, &mut ());
-                        output_ptr.cast::<u8>().write(res);
+                        let res = iroha_ffi::IntoFfi::into_ffi(left_handle == right_handle);
+                        output_ptr.write(res);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),
@@ -857,14 +1050,14 @@ macro_rules! gen_ffi_impl {
             gen_ffi_impl!(@catch_unwind {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let (mut lhandle_store, mut rhandle_store) = (Default::default(), Default::default());
+                        let (mut lhandle_store, mut rhandle_store) = (Default::default(), ());
 
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
-                        let left_handle = <&$other as iroha_ffi::TryFromFfi>::try_from_ffi(lhandle_ptr, &mut lhandle_store)?;
-                        let right_handle = <&$other as iroha_ffi::TryFromFfi>::try_from_ffi(rhandle_ptr, &mut rhandle_store)?;
+                        let left_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(lhandle_ptr, &mut lhandle_store)?;
+                        let right_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(rhandle_ptr, &mut rhandle_store)?;
 
-                        let res = iroha_ffi::IntoFfi::into_ffi(left_handle.cmp(right_handle), &mut ());
-                        output_ptr.cast::<i8>().write(res);
+                        let res = iroha_ffi::IntoFfi::into_ffi(left_handle.cmp(right_handle));
+                        output_ptr.write(res);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),
@@ -890,7 +1083,7 @@ macro_rules! gen_ffi_impl {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
-                        <$other as iroha_ffi::TryFromFfi>::try_from_ffi(handle_ptr, &mut ())?;
+                        <$other as iroha_ffi::TryFromFfi>::try_from_ffi(handle_ptr)?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),

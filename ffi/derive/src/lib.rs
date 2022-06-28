@@ -192,45 +192,28 @@ fn find_repr(attrs: &[Attribute]) -> impl Iterator<Item = syn::NestedMeta> + '_ 
 
 fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     quote! {
-        impl iroha_ffi::Opaque for #name { }
+        impl iroha_ffi::Opaque for #name {}
 
-        impl iroha_ffi::FromOption for #name {
-            type FfiType = <Self as iroha_ffi::IntoFfi>::FfiType;
-            type Store = <Self as iroha_ffi::IntoFfi>::Store;
-
-            fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
-                source.map_or_else(core::ptr::null_mut, |item| iroha_ffi::IntoFfi::into_ffi(item, store))
-            }
+        impl iroha_ffi::OptionWrapped for #name {
+            type FfiType = <Self as iroha_ffi::FfiType>::FfiType;
         }
 
-        impl iroha_ffi::IntoFfi for #name {
-            type FfiType = *mut Self;
-            type Store = ();
+        //impl<'store> iroha_ffi::FromOption<'store> for #name {
+        //    type Store = <Self as iroha_ffi::IntoFfi>::Store;
 
-            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
-                Box::into_raw(Box::new(self))
-            }
-        }
+        //    fn into_ffi(source: Option<Self>, store: &'store mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::OptionWrapped>::FfiType {
+        //        source.map_or_else(core::ptr::null_mut, |item| iroha_ffi::IntoFfi::into_ffi(item, store))
+        //    }
+        //}
     }
 }
 
 fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     quote! {
-        impl iroha_ffi::TryFromFfi<'_> for #name {
-            type Store = ();
-
-            unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
-                if source.is_null() {
-                    return Err(iroha_ffi::FfiResult::ArgIsNull);
-                }
-
-                Ok(*Box::from_raw(source))
-            }
-        }
     }
 }
 
-fn derive_into_ffi_for_item(_: &Ident) -> TokenStream2 {
+fn derive_into_ffi_for_item(name: &Ident) -> TokenStream2 {
     quote! {
         //impl iroha_ffi::IntoFfi for #name {
         //    type FfiType = Self;
@@ -309,45 +292,47 @@ fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> T
     let ffi_type = enum_size(enum_name, repr);
 
     quote! {
-        impl iroha_ffi::IntoFfi for #enum_name {
+        impl iroha_ffi::FfiType for #enum_name {
             type FfiType = #ffi_type;
-            type Store = ();
+        }
 
-            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
-                self as <Self as iroha_ffi::IntoFfi>::FfiType
+        impl iroha_ffi::FfiRef for #enum_name {
+            type FfiRef = *const #ffi_type;
+            type FfiMut = *mut #ffi_type;
+        }
+
+        impl iroha_ffi::IntoFfi for #enum_name {
+            fn into_ffi(self) -> <Self as iroha_ffi::FfiType>::FfiType {
+                self as <Self as iroha_ffi::FfiType>::FfiType
             }
         }
 
-        impl iroha_ffi::IntoFfi for &#enum_name {
-            type FfiType = *const #ffi_type;
+        impl iroha_ffi::AsFfi for #enum_name {
             type Store = ();
 
-            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
-                self as *const #enum_name as <Self as iroha_ffi::IntoFfi>::FfiType
+            fn as_ffi_ref(&self, _: &mut <Self as iroha_ffi::AsFfi>::Store) -> Self::FfiRef {
+                self as *const #enum_name as *const #ffi_type
+            }
+            fn as_ffi_mut(&mut self, _: &mut <Self as iroha_ffi::AsFfi>::Store) -> Self::FfiMut {
+                self as *mut #enum_name as *mut #ffi_type
             }
         }
 
-        impl iroha_ffi::IntoFfi for &mut #enum_name {
+        impl iroha_ffi::OptionWrapped for #enum_name {
             type FfiType = *mut #ffi_type;
-            type Store = ();
-
-            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
-                self as *mut #enum_name as <Self as iroha_ffi::IntoFfi>::FfiType
-            }
         }
 
-        impl iroha_ffi::FromOption for #enum_name {
-            type FfiType = *mut <Self as iroha_ffi::IntoFfi>::FfiType;
-            type Store = Vec<#ffi_type>;
+        //impl<'store> iroha_ffi::FromOption<'store> for #enum_name {
+        //    type Store = #ffi_type;
 
-            fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::FromOption>::Store) -> <Self as iroha_ffi::FromOption>::FfiType {
-                source.map_or_else(core::ptr::null_mut, |item| {
-                    store.push(item as #ffi_type);
-                    let elem = store.last_mut().expect("Defined");
-                    iroha_ffi::IntoFfi::into_ffi(elem, &mut ())
-                })
-            }
-        }
+        //    // TODO: Rely on trap representation to represent None values
+        //    fn into_ffi(source: Option<Self>, store: &'store mut <Self as iroha_ffi::FromOption<'store>>::Store) -> <Self as iroha_ffi::OptionWrapped>::FfiType {
+        //        source.map_or_else(core::ptr::null_mut, |item| {
+        //            *store = item as #ffi_type;
+        //            iroha_ffi::IntoFfi::into_ffi(store, &mut ())
+        //        })
+        //    }
+        //}
     }
 }
 
@@ -365,7 +350,7 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
                 );
 
                 acc.0.push(quote! {
-                    const #discriminant_name: <#enum_name as iroha_ffi::IntoFfi>::FfiType = #discriminant_value;
+                    const #discriminant_name: <#enum_name as iroha_ffi::FfiType>::FfiType = #discriminant_value;
                 });
                 acc.1.push(discriminant_name);
 
@@ -374,10 +359,8 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
         );
 
     quote! {
-        impl iroha_ffi::TryFromFfi<'_> for #enum_name {
-            type Store = ();
-
-            unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
+        impl iroha_ffi::TryFromFfi for #enum_name {
+            unsafe fn try_from_ffi(source: <Self as iroha_ffi::FfiType>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
                 #( #discriminants )*
 
                 match source {
@@ -388,30 +371,30 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
             }
         }
 
-        impl<'a> iroha_ffi::TryFromFfi<'_> for &'a #enum_name {
+        impl iroha_ffi::TryAsRust for #enum_name {
             type Store = ();
 
-            unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
+            unsafe fn try_as_rust_ref(
+                source: Self::FfiRef,
+                _: &mut <Self as iroha_ffi::TryAsRust>::Store,
+            ) -> Result<&Self, iroha_ffi::FfiResult> {
                 #( #discriminants )*
 
                 match *source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)? {
-                    // NOTE: This transmute is valid as long as enum has a correct repr(int)
-                    #( | #discriminant_names )* => Ok(core::mem::transmute::<*const _, &#enum_name>(source)),
+                    #( | #discriminant_names )* => Ok(&*(source as *const #enum_name)),
                     // TODO: More appropriate error?
                     _ => Err(iroha_ffi::FfiResult::UnknownHandle),
                 }
             }
-        }
 
-        impl<'a> iroha_ffi::TryFromFfi<'_> for &'a mut #enum_name {
-            type Store = ();
-
-            unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
+            unsafe fn try_as_rust_mut(
+                source: Self::FfiMut,
+                _: &mut <Self as iroha_ffi::TryAsRust>::Store,
+            ) -> Result<&mut Self, iroha_ffi::FfiResult> {
                 #( #discriminants )*
 
                 match *source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)? {
-                    // NOTE: This transmute is valid as long as enum has a correct repr(int)
-                    #( | #discriminant_names )* => Ok(core::mem::transmute::<*mut _, &mut #enum_name>(source)),
+                    #( | #discriminant_names )* => Ok(&mut *(source as *mut #enum_name)),
                     // TODO: More appropriate error?
                     _ => Err(iroha_ffi::FfiResult::UnknownHandle),
                 }

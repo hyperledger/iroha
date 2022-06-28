@@ -1,14 +1,144 @@
 use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
-use syn::{parse_quote, visit::Visit, Ident, Type};
+use syn::{parse_quote, visit::Visit, Ident, Type, visit_mut::VisitMut};
 
-use crate::get_ident;
+use crate::{get_ident, SelfResolver};
+
+pub trait Arg {
+    fn name(&self) -> &Ident;
+    fn src_type(&self) -> &Type;
+    fn src_type_resolved(&self) -> Type;
+    fn ffi_type_resolved(&self) -> Type;
+}
+
+pub struct Receiver<'ast> {
+    self_ty: &'ast syn::Path,
+    name: Ident,
+    type_: Type,
+}
+
+pub struct InputArg<'ast> {
+    self_ty: &'ast syn::Path,
+    name: &'ast Ident,
+    type_: &'ast Type,
+}
+
+pub struct ReturnArg<'ast> {
+    self_ty: &'ast syn::Path,
+    name: Ident,
+    type_: &'ast Type,
+}
 
 pub struct ImplDescriptor<'ast> {
     /// Associated types used by this method
     pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Functions in the impl block
     pub fns: Vec<FnDescriptor<'ast>>,
+}
+
+impl<'ast> Receiver<'ast> {
+    pub fn new(self_ty: &'ast syn::Path, name: Ident, type_: Type) -> Self {
+        Self {
+            self_ty,
+            name,
+            type_,
+        }
+    }
+}
+
+impl<'ast> InputArg<'ast> {
+    pub fn new(self_ty: &'ast syn::Path, name: &'ast Ident, type_: &'ast Type) -> Self {
+        Self {
+            self_ty,
+            name,
+            type_,
+        }
+    }
+}
+
+impl<'ast> ReturnArg<'ast> {
+    pub fn new(self_ty: &'ast syn::Path, name: Ident, type_: &'ast Type) -> Self {
+        Self {
+            self_ty,
+            name,
+            type_,
+        }
+    }
+}
+
+impl Arg for Receiver<'_> {
+    fn name(&self) -> &Ident {
+        &self.name
+    }
+    fn src_type(&self) -> &Type {
+        &self.type_
+    }
+    fn src_type_resolved(&self) -> Type {
+        resolve_src_type(self.self_ty, self.type_.clone())
+    }
+    fn ffi_type_resolved(&self) -> Type {
+        resolve_ffi_type(self.self_ty, self.type_.clone())
+    }
+}
+
+impl Arg for InputArg<'_> {
+    fn name(&self) -> &Ident {
+        &self.name
+    }
+    fn src_type(&self) -> &Type {
+        &self.type_
+    }
+    fn src_type_resolved(&self) -> Type {
+        resolve_src_type(self.self_ty, self.type_.clone())
+    }
+    fn ffi_type_resolved(&self) -> Type {
+        resolve_ffi_type(self.self_ty, self.type_.clone())
+    }
+}
+
+impl Arg for ReturnArg<'_> {
+    fn name(&self) -> &Ident {
+        &self.name
+    }
+    fn src_type(&self) -> &Type {
+        self.type_
+    }
+    fn src_type_resolved(&self) -> Type {
+        resolve_src_type(self.self_ty, self.type_.clone())
+    }
+    fn ffi_type_resolved(&self) -> Type {
+        resolve_ffi_type(self.self_ty, self.type_.clone())
+    }
+}
+
+fn resolve_src_type(self_ty: &syn::Path, mut arg_type: Type) -> Type {
+    SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
+
+    if matches!(arg_type, Type::ImplTrait(_)) {
+        //ImplTraitResolver::new().visit_type(&mut out_src_type);
+    }
+
+    arg_type
+}
+
+fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type) -> Type {
+    SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
+
+    if matches!(arg_type, Type::ImplTrait(_)) {
+        //ImplTraitResolver::new().visit_type(&mut out_src_type);
+    }
+
+    if let Type::Reference(ref_type) = arg_type {
+        let elem = &ref_type.elem;
+
+        return if ref_type.mutability.is_some() {
+            parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiMut}
+        } else {
+            parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiRef}
+        };
+    }
+
+    parse_quote! {<#arg_type as iroha_ffi::FfiType>::FfiType}
 }
 
 pub struct FnDescriptor<'ast> {
@@ -20,11 +150,11 @@ pub struct FnDescriptor<'ast> {
     /// Name of the method in the original implementation
     pub method_name: &'ast Ident,
     /// Receiver argument, i.e. `self`
-    pub receiver: Option<(Ident, Type)>,
+    pub receiver: Option<Receiver<'ast>>,
     /// Input fn arguments
-    pub input_args: Vec<(&'ast Ident, &'ast Type)>,
+    pub input_args: Vec<InputArg<'ast>>,
     /// Output fn argument
-    pub output_arg: Option<(Ident, &'ast Type)>,
+    pub output_arg: Option<ReturnArg<'ast>>,
 }
 
 struct ImplVisitor<'ast> {
@@ -46,11 +176,11 @@ struct FnVisitor<'ast> {
     /// Name of the method in the original implementation
     method_name: Option<&'ast Ident>,
     /// Receiver argument, i.e. `self`
-    receiver: Option<(Ident, Type)>,
+    receiver: Option<Receiver<'ast>>,
     /// Input fn arguments
-    input_args: Vec<(&'ast Ident, &'ast Type)>,
+    input_args: Vec<InputArg<'ast>>,
     /// Output fn argument
-    output_arg: Option<(Ident, &'ast Type)>,
+    output_arg: Option<ReturnArg<'ast>>,
 
     /// Name of the argument being visited
     curr_arg_name: Option<&'ast Ident>,
@@ -136,7 +266,8 @@ impl<'ast> FnVisitor<'ast> {
 
     fn add_input_arg(&mut self, src_type: &'ast Type) {
         let arg_name = self.curr_arg_name.take().expect_or_abort("Defined");
-        self.input_args.push((arg_name, src_type));
+        self.input_args
+            .push(InputArg::new(self.self_ty, arg_name, src_type));
     }
 
     /// Produces name of the return type. Name of the self argument is used for dummy
@@ -144,16 +275,16 @@ impl<'ast> FnVisitor<'ast> {
     /// used to signal that the self type passes through the method being transcribed
     fn gen_output_arg_name(&mut self, output_src_type: &Type) -> Ident {
         if let Some(receiver) = &mut self.receiver {
-            let self_src_ty = &mut receiver.1;
+            let self_src_ty = &mut receiver.type_;
 
             if *self_src_ty == *output_src_type {
                 if matches!(self_src_ty, Type::Path(_)) {
                     // NOTE: `Self` is first consumed and then returned in the same method
-                    let name = core::mem::replace(&mut receiver.0, parse_quote! {irrelevant});
-                    *receiver = (name, parse_quote! {#self_src_ty});
+                    let name = core::mem::replace(&mut receiver.name, parse_quote! {irrelevant});
+                    *receiver = Receiver::new(self.self_ty, name, parse_quote! {#self_src_ty});
                 }
 
-                return receiver.0.clone();
+                return receiver.name.clone();
             }
         }
 
@@ -164,8 +295,11 @@ impl<'ast> FnVisitor<'ast> {
         assert!(self.curr_arg_name.is_none());
         assert!(self.output_arg.is_none());
 
-        let arg_name = self.gen_output_arg_name(src_type);
-        self.output_arg = Some((arg_name, src_type));
+        self.output_arg = Some(ReturnArg::new(
+            self.self_ty,
+            self.gen_output_arg_name(src_type),
+            src_type,
+        ));
     }
 
     fn visit_impl_item_method_attribute(&mut self, node: &'ast syn::Attribute) {
@@ -280,7 +414,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         );
 
         let handle_name = Ident::new("__handle", Span::call_site());
-        self.receiver = Some((handle_name, src_type));
+        self.receiver = Some(Receiver::new(self.self_ty, handle_name, src_type));
     }
 
     fn visit_pat_type(&mut self, node: &'ast syn::PatType) {
@@ -323,12 +457,12 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         }
 
         if let Some(receiver) = &self.receiver {
-            let self_src_type = &receiver.1;
+            let self_src_type = &receiver.src_type();
 
             if matches!(self_src_type, Type::Path(_)) {
                 let output_arg = self.output_arg.as_ref();
 
-                if output_arg.map_or(true, |out_arg| receiver.0 != out_arg.0) {
+                if output_arg.map_or(true, |out_arg| receiver.name != out_arg.name) {
                     abort!(self_src_type, "Methods which consume self not supported");
                 }
             }

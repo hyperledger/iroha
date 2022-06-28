@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, Ident, ItemStruct, Type};
+use syn::{parse_quote, Ident, ItemStruct};
+
+use crate::export::{gen_arg_ffi_to_src, gen_arg_src_to_ffi};
+use crate::impl_visitor::{Arg, InputArg, Receiver, ReturnArg};
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,90 +104,104 @@ fn gen_ffi_fn_name(struct_name: &Ident, derive_method_name: &syn::Ident) -> syn:
     )
 }
 
-fn gen_ffi_fn_args(handle: (&Ident, &Type), field: (&Ident, &Type), derive: Derive) -> TokenStream {
-    let (handle_name, handle_type) = (&handle.0, handle.1.clone());
-    let (field_name, field_type) = (&field.0, field.1.clone());
+fn gen_ffi_fn_args(handle: &Receiver, field: &impl Arg, derive: Derive) -> TokenStream {
+    let (handle_name, handle_type) = (&handle.name(), handle.ffi_type_resolved());
+    let (field_name, field_type) = (&field.name(), field.ffi_type_resolved());
 
     match derive {
         Derive::Setter => quote! {
-            #handle_name: <#handle_type as iroha_ffi::IntoFfi>::FfiType,
-            #field_name: <#field_type as iroha_ffi::IntoFfi>::FfiType,
+            #handle_name: #handle_type, #field_name: #field_type,
         },
         Derive::Getter | Derive::MutGetter => quote! {
-            #handle_name: <#handle_type as iroha_ffi::IntoFfi>::FfiType,
-            #field_name: <<#field_type as iroha_ffi::IntoFfi>::FfiType as iroha_ffi::ReprC>::OutPtr,
+            #handle_name: #handle_type, #field_name: <#field_type as iroha_ffi::ReprC>::OutPtr,
         },
     }
 }
 
 fn gen_ffi_fn_body(
     method_name: &Ident,
-    handle: (&Ident, &Type),
-    field: (&Ident, &Type),
+    handle_arg: &Receiver,
+    field_arg: &impl Arg,
     derive: Derive,
 ) -> TokenStream {
-    let (handle_name, handle_type) = (&handle.0, handle.1.clone());
-    let (field_name, field_type) = (&field.0, field.1.clone());
-
-    let into_handle = quote! {
-        let mut handle_store = Default::default();
-        let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name, &mut handle_store)?;
-    };
+    let (handle_name, into_handle) = (handle_arg.name(), gen_arg_ffi_to_src(handle_arg));
 
     match derive {
         Derive::Setter => {
+            let (field_name, into_field) = (field_arg.name(), gen_arg_ffi_to_src(field_arg));
+
             quote! {{
                 #into_handle
+                #into_field
 
-                let mut field_store = Default::default();
-                let #field_name = <#field_type as iroha_ffi::TryFromFfi>::try_from_ffi(#field_name, &mut field_store)?;
                 #handle_name.#method_name(#field_name);
                 Ok(())
             }}
         }
         Derive::Getter | Derive::MutGetter => {
+            let (field_name, from_field) = (field_arg.name(), gen_arg_src_to_ffi(field_arg));
+
             quote! {{
                 #into_handle
 
                 let __out_ptr = #field_name;
                 let #field_name = #handle_name.#method_name();
-                let mut output_store = Default::default();
-                let #field_name = <#field_type as iroha_ffi::IntoFfi>::into_ffi(#field_name, &mut output_store);
-                <<#field_type as iroha_ffi::IntoFfi>::FfiType as iroha_ffi::ReprC>::write_out(#field_name, __out_ptr);
+                #from_field
                 Ok(())
             }}
         }
     }
 }
 
-fn gen_ffi_derive(struct_name: &Ident, field: &syn::Field, derive: Derive) -> syn::ItemFn {
+fn gen_ffi_derive(item_name: &Ident, field: &syn::Field, derive: Derive) -> syn::ItemFn {
     let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
     let field_name = field.ident.as_ref().expect_or_abort("Defined");
-
-    let field_ty = field.ty.clone();
-    let (handle_type, field_type) = match derive {
-        Derive::Setter => (parse_quote! {&mut #struct_name}, field_ty),
-        Derive::Getter => (parse_quote! {&#struct_name}, parse_quote! {&#field_ty}),
-        Derive::MutGetter => (
-            parse_quote! {&mut #struct_name},
-            parse_quote! {&mut #field_ty},
-        ),
-    };
+    let self_ty = parse_quote! {#item_name};
 
     let derive_method_name = gen_derive_method_name(field_name, derive);
-    let ffi_fn_name = gen_ffi_fn_name(struct_name, &derive_method_name);
-    let ffi_fn_doc = gen_ffi_docs(struct_name, &derive_method_name);
-    let ffi_fn_args = gen_ffi_fn_args(
-        (&handle_name, &handle_type),
-        (field_name, &field_type),
-        derive,
-    );
-    let ffi_fn_body = gen_ffi_fn_body(
-        &derive_method_name,
-        (&handle_name, &handle_type),
-        (field_name, &field_type),
-        derive,
-    );
+    let ffi_fn_name = gen_ffi_fn_name(item_name, &derive_method_name);
+    let ffi_fn_doc = gen_ffi_docs(item_name, &derive_method_name);
+
+    let field_ty = &field.ty;
+    let (ffi_fn_args, ffi_fn_body) = match derive {
+        Derive::Setter => {
+            let (handle_arg, field_arg) = (
+                Receiver::new(&self_ty, handle_name, parse_quote! {&mut Self}),
+                InputArg::new(&self_ty, field_name, field_ty),
+            );
+
+            (
+                gen_ffi_fn_args(&handle_arg, &field_arg, derive),
+                gen_ffi_fn_body(&derive_method_name, &handle_arg, &field_arg, derive),
+            )
+        }
+        Derive::Getter => {
+            let field_ty = parse_quote! {&#field_ty};
+
+            let (handle_arg, field_arg) = (
+                Receiver::new(&self_ty, handle_name, parse_quote! {&Self}),
+                ReturnArg::new(&self_ty, field_name.clone(), &field_ty),
+            );
+
+            (
+                gen_ffi_fn_args(&handle_arg, &field_arg, derive),
+                gen_ffi_fn_body(&derive_method_name, &handle_arg, &field_arg, derive),
+            )
+        }
+        Derive::MutGetter => {
+            let field_ty = parse_quote! {&mut #field_ty};
+
+            let (handle_arg, field_arg) = (
+                Receiver::new(&self_ty, handle_name, parse_quote! {&mut Self}),
+                ReturnArg::new(&self_ty, field_name.clone(), &field_ty),
+            );
+
+            (
+                gen_ffi_fn_args(&handle_arg, &field_arg, derive),
+                gen_ffi_fn_body(&derive_method_name, &handle_arg, &field_arg, derive),
+            )
+        }
+    };
 
     parse_quote! {
         #[doc = #ffi_fn_doc]

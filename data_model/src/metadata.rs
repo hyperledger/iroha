@@ -141,6 +141,7 @@ impl Metadata {
     }
 }
 
+#[ffi_export]
 impl Metadata {
     /// Get the `Some(&Value)` associated to `key`. Return `None` if not found.
     #[inline]

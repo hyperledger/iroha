@@ -61,9 +61,9 @@ impl std::error::Error for MintabilityError {}
     IntoFfi,
     TryFromFfi,
 )]
+#[ffi_export]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
-#[ffi_export]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
@@ -129,7 +129,6 @@ impl AssetDefinitionEntry {
     TryFromFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
-#[ffi_export]
 #[display(fmt = "{id} {value_type}{mintable}")]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
@@ -216,8 +215,8 @@ pub enum Mintable {
     IntoFfi,
     TryFromFfi,
 )]
-#[getset(get = "pub")]
 #[ffi_export]
+#[getset(get = "pub")]
 #[display(fmt = "{id}: {value}")]
 pub struct Asset {
     /// Component Identification.
