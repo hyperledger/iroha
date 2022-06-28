@@ -49,7 +49,7 @@ impl Name {
     fn validate_str(candidate: &str) -> Result<(), ParseError> {
         if candidate.is_empty() {
             return Err(ParseError {
-                reason: "`Name` can not be empty",
+                reason: "`Name` cannot be empty",
             });
         }
         if candidate.chars().any(char::is_whitespace) {

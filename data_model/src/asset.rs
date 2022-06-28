@@ -648,7 +648,7 @@ impl FromStr for DefinitionId {
     fn from_str(string: &str) -> Result<Self, Self::Err> {
         if string.is_empty() {
             return Err(ParseError {
-                reason: "`DefinitionId` can not be empty",
+                reason: "`DefinitionId` cannot be empty",
             });
         }
 

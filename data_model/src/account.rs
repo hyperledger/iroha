@@ -455,7 +455,7 @@ impl FromStr for Id {
     fn from_str(string: &str) -> Result<Self, Self::Err> {
         if string.is_empty() {
             return Err(ParseError {
-                reason: "`AccountId` can not be empty",
+                reason: "`AccountId` cannot be empty",
             });
         }
 

@@ -9,7 +9,7 @@ use iroha_data_model::prelude::*;
 #[test]
 fn non_existent_account_is_specific_error() {
     let (_rt, _peer, client) = <test_network::PeerBuilder>::new().start_with_runtime();
-    // we can not wait for genesis committment
+    // we cannot wait for genesis committment
 
     let err = client
         .request(client::account::by_id(
