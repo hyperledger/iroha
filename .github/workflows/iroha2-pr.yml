@@ -34,6 +34,8 @@ jobs:
         if: always()
       - name: Cleanup test environment
         run: bash -c './scripts/test_env.sh cleanup'
+      - name: Panic on invalid genesis test
+        run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
   docker-test:
     # This workflow is too unreliable to enable. Even for

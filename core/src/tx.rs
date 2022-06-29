@@ -85,6 +85,20 @@ impl TransactionValidator {
         .into())
     }
 
+    /// Validate every transaction in `txs`
+    ///
+    /// # Errors
+    /// Fails if validation of any transaction fails
+    pub fn validate_every(
+        &self,
+        txs: &[VersionedAcceptedTransaction],
+    ) -> Result<(), TransactionRejectionReason> {
+        for tx in txs {
+            self.validate_internal(tx.as_v1(), true)?;
+        }
+        Ok(())
+    }
+
     fn validate_internal(
         &self,
         tx: &AcceptedTransaction,
