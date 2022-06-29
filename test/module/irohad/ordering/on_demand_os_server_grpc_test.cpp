@@ -137,10 +137,10 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
 
-  auto p = std::make_pair(
+  PackedProposalData p{{std::make_pair(
       std::shared_ptr<const shared_model::interface::Proposal>(
           std::make_shared<const shared_model::proto::Proposal>(proposal)),
-      ordering::BloomFilter256{});
+      ordering::BloomFilter256{})}};
   std::chrono::milliseconds delay(0);
   EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
       .WillOnce(Return(ByMove(std::move(p))));
@@ -148,8 +148,8 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);
 
-  ASSERT_TRUE(response.has_proposal());
-  ASSERT_EQ(response.proposal()
+  ASSERT_TRUE(!response.proposal().empty());
+  ASSERT_EQ(response.proposal()[0]
                 .transactions()
                 .Get(0)
                 .payload()
@@ -176,7 +176,7 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);
 
-  ASSERT_FALSE(response.has_proposal());
+  ASSERT_FALSE(!response.proposal().empty());
 }
 
 void add2Proposal(
@@ -204,6 +204,7 @@ std::tuple<iroha::protocol::Proposal, ordering::BloomFilter256> makeProposal(
   return result;
 }
 
+#if USE_BLOOM_FILTER
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_wholeIntersection) {
   shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>
@@ -238,6 +239,7 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_wholeIntersection) {
   ASSERT_TRUE(response.has_proposal());
   ASSERT_TRUE(response.proposal().transactions().empty());
 }
+#endif  // USE_BLOOM_FILTER
 
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   shared_model::proto::ProtoProposalFactory<
@@ -252,20 +254,23 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+
+#if USE_BLOOM_FILTER
   request.set_bloom_filter(std::get<1>(proposal_pack_1).load().data(),
                            std::get<1>(proposal_pack_1).load().size());
+#endif  // USE_BLOOM_FILTER
 
   proto::ProposalResponse response;
   std::chrono::milliseconds delay(0);
 
-  auto result = std::make_optional(
-      std::make_pair(std::shared_ptr<shared_model::interface::Proposal>(
-                         std::make_shared<shared_model::proto::Proposal>(
-                             std::get<0>(proposal_pack_2))),
-                     std::get<1>(proposal_pack_2)));
+  auto m = std::make_pair(std::shared_ptr<shared_model::interface::Proposal>(
+                              std::make_shared<shared_model::proto::Proposal>(
+                                  std::get<0>(proposal_pack_2))),
+                          std::get<1>(proposal_pack_2));
+  m.first->mut_transactions()[0].storeBatchHash(hashes_2[0]);
+  m.first->mut_transactions()[1].storeBatchHash(hashes_2[1]);
 
-  result->first->mut_transactions()[0].storeBatchHash(hashes_2[0]);
-  result->first->mut_transactions()[1].storeBatchHash(hashes_2[1]);
+  PackedProposalData result{{std::move(m)}};
 
   EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
       .WillOnce(Return(ByMove(result)));
@@ -273,20 +278,21 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);
 
-  ASSERT_TRUE(response.has_proposal());
-  assert(response.proposal().transactions().size() == 2);
-  ASSERT_TRUE(response.proposal().transactions().size() == 2);
+  ASSERT_TRUE(!response.proposal().empty());
+  assert(response.proposal()[0].transactions().size() == 2);
+  ASSERT_TRUE(response.proposal()[0].transactions().size() == 2);
 
   ASSERT_TRUE(
-      shared_model::proto::Transaction(response.proposal().transactions()[0])
+      shared_model::proto::Transaction(response.proposal()[0].transactions()[0])
       == shared_model::proto::Transaction(
              std::get<0>(proposal_pack_2).transactions()[0]));
   ASSERT_TRUE(
-      shared_model::proto::Transaction(response.proposal().transactions()[1])
+      shared_model::proto::Transaction(response.proposal()[0].transactions()[1])
       == shared_model::proto::Transaction(
              std::get<0>(proposal_pack_2).transactions()[1]));
 }
 
+#if USE_BLOOM_FILTER
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_partIntersection) {
   shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>
@@ -333,3 +339,4 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_partIntersection) {
       == shared_model::proto::Transaction(
              std::get<0>(proposal_pack).transactions()[2]));
 }
+#endif  // USE_BLOOM_FILTER

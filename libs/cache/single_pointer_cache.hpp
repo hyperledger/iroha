@@ -9,68 +9,46 @@
 #include <memory>
 #include <mutex>
 
-namespace iroha {
-  namespace cache {
+namespace iroha::cache {
+
+  /**
+   * Thread-safely stores and returns shared pointer to an element of template
+   * type
+   */
+  template <typename DataType>
+  struct SinglePointerCache final {
+    /**
+     * Pointer to data type
+     */
+    using DataPointer = std::shared_ptr<std::decay_t<DataType>>;
 
     /**
-     * Thread-safely stores and returns shared pointer to an element of template
-     * type
+     * Insert data to the cache
+     * @param pointer to the data to be inserted
      */
-    template <typename DataType>
-    class SinglePointerCache {
-     public:
-      /**
-       * Pointer to data type
-       */
-      using DataPointer = std::shared_ptr<std::decay_t<DataType>>;
-
-      /**
-       * Insert data to the cache
-       * @param pointer to the data to be inserted
-       */
-      void insert(DataPointer data);
-
-      /**
-       * Get data from the cache
-       * @return pointer to the stored data
-       */
-      DataPointer get() const;
-
-      /**
-       * Delete data inside the cache
-       */
-      void release();
-
-     private:
-      DataPointer stored_data_;
-
-      mutable std::mutex mutex_;
-    };
-
-    template <typename DataType>
-    void SinglePointerCache<DataType>::insert(
-        SinglePointerCache::DataPointer data) {
-      std::lock_guard<std::mutex> lock(mutex_);
-
+    void insert(DataPointer data) {
       stored_data_ = std::move(data);
     }
 
-    template <typename DataType>
-    typename SinglePointerCache<DataType>::DataPointer
-    SinglePointerCache<DataType>::get() const {
-      std::lock_guard<std::mutex> lock(mutex_);
-
+    /**
+     * Get data from the cache
+     * @return pointer to the stored data
+     */
+    DataPointer get() const {
       return stored_data_;
     }
 
-    template <typename DataType>
-    void SinglePointerCache<DataType>::release() {
-      std::lock_guard<std::mutex> lock(mutex_);
-
+    /**
+     * Delete data inside the cache
+     */
+    void release() {
       stored_data_.reset();
     }
 
-  }  // namespace cache
-}  // namespace iroha
+   private:
+    DataPointer stored_data_;
+  };
+
+}  // namespace iroha::cache
 
 #endif  // IROHA_SINGLE_POINTER_CACHE_HPP

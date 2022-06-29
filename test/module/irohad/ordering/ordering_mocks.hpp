@@ -33,6 +33,7 @@ namespace iroha::ordering {
                 (consensus::Round),
                 (override));
 
+    MOCK_METHOD0(availableTxsCountBatchesCache, uint32_t());
     MOCK_METHOD(void, onCollaborationOutcome, (consensus::Round), (override));
     MOCK_METHOD(void, onTxsCommitted, (const HashesSetType &), (override));
     MOCK_METHOD(void, onDuplicates, (const HashesSetType &), (override));

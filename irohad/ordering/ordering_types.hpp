@@ -12,13 +12,21 @@
 
 namespace iroha::ordering {
 
+#define USE_BLOOM_FILTER 0
+
+  static constexpr uint64_t kBloomFilterOrder = 256ull;
+  static constexpr uint64_t kBloomFilterSize = kBloomFilterOrder / 8ull;
+
   using BloomFilter256 = shared_model::crypto::BloomFilter<
       shared_model::crypto::Hash,
-      256,
-      shared_model::crypto::Iroha2BloomHasher64<0, 32>,
-      shared_model::crypto::Iroha2BloomHasher64<1, 32>,
-      shared_model::crypto::Iroha2BloomHasher64<2, 32>,
-      shared_model::crypto::Iroha2BloomHasher64<3, 32>>;
+      kBloomFilterOrder,
+      shared_model::crypto::Iroha2BloomHasher64<0, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<1, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<2, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<3, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<4, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<5, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<6, kBloomFilterSize>>;
 
   struct RemoteProposalDownloadedEvent {
     std::shared_ptr<shared_model::interface::Proposal const> local;
@@ -28,6 +36,16 @@ namespace iroha::ordering {
     consensus::Round round;
     shared_model::interface::types::TimestampType created_time;
   };
+
+  /**
+   * Type of stored proposals
+   */
+  using ProposalType = shared_model::interface::Proposal;
+  using PackedProposalType =
+      std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>;
+
+  using PackedProposalContainer = std::vector<PackedProposalType>;
+  using PackedProposalData = std::optional<PackedProposalContainer>;
 
 }  // namespace iroha::ordering
 

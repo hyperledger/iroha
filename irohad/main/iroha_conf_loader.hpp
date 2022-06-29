@@ -68,10 +68,16 @@ struct IrohadConfig {
   boost::optional<uint32_t> max_round_delay_ms;
   boost::optional<uint32_t> proposal_creation_timeout;
   boost::optional<uint32_t> healthcheck_port;
+  boost::optional<uint32_t> max_proposal_pack;
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   std::optional<shared_model::interface::types::PeerList> initial_peers;
   boost::optional<UtilityService> utility_service;
+
+  // getters
+  uint32_t getMaxpProposalPack() const;
+  uint32_t getProposalDelay() const;
+  uint32_t getProposalCreationTimeout() const;
 
   // This is a part of cryto providers feature:
   // https://github.com/MBoldyrev/iroha/tree/feature/hsm-utimaco.

@@ -97,12 +97,14 @@ auto OnDemandOrderingInit::createGate(
 
 auto OnDemandOrderingInit::createService(
     size_t max_number_of_transactions,
+    uint32_t max_proposal_pack,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     const logger::LoggerManagerTreePtr &ordering_log_manager) {
   ordering_service_ = std::make_shared<OnDemandOrderingServiceImpl>(
       max_number_of_transactions,
+      max_proposal_pack,
       std::move(proposal_factory),
       std::move(tx_cache),
       ordering_log_manager->getChild("Service")->getLogger());
@@ -112,6 +114,7 @@ auto OnDemandOrderingInit::createService(
 std::shared_ptr<iroha::network::OrderingGate>
 OnDemandOrderingInit::initOrderingGate(
     size_t max_number_of_transactions,
+    uint32_t max_proposal_pack,
     std::chrono::milliseconds delay,
     std::shared_ptr<transport::OnDemandOsServerGrpc::TransportFactoryType>
         transaction_factory,
@@ -130,6 +133,7 @@ OnDemandOrderingInit::initOrderingGate(
   std::shared_ptr<OnDemandOrderingService> ordering_service;
   if (!syncing_mode) {
     ordering_service = createService(max_number_of_transactions,
+                                     max_proposal_pack,
                                      proposal_factory,
                                      tx_cache,
                                      ordering_log_manager);
@@ -295,19 +299,20 @@ void OnDemandOrderingInit::subscribe(
       SubscriberCreator<bool, ProposalEvent>::template create<
           EventTypes::kOnProposalResponse>(
           iroha::SubscriptionEngineHandlers::kYac,
+          [ordering_gate(utils::make_weak(ordering_gate_))](auto, auto event) {
+            if (auto maybe_ordering_gate = ordering_gate.lock())
+              maybe_ordering_gate->processProposalRequest(std::move(event));
+          });
+
+  single_proposal_event_subscription_ =
+      SubscriberCreator<bool, SingleProposalEvent>::template create<
+          EventTypes::kOnProposalSingleEvent>(
+          iroha::SubscriptionEngineHandlers::kYac,
           [ordering_gate(utils::make_weak(ordering_gate_)),
            callback(std::move(callback))](auto, auto event) {
-            auto maybe_ordering_gate = ordering_gate.lock();
-            if (not maybe_ordering_gate) {
-              return;
-            }
-            auto maybe_event =
-                maybe_ordering_gate->processProposalRequest(std::move(event));
-            if (not maybe_event) {
-              return;
-            }
-            if (maybe_event) {
-              callback(*std::move(maybe_event));
-            }
+            if (auto maybe_ordering_gate = ordering_gate.lock())
+              if (auto maybe_event = maybe_ordering_gate->processProposalEvent(
+                      std::move(event)))
+                callback(*std::move(maybe_event));
           });
 }

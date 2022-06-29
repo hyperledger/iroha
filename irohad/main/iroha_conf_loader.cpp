@@ -678,6 +678,10 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig::Crypto &dest) {
       and getDictChild(config_members::kSigner).loadInto(dest.signer);
 }
 
+uint32_t IrohadConfig::getMaxpProposalPack() const {
+  return max_proposal_pack.value_or(10);
+}
+
 template <>
 inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
   using namespace config_members;
@@ -691,6 +695,7 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
       and getDictChild(MaxProposalSize).loadInto(dest.max_proposal_size)
       and getDictChild(ProposalCreationTimeout)
               .loadInto(dest.proposal_creation_timeout)
+      and getDictChild(MaxProposalPack).loadInto(dest.max_proposal_pack)
       and getDictChild(HealthcheckPort).loadInto(dest.healthcheck_port)
       and getDictChild(VoteDelay).loadInto(dest.vote_delay)
       and getDictChild(MstSupport).loadInto(dest.mst_support)
@@ -782,4 +787,12 @@ iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
   } catch (ConfigParsingException const &e) {
     return e.what();
   };
+}
+
+uint32_t IrohadConfig::getProposalDelay() const {
+  return getProposalCreationTimeout() * 2ul;
+}
+
+uint32_t IrohadConfig::getProposalCreationTimeout() const {
+  return proposal_creation_timeout.value_or(3000ul);
 }

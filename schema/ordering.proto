@@ -25,17 +25,10 @@ message BatchesRequest {
 
 message ProposalRequest {
   ProposalRound round = 1;
-  oneof optional_bloom_filter {
-    bytes bloom_filter = 2;
-  }
 }
 
 message ProposalResponse {
-  bytes bloom_filter = 1;
-  protocol.Proposal proposal = 2;
-  oneof optional_proposal_hash {
-    bytes proposal_hash = 3;
-  }
+  repeated protocol.Proposal proposal = 1;
 }
 
 service OnDemandOrdering {

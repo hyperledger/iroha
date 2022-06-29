@@ -41,6 +41,7 @@ namespace iroha {
     kOnTxsEnoughForProposal,
     kOnPackProposal,
     kOnProposalResponse,
+    kOnProposalSingleEvent,
     kOnProposalResponseFailed,
     kOnTransactionResponse,
     kOnConsensusGateEvent,

@@ -6,6 +6,7 @@
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 
 #include <iterator>
+#include <tuple>
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>
@@ -99,16 +100,24 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   forLocalOS(&OnDemandOrderingService::onCollaborationOutcome,
              event.next_round);
 
-  this->sendCachedTransactions();
-
   if (!syncing_mode_) {
     assert(ordering_service_);
     assert(network_client_);
 
+    if (auto proposal = proposal_cache_.get(event.next_round))
+      return iroha::getSubscription()->notify(
+          iroha::EventTypes::kOnProposalSingleEvent,
+          std::make_tuple(event.next_round, std::move(proposal)));
+
     network_client_->onRequestProposal(
         event.next_round,
+#if USE_BLOOM_FILTER
         ordering_service_->waitForLocalProposal(
-            event.next_round, network_client_->getRequestDelay()));
+            event.next_round, network_client_->getRequestDelay())
+#else   // USE_BLOOM_FILTER
+        std::nullopt
+#endif  // USE_BLOOM_FILTER
+    );
   }
 }
 
@@ -121,38 +130,56 @@ void OnDemandOrderingGate::stop() {
   }
 }
 
+void OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
+  if (not current_ledger_state_ || event.round != current_round_)
+    return;
+
+  iroha::ordering::SingleProposalEvent e;
+  if (!event.proposal_pack.empty()) {
+    proposal_cache_.insert(std::move(event.proposal_pack));
+    e = std::make_tuple(event.round, proposal_cache_.get(event.round));
+  } else {
+    e = std::make_tuple(
+        event.round,
+        std::shared_ptr<const shared_model::interface::Proposal>{});
+  }
+  iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalSingleEvent,
+                                   std::move(e));
+}
+
 std::optional<iroha::network::OrderingEvent>
-OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
-  if (not current_ledger_state_ || event.round != current_round_) {
+OnDemandOrderingGate::processProposalEvent(
+    iroha::ordering::SingleProposalEvent &&event) {
+  auto const &round = std::get<0>(event);
+  auto const &proposal = std::get<1>(event);
+
+  if (!current_ledger_state_ || round != current_round_)
     return std::nullopt;
-  }
-  if (not event.proposal) {
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
-  }
-  auto result = removeReplaysAndDuplicates(*event.proposal);
-  // no need to check empty proposal
-  if (boost::empty(result->transactions())) {
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
-  }
+
+  if (!proposal)
+    return network::OrderingEvent{std::nullopt, round, current_ledger_state_};
+
+  auto result = removeReplaysAndDuplicates(std::move(proposal));
+  if (boost::empty(result->transactions()))
+    return network::OrderingEvent{std::nullopt, round, current_ledger_state_};
+
   shared_model::interface::types::SharedTxsCollectionType transactions;
-  for (auto &transaction : result->transactions()) {
+  for (auto &transaction : result->transactions())
     transactions.push_back(clone(transaction));
-  }
+
   auto batch_txs =
       shared_model::interface::TransactionBatchParserImpl().parseBatches(
           transactions);
   shared_model::interface::types::BatchesCollectionType batches;
-  for (auto &txs : batch_txs) {
+  for (auto &txs : batch_txs)
     batches.push_back(
         std::make_shared<shared_model::interface::TransactionBatchImpl>(
             std::move(txs)));
-  }
+
   forLocalOS(&OnDemandOrderingService::processReceivedProposal,
              std::move(batches));
   return network::OrderingEvent{
-      std::move(result), event.round, current_ledger_state_};
+      std::move(result), round, current_ledger_state_};
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {

@@ -958,6 +958,9 @@ namespace iroha::ametsuchi {
       rocksdb::Status status;
       if (isTransaction())
         status = transaction()->PopSavePoint();
+
+      if (auto c = cache())
+        c->releaseSavepoint();
       return status;
     }
 
@@ -981,6 +984,9 @@ namespace iroha::ametsuchi {
     void savepoint() {
       if (isTransaction())
         transaction()->SetSavePoint();
+
+      if (auto c = cache())
+        c->savepoint();
     }
 
     /// Restores to the previously saved savepoint
@@ -989,7 +995,8 @@ namespace iroha::ametsuchi {
       if (isTransaction())
         status = transaction()->RollbackToSavePoint();
 
-      dropCache();
+      if (auto c = cache())
+        c->rollbackToSavepoint();
       return status;
     }
 

@@ -71,42 +71,55 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
-    auto const &[sptr_proposal, bf_local] = maybe_proposal.value();
-    response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
-    response->set_proposal_hash(sptr_proposal->hash().blob().data(),
-                                sptr_proposal->hash().blob().size());
+    for (auto const &src_proposal : maybe_proposal.value()) {
+      auto const &[sptr_proposal, bf_local] = src_proposal;
+      auto proposal = response->add_proposal();
 
-    log_->debug(
-        "OS proposal: {}\nproposal: {}", sptr_proposal->hash(), *sptr_proposal);
+#if USE_BLOOM_FILTER
+      response->set_bloom_filter(bf_local.load().data(),
+                                 bf_local.load().size());
+      proposal->set_proposal_hash(sptr_proposal->hash().blob().data(),
+                                  sptr_proposal->hash().blob().size());
+#endif  // USE_BLOOM_FILTER
 
-    auto const &proto_proposal =
-        static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
-            ->getTransport();
-    if (!request->has_bloom_filter()
-        || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
-      log_->info("Response with full {} txs proposal.",
-                 sptr_proposal->transactions().size());
-      *response->mutable_proposal() = proto_proposal;
-    } else {
-      response->mutable_proposal()->set_created_time(
-          proto_proposal.created_time());
-      response->mutable_proposal()->set_height(proto_proposal.height());
+      log_->debug("OS proposal: {}\nproposal: {}",
+                  sptr_proposal->hash(),
+                  *sptr_proposal);
 
-      BloomFilter256 bf_remote;
-      bf_remote.store(std::string_view(request->bloom_filter()));
+      auto const &proto_proposal =
+          static_cast<const shared_model::proto::Proposal *>(
+              sptr_proposal.get())
+              ->getTransport();
+#if USE_BLOOM_FILTER
+      if (!request->has_bloom_filter()
+          || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
+#endif  // USE_BLOOM_FILTER
+        log_->info("Response with full {} txs proposal.",
+                   sptr_proposal->transactions().size());
+        *proposal = proto_proposal;
+#if USE_BLOOM_FILTER
+      } else {
+        response->mutable_proposal()->set_created_time(
+            proto_proposal.created_time());
+        response->mutable_proposal()->set_height(proto_proposal.height());
 
-      assert((size_t)proto_proposal.transactions().size()
-             == sptr_proposal->transactions().size());
-      for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
-        assert(sptr_proposal->transactions()[ix].getBatchHash());
-        if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
-                                .getBatchHash()
-                                .value())) {
-          auto *tx_dst =
-              response->mutable_proposal()->mutable_transactions()->Add();
-          *tx_dst = proto_proposal.transactions()[(int)ix];
+        BloomFilter256 bf_remote;
+        bf_remote.store(std::string_view(request->bloom_filter()));
+
+        assert((size_t)proto_proposal.transactions().size()
+               == sptr_proposal->transactions().size());
+        for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
+          assert(sptr_proposal->transactions()[ix].getBatchHash());
+          if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
+                                  .getBatchHash()
+                                  .value())) {
+            auto *tx_dst =
+                response->mutable_proposal()->mutable_transactions()->Add();
+            *tx_dst = proto_proposal.transactions()[(int)ix];
+          }
         }
       }
+#endif  // USE_BLOOM_FILTER
     }
   }
   return ::grpc::Status::OK;

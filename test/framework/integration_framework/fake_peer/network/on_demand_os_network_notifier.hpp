@@ -23,7 +23,7 @@ namespace integration_framework::fake_peer {
 
     void onBatches(CollectionType batches) override;
 
-    PackedProposalData onRequestProposal(
+    iroha::ordering::PackedProposalData onRequestProposal(
         iroha::consensus::Round round) override;
 
     void onCollaborationOutcome(iroha::consensus::Round round) override;
@@ -37,11 +37,13 @@ namespace integration_framework::fake_peer {
             iroha::ordering::OnDemandOrderingService::BatchesSetType &)> const
             &f) override;
 
-    PackedProposalData waitForLocalProposal(
+    iroha::ordering::PackedProposalData waitForLocalProposal(
         iroha::consensus::Round const &round,
         std::chrono::milliseconds const &delay) override;
 
     bool isEmptyBatchesCache() override;
+
+    uint32_t availableTxsCountBatchesCache() override;
 
     bool hasEnoughBatchesInCache() const override;
 
