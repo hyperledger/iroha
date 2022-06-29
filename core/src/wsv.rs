@@ -14,7 +14,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
-use tokio::task;
+use tokio::{sync::broadcast, task};
 
 use crate::{
     block::Chain,
@@ -86,7 +86,7 @@ pub struct WorldStateView {
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
-    events_sender: Option<EventsSender>,
+    events_sender: EventsSender,
 }
 
 impl Default for WorldStateView {
@@ -117,14 +117,9 @@ impl WorldStateView {
     #[must_use]
     #[inline]
     pub fn new(world: World) -> Self {
-        Self::from_configuration(Configuration::default(), world)
-    }
-
-    /// Add the ability of emitting events to [`WorldStateView`].
-    #[must_use]
-    pub fn with_events(mut self, events_sender: EventsSender) -> Self {
-        self.events_sender = Some(events_sender);
-        self
+        // Added to remain backward compatible with other code primary in tests
+        let (events_sender, _) = broadcast::channel(1);
+        Self::from_configuration(Configuration::default(), world, events_sender)
     }
 
     /// Get `Account`'s `Asset`s
@@ -277,14 +272,7 @@ impl WorldStateView {
 
     /// Send [`Event`]s to known subscribers.
     fn produce_event(&self, event: impl Into<Event>) {
-        self.events_sender.as_ref().map_or_else(
-            || {
-                warn!("wsv does not equip an events sender");
-            },
-            |events_sender| {
-                drop(events_sender.send(event.into()));
-            },
-        )
+        let _result = self.events_sender.send(event.into());
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.
@@ -497,7 +485,11 @@ impl WorldStateView {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(config: Configuration, world: World) -> Self {
+    pub fn from_configuration(
+        config: Configuration,
+        world: World,
+        events_sender: EventsSender,
+    ) -> Self {
         let (new_block_notifier, _) = tokio::sync::watch::channel(());
 
         Self {
@@ -507,7 +499,7 @@ impl WorldStateView {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            events_sender: None,
+            events_sender,
         }
     }
 
