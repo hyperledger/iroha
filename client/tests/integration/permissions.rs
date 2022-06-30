@@ -266,13 +266,13 @@ fn permissions_differ_not_only_by_names() {
         .expect("Failed to modify Mouse's hats");
 
     // ... but not shoes
-    let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id.clone());
+    let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id);
     let set_shoes_color = SetKeyValueBox::new(
         mouse_shoes_id.clone(),
         Name::from_str("color").expect("Valid"),
         "yellow".to_owned(),
     );
-    let _ = client
+    let _err = client
         .submit_blocking(set_shoes_color.clone())
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
