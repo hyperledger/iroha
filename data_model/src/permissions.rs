@@ -34,6 +34,8 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
     Deserialize,
     Serialize,
     IntoSchema,
+    PartialOrd,
+    Ord,
 )]
 #[getset(get = "pub")]
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
@@ -44,20 +46,6 @@ pub struct PermissionToken {
     /// Params identifying how this rule applies.
     #[getset(skip)]
     params: btree_map::BTreeMap<Name, Value>,
-}
-
-impl PartialOrd for PermissionToken {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PermissionToken {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.name().cmp(other.name())
-    }
 }
 
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]

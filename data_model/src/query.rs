@@ -23,7 +23,18 @@ use crate::{
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
 pub enum QueryBox {
     /// [`FindAllAccounts`] variant.
@@ -234,6 +245,8 @@ pub mod role {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllRoles;
 
@@ -254,6 +267,8 @@ pub mod role {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllRoleIds;
 
@@ -262,7 +277,19 @@ pub mod role {
     }
 
     /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`](crate::role::Id)
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindRoleByRoleId {
         /// `Id` of the `Role` to find
         pub id: EvaluatesTo<<Role as Identifiable>::Id>,
@@ -273,7 +300,19 @@ pub mod role {
     }
 
     /// `FindRolesByAccountId` Iroha Query will find an [`Role`]s for a specified account.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindRolesByAccountId {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<<Account as Identifiable>::Id>,
@@ -332,7 +371,19 @@ pub mod permissions {
     use crate::prelude::*;
 
     /// `FindPermissionTokensByAccountId` Iroha Query will find an `Role`s for a specified account.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindPermissionTokensByAccountId {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
@@ -374,6 +425,8 @@ pub mod account {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllAccounts;
 
@@ -382,7 +435,19 @@ pub mod account {
     }
 
     /// `FindAccountById` Iroha Query will find an `Account` by it's identification.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAccountById {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
@@ -394,7 +459,19 @@ pub mod account {
 
     /// `FindAccountById` Iroha Query will find a [`Value`] of the key-value metadata pair
     /// in the specified account.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAccountKeyValueByIdAndKey {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
@@ -408,7 +485,19 @@ pub mod account {
 
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
     /// find all `Account`s with this name.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAccountsByName {
         /// `name` of accounts to find.
         pub name: EvaluatesTo<Name>,
@@ -420,7 +509,19 @@ pub mod account {
 
     /// `FindAccountsByDomainId` Iroha Query will get `Domain`s id as input and
     /// find all `Account`s under this `Domain`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAccountsByDomainId {
         /// `Id` of the domain under which accounts should be found.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -432,7 +533,19 @@ pub mod account {
 
     /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
     /// find all `Account`s storing `Asset` with such definition.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAccountsWithAsset {
         /// `Id` of the definition of the asset which should be stored in founded accounts.
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
@@ -531,6 +644,8 @@ pub mod asset {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllAssets;
 
@@ -552,6 +667,8 @@ pub mod asset {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllAssetsDefinitions;
 
@@ -560,7 +677,19 @@ pub mod asset {
     }
 
     /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetById {
         /// `Id` of an `Asset` to find.
         pub id: EvaluatesTo<AssetId>,
@@ -571,7 +700,19 @@ pub mod asset {
     }
 
     /// `FindAssetDefinitionById` Iroha Query will find an `AssetDefinition` by it's identification in Iroha `Peer`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetDefinitionById {
         /// `Id` of an `AssetDefinition` to find.
         pub id: EvaluatesTo<AssetDefinitionId>,
@@ -583,7 +724,19 @@ pub mod asset {
 
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
     /// find all `Asset`s with it in Iroha `Peer`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetsByName {
         /// `Name` of `Asset`s to find.
         pub name: EvaluatesTo<Name>,
@@ -595,7 +748,19 @@ pub mod asset {
 
     /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
     /// owned by the `Account` in Iroha Peer.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetsByAccountId {
         /// `AccountId` under which assets should be found.
         pub account_id: EvaluatesTo<AccountId>,
@@ -607,7 +772,19 @@ pub mod asset {
 
     /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
     /// find all `Asset`s with this `AssetDefinition` in Iroha Peer.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetsByAssetDefinitionId {
         /// `AssetDefinitionId` with type of `Asset`s should be found.
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
@@ -619,7 +796,19 @@ pub mod asset {
 
     /// `FindAssetsByDomainId` Iroha Query will get `Domain`s id as input and
     /// find all `Asset`s under this `Domain` in Iroha `Peer`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetsByDomainId {
         /// `Id` of the domain under which assets should be found.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -632,7 +821,19 @@ pub mod asset {
     /// `FindAssetsByDomainIdAndAssetDefinitionId` Iroha Query will get `Domain`'s id and
     /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetsByDomainIdAndAssetDefinitionId {
         /// `Id` of the domain under which assets should be found.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -646,7 +847,19 @@ pub mod asset {
 
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
     /// parameter's value if `Asset` is presented in Iroha Peer.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetQuantityById {
         /// `Id` of an `Asset` to find quantity of.
         pub id: EvaluatesTo<AssetId>,
@@ -658,7 +871,19 @@ pub mod asset {
 
     /// `FindAssetKeyValueByIdAndKey` Iroha Query will get `AssetId` and key as input and find [`Value`]
     /// of the key-value pair stored in this asset.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetKeyValueByIdAndKey {
         /// `Id` of an `Asset` acting as `Store`.
         pub id: EvaluatesTo<AssetId>,
@@ -672,7 +897,19 @@ pub mod asset {
 
     /// `FindAssetDefinitionKeyValueByIdAndKey` Iroha Query will get `AssetDefinitionId` and key as input and find [`Value`]
     /// of the key-value pair stored in this asset definition.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindAssetDefinitionKeyValueByIdAndKey {
         /// `Id` of an `Asset` acting as `Store`.
         pub id: EvaluatesTo<AssetDefinitionId>,
@@ -830,6 +1067,8 @@ pub mod domain {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllDomains;
 
@@ -838,7 +1077,19 @@ pub mod domain {
     }
 
     /// `FindDomainById` Iroha Query will find a `Domain` by it's identification in Iroha `Peer`.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindDomainById {
         /// `Id` of the domain to find.
         pub id: EvaluatesTo<DomainId>,
@@ -865,7 +1116,19 @@ pub mod domain {
 
     /// `FindDomainKeyValueByIdAndKey` Iroha Query will find a [`Value`] of the key-value metadata pair
     /// in the specified domain.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindDomainKeyValueByIdAndKey {
         /// `Id` of an domain to find.
         pub id: EvaluatesTo<DomainId>,
@@ -921,6 +1184,8 @@ pub mod peer {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllPeers;
 
@@ -941,6 +1206,8 @@ pub mod peer {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllParameters;
 
@@ -996,6 +1263,8 @@ pub mod trigger {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     pub struct FindAllActiveTriggerIds;
 
@@ -1004,7 +1273,19 @@ pub mod trigger {
     }
 
     /// Find Trigger given its ID.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindTriggerById {
         /// The Identification of the trigger to be found.
         pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
@@ -1014,7 +1295,19 @@ pub mod trigger {
         type Output = Trigger<FilterBox>;
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     /// Find Trigger's metadata key-value pairs.
     pub struct FindTriggerKeyValueByIdAndKey {
         /// The Identification of the trigger to be found.
@@ -1028,7 +1321,19 @@ pub mod trigger {
     }
 
     /// Find Triggers given domain ID.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindTriggersByDomainId {
         /// `DomainId` under which triggers should be found.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -1086,6 +1391,8 @@ pub mod transaction {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     /// `FindAllTransactions` Iroha Query will list all transactions included in blockchain
     pub struct FindAllTransactions;
@@ -1103,7 +1410,19 @@ pub mod transaction {
 
     /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
     /// for the account
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindTransactionsByAccountId {
         /// Signer's `AccountId` under which transactions should be found.
         pub account_id: EvaluatesTo<AccountId>,
@@ -1123,7 +1442,19 @@ pub mod transaction {
 
     /// `FindTransactionByHash` Iroha Query will find a transaction (if any)
     /// with corresponding hash value
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
     pub struct FindTransactionByHash {
         /// Transaction hash.
         pub hash: EvaluatesTo<Hash>,
@@ -1174,6 +1505,8 @@ pub mod block {
         Deserialize,
         Serialize,
         IntoSchema,
+        PartialOrd,
+        Ord,
     )]
     /// `FindAllBlocks` Iroha Query will list all blocks
     pub struct FindAllBlocks;

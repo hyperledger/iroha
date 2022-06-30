@@ -286,7 +286,18 @@ pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
