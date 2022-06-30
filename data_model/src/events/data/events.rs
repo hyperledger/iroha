@@ -387,6 +387,20 @@ pub enum Event {
     Role(role::RoleEvent),
 }
 
+impl Event {
+    /// Return the domain id of [`Event`]
+    pub fn domain_id(&self) -> Option<&<Domain as Identifiable>::Id> {
+        match self {
+            Self::Domain(event) => Some(event.origin_id()),
+            Self::Account(event) => Some(&event.origin_id().domain_id),
+            Self::AssetDefinition(event) => Some(&event.origin_id().domain_id),
+            Self::Asset(event) => Some(&event.origin_id().definition_id.domain_id),
+            Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
+            Self::Peer(_) | Self::Role(_) => None,
+        }
+    }
+}
+
 impl From<WorldEvent> for SmallVec<[Event; 3]> {
     fn from(world_event: WorldEvent) -> Self {
         let mut events = SmallVec::new();
