@@ -19,7 +19,7 @@ use tokio::{sync::broadcast, task};
 use crate::{
     block::Chain,
     prelude::*,
-    smartcontracts::{isi::Error, wasm, Execute, FindError},
+    smartcontracts::{isi::query::Error as QueryError, isi::Error, wasm, Execute, FindError},
     DomainsMap, EventsSender, PeersIds,
 };
 
@@ -126,8 +126,9 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
+    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryError> {
         self.map_account(id, |account| account.assets().cloned().collect())
+        // .map_err(Into::into)
     }
 
     /// Returns a set of permission tokens granted to this account as part of roles and separately.
@@ -261,11 +262,11 @@ impl WorldStateView {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
-        self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
+    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryError> {
+        self.map_account(&id.account_id, |account| -> Result<Asset, QueryError> {
             account
                 .asset(id)
-                .ok_or_else(|| FindError::Asset(id.clone()))
+                .ok_or_else(|| QueryError::Find(Box::new(FindError::Asset(id.clone()))))
                 .map(Clone::clone)
         })?
     }
@@ -552,11 +553,9 @@ impl WorldStateView {
         &self,
         id: &AccountId,
         f: impl FnOnce(&Account) -> T,
-    ) -> Result<T, FindError> {
+    ) -> Result<T, QueryError> {
         let domain = self.domain(&id.domain_id)?;
-        let account = domain
-            .account(id)
-            .ok_or_else(|| FindError::Account(id.clone()))?;
+        let account = domain.account(id).ok_or_else(|| QueryError::Unauthorized)?;
         Ok(f(account))
     }
 

@@ -397,14 +397,13 @@ pub mod query {
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            wsv.asset(&id)
-                .map_err(
-                    |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
-                        Ok(_) => asset_err,
-                        Err(definition_err) => definition_err,
-                    },
-                )
-                .map_err(Into::into)
+            wsv.asset(&id).map_err(|asset_err| {
+                match wsv.asset_definition_entry(&id.definition_id) {
+                    Ok(_) => asset_err,
+                    Err(definition_err) => definition_err.into(),
+                }
+            })
+            // .map_err(Into::into)
         }
     }
 
@@ -545,7 +544,7 @@ pub mod query {
             wsv.asset(&id)
                 .map_err(
                     |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
-                        Ok(_) => Error::Find(Box::new(asset_err)),
+                        Ok(_) => asset_err,
                         Err(definition_err) => Error::Find(Box::new(definition_err)),
                     },
                 )?
@@ -573,7 +572,7 @@ pub mod query {
             let asset = wsv.asset(&id).map_err(|asset_err| {
                 match wsv.asset_definition_entry(&id.definition_id) {
                     Ok(_) => asset_err,
-                    Err(definition_err) => definition_err,
+                    Err(definition_err) => Error::Find(Box::new(definition_err)),
                 }
             })?;
             iroha_logger::trace!(%id, %key);
