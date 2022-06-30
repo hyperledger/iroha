@@ -50,7 +50,7 @@ impl IsAllowed for OnlyAccountsDomain {
             FindTriggerById(query) => {
                 let id = try_evaluate_or_deny!(query.id, wsv);
                 wsv.triggers()
-                    .inspect(&id, |action| {
+                    .inspect_by_id(&id, |action| {
                         if action.technical_account() == authority {
                             Allow
                         } else {
@@ -67,7 +67,7 @@ impl IsAllowed for OnlyAccountsDomain {
             FindTriggerKeyValueByIdAndKey(query) => {
                 let id = try_evaluate_or_deny!(query.id, wsv);
                 wsv.triggers()
-                    .inspect(&id, |action| {
+                    .inspect_by_id(&id, |action| {
                         if action.technical_account() == authority {
                             Allow
                         } else {
@@ -329,7 +329,7 @@ impl IsAllowed for OnlyAccountsData {
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
                 let id = try_evaluate_or_deny!(query.id, wsv);
-                if wsv.triggers().inspect(&id, |action|
+                if wsv.triggers().inspect_by_id(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
                     return Allow
@@ -342,7 +342,7 @@ impl IsAllowed for OnlyAccountsData {
             FindTriggerKeyValueByIdAndKey(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
                 let id = try_evaluate_or_deny!(query.id, wsv);
-                if wsv.triggers().inspect(&id, |action|
+                if wsv.triggers().inspect_by_id(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
                     return Allow
