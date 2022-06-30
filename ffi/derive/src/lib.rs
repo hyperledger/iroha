@@ -192,7 +192,19 @@ fn find_repr(attrs: &[Attribute]) -> impl Iterator<Item = syn::NestedMeta> + '_ 
 
 fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     quote! {
-        impl iroha_ffi::Opaque for #name {}
+        impl iroha_ffi::opaque::Opaque for #name {}
+
+        impl iroha_ffi::FfiType for #name {
+            type FfiType = *mut Self;
+        }
+
+        impl iroha_ffi::IntoFfi for #name {
+            type Item = Self::FfiType;
+
+            fn into_ffi(self) -> Self::Item {
+                Box::into_raw(Box::new(self))
+            }
+        }
 
         impl iroha_ffi::OptionWrapped for #name {
             type FfiType = <Self as iroha_ffi::FfiType>::FfiType;
@@ -209,8 +221,7 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
 }
 
 fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
-    quote! {
-    }
+    quote! {}
 }
 
 fn derive_into_ffi_for_item(name: &Ident) -> TokenStream2 {
@@ -302,18 +313,21 @@ fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> T
         }
 
         impl iroha_ffi::IntoFfi for #enum_name {
-            fn into_ffi(self) -> <Self as iroha_ffi::FfiType>::FfiType {
+            type Item = Self::FfiType;
+
+            fn into_ffi(self) -> Self::Item {
                 self as <Self as iroha_ffi::FfiType>::FfiType
             }
         }
 
         impl iroha_ffi::AsFfi for #enum_name {
-            type Store = ();
+            type ItemRef = Self::FfiRef;
+            type ItemMut = Self::FfiMut;
 
-            fn as_ffi_ref(&self, _: &mut <Self as iroha_ffi::AsFfi>::Store) -> Self::FfiRef {
+            fn as_ffi_ref(&self) -> Self::ItemRef {
                 self as *const #enum_name as *const #ffi_type
             }
-            fn as_ffi_mut(&mut self, _: &mut <Self as iroha_ffi::AsFfi>::Store) -> Self::FfiMut {
+            fn as_ffi_mut(&mut self) -> Self::ItemMut {
                 self as *mut #enum_name as *mut #ffi_type
             }
         }
@@ -360,7 +374,9 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
 
     quote! {
         impl iroha_ffi::TryFromFfi for #enum_name {
-            unsafe fn try_from_ffi(source: <Self as iroha_ffi::FfiType>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
+            type Item = Self;
+
+            unsafe fn try_from_ffi(source: <Self as iroha_ffi::FfiType>::FfiType) -> Result<Self::Item, iroha_ffi::FfiResult> {
                 #( #discriminants )*
 
                 match source {
@@ -371,13 +387,11 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
             }
         }
 
-        impl iroha_ffi::TryAsRust for #enum_name {
-            type Store = ();
+        impl<'itm> iroha_ffi::TryAsRust<'itm> for #enum_name {
+            type ItemRef = &'itm Self;
+            type ItemMut = &'itm mut Self;
 
-            unsafe fn try_as_rust_ref(
-                source: Self::FfiRef,
-                _: &mut <Self as iroha_ffi::TryAsRust>::Store,
-            ) -> Result<&Self, iroha_ffi::FfiResult> {
+            unsafe fn try_as_rust_ref(source: Self::FfiRef) -> Result<Self::ItemRef, iroha_ffi::FfiResult> {
                 #( #discriminants )*
 
                 match *source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)? {
@@ -387,10 +401,7 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
                 }
             }
 
-            unsafe fn try_as_rust_mut(
-                source: Self::FfiMut,
-                _: &mut <Self as iroha_ffi::TryAsRust>::Store,
-            ) -> Result<&mut Self, iroha_ffi::FfiResult> {
+            unsafe fn try_as_rust_mut(source: Self::FfiMut) -> Result<Self::ItemMut, iroha_ffi::FfiResult> {
                 #( #discriminants )*
 
                 match *source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)? {

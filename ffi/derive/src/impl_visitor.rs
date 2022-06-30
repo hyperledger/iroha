@@ -1,6 +1,6 @@
 use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
-use syn::{parse_quote, visit::Visit, Ident, Type, visit_mut::VisitMut};
+use syn::{parse_quote, visit::Visit, visit_mut::VisitMut, Ident, Type};
 
 use crate::{get_ident, SelfResolver};
 
@@ -83,10 +83,10 @@ impl Arg for Receiver<'_> {
 
 impl Arg for InputArg<'_> {
     fn name(&self) -> &Ident {
-        &self.name
+        self.name
     }
     fn src_type(&self) -> &Type {
-        &self.type_
+        self.type_
     }
     fn src_type_resolved(&self) -> Type {
         resolve_src_type(self.self_ty, self.type_.clone())
@@ -128,14 +128,14 @@ fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type) -> Type {
         //ImplTraitResolver::new().visit_type(&mut out_src_type);
     }
 
-    if let Type::Reference(ref_type) = arg_type {
+    if let Type::Reference(ref_type) = &arg_type {
         let elem = &ref_type.elem;
 
-        return if ref_type.mutability.is_some() {
-            parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiMut}
-        } else {
-            parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiRef}
-        };
+        if ref_type.mutability.is_some() {
+            return parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiMut};
+        }
+
+        return parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiRef};
     }
 
     parse_quote! {<#arg_type as iroha_ffi::FfiType>::FfiType}
