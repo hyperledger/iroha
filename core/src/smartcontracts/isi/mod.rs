@@ -41,7 +41,7 @@ pub mod error {
     #[derive(Debug, Error)]
     pub enum Error {
         /// Failed to find some entity
-        #[error("Failed to find")]
+        #[error("Failed to find. {0}")]
         Find(#[from] Box<FindError>),
         /// Failed to assert type
         #[error("Type assertion failed. {0}")]
