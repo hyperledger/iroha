@@ -85,6 +85,8 @@ impl Limits {
     Deserialize,
     Serialize,
     IntoSchema,
+    PartialOrd,
+    Ord,
 )]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
