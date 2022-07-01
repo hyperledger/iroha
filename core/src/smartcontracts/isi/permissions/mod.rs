@@ -451,7 +451,7 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
+        let mut wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         let validator = HasTestToken.into_validator();
         assert!(wsv.add_account_permission(&bob_id, TestToken.into()));
         assert!(validator

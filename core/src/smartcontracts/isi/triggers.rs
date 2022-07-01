@@ -25,7 +25,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
@@ -81,7 +81,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger_id = self.object_id.clone();
 
@@ -105,7 +105,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let id = self.destination_id;
 
@@ -136,7 +136,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
@@ -158,9 +158,11 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let id = self.trigger_id;
+
+            let mut acc = std::sync::Mutex::new(Vec::new());
 
             wsv.triggers()
                 .inspect_by_id(&id, |action| -> Result<(), Self::Error> {
@@ -172,13 +174,18 @@ pub mod isi {
                             false
                         };
                     if allow_execute {
-                        wsv.execute_trigger(id.clone(), authority.clone());
+                        acc.lock().unwrap().push((id.clone(), authority.clone()));
                         Ok(())
                     } else {
                         Err(ValidationError::new("Unauthorized trigger execution").into())
                     }
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?;
+            let new_array = acc.lock().unwrap().clone();
+            for (id, authority) in new_array {
+                wsv.execute_trigger(id, authority);
+            }
+            Ok(())
         }
     }
 }
