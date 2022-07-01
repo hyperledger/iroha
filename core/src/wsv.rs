@@ -19,7 +19,10 @@ use tokio::{sync::broadcast, task};
 use crate::{
     block::Chain,
     prelude::*,
-    smartcontracts::{isi::query::Error as QueryError, isi::Error, wasm, Execute, FindError},
+    smartcontracts::{
+        isi::{query::Error as QueryError, Error},
+        wasm, Execute, FindError,
+    },
     DomainsMap, EventsSender, PeersIds,
 };
 

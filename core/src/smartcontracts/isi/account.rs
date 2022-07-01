@@ -13,7 +13,10 @@ use crate::{ValidQuery, WorldStateView};
 /// - grant permissions and roles
 /// - Revoke permissions or roles
 pub mod isi {
-    use super::{super::prelude::*, super::query::Error as QueryError, *};
+    use super::{
+        super::{prelude::*, query::Error as QueryError},
+        *,
+    };
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
