@@ -10,6 +10,7 @@ use iroha_core::{
     prelude::*,
     queue::{self, Queue},
     smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
+    sumeragi::Sumeragi,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -30,12 +31,12 @@ pub mod routing;
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
     iroha_cfg: super::Configuration,
-    wsv: Arc<WorldStateView>,
     queue: Arc<Queue>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed>,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
+    sumeragi: Arc<Sumeragi>,
 }
 
 /// Torii errors.

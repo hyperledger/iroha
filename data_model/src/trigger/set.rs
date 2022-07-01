@@ -40,19 +40,19 @@ pub struct RepeatsOverflowError;
 #[derive(Debug, Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
-    data_triggers: DashMap<Id, Action<DataEventFilter>>,
+    pub data_triggers: DashMap<Id, Action<DataEventFilter>>,
     /// Triggers using [`PipelineEventFilter`]
-    pipeline_triggers: DashMap<Id, Action<PipelineEventFilter>>,
+    pub pipeline_triggers: DashMap<Id, Action<PipelineEventFilter>>,
     /// Triggers using [`TimeEventFilter`]
-    time_triggers: DashMap<Id, Action<TimeEventFilter>>,
+    pub time_triggers: DashMap<Id, Action<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
-    by_call_triggers: DashMap<Id, Action<ExecuteTriggerEventFilter>>,
+    pub by_call_triggers: DashMap<Id, Action<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: DashMap<Id, EventType>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     /// Not being cloned
-    matched_ids: RwLock<Vec<(EventType, Id)>>,
+    pub matched_ids: Vec<(EventType, Id)>,
 }
 
 impl Clone for Set {
@@ -63,7 +63,7 @@ impl Clone for Set {
             time_triggers: self.time_triggers.clone(),
             by_call_triggers: self.by_call_triggers.clone(),
             ids: self.ids.clone(),
-            matched_ids: RwLock::new(Vec::new()),
+            matched_ids: Vec::new(),
         }
     }
 }
@@ -220,23 +220,51 @@ impl Set {
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::handle_data_event()`] call
-    pub fn handle_data_event(&self, event: &DataEvent) {
-        self.handle_event(&self.data_triggers, event, EventType::Data)
+    pub fn handle_data_event(&mut self, event: &DataEvent) {
+        for entry in &self.data_triggers {
+            let action = entry.value();
+            if !action.filter.matches(event) {
+                return;
+            }
+
+            if let Repeats::Exactly(atomic) = &action.repeats {
+                if atomic.get() == 0 {
+                    return;
+                }
+            }
+
+            self.matched_ids
+                .push((EventType::Data, entry.key().clone()));
+        }
     }
 
     /// Handle [`PipelineEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::inspect_matched()`] call
-    pub fn handle_pipeline_event(&self, event: &PipelineEvent) {
-        self.handle_event(&self.pipeline_triggers, event, EventType::Pipeline)
+    pub fn handle_pipeline_event(&mut self, event: &PipelineEvent) {
+        for entry in &self.pipeline_triggers {
+            let action = entry.value();
+            if !action.filter.matches(event) {
+                return;
+            }
+
+            if let Repeats::Exactly(atomic) = &action.repeats {
+                if atomic.get() == 0 {
+                    return;
+                }
+            }
+
+            self.matched_ids
+                .push((EventType::Pipeline, entry.key().clone()));
+        }
     }
 
     /// Handle [`TimeEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::inspect_matched()`] call
-    pub fn handle_time_event(&self, event: &TimeEvent) {
+    pub fn handle_time_event(&mut self, event: &TimeEvent) {
         for entry in &self.time_triggers {
             let action = entry.value();
 
@@ -254,7 +282,7 @@ impl Set {
                     .try_into()
                     .expect("`u32` should always fit in `usize`")
             ];
-            task::block_in_place(|| self.matched_ids.blocking_write()).extend(ids)
+            self.matched_ids.extend(ids);
         }
     }
 
@@ -262,20 +290,8 @@ impl Set {
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected ln the next [`Set::inspect_matched()`] call
-    pub fn handle_execute_trigger_event(&self, event: &ExecuteTriggerEvent) {
-        self.handle_event(&self.by_call_triggers, event, EventType::ExecuteTrigger)
-    }
-
-    /// Handle generic event
-    fn handle_event<F, E>(
-        &self,
-        triggers: &DashMap<Id, Action<F>>,
-        event: &E,
-        event_type: EventType,
-    ) where
-        F: Filter<EventType = E>,
-    {
-        for entry in triggers {
+    pub fn handle_execute_trigger_event(&mut self, event: &ExecuteTriggerEvent) {
+        for entry in &self.by_call_triggers {
             let action = entry.value();
             if !action.filter.matches(event) {
                 return;
@@ -287,8 +303,8 @@ impl Set {
                 }
             }
 
-            task::block_in_place(|| self.matched_ids.blocking_write())
-                .push((event_type, entry.key().clone()))
+            self.matched_ids
+                .push((EventType::ExecuteTrigger, entry.key().clone()));
         }
     }
 
@@ -305,12 +321,12 @@ impl Set {
     /// Failed actions won't appear on the next `inspect_matched()` call if they don't match new
     /// events by calling `handle_` methods.
     /// Repeats count of failed actions won't be decreased.
-    pub async fn inspect_matched<F, E>(&self, f: F) -> std::result::Result<(), Vec<E>>
+    pub fn inspect_matched<F, E>(&mut self, f: F) -> std::result::Result<(), Vec<E>>
     where
-        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
+        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send,
         E: Send + Sync,
     {
-        let (succeed, res) = self.map_matched(f).await;
+        let (succeed, res) = self.map_matched(f);
 
         for id in &succeed {
             // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
@@ -336,17 +352,18 @@ impl Set {
     ///
     /// Returns vector of successfully executed triggers
     /// and result with errors vector if there are some
-    async fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, std::result::Result<(), Vec<E>>)
+    fn map_matched<F, E>(&mut self, f: F) -> (Vec<Id>, std::result::Result<(), Vec<E>>)
     where
-        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
+        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send,
         E: Send + Sync,
     {
-        let succeed = Arc::new(RwLock::new(Vec::new()));
-        let errors = Arc::new(RwLock::new(Vec::new()));
+        let mut succeed = Vec::new();
+        let mut errors = Vec::new();
 
-        let succeed_clone = Arc::clone(&succeed);
-        let errors_clone = Arc::clone(&errors);
-        let apply_f = move |id: Id, action: &dyn ActionTrait| {
+        let apply_f = move |succeed_clone: &mut Vec<_>,
+                            errors_clone: &mut Vec<_>,
+                            id: Id,
+                            action: &dyn ActionTrait| {
             if let Repeats::Exactly(atomic) = action.repeats() {
                 if atomic.get() == 0 {
                     return;
@@ -354,18 +371,15 @@ impl Set {
             }
 
             match f(action) {
-                Ok(()) => task::block_in_place(|| succeed_clone.blocking_write()).push(id),
-                Err(err) => task::block_in_place(|| errors_clone.blocking_write()).push(err),
+                Ok(()) => succeed_clone.push(id),
+                Err(err) => errors_clone.push(err),
             }
         };
 
         // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
-        let matched_ids = {
-            let mut ids_write = self.matched_ids.write().await;
-            let ids_clone = ids_write.clone();
-            ids_write.clear();
-            ids_clone
-        };
+        let mut matched_ids = Vec::new();
+        std::mem::swap(&mut matched_ids, &mut self.matched_ids);
+
         for (event_type, id) in matched_ids {
             // Ignoring `None` variant cause this means that action was deleted after `handle_`
             // call and before `inspect_matching()` call
@@ -373,32 +387,28 @@ impl Set {
                 EventType::Data => self
                     .data_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(&mut succeed, &mut errors, id, entry.value())),
                 EventType::Pipeline => self
                     .pipeline_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(&mut succeed, &mut errors, id, entry.value())),
                 EventType::Time => self
                     .time_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(&mut succeed, &mut errors, id, entry.value())),
                 EventType::ExecuteTrigger => self
                     .by_call_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(&mut succeed, &mut errors, id, entry.value())),
             };
-
-            task::yield_now().await;
         }
 
         drop(apply_f);
-        let succeed = Self::unwrap_arc_lock(succeed);
 
-        if errors.read().await.is_empty() {
+        if errors.is_empty() {
             return (succeed, Ok(()));
         }
 
-        let errors = Self::unwrap_arc_lock(errors);
         (succeed, Err(errors))
     }
 
@@ -418,7 +428,7 @@ impl Set {
     }
 
     /// Remove actions with zero execution count from `triggers`
-    fn remove_zeros<F: Filter>(&self, triggers: &DashMap<Id, Action<F>>) {
+    pub fn remove_zeros<F: Filter>(&self, triggers: &DashMap<Id, Action<F>>) {
         let to_remove: Vec<Id> = triggers
             .iter()
             .filter_map(|entry| {

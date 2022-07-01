@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_all_blocks() -> Result<()> {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+        let mut wsv = WorldStateView::new(world_with_test_domains());
 
         let validator = TransactionValidator::new(
             TransactionLimits {
@@ -232,19 +232,18 @@ mod tests {
             },
             AllowAll::new(),
             AllowAll::new(),
-            Arc::clone(&wsv),
         );
 
         let first_block = PendingBlock::new(vec![], vec![])
             .chain_first()
-            .validate(&validator)
+            .validate(&validator, &mut wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
 
         let mut curr_hash = first_block.hash();
 
-        wsv.apply(first_block).await?;
+        wsv.apply(first_block)?;
 
         let num_blocks: u64 = 100;
 
@@ -256,12 +255,12 @@ mod tests {
                     crate::sumeragi::view_change::ProofChain::empty(),
                     vec![],
                 )
-                .validate(&validator)
+                .validate(&validator, &mut wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
                 .commit();
             curr_hash = block.hash();
-            wsv.apply(block).await?;
+            wsv.apply(block)?;
         }
 
         let blocks = FindAllBlocks::new().execute(&wsv)?;
@@ -274,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_all_transactions() -> Result<()> {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+        let mut wsv = WorldStateView::new(world_with_test_domains());
         let limits = TransactionLimits {
             max_instruction_number: 1,
             max_wasm_size_bytes: 0,
@@ -298,19 +297,17 @@ mod tests {
 
         let first_block = PendingBlock::new(vec![], vec![])
             .chain_first()
-            .validate(&TransactionValidator::new(
-                limits,
-                AllowAll::new(),
-                AllowAll::new(),
-                Arc::clone(&wsv),
-            ))
+            .validate(
+                &TransactionValidator::new(limits, AllowAll::new(), AllowAll::new()),
+                &mut wsv,
+            )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
 
         let mut curr_hash = first_block.hash();
 
-        wsv.apply(first_block).await?;
+        wsv.apply(first_block)?;
 
         let num_blocks: u64 = 100;
 
@@ -322,17 +319,15 @@ mod tests {
                     crate::sumeragi::view_change::ProofChain::empty(),
                     vec![],
                 )
-                .validate(&TransactionValidator::new(
-                    limits,
-                    AllowAll::new(),
-                    AllowAll::new(),
-                    Arc::clone(&wsv),
-                ))
+                .validate(
+                    &TransactionValidator::new(limits, AllowAll::new(), AllowAll::new()),
+                    &mut wsv,
+                )
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
                 .commit();
             curr_hash = block.hash();
-            wsv.apply(block).await?;
+            wsv.apply(block)?;
         }
 
         let txs = FindAllTransactions::new().execute(&wsv)?;
@@ -357,7 +352,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+        let mut wsv = WorldStateView::new(world_with_test_domains());
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
@@ -374,16 +369,14 @@ mod tests {
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
-            .validate(&TransactionValidator::new(
-                tx_limits,
-                AllowAll::new(),
-                AllowAll::new(),
-                Arc::clone(&wsv),
-            ))
+            .validate(
+                &TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new()),
+                &mut wsv,
+            )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
-        wsv.apply(vcb).await?;
+        wsv.apply(vcb)?;
 
         let wrong_hash: Hash = HashOf::new(&2_u8).into();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);

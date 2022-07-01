@@ -19,7 +19,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let peer_id = self.object.id;
 
@@ -43,7 +43,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let peer_id = self.object_id;
             wsv.modify_world(|world| {
@@ -63,7 +63,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain: Domain = self.object.build();
             let domain_id = domain.id().clone();
@@ -97,7 +97,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
@@ -121,7 +121,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let role = self.object.build();
 
@@ -148,7 +148,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
 

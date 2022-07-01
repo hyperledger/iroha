@@ -22,7 +22,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
@@ -78,7 +78,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger_id = self.object_id.clone();
             wsv.modify_triggers(|triggers| {
@@ -101,7 +101,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let id = self.destination_id;
 
@@ -132,7 +132,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
@@ -154,7 +154,7 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             wsv.execute_trigger(self.trigger_id, authority);
             Ok(())

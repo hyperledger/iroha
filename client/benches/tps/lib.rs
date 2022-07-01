@@ -79,14 +79,14 @@ impl Config {
         let elapsed_secs = timer.elapsed().as_secs_f64();
         thread::sleep(core::time::Duration::from_secs(2));
         let blocks_out_of_measure = 1 + 2 * self.peers;
-        let mut blocks = network
+        let mut blocks_wsv = network
             .genesis
             .iroha
             .as_ref()
             .expect("Must be some")
-            .wsv
-            .blocks()
-            .skip(blocks_out_of_measure as usize);
+            .sumeragi
+            .get_clone_of_world_state_view();
+        let mut blocks = blocks_wsv.blocks().skip(blocks_out_of_measure as usize);
         let (txs_accepted, txs_rejected) = (0..self.blocks)
             .map(|_| {
                 let block = blocks

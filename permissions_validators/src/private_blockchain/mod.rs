@@ -129,7 +129,7 @@ mod tests {
 
             let world = World::with([wonderland.clone(), denoland.clone()], Vec::new());
 
-            let wsv = WorldStateView::new(world);
+            let mut wsv = WorldStateView::new(world);
 
             let mintbox_gold_trigger_id =
                 TriggerId::from_str("mint_box_gold_asset").expect("Valid");

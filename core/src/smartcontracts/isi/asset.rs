@@ -23,15 +23,15 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
-            wsv.modify_asset(&asset_id, |asset| {
-                let asset_metadata_limits = wsv.config.asset_metadata_limits;
+            let asset_metadata_limits = wsv.config.asset_metadata_limits.clone();
 
+            wsv.modify_asset(&asset_id, |asset| {
                 let store: &mut Metadata = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -50,7 +50,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
 
@@ -80,7 +80,7 @@ pub mod isi {
                 fn execute(
                     self,
                     authority: AccountId,
-                    wsv: &WorldStateView,
+                    wsv: &mut WorldStateView,
                 ) -> Result<(), Self::Error> {
                     <$ty as InnerMint>::execute(self, authority, wsv)
                 }
@@ -99,7 +99,7 @@ pub mod isi {
                 fn execute(
                     self,
                     authority: AccountId,
-                    wsv: &WorldStateView,
+                    wsv: &mut WorldStateView,
                 ) -> Result<(), Self::Error> {
                     <$ty as InnerBurn>::execute(self, authority, wsv)
                 }
@@ -118,7 +118,7 @@ pub mod isi {
                 fn execute(
                     self,
                     authority: AccountId,
-                    wsv: &WorldStateView,
+                    wsv: &mut WorldStateView,
                 ) -> Result<(), Self::Error> {
                     <$ty as InnerTransfer>::execute(self, authority, wsv)
                 }
@@ -143,7 +143,7 @@ pub mod isi {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -163,6 +163,7 @@ pub mod isi {
                 &asset_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
+            let metrics_arc = wsv.metrics.clone();
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -171,7 +172,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(mint.object)
                     .ok_or(MathError::Overflow)?;
-                wsv.metrics.tx_amounts.observe((*quantity).into_metric());
+                metrics_arc.tx_amounts.observe((*quantity).into_metric());
 
                 Ok(AssetEvent::Added(asset_id.clone()))
             })?;
@@ -184,7 +185,7 @@ pub mod isi {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -200,6 +201,7 @@ pub mod isi {
                 wsv,
                 <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
             )?;
+            let metrics_arc = wsv.metrics.clone();
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -208,7 +210,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(burn.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                wsv.metrics.tx_amounts.observe((*quantity).into_metric());
+                metrics_arc.tx_amounts.observe((*quantity).into_metric());
 
                 Ok(AssetEvent::Removed(asset_id.clone()))
             })?;
@@ -221,7 +223,7 @@ pub mod isi {
         fn execute<Err>(
             transfer: Transfer<Asset, Self, Asset>,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -252,6 +254,7 @@ pub mod isi {
 
                 Ok(AssetEvent::Removed(transfer.source_id.clone()))
             })?;
+            let metrics_arc = wsv.metrics.clone();
             wsv.modify_asset(&transfer.destination_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -260,7 +263,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(transfer.object)
                     .ok_or(MathError::Overflow)?;
-                wsv.metrics.tx_amounts.observe((*quantity).into_metric());
+                metrics_arc.tx_amounts.observe((*quantity).into_metric());
 
                 Ok(AssetEvent::Added(transfer.destination_id.clone()))
             })?;
@@ -311,7 +314,7 @@ pub mod isi {
     /// Assert that this asset is `mintable`.
     fn assert_can_mint(
         definition_id: &AssetDefinitionId,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
