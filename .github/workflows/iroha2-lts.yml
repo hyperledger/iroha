@@ -1,0 +1,68 @@
+name: I2::Release::Deploy
+
+on:
+  push:
+    branches: [iroha2-lts]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux]
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v1
+        id: buildx
+        with:
+          install: true
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:lts
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+      - name: Build and push docker image (iroha_client_cli)
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:client-cli-lts
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_client_cli
+      - name: Build and push docker image (kagami)
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:kagami-lts
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=kagami
+
+      - name: Build and push docker image (load-rs:release)
+        run: |
+          sleep 10s
+          echo "wait to finish other workflow"
+      - uses: convictional/trigger-workflow-and-wait@v1.6.0
+        with:
+          owner: soramitsu
+          repo: iroha2-longevity-load-rs
+          github_token: ${{ secrets.G_ACCESS_TOKEN }}
+          workflow_file_name: load-rs-push-from-release.yaml
+          ref: release

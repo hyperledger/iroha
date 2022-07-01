@@ -1,0 +1,140 @@
+name: I2::Release::Tests
+
+on:
+  pull_request:
+    branches: [iroha2-lts]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cli-test:
+    runs-on: [self-hosted, linux]
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: Build Client CLI
+        run: mold --run cargo build
+        working-directory: client_cli
+      - name: Build Iroha Peer
+        run: mold --run cargo build
+        working-directory: cli
+      - name: Mark both binaries as executable
+        run: |
+          chmod +x target/debug/iroha
+          chmod +x target/debug/iroha_client_cli
+      - name: Setup test environment
+        run: bash -c './scripts/test_env.sh setup'
+      - name: Genesis test
+        run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0.log; false )'
+      - name: Basic register and mint
+        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0.log; false )'
+        if: always()
+      - name: Cleanup test environment
+        run: bash -c './scripts/test_env.sh cleanup'
+      - name: Panic on invalid genesis test
+        run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
+
+  docker-test:
+    # This workflow is too unreliable to enable. Even for
+    # releases. The communication with docker from inside docker fails
+    # sometimes, works other times it doesn't. In the interest of not
+    # burning CI hours, we will instead run these tests locally, and
+    # push the docker image from main only after QA passes.
+    runs-on: [self-hosted, linux]
+    if: ${{ false }}
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build Client CLI
+        run: mold --run cargo build
+        working-directory: client_cli
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: false
+          tags: hyperledger/iroha2:dev
+      - name: Setup test environment
+        run: bash -c './scripts/test_env.sh setup docker'
+      - name: Genesis test
+        run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0.log; false )'
+      - name: Basic register and mint
+        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0.log; false )'
+        if: always()
+      - name: Cleanup test environment
+        run: bash -c './scripts/test_env.sh cleanup docker'
+
+
+  bench:
+    runs-on: [self-hosted, Linux]
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: Run benchmarks
+        run: mold --run cargo bench --workspace --quiet
+
+# ------------------------------ SDK tests go here ------------------------
+
+  java-api-test:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.11
+      - name: Cache Gradle packages
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Build Iroha Peer
+        run: mold --run cargo build
+        working-directory: cli
+      - name: Build Client CLI
+        run: mold --run cargo build
+        working-directory: client_cli
+      - name: Mark both binaries as executable
+        run: |
+          chmod +x target/debug/iroha
+          chmod +x target/debug/iroha_client_cli
+      - name: Setup test environment
+        run: ./scripts/test_env.sh setup
+      - name: Test iroha2-java API
+        run: ./scripts/API/java.sh setup && ./scripts/API/java.sh run
+      - name: Cleanup test iroha2-java API
+        run: ./scripts/API/java.sh cleanup
+      - name: Cleanup test environment
+        run: ./scripts/test_env.sh cleanup
+      - name: Cleanup Gradle Cache
+        # Remove some files from the Gradle cache, so they aren't
+        # cached by GitHub Actions.  Restoring these files from a
+        # GitHub Actions cache might cause problems for future builds.
+        run: |
+          rm -f ~/.gradle/caches/modules-2/modules-2.lock
+          rm -f ~/.gradle/caches/modules-2/gc.properties
+
+  long-tests:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run long tests
+        run: mold --run cargo test --workspace --no-fail-fast -- --ignored --test-threads=1 long
