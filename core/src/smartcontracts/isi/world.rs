@@ -19,7 +19,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let peer_id = self.object.id;
 
@@ -43,7 +43,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let peer_id = self.object_id;
             wsv.modify_world(|world| {
@@ -63,7 +63,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain: Domain = self.object.build();
             let domain_id = domain.id().clone();
@@ -97,7 +97,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
@@ -121,7 +121,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let definition = self.object;
             let definition_id = definition.id().clone();
@@ -152,7 +152,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let role = self.object.build();
 
@@ -190,7 +190,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
 
@@ -234,7 +234,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let definition_id = self.object_id;
 
@@ -256,7 +256,7 @@ pub mod isi {
 
     /// Remove all tokens with specified definition id from all registered roles
     fn remove_token_from_roles(
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
     ) -> Result<(), Error> {
         let mut roles_containing_token = Vec::new();
@@ -292,7 +292,7 @@ pub mod isi {
 
     /// Remove all tokens with specified definition id from all accounts in all domains
     fn remove_token_from_accounts(
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
     ) -> Result<(), Error> {
         let mut accounts_with_token = std::collections::HashMap::new();

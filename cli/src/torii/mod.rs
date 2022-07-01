@@ -14,7 +14,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::isi::query,
+    sumeragi::Sumeragi,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -34,12 +34,12 @@ pub mod routing;
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
     iroha_cfg: super::Configuration,
-    wsv: Arc<WorldStateView>,
     queue: Arc<Queue>,
     events: EventsSender,
     query_judge: QueryJudgeArc,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
+    sumeragi: Arc<Sumeragi>,
 }
 
 /// Torii errors.
@@ -47,7 +47,7 @@ pub struct Torii {
 pub enum Error {
     /// Failed to execute or validate query
     #[error("Failed to execute or validate query")]
-    Query(#[from] query::Error),
+    Query(#[from] iroha_core::smartcontracts::query::Error),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
     VersionedTransaction(#[source] iroha_version::error::Error),
@@ -86,8 +86,8 @@ pub enum Error {
 }
 
 /// Status code for query error response.
-pub(crate) const fn query_status_code(query_error: &query::Error) -> StatusCode {
-    use query::Error::*;
+pub(crate) const fn query_status_code(query_error: &iroha_core::smartcontracts::query::Error) -> StatusCode {
+    use iroha_core::smartcontracts::query::Error::*;
     match query_error {
         Decode(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
         Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
