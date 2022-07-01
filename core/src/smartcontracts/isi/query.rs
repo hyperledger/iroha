@@ -204,8 +204,8 @@ mod tests {
         blocks: u64,
         valid_tx_per_block: usize,
         invalid_tx_per_block: usize,
-    ) -> Result<Arc<WorldStateView>> {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+    ) -> Result<WorldStateView> {
+        let mut wsv = WorldStateView::new(world_with_test_domains());
 
         let limits = TransactionLimits {
             max_instruction_number: 1,
@@ -237,15 +237,14 @@ mod tests {
                 limits,
                 Arc::new(AllowAll::new()),
                 Arc::new(AllowAll::new()),
-                Arc::clone(&wsv),
-            ))
+            ), &wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
 
         let mut curr_hash = first_block.hash();
 
-        wsv.apply(first_block).await?;
+        wsv.apply(first_block)?;
 
         for height in 1u64..blocks {
             let block = PendingBlock::new(transactions.clone(), vec![])
@@ -259,13 +258,12 @@ mod tests {
                     limits,
                     Arc::new(AllowAll::new()),
                     Arc::new(AllowAll::new()),
-                    Arc::clone(&wsv),
-                ))
+                ), &wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
                 .commit();
             curr_hash = block.hash();
-            wsv.apply(block).await?;
+            wsv.apply(block)?;
         }
 
         Ok(wsv)
@@ -373,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+        let mut wsv = WorldStateView::new(world_with_test_domains());
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
@@ -394,12 +392,11 @@ mod tests {
                 tx_limits,
                 Arc::new(AllowAll::new()),
                 Arc::new(AllowAll::new()),
-                Arc::clone(&wsv),
-            ))
+            ), &wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
-        wsv.apply(vcb).await?;
+        wsv.apply(vcb)?;
 
         let wrong_hash: Hash = HashOf::new(&2_u8).into();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);

@@ -55,7 +55,7 @@ impl VerifiedQueryRequest {
     /// - Account has incorrect permissions.
     pub fn validate(
         self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         query_judge: &dyn Judge<Operation = QueryBox>,
     ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
@@ -66,10 +66,11 @@ impl VerifiedQueryRequest {
                 "Signature public key doesn't correspond to the account.",
             )));
         }
+        let mut wsv_cloned = wsv.clone();
         query_judge
             .judge(&self.payload.account_id, &self.payload.query, wsv)
             .and_then(|_| {
-                wsv.validators_view()
+                wsv_cloned.validators_view()
                     .validate(wsv, self.payload.query.clone())
             })
             .map_err(QueryError::Permission)?;
@@ -99,8 +100,10 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 pub(crate) async fn handle_instructions(
     iroha_cfg: Configuration,
     queue: Arc<Queue>,
+    sumeragi: Arc<Sumeragi>,
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
+    let wsv = sumeragi.get_clone_of_world_state_view(); // This probably means this function doesn't work
     let transaction: SignedTransaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
@@ -108,7 +111,7 @@ pub(crate) async fn handle_instructions(
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    let push_result = queue.push(transaction).map_err(|(_, err)| err);
+    let push_result = queue.push(transaction, &wsv).map_err(|(_, err)| err);
     if let Err(ref error) = push_result {
         iroha_logger::warn!(%error, "Failed to push into queue")
     }
@@ -120,13 +123,14 @@ pub(crate) async fn handle_instructions(
 
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_queries(
-    wsv: Arc<WorldStateView>,
+    sumeragi: Arc<Sumeragi>,
     query_judge: QueryJudgeArc,
     pagination: Pagination,
     sorting: Sorting,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
+    let mut wsv = sumeragi.get_clone_of_world_state_view();
+    let (valid_request, filter) = request.validate(&mut wsv, query_judge.as_ref())?;
     let original_result = valid_request.execute(&wsv)?;
     let result = filter.filter(original_result);
 
@@ -201,11 +205,13 @@ async fn handle_schema() -> Json {
 #[iroha_futures::telemetry_future]
 async fn handle_pending_transactions(
     queue: Arc<Queue>,
+    sumeragi: Arc<Sumeragi>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
+    let wsv = sumeragi.get_clone_of_world_state_view();
     Ok(Scale(
         queue
-            .all_transactions()
+            .all_transactions(&wsv)
             .into_iter()
             .map(VersionedAcceptedTransaction::into_v1)
             .map(SignedTransaction::from)
@@ -254,23 +260,28 @@ async fn handle_post_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_blocks_stream(wsv: &WorldStateView, mut stream: WebSocket) -> eyre::Result<()> {
-    let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
-    let mut from_height = subscription_request.into_v1().try_into()?;
+async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) -> eyre::Result<()> {
+    /*
+        TODO REDO
 
-    stream
-        .send(VersionedBlockPublisherMessage::from(
-            BlockPublisherMessage::SubscriptionAccepted,
-        ))
-        .await?;
+        let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
+        let mut from_height = subscription_request.into_v1().try_into()?;
 
-    let mut rx = wsv.subscribe_to_new_block_notifications();
-    stream_blocks(&mut from_height, wsv, &mut stream).await?;
+        stream
+            .send(VersionedBlockPublisherMessage::from(
+                BlockPublisherMessage::SubscriptionAccepted,
+            ))
+            .await?;
 
-    loop {
-        rx.changed().await?;
-        stream_blocks(&mut from_height, wsv, &mut stream).await?;
+        let mut rx = wsv.subscribe_to_new_block_notifications();
+        stream_blocks(&mut from_height, &wsv, &mut stream).await?;
+
+        loop {
+            rx.changed().await?;
+            stream_blocks(&mut from_height, wsv, &mut stream).await?;
     }
+         */
+    Ok(())
 }
 
 async fn stream_blocks(
@@ -278,6 +289,8 @@ async fn stream_blocks(
     wsv: &WorldStateView,
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
+    /*
+    TODO REDO
     #[allow(clippy::expect_used)]
     for block in wsv.blocks_from_height(
         (*from_height)
@@ -297,7 +310,7 @@ async fn stream_blocks(
             return Err(eyre!("Expected `BlockReceived` message"));
         }
     }
-
+    */
     Ok(())
 }
 
@@ -384,33 +397,44 @@ mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-async fn handle_version(wsv: Arc<WorldStateView>) -> Json {
+async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     use iroha_version::Version;
-
-    #[allow(clippy::expect_used)]
-    reply::json(
-        &wsv.blocks()
-            .last()
-            .expect("At least genesis should always exist")
-            .value()
-            .version()
-            .to_string(),
+    /*
+        TODO REDO
+        #[allow(clippy::expect_used)]
+        reply::json(
+            &wsv.blocks()
+                .last()
+                .expect("At least genesis should always exist")
+                .value()
+                .version()
+                .to_string(),
     )
+         */
+    warp::reply::json(b"Not implemented")
 }
 
 #[cfg(feature = "telemetry")]
-async fn handle_metrics(wsv: Arc<WorldStateView>, network: Addr<IrohaNetwork>) -> Result<String> {
-    update_metrics(&wsv, network).await?;
-    wsv.metrics.try_to_string().map_err(Error::Prometheus)
+async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<String> {
+    /*
+        update_metrics(&wsv, network).await?;
+        wsv.metrics.try_to_string().map_err(Error::Prometheus)
+    */
+    Ok("".to_owned())
 }
 
 #[cfg(feature = "telemetry")]
-async fn handle_status(wsv: Arc<WorldStateView>, network: Addr<IrohaNetwork>) -> Result<Json> {
+async fn handle_status(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<Json> {
+    /*
     update_metrics(&wsv, network).await?;
     let status = Status::from(&wsv.metrics);
     Ok(reply::json(&status))
+     */
+
+    Ok(warp::reply::json(b"Not implemented"))
 }
 
+/*
 #[cfg(feature = "telemetry")]
 async fn update_metrics(wsv: &WorldStateView, network: Addr<IrohaNetwork>) -> Result<()> {
     let peers = network
@@ -439,26 +463,27 @@ async fn update_metrics(wsv: &WorldStateView, network: Addr<IrohaNetwork>) -> Re
     }
     Ok(())
 }
+*/
 
 impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
         iroha_cfg: Configuration,
-        wsv: Arc<WorldStateView>,
         queue: Arc<Queue>,
         query_judge: QueryJudgeArc,
         events: EventsSender,
         network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,
+        sumeragi: Arc<Sumeragi>,
     ) -> Self {
         Self {
             iroha_cfg,
-            wsv,
             events,
             query_judge,
             queue,
             network,
             notify_shutdown,
+            sumeragi,
         }
     }
 
@@ -469,15 +494,17 @@ impl Torii {
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router_status = endpoint2(
             handle_status,
-            warp::path(uri::STATUS).and(add_state!(self.wsv, self.network)),
+            warp::path(uri::STATUS).and(add_state!(self.sumeragi, self.network)),
         );
         let get_router_metrics = endpoint2(
             handle_metrics,
-            warp::path(uri::METRICS).and(add_state!(self.wsv, self.network)),
+            warp::path(uri::METRICS).and(add_state!(self.sumeragi, self.network)),
         );
         let get_api_version = warp::path(uri::API_VERSION)
-            .and(add_state!(self.wsv))
-            .and_then(|wsv: Arc<_>| async { Ok::<_, Infallible>(handle_version(wsv).await) });
+            .and(add_state!(self.sumeragi))
+            .and_then(|sumeragi: Arc<_>| async {
+                Ok::<_, Infallible>(handle_version(sumeragi).await)
+            });
 
         warp::get()
             .and(get_router_status)
@@ -492,10 +519,10 @@ impl Torii {
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
-            .or(endpoint2(
+            .or(endpoint3(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue))
+                    .and(add_state!(self.queue, self.sumeragi))
                     .and(paginate()),
             ))
             .or(endpoint2(
@@ -509,10 +536,10 @@ impl Torii {
         let get_router = get_router.or(warp::path(uri::SCHEMA)
             .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
 
-        let post_router = endpoint3(
+        let post_router = endpoint4(
             handle_instructions,
             warp::path(uri::TRANSACTION)
-                .and(add_state!(self.iroha_cfg, self.queue))
+                .and(add_state!(self.iroha_cfg, self.queue, self.sumeragi))
                 .and(warp::body::content_length_limit(
                     self.iroha_cfg.torii.max_content_len.into(),
                 ))
@@ -521,7 +548,7 @@ impl Torii {
         .or(endpoint5(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state!(self.wsv, self.query_judge))
+                .and(add_state!(self.sumeragi, self.query_judge))
                 .and(paginate())
                 .and(sorting())
                 .and(body::query()),
@@ -554,11 +581,11 @@ impl Torii {
             });
 
         let blocks_ws_router = block_ws_router_path
-            .and(add_state!(self.wsv))
+            .and(add_state!(self.sumeragi))
             .and(warp::ws())
-            .map(|wsv: Arc<_>, ws: Ws| {
+            .map(|sumeragi: Arc<_>, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = handle_blocks_stream(&wsv, this_ws).await {
+                    if let Err(error) = handle_blocks_stream(sumeragi, this_ws).await {
                         iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
                     }
                 })

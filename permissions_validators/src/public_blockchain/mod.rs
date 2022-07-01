@@ -233,7 +233,7 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
+        let mut wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         assert!(wsv.add_account_permission(
             &bob_id,
             transfer::CanTransferUserAssets::new(alice_xor_id.clone()).into()
@@ -303,7 +303,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let mut wsv = WorldStateView::new(World::with([domain], []));
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id.clone()));
         let validator = unregister::OnlyAssetsCreatedByThisAccount
             .or(unregister::GrantedByAssetCreator.into_validator());
@@ -382,7 +382,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let mut wsv = WorldStateView::new(World::with([domain], []));
         assert!(wsv.add_account_permission(
             &bob_id,
             mint::CanMintUserAssetDefinitions::new(xor_id).into()
@@ -463,7 +463,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], vec![]));
+        let mut wsv = WorldStateView::new(World::with([domain], vec![]));
         assert!(wsv.add_account_permission(
             &bob_id,
             burn::CanBurnAssetWithDefinition::new(xor_id).into()
@@ -530,7 +530,7 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::new(World::with([domain], vec![]));
+        let mut wsv = WorldStateView::new(World::with([domain], vec![]));
         assert!(wsv.add_account_permission(
             &bob_id,
             burn::CanBurnUserAssets::new(alice_xor_id.clone()).into()
