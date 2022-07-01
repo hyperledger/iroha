@@ -75,9 +75,8 @@ pub trait GenesisNetworkTrait:
     /// Returns error if waiting for peers or genesis round itself fails
     async fn submit_transactions<F: FaultInjection>(
         &self,
-        sumeragi: &mut SumeragiWithFault<Self, F>,
+        sumeragi: &mut SumeragiWithFault<F>,
         network: Addr<IrohaNetwork>,
-        ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, F>>,
     ) -> Result<()> {
         iroha_logger::debug!("Starting submit genesis");
         let genesis_topology = self
@@ -85,9 +84,7 @@ pub trait GenesisNetworkTrait:
             .await?;
         time::sleep(Duration::from_millis(self.genesis_submission_delay_ms())).await;
         iroha_logger::info!("Initializing iroha using the genesis block.");
-        sumeragi
-            .start_genesis_round(self.deref().clone(), genesis_topology, ctx)
-            .await
+        sumeragi.start_genesis_round(self.deref().clone(), genesis_topology)
     }
 
     /// See [`Configuration`] docs.

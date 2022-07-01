@@ -33,7 +33,6 @@ pub struct Kura {
     mode: Mode,
     block_store: Mutex<Box<dyn BlockStoreTrait + Send>>,
     block_hash_array: Mutex<Vec<HashOf<VersionedCommittedBlock>>>,
-    wsv: Arc<WorldStateView>,
     broker: Broker,
     block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
     block_sender: Sender<VersionedCommittedBlock>,
@@ -51,7 +50,6 @@ impl Kura {
     pub fn new(
         mode: Mode,
         block_store_path: &Path,
-        wsv: Arc<WorldStateView>,
         broker: Broker,
         block_channel_size: u32,
     ) -> Result<Arc<Self>> {
@@ -68,7 +66,6 @@ impl Kura {
             mode,
             block_store: Mutex::new(Box::new(block_store)),
             block_hash_array: Mutex::new(Vec::new()),
-            wsv,
             broker,
             block_reciever: Mutex::new(block_reciever),
             block_sender,
@@ -94,13 +91,11 @@ impl Kura {
     /// path in the configuration.
     pub fn from_configuration(
         configuration: &Configuration,
-        wsv: Arc<WorldStateView>,
         broker: Broker,
     ) -> Result<Arc<Self>> {
         Self::new(
             configuration.init_mode,
             Path::new(&configuration.block_store_path),
-            wsv,
             broker,
             configuration.actor_channel_capacity,
         )
@@ -163,23 +158,6 @@ impl Kura {
         *guard = hash_array;
 
         Ok(blocks)
-    }
-
-    // I think we should rethink this. Kura should not be the
-    // one to start other services. Kura should be a provider of
-    // block storage services only. - Concern tracked by #2406
-    /// Initialize Kura and world state view, then start Sumeragi.
-    /// # Panics
-    /// Panic if Kura initialization fails.
-    #[allow(clippy::unwrap_used)]
-    pub async fn async_init_all_important(&self) {
-        let blocks = self.init().unwrap();
-        self.wsv.init(blocks).await;
-        let last_block = self.wsv.latest_block_hash();
-        let height = self.wsv.height();
-        self.broker
-            .issue_send(sumeragi::message::Init { last_block, height })
-            .await;
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
@@ -663,15 +641,11 @@ mod tests {
     #[allow(clippy::expect_used)]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        Kura::new(
-            Mode::Strict,
-            temp_dir.path(),
-            Arc::default(),
-            Broker::new(),
-            100,
-        )
-        .unwrap()
-        .init()
-        .expect("Works");
+        assert!(
+            Kura::new(Mode::Strict, temp_dir.path(), Broker::new(), 100,)
+                .unwrap()
+                .init()
+                .is_ok()
+        );
     }
 }

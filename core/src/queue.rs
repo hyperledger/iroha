@@ -35,8 +35,6 @@ pub struct Queue {
     max_txs: usize,
     ttl: Duration,
     future_threshold: Duration,
-
-    wsv: Arc<WorldStateView>,
 }
 
 /// Queue push error
@@ -66,7 +64,7 @@ pub enum Error {
 
 impl Queue {
     /// Makes queue from configuration
-    pub fn from_configuration(cfg: &Configuration, wsv: Arc<WorldStateView>) -> Self {
+    pub fn from_configuration(cfg: &Configuration) -> Self {
         Self {
             queue: ArrayQueue::new(cfg.maximum_transactions_in_queue as usize),
             txs: DashMap::new(),
@@ -74,28 +72,31 @@ impl Queue {
             txs_in_block: cfg.maximum_transactions_in_block as usize,
             ttl: Duration::from_millis(cfg.transaction_time_to_live_ms),
             future_threshold: Duration::from_millis(cfg.future_threshold_ms),
-            wsv,
         }
     }
 
-    fn is_pending(&self, tx: &VersionedAcceptedTransaction) -> bool {
-        !tx.is_expired(self.ttl) && !tx.is_in_blockchain(&self.wsv)
+    fn is_pending(&self, tx: &VersionedAcceptedTransaction, wsv: &WorldStateView) -> bool {
+        !tx.is_expired(self.ttl) && !tx.is_in_blockchain(wsv)
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions(&self) -> Vec<VersionedAcceptedTransaction> {
+    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<VersionedAcceptedTransaction> {
         self.txs
             .iter()
-            .filter(|e| self.is_pending(e.value()))
+            .filter(|e| self.is_pending(e.value(), wsv))
             .map(|e| e.value().clone())
             .collect()
     }
 
     /// Returns `n` randomly selected transaction from the queue.
-    pub fn n_random_transactions(&self, n: u32) -> Vec<VersionedAcceptedTransaction> {
+    pub fn n_random_transactions(
+        &self,
+        n: u32,
+        wsv: &WorldStateView,
+    ) -> Vec<VersionedAcceptedTransaction> {
         self.txs
             .iter()
-            .filter(|e| self.is_pending(e.value()))
+            .filter(|e| self.is_pending(e.value(), wsv))
             .map(|e| e.value().clone())
             .choose_multiple(
                 &mut rand::thread_rng(),
@@ -103,14 +104,18 @@ impl Queue {
             )
     }
 
-    fn check_tx(&self, tx: &VersionedAcceptedTransaction) -> Result<(), Error> {
+    fn check_tx(
+        &self,
+        tx: &VersionedAcceptedTransaction,
+        wsv: &WorldStateView,
+    ) -> Result<(), Error> {
         if tx.is_expired(self.ttl) {
             return Err(Error::Expired);
         }
-        if tx.is_in_blockchain(&self.wsv) {
+        if tx.is_in_blockchain(wsv) {
             return Err(Error::InBlockchain);
         }
-        tx.check_signature_condition(&self.wsv)
+        tx.check_signature_condition(&wsv)
             .and_then(|success| {
                 success
                     .into_inner()
@@ -135,11 +140,12 @@ impl Queue {
     pub fn push(
         &self,
         tx: VersionedAcceptedTransaction,
+        wsv: &WorldStateView,
     ) -> Result<(), (VersionedAcceptedTransaction, Error)> {
         if tx.is_in_future(self.future_threshold) {
             return Err((tx, Error::InFuture));
         }
-        if let Err(e) = self.check_tx(&tx) {
+        if let Err(e) = self.check_tx(&tx, wsv) {
             return Err((tx, e));
         }
         if self.txs.len() >= self.max_txs {
@@ -183,6 +189,7 @@ impl Queue {
     fn pop(
         &self,
         seen: &mut Vec<HashOf<VersionedTransaction>>,
+        wsv: &WorldStateView,
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
             let hash = self.queue.pop()?;
@@ -192,7 +199,7 @@ impl Queue {
                 // When transactions are submitted quickly it can be reached.
                 Entry::Vacant(_) => continue,
             };
-            if self.check_tx(entry.get()).is_err() {
+            if self.check_tx(entry.get(), wsv).is_err() {
                 entry.remove_entry();
                 continue;
             }
@@ -200,7 +207,7 @@ impl Queue {
             seen.push(hash);
             if *entry
                 .get()
-                .check_signature_condition(&self.wsv)
+                .check_signature_condition(wsv)
                 .expect("Checked in `check_tx` just above")
             {
                 return Some(entry.get().clone());
@@ -217,10 +224,13 @@ impl Queue {
     ///
     /// BEWARE: Shouldn't be called in parallel with itself.
     #[allow(clippy::missing_panics_doc, clippy::unwrap_in_result)]
-    pub fn get_transactions_for_block(&self) -> Vec<VersionedAcceptedTransaction> {
+    pub fn get_transactions_for_block(
+        &self,
+        wsv: &WorldStateView,
+    ) -> Vec<VersionedAcceptedTransaction> {
         let mut seen = Vec::new();
 
-        let out = std::iter::repeat_with(|| self.pop(&mut seen))
+        let out = std::iter::repeat_with(|| self.pop(&mut seen, wsv))
             .take_while(Option::is_some)
             .map(Option::unwrap)
             .take(self.txs_in_block)
@@ -294,18 +304,15 @@ mod tests {
             .public_key()
             .clone()])));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
 
         queue
-            .push(accepted_tx("alice@wonderland", 100_000, key_pair))
+            .push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv)
             .expect("Failed to push tx into queue");
     }
 
@@ -318,25 +325,22 @@ mod tests {
             .public_key()
             .clone()])));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: max_txs_in_queue,
-                ..Configuration::default()
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..Configuration::default()
+        });
 
         for _ in 0..max_txs_in_queue {
             queue
-                .push(accepted_tx("alice@wonderland", 100_000, key_pair.clone()))
+                .push(accepted_tx("alice@wonderland", 100_000, key_pair.clone()), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", 100_000, key_pair)),
+            queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
             Err((_, Error::Full))
         ));
     }
@@ -357,18 +361,15 @@ mod tests {
             Arc::new(WorldStateView::new(World::with([domain], PeersIds::new())))
         };
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: max_txs_in_queue,
-                ..Configuration::default()
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..Configuration::default()
+        });
 
         assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", 100_000, key_pair)),
+            queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
             Err((_, Error::SignatureCondition { .. }))
         ));
     }
@@ -383,15 +384,12 @@ mod tests {
                 .cloned(),
         )));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
         let tx = Transaction::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
             Vec::<Instruction>::new().into(),
@@ -410,7 +408,7 @@ mod tests {
         };
 
         for key_pair in key_pairs {
-            queue.push(get_tx(key_pair)).unwrap();
+            queue.push(get_tx(key_pair), &wsv).unwrap();
         }
 
         assert_eq!(queue.queue.len(), 1);
@@ -438,16 +436,15 @@ mod tests {
                 maximum_transactions_in_queue: 100,
                 ..Configuration::default()
             },
-            wsv,
         );
         for _ in 0..5 {
             queue
-                .push(accepted_tx("alice@wonderland", 100_000, alice_key.clone()))
+                .push(accepted_tx("alice@wonderland", 100_000, alice_key.clone()), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
-        let available = queue.get_transactions_for_block();
+        let available = queue.get_transactions_for_block(&wsv);
         assert_eq!(available.len(), max_block_tx as usize);
     }
 
@@ -460,16 +457,16 @@ mod tests {
             .clone()])));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         wsv.transactions.insert(tx.hash());
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            },
-            wsv,
-        );
-        assert!(matches!(queue.push(tx), Err((_, Error::InBlockchain))));
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
+        assert!(matches!(
+            queue.push(tx, &wsv),
+            Err((_, Error::InBlockchain))
+        ));
         assert_eq!(queue.txs.len(), 0);
     }
 
@@ -487,12 +484,11 @@ mod tests {
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
                 ..Configuration::default()
-            },
-            Arc::clone(&wsv),
+            }
         );
-        queue.push(tx.clone()).unwrap();
+        queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
-        assert_eq!(queue.get_transactions_for_block().len(), 0);
+        assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
         assert_eq!(queue.txs.len(), 0);
     }
 
@@ -510,26 +506,25 @@ mod tests {
                 maximum_transactions_in_queue: 100,
                 ..Configuration::default()
             },
-            wsv,
         );
         for _ in 0..(max_block_tx - 1) {
             queue
-                .push(accepted_tx("alice@wonderland", 100, alice_key.clone()))
+                .push(accepted_tx("alice@wonderland", 100, alice_key.clone()), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         queue
-            .push(accepted_tx("alice@wonderland", 200, alice_key.clone()))
+            .push(accepted_tx("alice@wonderland", 200, alice_key.clone()), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
-        assert_eq!(queue.get_transactions_for_block().len(), 1);
+        assert_eq!(queue.get_transactions_for_block(&wsv).len(), 1);
 
         queue
-            .push(accepted_tx("alice@wonderland", 300, alice_key))
+            .push(accepted_tx("alice@wonderland", 300, alice_key), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(210));
-        assert_eq!(queue.get_transactions_for_block().len(), 0);
+        assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
     }
 
     // Queue should only drop transactions which are already committed or ttl expired.
@@ -547,89 +542,23 @@ mod tests {
                 maximum_transactions_in_queue: 100,
                 ..Configuration::default()
             },
-            wsv,
         );
         queue
-            .push(accepted_tx("alice@wonderland", 100_000, alice_key))
+            .push(accepted_tx("alice@wonderland", 100_000, alice_key), &wsv)
             .expect("Failed to push tx into queue");
 
         let a = queue
-            .get_transactions_for_block()
+            .get_transactions_for_block(&wsv)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
         let b = queue
-            .get_transactions_for_block()
+            .get_transactions_for_block(&wsv)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
         assert_eq!(a.len(), 1);
         assert_eq!(a, b);
-    }
-
-    #[test]
-    fn concurrent_stress_test() {
-        let max_block_tx = 10;
-        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
-            .public_key()
-            .clone()])));
-        let wsv_clone = Arc::clone(&wsv);
-        let queue = Arc::new(Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100_000_000,
-                ..Configuration::default()
-            },
-            wsv,
-        ));
-
-        let start_time = Instant::now();
-        let run_for = Duration::from_secs(5);
-
-        let queue_arc_clone_1 = Arc::clone(&queue);
-        let queue_arc_clone_2 = Arc::clone(&queue);
-
-        // Spawn a thread where we push transactions
-        let push_txs_handle = thread::spawn(move || {
-            while start_time.elapsed() < run_for {
-                let tx = accepted_tx("alice@wonderland", 100_000, alice_key.clone());
-                match queue_arc_clone_1.push(tx) {
-                    Ok(()) => (),
-                    Err((_, Error::Full)) => (),
-                    Err((_, err)) => panic!("{}", err),
-                }
-            }
-        });
-
-        // Spawn a thread where we get_transactions_for_block and add them to WSV
-        let get_txs_handle = thread::spawn(move || {
-            while start_time.elapsed() < run_for {
-                for tx in queue_arc_clone_2.get_transactions_for_block() {
-                    wsv_clone.transactions.insert(tx.hash());
-                }
-                // Simulate random small delays
-                thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
-            }
-        });
-
-        push_txs_handle.join().unwrap();
-        get_txs_handle.join().unwrap();
-
-        // Last update for queue to drop invalid txs.
-        let _ = queue.get_transactions_for_block();
-
-        // Validate the queue state.
-        let array_queue: Vec<_> = iter::repeat_with(|| queue.queue.pop())
-            .take_while(Option::is_some)
-            .map(Option::unwrap)
-            .collect();
-
-        assert_eq!(array_queue.len(), queue.txs.len());
-        for tx in array_queue {
-            assert!(queue.txs.contains_key(&tx));
-        }
     }
 
     #[test]
@@ -641,19 +570,16 @@ mod tests {
             .public_key()
             .clone()])));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                future_threshold_ms,
-                ..Configuration::default()
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            future_threshold_ms,
+            ..Configuration::default()
+        });
 
         let mut tx = accepted_tx("alice@wonderland", 100_000, alice_key);
-        assert!(queue.push(tx.clone()).is_ok());
+        assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
         tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;
-        assert!(matches!(queue.push(tx), Err((_, Error::InFuture))));
+        assert!(matches!(queue.push(tx, &wsv), Err((_, Error::InFuture))));
         assert_eq!(queue.txs.len(), 1);
     }
 }

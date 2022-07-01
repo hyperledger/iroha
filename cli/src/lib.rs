@@ -21,7 +21,7 @@ use iroha_core::{
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
-    sumeragi::{Sumeragi, SumeragiTrait},
+    sumeragi::Sumeragi,
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
 };
@@ -65,32 +65,20 @@ impl Default for Arguments {
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
-pub struct Iroha<G = GenesisNetwork, S = Sumeragi<G>, B = BlockSynchronizer<S>>
-where
-    G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G>,
-    B: BlockSynchronizerTrait<Sumeragi = S>,
-{
-    /// World state view
-    pub wsv: Arc<WorldStateView>,
+pub struct Iroha {
     /// Queue of transactions
     pub queue: Arc<Queue>,
     /// Sumeragi consensus
-    pub sumeragi: AlwaysAddr<S>,
+    pub sumeragi: Arc<Sumeragi>,
     /// Kura - block storage
     pub kura: Arc<Kura>,
     /// Block synchronization actor
-    pub block_sync: AlwaysAddr<B>,
+    pub block_sync: AlwaysAddr<BlockSynchronizer>,
     /// Torii web server
     pub torii: Option<Torii>,
 }
 
-impl<G, S, B> Iroha<G, S, B>
-where
-    G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G>,
-    B: BlockSynchronizerTrait<Sumeragi = S>,
-{
+impl Iroha {
     /// To make `Iroha` peer work all actors should be started first.
     /// After that moment it you can start it with listening to torii events.
     ///
@@ -120,7 +108,7 @@ where
         iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
 
         let genesis = if let Some(genesis_path) = &args.genesis_path {
-            G::from_configuration(
+            GenesisNetwork::from_configuration(
                 args.submit_genesis,
                 RawGenesisBlock::from_path(genesis_path)?,
                 &Some(config.genesis.clone()),
@@ -157,7 +145,7 @@ where
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
     pub async fn with_genesis(
-        genesis: Option<G>,
+        genesis: Option<GenesisNetwork>,
         config: Configuration,
         instruction_judge: InstructionJudgeBoxed,
         query_judge: QueryJudgeBoxed,
@@ -187,11 +175,16 @@ where
             domains(&config),
             config.sumeragi.trusted_peers.peers.clone(),
         );
-        let wsv = Arc::new(WorldStateView::from_configuration(
-            config.wsv,
-            world,
-            events_sender.clone(),
-        ));
+
+        let kura = Kura::from_configuration(&config.kura, broker.clone())?;
+        let mut wsv_mutable =
+            WorldStateView::from_configuration(config.wsv, world, events_sender.clone());
+
+        wsv_mutable.init(kura.init()?);
+
+        let wsv = wsv_mutable;
+        let latest_block_hash = wsv.latest_block_hash();
+        let latest_block_height = wsv.height();
 
         let query_judge = Arc::from(query_judge);
 
@@ -199,43 +192,44 @@ where
             config.sumeragi.transaction_limits,
             Arc::from(instruction_judge),
             Arc::clone(&query_judge),
-            Arc::clone(&wsv),
         );
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
             transaction_validator
-                .validate_every(genesis)
+                .validate_every(genesis, &wsv)
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
 
         let notify_shutdown = Arc::new(Notify::new());
 
-        let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
+        let queue = Arc::new(Queue::from_configuration(&config.queue));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
-        let kura = Kura::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())?;
 
-        let sumeragi: AlwaysAddr<_> = S::from_configuration(
-            &config.sumeragi,
-            events_sender.clone(),
-            Arc::clone(&wsv),
-            transaction_validator,
-            telemetry_started,
-            genesis,
-            Arc::clone(&queue),
-            broker.clone(),
-            Arc::clone(&kura),
-            network_addr.clone(),
-        )
-        .wrap_err("Failed to initialize Sumeragi.")?
-        .start()
-        .await
-        .expect_running();
+        let sumeragi = Arc::new(
+            Sumeragi::from_configuration(
+                &config.sumeragi,
+                events_sender.clone(),
+                wsv,
+                transaction_validator,
+                telemetry_started,
+                genesis,
+                Arc::clone(&queue),
+                broker.clone(),
+                Arc::clone(&kura),
+                // network_addr.clone(),
+            )
+            .wrap_err("Failed to initialize Sumeragi.")?,
+        );
 
-        kura.async_init_all_important().await;
-        let block_sync = B::from_configuration(
+        Sumeragi::initialize_and_start_thread(
+            sumeragi.clone(),
+            latest_block_hash,
+            latest_block_height,
+        );
+
+        let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
-            Arc::clone(&wsv),
             sumeragi.clone(),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
             broker.clone(),
@@ -246,12 +240,12 @@ where
 
         let torii = Torii::from_configuration(
             config.clone(),
-            Arc::clone(&wsv),
             Arc::clone(&queue),
             query_judge,
             events_sender,
             network_addr.clone(),
             Arc::clone(&notify_shutdown),
+            Arc::clone(&sumeragi),
         );
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
@@ -262,7 +256,6 @@ where
 
         let torii = Some(torii);
         Ok(Self {
-            wsv,
             queue,
             sumeragi,
             kura,

@@ -21,7 +21,7 @@ pub trait Execute {
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error>;
+    fn execute(self, authority: AccountId, wsv: &mut WorldStateView) -> Result<(), Self::Error>;
 }
 
 /// Calculate the result of the expression without mutating the state.
