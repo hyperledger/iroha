@@ -54,17 +54,24 @@ jobs:
       #
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Run tests and generate lcov report
+      - name: Run tests and generate lcov report, with all-features
         run: |
+          mold --run cargo llvm-cov clean --workspace
           mold --run cargo +nightly-2022-04-20 llvm-cov --no-report --all-features --workspace --doc
           mold --run cargo llvm-cov --no-report --all-features --workspace
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
-          mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --all-features --workspace --doctests --lcov --output-path lcov.info
+          mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --all-features --workspace --doctests --lcov --output-path all-features.lcov.info
+      - name: Run tests and generate lcov report, with no-default-features
+        run: |
+          mold --run cargo llvm-cov clean --workspace
+          mold --run cargo +nightly-2022-04-20 llvm-cov --no-report --no-default-features --workspace --doc
+          mold --run cargo llvm-cov --no-report --no-default-features --workspace
+          mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --no-default-features --workspace --doctests --lcov --output-path no-default-features.lcov.info
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v3
         with:
-          file: lcov.info
+          files: all-features.lcov.info, no-default-features.lcov.info
           fail_ci_if_error: true
 
   integration_tests:
@@ -75,8 +82,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Run tests
+      - name: Run tests, with all-features
         run: |
-          mold --run cargo test --test '*' --all-features -- \
-          integration:: \
-          --skip unstable_network
+          mold --run cargo test --test '*' --all-features -- integration:: --skip unstable_network
+      - name: Run tests, with no-default-features
+        run: |
+          mold --run cargo test --test '*' --no-default-features -- integration:: --skip unstable_network
