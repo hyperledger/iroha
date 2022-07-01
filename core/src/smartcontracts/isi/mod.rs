@@ -230,7 +230,7 @@ impl Execute for Instruction {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         use Instruction::*;
         match self {
@@ -255,7 +255,7 @@ impl Execute for Instruction {
 impl Execute for RegisterBox {
     type Error = Error;
 
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &mut WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new();
         let object_id = self.object.evaluate(wsv, &context)?;
         iroha_logger::trace!(?object_id);
@@ -286,7 +286,7 @@ impl Execute for RegisterBox {
 impl Execute for UnregisterBox {
     type Error = Error;
 
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &mut WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new();
         let object_id = self.object_id.evaluate(wsv, &context)?;
         iroha_logger::trace!(?object_id, %authority);
@@ -319,7 +319,7 @@ impl Execute for MintBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -356,7 +356,7 @@ impl Execute for BurnBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -393,7 +393,7 @@ impl Execute for TransferBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let (source_asset_id, destination_asset_id) = match (
@@ -427,7 +427,7 @@ impl Execute for SetKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
@@ -459,7 +459,7 @@ impl Execute for RemoveKeyValueBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
@@ -486,7 +486,7 @@ impl Execute for If {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         iroha_logger::trace!(?self);
@@ -505,7 +505,7 @@ impl Execute for Pair {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         iroha_logger::trace!(?self);
 
@@ -521,7 +521,7 @@ impl Execute for SequenceBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         iroha_logger::trace!(?self);
 
@@ -538,7 +538,7 @@ impl Execute for FailBox {
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
-        _wsv: &WorldStateView,
+        _wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         iroha_logger::trace!(?self);
 
@@ -552,7 +552,7 @@ impl Execute for GrantBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -577,7 +577,7 @@ impl Execute for RevokeBox {
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -630,7 +630,7 @@ mod tests {
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
@@ -639,7 +639,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id, &wsv)?;
+        .execute(account_id, &mut wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
         let bytes = metadata
@@ -658,14 +658,14 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &wsv)?;
+        .execute(account_id.clone(), &mut wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
             account
                 .metadata()
@@ -685,7 +685,7 @@ mod tests {
 
     #[test]
     fn asset_definition_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -693,7 +693,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id, &wsv)?;
+        .execute(account_id, &mut wsv)?;
         let bytes = wsv
             .asset_definition_entry(&definition_id)?
             .definition()
@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn domain_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -721,7 +721,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id, &wsv)?;
+        .execute(account_id, &mut wsv)?;
         let bytes = wsv
             .domain(&domain_id)?
             .metadata()
@@ -740,13 +740,13 @@ mod tests {
 
     #[test]
     fn executing_unregistered_trigger_should_return_error() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::from_str("alice@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
 
         assert!(matches!(
             ExecuteTriggerBox::new(trigger_id)
-                .execute(account_id, &wsv)
+                .execute(account_id, &mut wsv)
                 .expect_err("Error expected"),
             Error::Find(_)
         ));
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::from_str("alice@wonderland")?;
         let fake_account_id = AccountId::from_str("fake@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
@@ -767,7 +767,7 @@ mod tests {
             .into();
         let register_account =
             RegisterBox::new(Account::new(fake_account_id.clone(), [public_key]));
-        register_account.execute(account_id.clone(), &wsv)?;
+        register_account.execute(account_id.clone(), &mut wsv)?;
 
         // register the trigger
         let register_trigger = RegisterBox::new(Trigger::new(
@@ -783,15 +783,15 @@ mod tests {
             ),
         ));
 
-        register_trigger.execute(account_id.clone(), &wsv)?;
+        register_trigger.execute(account_id.clone(), &mut wsv)?;
 
         // execute with the valid account
-        ExecuteTriggerBox::new(trigger_id.clone()).execute(account_id, &wsv)?;
+        ExecuteTriggerBox::new(trigger_id.clone()).execute(account_id, &mut wsv)?;
 
         // execute with the fake account
         assert!(matches!(
             ExecuteTriggerBox::new(trigger_id)
-                .execute(fake_account_id, &wsv)
+                .execute(fake_account_id, &mut wsv)
                 .expect_err("Error expected"),
             Error::Validate(_)
         ));

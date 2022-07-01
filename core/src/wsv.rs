@@ -190,7 +190,7 @@ impl WorldStateView {
     ///
     /// Return a Boolean value indicating whether or not the  [`Account`] already had this permission.
     pub fn add_account_permission(
-        &self,
+        &mut self,
         account: &<Account as Identifiable>::Id,
         token: PermissionToken,
     ) -> bool {
@@ -221,7 +221,7 @@ impl WorldStateView {
             .map_or(false, |mut permissions| permissions.remove(token))
     }
 
-    fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
+    fn process_trigger(&mut self, action: &dyn ActionTrait, event: Event) -> Result<()> {
         let authority = action.technical_account();
 
         match action.executable() {
@@ -238,7 +238,7 @@ impl WorldStateView {
         }
     }
 
-    fn process_executable(&self, executable: &Executable, authority: AccountId) -> Result<()> {
+    fn process_executable(&mut self, executable: &Executable, authority: AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), &authority)
@@ -254,7 +254,7 @@ impl WorldStateView {
     }
 
     fn process_instructions(
-        &self,
+        &mut self,
         instructions: impl IntoIterator<Item = Instruction>,
         authority: &AccountId,
     ) -> Result<()> {
@@ -279,22 +279,162 @@ impl WorldStateView {
     /// you likely have data corruption.
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
-    #[iroha_futures::telemetry_future]
-    #[log(skip(self, block))]
     #[allow(clippy::expect_used)]
-    pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
+    pub fn apply(&mut self, block: VersionedCommittedBlock) -> Result<()> {
         let time_event = self.create_time_event(block.as_v1())?;
         self.produce_event(Event::Time(time_event));
 
-        self.execute_transactions(block.as_v1()).await?;
+        self.execute_transactions(block.as_v1())?;
 
         self.world.triggers.handle_time_event(time_event);
 
+        /*
+        was previously the following:
         let res = self
             .world
             .triggers
             .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) })
             .await;
+
+        now is: */
+        let res = {
+            let (succeed, res) = {
+                let mut succeed = Vec::new();
+                let mut errors = Vec::new();
+
+                // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
+                let mut matched_ids = Vec::new();
+                std::mem::swap(&mut matched_ids, &mut self.world.triggers.matched_ids);
+
+                for (event_type, id) in matched_ids {
+                    // Ignoring `None` variant cause this means that action was deleted after `handle_`
+                    // call and before `inspect_matching()` call
+                    let _ = match event_type {
+                        Event::Data(_) => {
+                            let dangerous_reference = unsafe {
+                                let ptr = &self.world.triggers as *const TriggerSet; // TODO: REALLY FIX THIS
+                                &*ptr
+                            };
+
+                            dangerous_reference.data_triggers.get(&id).map(|entry| {
+                                let action = entry.value();
+                                if let Repeats::Exactly(atomic) = action.repeats() {
+                                    if atomic.get() == 0 {
+                                        return;
+                                    }
+                                }
+
+                                match self.process_trigger(
+                                    action, event_type
+                                ) {
+                                    Ok(()) => succeed.push(id),
+                                    Err(err) => errors.push(err),
+                                }
+                            })
+                        }
+                        Event::Pipeline(_) => {
+                            let dangerous_reference = unsafe {
+                                let ptr = &self.world.triggers as *const TriggerSet; // TODO: REALLY FIX THIS
+                                &*ptr
+                            };
+
+                            dangerous_reference.pipeline_triggers.get(&id).map(|entry| {
+                                let action = entry.value();
+                                if let Repeats::Exactly(atomic) = action.repeats() {
+                                    if atomic.get() == 0 {
+                                        return;
+                                    }
+                                }
+
+                                match self.process_trigger(
+                                    action, event_type
+                                ) {
+                                    Ok(()) => succeed.push(id),
+                                    Err(err) => errors.push(err),
+                                }
+                            })
+                        }
+                        Event::Time(_) => {
+                            let dangerous_reference = unsafe {
+                                let ptr = &self.world.triggers as *const TriggerSet; // TODO: REALLY FIX THIS
+                                &*ptr
+                            };
+
+                            dangerous_reference.time_triggers.get(&id).map(|entry| {
+                                let action = entry.value();
+                                if let Repeats::Exactly(atomic) = action.repeats() {
+                                    if atomic.get() == 0 {
+                                        return;
+                                    }
+                                }
+
+                                match self.process_trigger(
+                                    action, event_type
+                                ) {
+                                    Ok(()) => succeed.push(id),
+                                    Err(err) => errors.push(err),
+                                }
+                            })
+                        }
+                        Event::ExecuteTrigger(_) => {
+                            let dangerous_reference = unsafe {
+                                let ptr = &self.world.triggers as *const TriggerSet; // TODO: REALLY FIX THIS
+                                &*ptr
+                            };
+
+                            dangerous_reference.by_call_triggers.get(&id).map(|entry| {
+                                let action = entry.value();
+                                if let Repeats::Exactly(atomic) = action.repeats() {
+                                    if atomic.get() == 0 {
+                                        return;
+                                    }
+                                }
+
+                                match self.process_trigger(
+                                    action, event_type
+                                ) {
+                                    Ok(()) => succeed.push(id),
+                                    Err(err) => errors.push(err),
+                                }
+                            })
+                        }
+                    };
+                }
+
+                if errors.is_empty() {
+                    (succeed, Ok(()))
+                } else {
+                    (succeed, Err(errors))
+                }
+            };
+
+            for id in &succeed {
+                // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
+                let _mod_repeats_res = self.world.triggers.mod_repeats(id, |n| {
+                    if n == 0 {
+                        // Possible i.e. if one trigger burned it-self or another trigger, cause we
+                        // decrease the number of execution after successful execution
+                        return Ok(0);
+                    }
+                    Ok(n - 1)
+                });
+            }
+
+            self.world
+                .triggers
+                .remove_zeros(&self.world.triggers.data_triggers);
+            self.world
+                .triggers
+                .remove_zeros(&self.world.triggers.pipeline_triggers);
+            self.world
+                .triggers
+                .remove_zeros(&self.world.triggers.time_triggers);
+            self.world
+                .triggers
+                .remove_zeros(&self.world.triggers.by_call_triggers);
+
+            res
+        };
 
         if let Err(errors) = res {
             warn!(
@@ -342,7 +482,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if transaction instruction execution fails
-    async fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
+    fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
             self.process_executable(
@@ -350,7 +490,6 @@ impl WorldStateView {
                 tx.payload().account_id.clone(),
             )?;
             self.transactions.insert(tx.hash());
-            task::yield_now().await;
         }
         for tx in &block.rejected_transactions {
             self.transactions.insert(tx.hash());
@@ -385,7 +524,7 @@ impl WorldStateView {
     /// Fails if there is no account with such name.
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
-        &self,
+        &mut self,
         id: &<Asset as Identifiable>::Id,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
@@ -476,7 +615,7 @@ impl WorldStateView {
     /// (Rare) Panics if can't lock `self.events` for writing
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn modify_world(
-        &self,
+        &mut self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
         let world_event = f(&self.world)?;
@@ -568,7 +707,7 @@ impl WorldStateView {
     /// # Errors
     /// Fails if there is no domain
     pub fn modify_domain(
-        &self,
+        &mut self,
         id: &<Domain as Identifiable>::Id,
         f: impl FnOnce(&mut Domain) -> Result<DomainEvent, Error>,
     ) -> Result<(), Error> {
@@ -636,11 +775,10 @@ impl WorldStateView {
     }
 
     /// Initializes WSV with the blocks from block storage.
-    #[iroha_futures::telemetry_future]
-    pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
+    pub fn init(&mut self, blocks: Vec<VersionedCommittedBlock>) {
         for block in blocks {
             #[allow(clippy::panic)]
-            if let Err(error) = self.apply(block).await {
+            if let Err(error) = self.apply(block) {
                 error!(%error, "Initialization of WSV failed");
                 panic!("WSV initialization failed");
             }
@@ -673,7 +811,7 @@ impl WorldStateView {
     /// # Errors
     /// Fails if there is no domain or account
     pub fn modify_account(
-        &self,
+        &mut self,
         id: &AccountId,
         f: impl FnOnce(&mut Account) -> Result<AccountEvent, Error>,
     ) -> Result<(), Error> {
@@ -691,7 +829,7 @@ impl WorldStateView {
     /// Fails if there are no such asset or account
     #[allow(clippy::missing_panics_doc)]
     pub fn modify_asset(
-        &self,
+        &mut self,
         id: &<Asset as Identifiable>::Id,
         f: impl FnOnce(&mut Asset) -> Result<AssetEvent, Error>,
     ) -> Result<(), Error> {
@@ -714,7 +852,7 @@ impl WorldStateView {
     /// # Errors
     /// Fails if asset definition entry does not exist
     pub fn modify_asset_definition_entry(
-        &self,
+        &mut self,
         id: &<AssetDefinition as Identifiable>::Id,
         f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
@@ -881,7 +1019,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Throws up `f` errors
-    pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
+    pub fn modify_triggers<F>(&mut self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
@@ -901,7 +1039,7 @@ impl WorldStateView {
     /// # Panics
     /// (Rare) Panics if can't lock `self.events` for writing
     #[allow(clippy::expect_used)]
-    pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
+    pub fn execute_trigger(&mut self, trigger_id: TriggerId, authority: AccountId) {
         let event = ExecuteTriggerEvent::new(trigger_id, authority);
         self.world
             .triggers
@@ -921,7 +1059,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let mut block = ValidBlock::new_dummy().commit();
-        let wsv = WorldStateView::default();
+        let mut wsv = WorldStateView::default();
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -931,7 +1069,7 @@ mod tests {
             }
             let block: VersionedCommittedBlock = block.clone().into();
             block_hashes.push(block.hash());
-            wsv.apply(block).await.unwrap();
+            wsv.apply(block).unwrap();
         }
 
         assert!(wsv
@@ -945,12 +1083,12 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let mut block = ValidBlock::new_dummy().commit();
-        let wsv = WorldStateView::default();
+        let mut wsv = WorldStateView::default();
 
         for i in 1..=BLOCK_CNT {
             block.header.height = i as u64;
             let block: VersionedCommittedBlock = block.clone().into();
-            wsv.apply(block).await.unwrap();
+            wsv.apply(block).unwrap();
         }
 
         assert_eq!(
