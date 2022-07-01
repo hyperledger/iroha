@@ -322,12 +322,16 @@ impl BlockHeader {
 
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
-    pub fn validate(self, transaction_validator: &TransactionValidator) -> VersionedValidBlock {
+    pub fn validate(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: &WorldStateView,
+    ) -> VersionedValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
 
         for tx in self.transactions {
-            match transaction_validator.validate(tx.into_v1(), self.header.is_genesis()) {
+            match transaction_validator.validate(tx.into_v1(), self.header.is_genesis(), wsv) {
                 Ok(tx) => txs.push(tx),
                 Err(tx) => {
                     iroha_logger::warn!(
@@ -410,8 +414,12 @@ impl VersionedValidBlock {
 
     /// Validate block transactions against current state of the world.
     #[must_use]
-    pub fn revalidate(self, transaction_validator: &TransactionValidator) -> Self {
-        self.into_v1().revalidate(transaction_validator).into()
+    pub fn revalidate(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: &WorldStateView,
+    ) -> Self {
+        self.into_v1().revalidate(transaction_validator, wsv).into()
     }
 
     /// Calculate hash of the current block.
@@ -553,7 +561,11 @@ impl ValidBlock {
 
     /// Validate block transactions against current state of the world.
     #[must_use]
-    pub fn revalidate(self, transaction_validator: &TransactionValidator) -> Self {
+    pub fn revalidate(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: &WorldStateView,
+    ) -> Self {
         Self {
             signatures: self.signatures,
             ..ChainedBlock {
@@ -566,7 +578,7 @@ impl ValidBlock {
                     .chain(self.rejected_transactions.into_iter().map(Into::into))
                     .collect(),
             }
-            .validate(transaction_validator)
+            .validate(transaction_validator, wsv)
             .into_v1()
         }
     }
