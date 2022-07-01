@@ -1739,9 +1739,11 @@ dependencies = [
 name = "iroha_cli_derive"
 version = "2.0.0-pre-rc.5"
 dependencies = [
+ "iroha",
  "proc-macro2",
  "quote",
  "syn",
+ "warp",
 ]
 
 [[package]]

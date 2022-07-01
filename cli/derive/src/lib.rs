@@ -38,7 +38,8 @@ use syn::{
 /// ```no_run
 /// use warp::{Rejection, Filter};
 /// use std::convert::Infallible;
-/// use iroha_cli::torii::utils::WarpResult;
+/// use iroha::torii::utils::WarpResult;
+/// use iroha_cli_derive::generate_endpoints;
 ///
 /// // An example with arguments of both acceptable kinds.
 /// // This would generate endpoints accepting functions with

@@ -12,3 +12,7 @@ proc-macro = true
 syn = {version = "1", default-features = false, features = ["parsing", "printing", "extra-traits"] }
 quote = "1.0"
 proc-macro2 = "1.0"
+
+[dev-dependencies]
+warp = "0.3"
+iroha = { version = "=2.0.0-pre-rc.5", path = "../" }
