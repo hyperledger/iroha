@@ -62,13 +62,6 @@ impl VerifiedQueryRequest {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.contains_signatory(self.signature.public_key())
         })?;
-        // .map_err(|err| {
-        // let query_error = QueryError::from(err);
-        // match query_error {
-        // QueryError::Find(_) => QueryError::Unauthorized,
-        // _ => query_error,
-        // }
-        // })?;
         if !account_has_public_key {
             return Err(QueryError::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",

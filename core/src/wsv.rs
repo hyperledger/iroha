@@ -555,7 +555,7 @@ impl WorldStateView {
         f: impl FnOnce(&Account) -> T,
     ) -> Result<T, QueryError> {
         let domain = self.domain(&id.domain_id)?;
-        let account = domain.account(id).ok_or_else(|| QueryError::Unauthorized)?;
+        let account = domain.account(id).ok_or(QueryError::Unauthorized)?;
         Ok(f(account))
     }
 
