@@ -38,7 +38,6 @@ pub struct TransactionValidator {
     transaction_limits: TransactionLimits,
     instruction_judge: InstructionJudgeArc,
     query_judge: QueryJudgeArc,
-    wsv: Arc<WorldStateView>,
 }
 
 impl TransactionValidator {
@@ -47,13 +46,11 @@ impl TransactionValidator {
         transaction_limits: TransactionLimits,
         instruction_judge: InstructionJudgeArc,
         query_judge: QueryJudgeArc,
-        wsv: Arc<WorldStateView>,
     ) -> Self {
         Self {
             transaction_limits,
             instruction_judge,
             query_judge,
-            wsv,
         }
     }
 
@@ -68,8 +65,9 @@ impl TransactionValidator {
         &self,
         tx: AcceptedTransaction,
         is_genesis: bool,
+        wsv: &WorldStateView,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
-        if let Err(rejection_reason) = self.validate_internal(tx.clone(), is_genesis) {
+        if let Err(rejection_reason) = self.validate_internal(tx.clone(), is_genesis, &wsv) {
             return Err(RejectedTransaction {
                 payload: tx.payload,
                 signatures: tx.signatures,
@@ -94,9 +92,10 @@ impl TransactionValidator {
     pub fn validate_every(
         &self,
         txs: impl IntoIterator<Item = VersionedAcceptedTransaction>,
+        wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         for tx in txs {
-            self.validate_internal(tx.into_v1(), true)?;
+            self.validate_internal(tx.into_v1(), true, wsv)?;
         }
         Ok(())
     }
@@ -105,15 +104,19 @@ impl TransactionValidator {
         &self,
         tx: AcceptedTransaction,
         is_genesis: bool,
+        wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let account_id = &tx.payload.account_id;
-        self.validate_signatures(&tx, is_genesis)?;
+        self.validate_signatures(&tx, is_genesis, wsv)?;
 
         // Sanity check - should have been checked by now
         tx.check_limits(&self.transaction_limits)?;
 
-        if !self
-            .wsv
+        // WSV is cloned here so that instructions don't get applied to the blockchain
+        // Therefore, this instruction execution validates before actually executing
+        let mut wsv = WorldStateView::clone(&wsv);
+
+        if !wsv
             .domain(&account_id.domain_id)
             .map_err(|_e| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {
@@ -129,12 +132,15 @@ impl TransactionValidator {
 
         // WSV is cloned here so that instructions don't get applied to the blockchain
         // Therefore, this instruction execution validates before actually executing
-        let wsv_for_builtin_validators = WorldStateView::clone(&self.wsv);
-        self.validate_with_builtin_validators(&tx, &wsv_for_builtin_validators, is_genesis)?;
+        let mut wsv = WorldStateView::clone(&wsv);
 
-        // Making a new clone so that instructions applied in the previous step won't break validation
-        let wsv_for_runtime_validators = WorldStateView::clone(&self.wsv);
-        Self::validate_with_runtime_validators(tx, &wsv_for_runtime_validators)
+        self.validate_with_builtin_validators(&tx, &mut wsv, is_genesis)?;
+
+        // WSV is cloned here so that instructions don't get applied to the blockchain
+        // Therefore, this instruction execution validates before actually executing
+        let mut wsv = WorldStateView::clone(&wsv);
+
+        Self::validate_with_runtime_validators(tx, &mut wsv)
     }
 
     /// Validate signatures for the given transaction
@@ -142,12 +148,13 @@ impl TransactionValidator {
         &self,
         tx: &AcceptedTransaction,
         is_genesis: bool,
+        wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         if !is_genesis && tx.payload().account_id == AccountId::genesis() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
-        let option_reason = match tx.check_signature_condition(&self.wsv) {
+        let option_reason = match tx.check_signature_condition(&wsv) {
             Ok(MustUse(true)) => None,
             Ok(MustUse(false)) => Some("Signature condition not satisfied.".to_owned()),
             Err(reason) => Some(reason.to_string()),
@@ -167,7 +174,7 @@ impl TransactionValidator {
     fn validate_with_builtin_validators(
         &self,
         tx: &AcceptedTransaction,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
         let account_id = &tx.payload.account_id;
@@ -221,7 +228,7 @@ impl TransactionValidator {
 
     fn validate_with_runtime_validators(
         tx: AcceptedTransaction,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let AcceptedTransaction {
             payload,
@@ -234,8 +241,10 @@ impl TransactionValidator {
             signatures,
         };
 
+        let mut wsv_cloned = wsv.clone();
+        
         // Validating the transaction it-self
-        wsv.validators_view()
+        wsv_cloned.validators_view()
             .validate(wsv, signed_tx.clone())
             .map_err(|reason| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
@@ -244,7 +253,7 @@ impl TransactionValidator {
         // Validating the transaction instructions
         if let Executable::Instructions(instructions) = signed_tx.payload.instructions {
             for isi in instructions {
-                wsv.validators_view().validate(wsv, isi).map_err(|reason| {
+                wsv_cloned.validators_view().validate(wsv, isi).map_err(|reason| {
                     TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
                 })?;
             }

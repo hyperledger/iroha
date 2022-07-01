@@ -23,7 +23,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let account: Account = self.object.build();
             let account_id = account.id().clone();
@@ -54,7 +54,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
 
@@ -75,7 +75,7 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition = self.object.build();
             asset_definition
@@ -108,9 +108,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
+
+            let mut array = Vec::new();
 
             for domain in wsv.domains().iter() {
                 for account in domain.accounts() {
@@ -126,16 +128,20 @@ pub mod isi {
                         .cloned()
                         .collect();
 
-                    for id in keys {
-                        wsv.modify_account(account.id(), |account_mut| {
-                            if account_mut.remove_asset(&id).is_none() {
-                                error!(%id, "asset not found - this is a bug");
-                            }
-
-                            Ok(AccountEvent::Asset(AssetEvent::Deleted(id)))
-                        })?;
+                    for key_id in keys {
+                        array.push((key_id, account.id().clone()));
                     }
                 }
+            }
+
+            for (key_id, account_id) in array {
+                wsv.modify_account(&account_id, |account_mut| {
+                    if account_mut.remove_asset(&key_id).is_none() {
+                        error!(%key_id, "asset not found - this is a bug");
+                    }
+
+                    Ok(AccountEvent::Asset(AssetEvent::Deleted(key_id)))
+                })?;
             }
 
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
@@ -162,7 +168,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
@@ -191,7 +197,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
@@ -218,13 +224,13 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
-            wsv.modify_domain(&domain_id.clone(), |domain| {
-                let limits = wsv.config.domain_metadata_limits;
+            let limits = wsv.config.domain_metadata_limits.clone();
 
+            wsv.modify_domain(&domain_id.clone(), |domain| {
                 domain
                     .metadata_mut()
                     .insert_with_limits(self.key, self.value, limits)?;
@@ -241,7 +247,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
