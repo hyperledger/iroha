@@ -132,9 +132,18 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
 /// [`AllowAll`] implements [`GetValidatorType`] to satisfy [`Judge`] bounds,
 /// but calling [`GetValidatorType::get_validator_type`] will panic because
 /// the exact implementation has no meaning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AllowAll<O: NeedsPermission> {
     _phantom_operation: PhantomData<O>,
+}
+
+impl<O: NeedsPermission> AllowAll<O> {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            _phantom_operation: PhantomData,
+        }
+    }
 }
 
 impl<O: NeedsPermission> GetValidatorType for AllowAll<O> {
@@ -163,9 +172,18 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
 /// [`DenyAll`] implements [`GetValidatorType`] to satisfy [`Judge`] bounds,
 /// but calling [`GetValidatorType::get_validator_type`] will panic because
 /// the exact implementation has no meaning.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize)]
 pub struct DenyAll<O: NeedsPermission> {
     _phantom_operation: PhantomData<O>,
+}
+
+impl<O: NeedsPermission> DenyAll<O> {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            _phantom_operation: PhantomData,
+        }
+    }
 }
 
 impl<O: NeedsPermission> GetValidatorType for DenyAll<O> {

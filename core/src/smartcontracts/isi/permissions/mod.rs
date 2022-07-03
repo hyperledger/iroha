@@ -198,7 +198,7 @@ pub mod prelude {
     pub use super::{
         builder::Validator as ValidatorBuilder,
         error::DenialReason,
-        judge::{AllowAll, JudgeBox},
+        judge::{AllowAll, Judge},
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
         HasTokenBoxed, IsAllowedBoxed,
     };
@@ -212,7 +212,7 @@ mod tests {
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
-    use super::{builder::Validator as ValidatorBuilder, judge::DenyAll, *};
+    use super::{builder::Validator as ValidatorBuilder, judge::DenyAll, prelude::*, *};
     use crate::wsv::World;
 
     #[derive(Debug, Clone, Serialize)]
@@ -306,8 +306,8 @@ mod tests {
 
     #[test]
     pub fn multiple_validators_combined() {
-        let permissions_validator = ValidatorBuilder::with_validator(Box::new(DenyBurn))
-            .with_validator(Box::new(DenyAlice))
+        let permissions_validator = ValidatorBuilder::with_validator(DenyBurn)
+            .with_validator(DenyAlice)
             .no_denies()
             .build();
         let instruction_burn: Instruction =
@@ -319,22 +319,22 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .judge(&account_bob, &instruction_burn.into(), &wsv)
+            .judge(&account_bob, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .judge(&account_alice, &instruction_fail.into(), &wsv)
+            .judge(&account_alice, &instruction_fail, &wsv)
             .is_err());
         assert!(permissions_validator
-            .judge(&account_alice, &instruction_burn.into(), &wsv)
+            .judge(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .judge(&account_bob, &instruction_fail.into(), &wsv)
+            .judge(&account_bob, &instruction_fail, &wsv)
             .is_ok());
     }
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator = ValidatorBuilder::with_recursive_validator(Box::new(DenyBurn))
+        let permissions_validator = ValidatorBuilder::with_recursive_validator(DenyBurn)
             .no_denies()
             .build();
         let instruction_burn: Instruction =
@@ -347,13 +347,13 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .judge(&account_alice, &instruction_fail.into(), &wsv)
+            .judge(&account_alice, &instruction_fail, &wsv)
             .is_ok());
         assert!(permissions_validator
-            .judge(&account_alice, &instruction_burn.into(), &wsv)
+            .judge(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .judge(&account_alice, &nested_instruction_sequence.into(), &wsv)
+            .judge(&account_alice, &nested_instruction_sequence, &wsv)
             .is_err());
     }
 
@@ -407,12 +407,9 @@ mod tests {
         .into();
         let wsv = WorldStateView::new(World::new());
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        let judge = ValidatorBuilder::with_validator(Box::new(judge::proxy::IsAllowed::<
-            Instruction,
-            _,
-        >::new(DenyAll)))
-        .no_denies()
-        .build();
+        let judge = ValidatorBuilder::with_validator(DenyAll::new())
+            .no_denies()
+            .build();
         assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &judge).is_err())
     }
 }
