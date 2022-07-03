@@ -16,9 +16,9 @@ declare_token!(
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAssetsCreatedByThisAccount;
 
-impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
+impl IsAllowed for OnlyAssetsCreatedByThisAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
@@ -40,14 +40,14 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
                         .unwrap_or(false);
 
                     if !registered_by_signer_account {
-                        return Err(
+                        return ValidatorVerdict::Deny(DenialReason::Custom(
                             "Can't register assets with definitions registered by other accounts."
                                 .to_owned()
                                 .into(),
-                        );
+                        ));
                     }
                 }
-                Ok(())
+                ValidatorVerdict::Allow
             }
             Instruction::Mint(mint_box) => {
                 let destination_id = mint_box
@@ -62,15 +62,15 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return Err(
+                    return ValidatorVerdict::Deny(DenialReason::Custom(
                         "Can't mint assets with definitions registered by other accounts."
                             .to_owned()
                             .into(),
-                    );
+                    ));
                 }
-                Ok(())
+                ValidatorVerdict::Allow
             }
-            _ => Ok(()),
+            _ => ValidatorVerdict::Skip,
         }
     }
 }
@@ -79,8 +79,6 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
 /// for a specific asset.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetCreator;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
 impl HasToken for GrantedByAssetCreator {
     fn token(
@@ -122,8 +120,6 @@ impl HasToken for GrantedByAssetCreator {
 /// of the signer account.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantRegisteredByMeAccess;
-
-impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
 
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
     fn check(
