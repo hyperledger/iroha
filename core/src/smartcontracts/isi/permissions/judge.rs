@@ -1,88 +1,26 @@
 use super::*;
 
 mod sealed {
+    use crate::smartcontracts::permissions::NeedsPermission;
+
     pub trait Sealed {}
 
-    impl Sealed for super::AtLeastOneAllow {}
-    impl Sealed for super::NoDenies {}
-    impl Sealed for super::AllowAll {}
-    impl Sealed for super::DenyAll {}
+    impl<O: NeedsPermission> Sealed for super::AtLeastOneAllow<O> {}
+    impl<O: NeedsPermission> Sealed for super::NoDenies<O> {}
+    impl<O: NeedsPermission> Sealed for super::AllowAll<O> {}
+    impl<O: NeedsPermission> Sealed for super::DenyAll<O> {}
 }
 
-pub mod proxy {
-    use super::*;
-
-    #[derive(Debug, Clone)]
-    pub struct IsAllowed<O: NeedsPermission, J: Judge> {
-        judge: J,
-        _phantom_operation: PhantomData<O>,
-    }
-
-    impl<O: NeedsPermission, J: Judge> IsAllowed<O, J> {
-        pub fn new(judge: J) -> Self {
-            IsAllowed {
-                judge,
-                _phantom_operation: PhantomData,
-            }
-        }
-    }
-
-    impl<O: NeedsPermission, J: Judge> GetValidatorType for IsAllowed<O, J> {
-        fn get_validator_type(&self) -> ValidatorType {
-            self.judge.get_validator_type()
-        }
-    }
-
-    impl<O: NeedsPermission + Clone + Into<NeedsPermissionBox>, J> super::IsAllowed for IsAllowed<O, J>
-    where
-        J: Judge,
-    {
-        type Operation = O;
-
-        fn check(
-            &self,
-            authority: &AccountId,
-            operation: &O,
-            wsv: &WorldStateView,
-        ) -> ValidatorVerdict {
-            self.judge
-                .judge(authority, &operation.clone().into(), wsv)
-                .into()
-        }
-    }
-}
-
-pub type JudgeBox = Box<dyn Judge + Send + Sync>;
-
+// TODO: Do I really need `GetValidatorType` here?
 pub trait Judge: GetValidatorType + std::fmt::Debug {
-    fn judge_type_independent(
-        &self,
-        authority: &AccountId,
-        operation: &NeedsPermissionBox,
-        wsv: &WorldStateView,
-    ) -> std::result::Result<(), DenialReason>;
+    type Operation: NeedsPermission;
 
     fn judge(
         &self,
         authority: &AccountId,
-        operation: &NeedsPermissionBox,
+        operation: &Self::Operation,
         wsv: &WorldStateView,
-    ) -> std::result::Result<(), DenialReason> {
-        let expected_type = operation.required_validator_type();
-        let actual_type = self.get_validator_type();
-        if actual_type != expected_type {
-            // Technically we can return `ValidatorVerdict::Skip` or
-            // `ValidatorVerdict::Deny` here, but error of that kind is
-            // probably a programmer error, so we want to know about it as soon
-            // as possible
-            panic!(
-                "Validator type mismatch: expected {}, got {}",
-                expected_type, actual_type,
-            );
-        }
-
-        self.judge_type_independent(authority, operation, wsv)
-    }
+    ) -> std::result::Result<(), DenialReason>;
 }
 
 /// Every *sealed* [`Judge`] is also a `Validator`
@@ -91,8 +29,8 @@ pub trait Judge: GetValidatorType + std::fmt::Debug {
 /// for [`IsAllowedBoxed`].
 /// *Sealed* makes it impossible to generate this implementation for anything
 /// that is not listed in [`sealed`] module.
-impl<J: Judge + sealed::Sealed> IsAllowed for J {
-    type Operation = NeedsPermissionBox;
+impl<O: NeedsPermission, J: Judge<Operation = O> + sealed::Sealed> IsAllowed for J {
+    type Operation = O;
 
     fn check(
         &self,
@@ -105,27 +43,29 @@ impl<J: Judge + sealed::Sealed> IsAllowed for J {
 }
 
 #[derive(Debug)]
-pub struct AtLeastOneAllow {
-    pub(crate) validators: Vec<IsAllowedBoxed>,
+pub struct AtLeastOneAllow<O: NeedsPermission> {
+    pub(crate) validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl GetValidatorType for AtLeastOneAllow {
+impl<O: NeedsPermission> GetValidatorType for AtLeastOneAllow<O> {
     fn get_validator_type(&self) -> ValidatorType {
         // Since [`Self`] can be constructed only with TODO it's always panic-safe
-        let first: &IsAllowedBoxed = self
+        let first = self
             .validators
             .first()
             .expect("Expected at least one validator for `AtLeastOneAllow` judge");
 
-        <IsAllowedBoxed as GetValidatorType>::get_validator_type(first)
+        first.get_validator_type()
     }
 }
 
-impl Judge for AtLeastOneAllow {
-    fn judge_type_independent(
+impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
+    type Operation = O;
+
+    fn judge(
         &self,
         authority: &AccountId,
-        operation: &NeedsPermissionBox,
+        operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
         let mut deny_messages = Vec::new();
@@ -147,28 +87,30 @@ impl Judge for AtLeastOneAllow {
 }
 
 #[derive(Debug)]
-pub struct NoDenies {
-    pub(crate) validators: Vec<IsAllowedBoxed>,
+pub struct NoDenies<O: NeedsPermission> {
+    pub(crate) validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl GetValidatorType for NoDenies {
+impl<O: NeedsPermission> GetValidatorType for NoDenies<O> {
     fn get_validator_type(&self) -> ValidatorType {
         // Since [`Self`] can be constructed only with
         // [`super::builder::WithJudge`] it's always panic-safe
-        let first: &IsAllowedBoxed = self
+        let first = self
             .validators
             .first()
-            .expect("Expected at least one validator for `AtLeastOneAllow` judge");
+            .expect("Expected at least one validator for `NoDenies` judge");
 
-        <IsAllowedBoxed as GetValidatorType>::get_validator_type(first)
+        first.get_validator_type()
     }
 }
 
-impl Judge for NoDenies {
-    fn judge_type_independent(
+impl<O: NeedsPermission> Judge for NoDenies<O> {
+    type Operation = O;
+
+    fn judge(
         &self,
         authority: &AccountId,
-        operation: &NeedsPermissionBox,
+        operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
         for validator in &self.validators {
@@ -191,32 +133,26 @@ impl Judge for NoDenies {
 /// but calling [`GetValidatorType::get_validator_type`] will panic because
 /// the exact implementation has no meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-pub struct AllowAll;
+pub struct AllowAll<O: NeedsPermission> {
+    _phantom_operation: PhantomData<O>,
+}
 
-impl GetValidatorType for AllowAll {
+impl<O: NeedsPermission> GetValidatorType for AllowAll<O> {
     fn get_validator_type(&self) -> ValidatorType {
         unimplemented!("Implementation `GetValidatorType` for `AllowAll` has no meaning")
     }
 }
 
-impl Judge for AllowAll {
-    fn judge_type_independent(
-        &self,
-        authority: &AccountId,
-        operation: &NeedsPermissionBox,
-        wsv: &WorldStateView,
-    ) -> std::result::Result<(), DenialReason> {
-        Ok(())
-    }
+impl<O: NeedsPermission> Judge for AllowAll<O> {
+    type Operation = O;
 
-    /// Reimplementing this function to remove *validator type* checking cause it has no meaning
     fn judge(
         &self,
         authority: &AccountId,
-        operation: &NeedsPermissionBox,
+        operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
-        self.judge_type_independent(authority, operation, wsv)
+        Ok(())
     }
 }
 
@@ -228,31 +164,25 @@ impl Judge for AllowAll {
 /// but calling [`GetValidatorType::get_validator_type`] will panic because
 /// the exact implementation has no meaning.
 #[derive(Debug, Clone, Copy, Serialize)]
-pub struct DenyAll;
+pub struct DenyAll<O: NeedsPermission> {
+    _phantom_operation: PhantomData<O>,
+}
 
-impl GetValidatorType for DenyAll {
+impl<O: NeedsPermission> GetValidatorType for DenyAll<O> {
     fn get_validator_type(&self) -> ValidatorType {
         unimplemented!("Implementation `GetValidatorType` for `DenyAll` has no meaning")
     }
 }
 
-impl Judge for DenyAll {
-    fn judge_type_independent(
-        &self,
-        authority: &AccountId,
-        operation: &NeedsPermissionBox,
-        wsv: &WorldStateView,
-    ) -> std::result::Result<(), DenialReason> {
-        Err("All operations are denied.".to_owned().into())
-    }
+impl<O: NeedsPermission> Judge for DenyAll<O> {
+    type Operation = O;
 
-    /// Reimplementing this function to remove *validator type* checking cause it has no meaning
     fn judge(
         &self,
         authority: &AccountId,
-        operation: &NeedsPermissionBox,
+        operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
-        self.judge_type_independent(authority, operation, wsv)
+        Err("All operations are denied.".to_owned().into())
     }
 }
