@@ -136,6 +136,18 @@ impl ValidatorVerdict {
             self.least_permissive(f())
         }
     }
+
+    pub fn most_permissive(self, other: Self) -> Self {
+        std::cmp::max(self, other)
+    }
+
+    pub fn most_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
+        if let Self::Allow = &self {
+            self
+        } else {
+            self.most_permissive(f())
+        }
+    }
 }
 
 impl From<Result<()>> for ValidatorVerdict {

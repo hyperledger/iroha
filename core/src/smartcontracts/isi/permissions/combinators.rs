@@ -2,6 +2,75 @@
 
 use super::*;
 
+/// Trait for joining validators with `or` method, auto-implemented
+/// for all types implementing [`IsAllowed`]
+pub trait ValidatorApplyOr<O: NeedsPermission>: IsAllowed<Operation = O> + Sized {
+    /// Combines two validators into [`Or`].
+    ///
+    /// Validators verdicts will be combined using [`ValidatorVerdict::most_permissive_with()`]
+    fn or<V: IsAllowed<Operation = O> + Sized>(self, another: V) -> Or<O, Self, V>;
+}
+
+impl<O: NeedsPermission, F: IsAllowed<Operation = O>> ValidatorApplyOr<O> for F {
+    fn or<V: IsAllowed<Operation = O>>(self, another: V) -> Or<O, Self, V> {
+        Or::new(self, another)
+    }
+}
+
+/// `check` succeeds if either `first` or `second` validator succeeds.
+#[derive(Debug, Clone, Serialize)]
+pub struct Or<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> {
+    first: F,
+    second: S,
+    #[serde(skip_serializing, default)]
+    _phantom_operation: PhantomData<O>,
+}
+
+impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> Or<O, F, S> {
+    /// Constructs new [`Or`]
+    pub fn new(first: F, second: S) -> Self {
+        Or {
+            first,
+            second,
+            _phantom_operation: PhantomData,
+        }
+    }
+}
+
+impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> GetValidatorType
+    for Or<O, F, S>
+{
+    fn get_validator_type(&self) -> ValidatorType {
+        self.first.get_validator_type()
+    }
+}
+
+impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> IsAllowed
+    for Or<O, F, S>
+{
+    type Operation = O;
+
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Self::Operation,
+        wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
+        let first_verdict = self.first.check(authority, operation, wsv);
+        let second_verdict = self.second.check(authority, operation, wsv);
+
+        if let (ValidatorVerdict::Deny(first_reason), ValidatorVerdict::Deny(second_reason)) =
+            (&first_verdict, &second_verdict)
+        {
+            return ValidatorVerdict::Deny(DenialReason::Custom(format!(
+                "Nor first validator succeed: {first_reason}, nor second: {second_reason}"
+            )));
+        }
+
+        first_verdict.most_permissive(second_verdict)
+    }
+}
+
 /// Wraps validator to check nested permissions.  Pay attention to
 /// wrap only validators that do not check nested instructions by
 /// themselves.
