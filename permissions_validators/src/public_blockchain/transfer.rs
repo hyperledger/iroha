@@ -29,32 +29,29 @@ declare_token!(
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyOwnedAssets;
 
-impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
+impl IsAllowed for OnlyOwnedAssets {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let transfer_box = if let Instruction::Transfer(transfer) = instruction {
             transfer
         } else {
-            return Ok(());
+            return ValidatorVerdict::Skip;
         };
-        let source_id = transfer_box
-            .source_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let source_id: AssetId = try_into_or_exit!(source_id);
+        let source_id: AssetId =
+            try_into_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv));
 
         if &source_id.account_id != authority {
             return Err("Can't transfer assets of the other account."
                 .to_owned()
                 .into());
         }
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -62,8 +59,6 @@ impl IsAllowed<Instruction> for OnlyOwnedAssets {
 /// corresponding user granted this permission token.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetOwner;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
 impl HasToken for GrantedByAssetOwner {
     fn token(
@@ -95,8 +90,6 @@ impl HasToken for GrantedByAssetOwner {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantMyAssetAccess;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
-
 impl IsGrantAllowed for GrantMyAssetAccess {
     fn check(
         &self,
@@ -123,23 +116,23 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct ExecutionCountFitsInLimit;
 
-impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
+impl IsAllowed for ExecutionCountFitsInLimit {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for ExecutionCountFitsInLimit {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         if !matches!(instruction, Instruction::Transfer(_)) {
-            return Ok(());
+            return ValidatorVerdict::Skip;
         };
 
         let params = retrieve_permission_params(wsv, authority)?;
         if params.is_empty() {
-            return Ok(());
+            return ValidatorVerdict::Allow;
         }
 
         let period = retrieve_period(&params)?;
@@ -148,11 +141,13 @@ impl IsAllowed<Instruction> for ExecutionCountFitsInLimit {
             .try_into()
             .expect("`usize` should always fit in `u32`");
         if executions_count >= count {
-            return Err("Transfer transaction limit for current period is exceed"
-                .to_owned()
-                .into());
+            return ValidatorVerdict::Deny(
+                "Transfer transaction limit for current period is exceed"
+                    .to_owned()
+                    .into(),
+            );
         }
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 

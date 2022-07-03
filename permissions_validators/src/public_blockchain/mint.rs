@@ -54,7 +54,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                let asset_id: AssetId = try_into_or_skip!(destination_id);
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&asset_id.definition_id)
                     .map(|asset_definition_entry| {

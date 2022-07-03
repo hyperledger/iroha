@@ -17,35 +17,38 @@ declare_token!(
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAssetsCreatedByThisAccount;
 
-impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
+impl IsAllowed for OnlyAssetsCreatedByThisAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let unregister_box = if let Instruction::Unregister(unregister) = instruction {
             unregister
         } else {
-            return Ok(());
+            return ValidatorVerdict::Skip;
         };
+
         let object_id = unregister_box
             .object_id
             .evaluate(wsv, &Context::new())
             .map_err(|e| e.to_string())?;
-        let asset_definition_id: AssetDefinitionId = try_into_or_exit!(object_id);
+        let asset_definition_id: AssetDefinitionId = try_into_or_skip!(object_id);
         let registered_by_signer_account = wsv
             .asset_definition_entry(&asset_definition_id)
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
-            return Err("Can't unregister assets registered by other accounts."
-                .to_owned()
-                .into());
+            return ValidatorVerdict::Deny(
+                "Can't unregister assets registered by other accounts."
+                    .to_owned()
+                    .into(),
+            );
         }
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -54,8 +57,6 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
 /// asset.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetCreator;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
 impl HasToken for GrantedByAssetCreator {
     fn token(
@@ -87,8 +88,6 @@ impl HasToken for GrantedByAssetCreator {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantRegisteredByMeAccess;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
-
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
     fn check(
         &self,
@@ -106,8 +105,6 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
 /// accessible.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct RevokeRegisteredByMeAccess;
-
-impl_from_item_for_revoke_instruction_validator_box!(RevokeRegisteredByMeAccess);
 
 impl IsRevokeAllowed for RevokeRegisteredByMeAccess {
     fn check(
