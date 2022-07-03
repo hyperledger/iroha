@@ -50,9 +50,9 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                         })
                         .unwrap_or(false);
                     if !registered_by_signer_account {
-                        return ValidatorVerdict::Deny(DenialReason::Custom(
+                        return ValidatorVerdict::Deny(
                             "Can't unregister assets with definitions registered by other accounts.".to_owned().into()
-                        ));
+                        );
                     }
                 }
                 ValidatorVerdict::Allow
@@ -70,11 +70,11 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return ValidatorVerdict::Deny(DenialReason::Custom(
+                    return ValidatorVerdict::Deny(
                         "Can't burn assets with definitions registered by other accounts."
                             .to_owned()
                             .into(),
-                    ));
+                    );
                 }
                 ValidatorVerdict::Allow
             }

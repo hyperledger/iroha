@@ -40,11 +40,11 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                         .unwrap_or(false);
 
                     if !registered_by_signer_account {
-                        return ValidatorVerdict::Deny(DenialReason::Custom(
+                        return ValidatorVerdict::Deny(
                             "Can't register assets with definitions registered by other accounts."
                                 .to_owned()
                                 .into(),
-                        ));
+                        );
                     }
                 }
                 ValidatorVerdict::Allow
@@ -62,11 +62,11 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return ValidatorVerdict::Deny(DenialReason::Custom(
+                    return ValidatorVerdict::Deny(
                         "Can't mint assets with definitions registered by other accounts."
                             .to_owned()
                             .into(),
-                    ));
+                    );
                 }
                 ValidatorVerdict::Allow
             }
