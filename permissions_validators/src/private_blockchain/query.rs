@@ -6,7 +6,9 @@ use super::*;
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAccountsDomain;
 
-impl IsAllowed<QueryBox> for OnlyAccountsDomain {
+impl IsAllowed for OnlyAccountsDomain {
+    type Operation = QueryBox;
+
     #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn check(
         &self,
@@ -338,13 +340,13 @@ impl IsAllowed<QueryBox> for OnlyAccountsDomain {
     }
 }
 
-impl_from_item_for_query_validator_box!(OnlyAccountsDomain);
-
 /// Allow queries that only access the signers account data.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAccountsData;
 
-impl IsAllowed<QueryBox> for OnlyAccountsData {
+impl IsAllowed for OnlyAccountsData {
+    type Operation = QueryBox;
+
     #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn check(
         &self,
@@ -547,5 +549,3 @@ impl IsAllowed<QueryBox> for OnlyAccountsData {
         }
     }
 }
-
-impl_from_item_for_query_validator_box!(OnlyAccountsData);

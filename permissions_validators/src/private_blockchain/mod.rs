@@ -6,19 +6,23 @@ pub mod query;
 pub mod register;
 
 /// A preconfigured set of permissions for simple use cases.
-pub fn default_instructions_permissions() -> IsInstructionAllowedBoxed {
-    ValidatorBuilder::with_recursive_validator(
-        register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
+pub fn default_instructions_permissions() -> InstructionJudgeBoxed {
+    Box::new(
+        ValidatorBuilder::with_recursive_validator(
+            register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
+        )
+        .all_should_succeed()
+        .build(),
     )
-    .all_should_succeed()
-    .build()
 }
 
 /// A preconfigured set of permissions for simple use cases.
-pub fn default_query_permissions() -> IsQueryAllowedBoxed {
-    ValidatorBuilder::with_validator(AllowAll)
-        .all_should_succeed()
-        .build()
+pub fn default_query_permissions() -> QueryJudgeBoxed {
+    Box::new(
+        ValidatorBuilder::with_validator(AllowAll::new())
+            .all_should_succeed()
+            .build(),
+    )
 }
 
 /// Prohibits using the [`Grant`] instruction at runtime.  This means
@@ -27,8 +31,6 @@ pub fn default_query_permissions() -> IsQueryAllowedBoxed {
 /// super-user in a blockchain.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct ProhibitGrant;
-
-impl_from_item_for_grant_instruction_validator_box!(ProhibitGrant);
 
 impl IsGrantAllowed for ProhibitGrant {
     fn check(
@@ -186,7 +188,7 @@ mod tests {
             let op = QueryBox::FindAllAccounts(FindAllAccounts::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
                 assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_err());
@@ -194,7 +196,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
                 assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
@@ -215,7 +217,7 @@ mod tests {
             let op = QueryBox::FindAccountById(FindAccountById::new(alice_id.clone()));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
                 assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
@@ -223,7 +225,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
                 assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
@@ -247,7 +249,7 @@ mod tests {
             ));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
                 assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
@@ -255,7 +257,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
                 assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
@@ -276,7 +278,7 @@ mod tests {
             let op = QueryBox::FindAccountsByName(FindAccountsByName::new(alice_id.clone()));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
                 assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_err());
@@ -284,7 +286,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
                 assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
@@ -308,7 +310,7 @@ mod tests {
                 QueryBox::FindAccountsByDomainId(FindAccountsByDomainId::new(wonderland_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_first_domain, &wsv)
@@ -322,7 +324,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_first_domain, &wsv)
@@ -339,7 +341,7 @@ mod tests {
                 QueryBox::FindAccountsByDomainId(FindAccountsByDomainId::new(second_domain_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_second_domain, &wsv)
@@ -353,7 +355,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_second_domain, &wsv)
@@ -380,7 +382,7 @@ mod tests {
             let op = QueryBox::FindAccountsWithAsset(FindAccountsWithAsset::new("xor".to_owned()));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
                 assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_err());
@@ -388,7 +390,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
                 assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
@@ -403,13 +405,13 @@ mod tests {
             let op = QueryBox::FindAllAssets(FindAllAssets::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
             }
@@ -422,13 +424,13 @@ mod tests {
             let op = QueryBox::FindAllAssetsDefinitions(FindAllAssetsDefinitions::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
             }
@@ -451,7 +453,7 @@ mod tests {
             let find_bronze = QueryBox::FindAssetById(FindAssetById::new(bronze_asset_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
@@ -468,7 +470,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
@@ -508,7 +510,7 @@ mod tests {
             ));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
@@ -525,7 +527,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
@@ -562,7 +564,7 @@ mod tests {
             ));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
@@ -579,7 +581,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
@@ -609,7 +611,7 @@ mod tests {
             let op = QueryBox::FindAssetsByAccountId(FindAssetsByAccountId::new(alice_id.clone()));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
                 assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
@@ -617,7 +619,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
                 assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
@@ -641,7 +643,7 @@ mod tests {
             );
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
@@ -655,7 +657,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
@@ -683,7 +685,7 @@ mod tests {
                 QueryBox::FindAssetsByDomainId(FindAssetsByDomainId::new(denoland_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_wonderland, &wsv)
@@ -694,7 +696,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_wonderland, &wsv)
@@ -744,7 +746,7 @@ mod tests {
             );
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_by_wonderland, &wsv)
@@ -762,7 +764,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_by_wonderland, &wsv)
@@ -801,7 +803,7 @@ mod tests {
                 QueryBox::FindAssetQuantityById(FindAssetQuantityById::new(bronze_asset_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_quantity, &wsv)
@@ -820,7 +822,7 @@ mod tests {
                     .is_ok());
             }
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_quantity, &wsv)
@@ -866,7 +868,7 @@ mod tests {
             );
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_key_value, &wsv)
@@ -886,7 +888,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_key_value, &wsv)
@@ -943,7 +945,7 @@ mod tests {
                 ),
             );
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_key_value, &wsv)
@@ -963,7 +965,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_key_value, &wsv)
@@ -990,7 +992,7 @@ mod tests {
             let find_all_domains = QueryBox::FindAllDomains(FindAllDomains::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_domains, &wsv)
@@ -1004,7 +1006,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_domains, &wsv)
@@ -1032,7 +1034,7 @@ mod tests {
             let find_wonderland = QueryBox::FindDomainById(FindDomainById::new(wonderland_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_wonderland, &wsv)
@@ -1046,7 +1048,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_wonderland, &wsv)
@@ -1076,7 +1078,7 @@ mod tests {
             );
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_wonderland_key_value, &wsv)
@@ -1090,7 +1092,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_wonderland_key_value, &wsv)
@@ -1117,7 +1119,7 @@ mod tests {
             let find_all_peers = QueryBox::FindAllPeers(FindAllPeers::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 // Always allow do it for any account.
                 assert!(only_accounts_domain
@@ -1132,7 +1134,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 // Always returns an error for any account.
                 assert!(only_accounts_data
@@ -1160,7 +1162,7 @@ mod tests {
             let find_all_blocks = QueryBox::FindAllBlocks(FindAllBlocks::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 // Always returns an error for any account.
                 assert!(only_accounts_domain
@@ -1175,7 +1177,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 // Always returns an error for any account.
                 assert!(only_accounts_data
@@ -1203,7 +1205,7 @@ mod tests {
             let find_all_transactions = QueryBox::FindAllTransactions(FindAllTransactions::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 // Always returns an error for any account.
                 assert!(only_accounts_domain
@@ -1218,7 +1220,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 // Always returns an error for any account.
                 assert!(only_accounts_data
@@ -1254,7 +1256,7 @@ mod tests {
             );
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_alice_transactions, &wsv)
@@ -1277,7 +1279,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_alice_transactions, &wsv)
@@ -1314,7 +1316,7 @@ mod tests {
                 QueryBox::FindTransactionByHash(FindTransactionByHash::new(Hash::new(&[])));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 // Always allow for any account.
                 assert!(only_accounts_domain
@@ -1329,7 +1331,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 // Always allow for any account.
                 assert!(only_accounts_data
@@ -1368,7 +1370,7 @@ mod tests {
                 });
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_alice_permission_tokens, &wsv)
@@ -1391,7 +1393,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_alice_permission_tokens, &wsv)
@@ -1428,7 +1430,7 @@ mod tests {
                 QueryBox::FindAllActiveTriggerIds(FindAllActiveTriggerIds {});
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 // Always allow for any account.
                 assert!(only_accounts_domain
@@ -1443,7 +1445,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 // Always returns an error for any account.
                 assert!(only_accounts_data
@@ -1474,7 +1476,7 @@ mod tests {
             });
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger, &wsv)
@@ -1488,7 +1490,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger, &wsv)
@@ -1520,7 +1522,7 @@ mod tests {
                 });
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger, &wsv)
@@ -1534,7 +1536,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger, &wsv)
@@ -1566,7 +1568,7 @@ mod tests {
                 QueryBox::FindTriggersByDomainId(FindTriggersByDomainId::new(denoland_id));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger_by_wonderland, &wsv)
@@ -1589,7 +1591,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger_by_wonderland, &wsv)
@@ -1625,7 +1627,7 @@ mod tests {
             let find_all_roles = QueryBox::FindAllRoles(FindAllRoles::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_roles, &wsv)
@@ -1639,7 +1641,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_roles, &wsv)
@@ -1666,7 +1668,7 @@ mod tests {
             let find_all_role_ids = QueryBox::FindAllRoleIds(FindAllRoleIds::new());
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_role_ids, &wsv)
@@ -1680,7 +1682,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_role_ids, &wsv)
@@ -1708,7 +1710,7 @@ mod tests {
                 QueryBox::FindRolesByAccountId(FindRolesByAccountId::new(alice_id.clone()));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_alice, &wsv)
@@ -1722,7 +1724,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_alice, &wsv)
@@ -1750,7 +1752,7 @@ mod tests {
                 QueryBox::FindRoleByRoleId(FindRoleByRoleId::new("admin".to_string()));
 
             {
-                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+                let only_accounts_domain = query::OnlyAccountsDomain;
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_admin, &wsv)
@@ -1764,7 +1766,7 @@ mod tests {
             }
 
             {
-                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+                let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_admin, &wsv)
@@ -1830,8 +1832,7 @@ mod tests {
 
             let wsv = WorldStateView::new(World::with([domain], Vec::new()));
 
-            let validator: IsInstructionAllowedBoxed =
-                register::GrantedAllowedRegisterDomains.into();
+            let validator = register::GrantedAllowedRegisterDomains;
 
             let op = Instruction::Register(RegisterBox::new(Domain::new(
                 "newdomain".parse().expect("Valid"),
@@ -1856,8 +1857,7 @@ mod tests {
 
             let wsv = WorldStateView::new(World::with([domain], Vec::new()));
 
-            let validator: IsInstructionAllowedBoxed =
-                register::GrantedAllowedRegisterDomains.into();
+            let validator = register::GrantedAllowedRegisterDomains;
 
             let op = Instruction::Register(RegisterBox::new(Domain::new(
                 "newdomain".parse().expect("Valid"),

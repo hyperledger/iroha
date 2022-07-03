@@ -200,7 +200,7 @@ pub mod prelude {
         error::DenialReason,
         judge::{AllowAll, Judge, OperationJudgeBoxed},
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
-        HasTokenBoxed, IsAllowedBoxed,
+        HasTokenBoxed, IsAllowed, IsAllowedBoxed,
     };
 }
 
