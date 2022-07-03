@@ -90,8 +90,7 @@ impl IsAllowed for IsAllowedBoxed {
 }
 
 /// Box with permissions validator for generic operation
-pub type IsOperationAllowedBoxed<O: NeedsPermission> =
-    Box<dyn IsAllowed<Operation = O> + Send + Sync>;
+pub type IsOperationAllowedBoxed<O> = Box<dyn IsAllowed<Operation = O> + Send + Sync>;
 
 /// Box with permissions validator for [`Instruction`].
 pub type IsInstructionAllowedBoxed = IsOperationAllowedBoxed<Instruction>;

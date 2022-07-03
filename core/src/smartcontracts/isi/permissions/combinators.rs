@@ -46,8 +46,8 @@ impl IsAllowed for CheckNested {
             | Instruction::ExecuteTrigger(_) => self.validator.check(authority, instruction, wsv),
             Instruction::If(if_box) => self
                 .check(authority, &if_box.then, wsv)
-                .least_permissive_with(|| match if_box.otherwise {
-                    Some(otherwise) => self.check(authority, &otherwise, wsv),
+                .least_permissive_with(|| match &if_box.otherwise {
+                    Some(otherwise) => self.check(authority, otherwise, wsv),
                     None => ValidatorVerdict::Skip,
                 }),
             Instruction::Pair(pair_box) => self

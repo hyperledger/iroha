@@ -11,7 +11,7 @@ mod sealed {
     impl<O: NeedsPermission> Sealed for super::DenyAll<O> {}
 }
 
-pub type OperationJudgeBoxed<O: NeedsPermission> = Box<dyn Judge<Operation = O> + Send + Sync>;
+pub type OperationJudgeBoxed<O> = Box<dyn Judge<Operation = O> + Send + Sync>;
 
 pub type InstructionJudgeBoxed = OperationJudgeBoxed<Instruction>;
 pub type QueryJudgeBoxed = OperationJudgeBoxed<QueryBox>;
@@ -145,7 +145,7 @@ pub struct AllowAll<O: NeedsPermission> {
 
 impl<O: NeedsPermission> AllowAll<O> {
     #[inline]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             _phantom_operation: PhantomData,
         }
@@ -163,9 +163,9 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
 
     fn judge(
         &self,
-        authority: &AccountId,
-        operation: &Self::Operation,
-        wsv: &WorldStateView,
+        _authority: &AccountId,
+        _operation: &Self::Operation,
+        _wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
         Ok(())
     }
@@ -185,7 +185,7 @@ pub struct DenyAll<O: NeedsPermission> {
 
 impl<O: NeedsPermission> DenyAll<O> {
     #[inline]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             _phantom_operation: PhantomData,
         }
@@ -203,9 +203,9 @@ impl<O: NeedsPermission> Judge for DenyAll<O> {
 
     fn judge(
         &self,
-        authority: &AccountId,
-        operation: &Self::Operation,
-        wsv: &WorldStateView,
+        _authority: &AccountId,
+        _operation: &Self::Operation,
+        _wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
         Err("All operations are denied.".to_owned().into())
     }
