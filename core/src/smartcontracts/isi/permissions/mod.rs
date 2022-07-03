@@ -198,7 +198,7 @@ pub mod prelude {
     pub use super::{
         builder::Validator as ValidatorBuilder,
         error::DenialReason,
-        judge::{AllowAll, Judge},
+        judge::{AllowAll, Judge, OperationJudgeBoxed},
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
         HasTokenBoxed, IsAllowedBoxed,
     };

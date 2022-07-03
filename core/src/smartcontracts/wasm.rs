@@ -14,12 +14,12 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::{IsAllowed as _, IsInstructionAllowedBoxed};
+use super::permissions::{
+    judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
+    prelude::*,
+};
 use crate::{
-    smartcontracts::{
-        permissions::{check_instruction_permissions, IsQueryAllowedBoxed},
-        Execute, ValidQuery,
-    },
+    smartcontracts::{permissions::check_instruction_permissions, Execute, ValidQuery},
     wsv::WorldStateView,
 };
 
@@ -76,10 +76,10 @@ struct Validator<'wrld> {
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
     /// If this particular instruction is allowed
-    is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+    instruction_judge: Arc<InstructionJudgeBoxed>,
     /// If this particular query is allowed
-    is_query_allowed: Arc<IsQueryAllowedBoxed>,
-    /// Current [`WorldStateview`]
+    query_judge: Arc<QueryJudgeBoxed>,
+    /// Current [`WorldStateView`]
     wsv: &'wrld WorldStateView,
 }
 
@@ -113,16 +113,16 @@ impl Validator<'_> {
         check_instruction_permissions(
             account_id,
             instruction,
-            &self.is_instruction_allowed,
-            &self.is_query_allowed,
+            &self.instruction_judge,
+            &self.query_judge,
             self.wsv,
         )
         .map_err(|error| Trap::new(error.to_string()))
     }
 
     fn validate_query(&self, account_id: &AccountId, query: &QueryBox) -> Result<(), Trap> {
-        self.is_query_allowed
-            .check(account_id, query, self.wsv)
+        self.query_judge
+            .judge(account_id, query, self.wsv)
             .map_err(|err| Trap::new(err.to_string()))
     }
 }
@@ -156,14 +156,14 @@ impl<'wrld> State<'wrld> {
     fn with_validator(
         mut self,
         max_instruction_count: u64,
-        is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed>,
+        instruction_judge: Arc<InstructionJudgeBoxed>,
+        query_judge: Arc<QueryJudgeBoxed>,
     ) -> Self {
         let validator = Validator {
             instruction_count: 0,
             max_instruction_count,
-            is_instruction_allowed,
-            is_query_allowed,
+            instruction_judge,
+            query_judge,
             wsv: self.wsv,
         };
 
@@ -432,13 +432,13 @@ impl<'wrld> Runtime<'wrld> {
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
-        is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed>,
+        instruction_judge: Arc<InstructionJudgeBoxed>,
+        query_judge: Arc<QueryJudgeBoxed>,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id.clone(), self.config).with_validator(
             max_instruction_count,
-            is_instruction_allowed,
-            is_query_allowed,
+            instruction_judge,
+            query_judge,
         );
 
         self.execute_with_state(account_id, bytes, state)
@@ -561,7 +561,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        smartcontracts::permissions::combinators::{AllowAll, DenyAll},
+        smartcontracts::permissions::judge::{AllowAll, DenyAll},
         PeersIds, World,
     };
 

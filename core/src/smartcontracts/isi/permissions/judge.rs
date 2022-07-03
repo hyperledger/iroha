@@ -11,6 +11,12 @@ mod sealed {
     impl<O: NeedsPermission> Sealed for super::DenyAll<O> {}
 }
 
+pub type OperationJudgeBoxed<O: NeedsPermission> = Box<dyn Judge<Operation = O>>;
+
+pub type InstructionJudgeBoxed = OperationJudgeBoxed<Instruction>;
+pub type QueryJudgeBoxed = OperationJudgeBoxed<QueryBox>;
+pub type ExpressionJudgeBoxed = OperationJudgeBoxed<Expression>;
+
 // TODO: Do I really need `GetValidatorType` here?
 pub trait Judge: GetValidatorType + std::fmt::Debug {
     type Operation: NeedsPermission;
