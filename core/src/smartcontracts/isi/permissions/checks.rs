@@ -11,8 +11,8 @@ use super::{judge::Judge, *};
 pub fn check_instruction_permissions(
     account_id: &AccountId,
     instruction: &Instruction,
-    is_instruction_allowed: &impl Judge<Operation = Instruction>,
-    is_query_allowed: &impl Judge<Operation = QueryBox>,
+    is_instruction_allowed: &dyn Judge<Operation = Instruction>,
+    is_query_allowed: &dyn Judge<Operation = QueryBox>,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     let granted_instructions = &super::roles::unpack_if_role_grant(instruction.clone(), wsv)
@@ -45,7 +45,7 @@ pub fn check_instruction_permissions(
 fn check_permissions_directly(
     account_id: &AccountId,
     instructions: &[Instruction],
-    is_instruction_allowed: &impl Judge<Operation = Instruction>,
+    is_instruction_allowed: &dyn Judge<Operation = Instruction>,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
@@ -74,7 +74,7 @@ pub fn check_query_in_expression(
     authority: &AccountId,
     expression: &Expression,
     wsv: &WorldStateView,
-    is_query_allowed: &impl Judge<Operation = QueryBox>,
+    is_query_allowed: &dyn Judge<Operation = QueryBox>,
 ) -> Result<()> {
     macro_rules! check_binary_expression {
         ($e:ident) => {
@@ -189,7 +189,7 @@ pub fn check_query_in_instruction(
     authority: &AccountId,
     instruction: &Instruction,
     wsv: &WorldStateView,
-    is_query_allowed: &impl Judge<Operation = QueryBox>,
+    is_query_allowed: &dyn Judge<Operation = QueryBox>,
 ) -> Result<()> {
     match instruction {
         Instruction::Register(instruction) => check_query_in_expression(

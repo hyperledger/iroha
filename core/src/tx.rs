@@ -132,8 +132,8 @@ impl TransactionValidator {
                         check_instruction_permissions(
                             account_id,
                             instruction,
-                            &self.instruction_judge,
-                            &self.query_judge,
+                            self.instruction_judge.as_ref().as_ref(),
+                            self.query_judge.as_ref().as_ref(),
                             &wsv,
                         )?
                     }

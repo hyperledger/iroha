@@ -11,7 +11,7 @@ mod sealed {
     impl<O: NeedsPermission> Sealed for super::DenyAll<O> {}
 }
 
-pub type OperationJudgeBoxed<O: NeedsPermission> = Box<dyn Judge<Operation = O>>;
+pub type OperationJudgeBoxed<O: NeedsPermission> = Box<dyn Judge<Operation = O> + Send + Sync>;
 
 pub type InstructionJudgeBoxed = OperationJudgeBoxed<Instruction>;
 pub type QueryJudgeBoxed = OperationJudgeBoxed<QueryBox>;
