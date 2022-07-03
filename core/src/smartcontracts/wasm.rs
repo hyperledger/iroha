@@ -14,10 +14,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::{
-    judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
-    prelude::*,
-};
+use super::permissions::prelude::Judge;
 use crate::{
     smartcontracts::{permissions::check_instruction_permissions, Execute, ValidQuery},
     wsv::WorldStateView,
@@ -76,9 +73,9 @@ struct Validator<'wrld> {
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
     /// If this particular instruction is allowed
-    instruction_judge: Arc<InstructionJudgeBoxed>,
+    instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
     /// If this particular query is allowed
-    query_judge: Arc<QueryJudgeBoxed>,
+    query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
     /// Current [`WorldStateView`]
     wsv: &'wrld WorldStateView,
 }
@@ -113,8 +110,8 @@ impl Validator<'_> {
         check_instruction_permissions(
             account_id,
             instruction,
-            &self.instruction_judge,
-            &self.query_judge,
+            self.instruction_judge.as_ref(),
+            self.query_judge.as_ref(),
             self.wsv,
         )
         .map_err(|error| Trap::new(error.to_string()))
@@ -156,8 +153,8 @@ impl<'wrld> State<'wrld> {
     fn with_validator(
         mut self,
         max_instruction_count: u64,
-        instruction_judge: Arc<InstructionJudgeBoxed>,
-        query_judge: Arc<QueryJudgeBoxed>,
+        instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
+        query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
     ) -> Self {
         let validator = Validator {
             instruction_count: 0,
@@ -432,8 +429,8 @@ impl<'wrld> Runtime<'wrld> {
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
-        instruction_judge: Arc<InstructionJudgeBoxed>,
-        query_judge: Arc<QueryJudgeBoxed>,
+        instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
+        query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id.clone(), self.config).with_validator(
             max_instruction_count,
@@ -721,7 +718,14 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        let res = runtime.validate(&wsv, &account_id, wat, 1, AllowAll::new(), AllowAll::new());
+        let res = runtime.validate(
+            &wsv,
+            &account_id,
+            wat,
+            1,
+            Arc::new(AllowAll::new()),
+            Arc::new(AllowAll::new()),
+        );
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
@@ -768,7 +772,14 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        let res = runtime.validate(&wsv, &account_id, wat, 1, DenyAll::new(), AllowAll::new());
+        let res = runtime.validate(
+            &wsv,
+            &account_id,
+            wat,
+            1,
+            Arc::new(DenyAll::new()),
+            Arc::new(AllowAll::new()),
+        );
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
@@ -814,7 +825,14 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        let res = runtime.validate(&wsv, &account_id, wat, 1, AllowAll::new(), DenyAll::new());
+        let res = runtime.validate(
+            &wsv,
+            &account_id,
+            wat,
+            1,
+            Arc::new(AllowAll::new()),
+            Arc::new(DenyAll::new()),
+        );
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
