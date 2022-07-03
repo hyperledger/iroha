@@ -1,18 +1,8 @@
 //! Contains functions to check permission
 
-use judge::JudgeBox;
-
-use super::*;
+use super::{judge::Judge, *};
 
 /// Verify that the given `instruction` is allowed to execute
-///
-/// # Panic
-///
-/// Function will panic if at least one the the following invariants is not met:
-/// - Calling [`GetValidatorType::get_validator_type`]
-/// on `is_instruction_allowed` should return [`ValidatorType::Instruction`]
-/// - Calling [`GetValidatorType::get_validator_type`]
-/// on `is_query_allowed` should return [`ValidatorType::Query`]
 ///
 /// # Errors
 ///
@@ -21,13 +11,10 @@ use super::*;
 pub fn check_instruction_permissions(
     account_id: &AccountId,
     instruction: &Instruction,
-    is_instruction_allowed: &JudgeBox,
-    is_query_allowed: &JudgeBox,
+    is_instruction_allowed: &impl Judge<Operation = Instruction>,
+    is_query_allowed: &impl Judge<Operation = QueryBox>,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
-    assert_judge_type(is_instruction_allowed, ValidatorType::Instruction);
-    assert_judge_type(is_query_allowed, ValidatorType::Query);
-
     let granted_instructions = &super::roles::unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
     check_permissions_directly(
@@ -58,12 +45,12 @@ pub fn check_instruction_permissions(
 fn check_permissions_directly(
     account_id: &AccountId,
     instructions: &[Instruction],
-    is_instruction_allowed: &JudgeBox,
+    is_instruction_allowed: &impl Judge<Operation = Instruction>,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
         is_instruction_allowed
-            .judge(account_id, &isi.clone().into(), wsv)
+            .judge(account_id, &isi, wsv)
             .map_err(|reason| NotPermittedFail {
                 reason: reason.to_string(),
             })
@@ -76,14 +63,9 @@ fn check_permissions_directly(
 /// inside of it and if the user has permission to execute this query.
 ///
 /// As the function is recursive, caution should be exercised to have
-/// a limit of nestedness, that would not cause stack overflow.  Up to
+/// a limit of nesting, that would not cause stack overflow.  Up to
 /// 2^13 calls were tested and are ok. This is within default
 /// instruction limit.
-///
-/// # Panic
-///
-/// Function will panic if calling [`GetValidatorType::get_validator_type`]
-/// on `is_query_allowed` doesn't return [`ValidatorType::Query`]
 ///
 /// # Errors
 /// If a user is not allowed to execute one of the inner queries,
@@ -92,10 +74,8 @@ pub fn check_query_in_expression(
     authority: &AccountId,
     expression: &Expression,
     wsv: &WorldStateView,
-    is_query_allowed: &JudgeBox,
+    is_query_allowed: &impl Judge<Operation = QueryBox>,
 ) -> Result<()> {
-    assert_judge_type(is_query_allowed, ValidatorType::Query);
-
     macro_rules! check_binary_expression {
         ($e:ident) => {
             check_query_in_expression(authority, &($e).left.expression, wsv, is_query_allowed).and(
@@ -140,7 +120,7 @@ pub fn check_query_in_expression(
             wsv,
             is_query_allowed,
         )),
-        Expression::Query(query) => is_query_allowed.judge(authority, &query.clone().into(), wsv),
+        Expression::Query(query) => is_query_allowed.judge(authority, &query, wsv),
         Expression::Contains(expression) => check_query_in_expression(
             authority,
             &expression.collection.expression,
@@ -209,10 +189,8 @@ pub fn check_query_in_instruction(
     authority: &AccountId,
     instruction: &Instruction,
     wsv: &WorldStateView,
-    is_query_allowed: &JudgeBox,
+    is_query_allowed: &impl Judge<Operation = QueryBox>,
 ) -> Result<()> {
-    assert_judge_type(is_query_allowed, ValidatorType::Query);
-
     match instruction {
         Instruction::Register(instruction) => check_query_in_expression(
             authority,
@@ -352,15 +330,5 @@ pub fn check_query_in_instruction(
                 })
         }
         Instruction::Fail(_) | Instruction::ExecuteTrigger(_) => Ok(()),
-    }
-}
-
-fn assert_judge_type(judge: &JudgeBox, expected_type: ValidatorType) {
-    let actual_type = judge.get_validator_type();
-    if actual_type != expected_type {
-        panic!(
-            "Judge expected to have `{expected_type:?}` validator type, \"
-             but got `{actual_type:?}`",
-        );
     }
 }
