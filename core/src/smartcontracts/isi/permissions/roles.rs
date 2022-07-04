@@ -63,12 +63,6 @@ impl IsRevokeAllowed for IsRevokeAllowedBoxed {
     }
 }
 
-impl GetValidatorType for IsGrantAllowedBoxed {
-    fn get_validator_type(&self) -> ValidatorType {
-        ValidatorType::Instruction
-    }
-}
-
 impl IsAllowed for IsGrantAllowedBoxed {
     type Operation = Instruction;
 
@@ -83,12 +77,6 @@ impl IsAllowed for IsGrantAllowedBoxed {
         } else {
             ValidatorVerdict::Skip
         }
-    }
-}
-
-impl GetValidatorType for IsRevokeAllowedBoxed {
-    fn get_validator_type(&self) -> ValidatorType {
-        ValidatorType::Instruction
     }
 }
 

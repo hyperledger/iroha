@@ -230,12 +230,6 @@ mod tests {
     #[derive(Debug, Clone, Serialize)]
     struct DenyBurn;
 
-    impl GetValidatorType for DenyBurn {
-        fn get_validator_type(&self) -> ValidatorType {
-            ValidatorType::Instruction
-        }
-    }
-
     impl IsAllowed for DenyBurn {
         type Operation = Instruction;
 
@@ -256,12 +250,6 @@ mod tests {
 
     #[derive(Debug, Clone, Serialize)]
     struct DenyAlice;
-
-    impl GetValidatorType for DenyAlice {
-        fn get_validator_type(&self) -> ValidatorType {
-            ValidatorType::Instruction
-        }
-    }
 
     impl IsAllowed for DenyAlice {
         type Operation = Instruction;

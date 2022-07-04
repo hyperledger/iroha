@@ -2,12 +2,8 @@
 
 use super::*;
 
-pub trait GetValidatorType {
-    fn get_validator_type(&self) -> ValidatorType;
-}
-
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait IsAllowed: GetValidatorType + Debug {
+pub trait IsAllowed: Debug {
     type Operation: NeedsPermission;
 
     /// Checks if the `authority` is allowed to perform `instruction`
@@ -46,8 +42,8 @@ pub enum IsAllowedBoxed {
     Expression(IsExpressionAllowedBoxed),
 }
 
-impl GetValidatorType for IsAllowedBoxed {
-    fn get_validator_type(&self) -> ValidatorType {
+impl IsAllowedBoxed {
+    pub fn validator_type(&self) -> ValidatorType {
         match self {
             IsAllowedBoxed::Instruction(_) => ValidatorType::Instruction,
             IsAllowedBoxed::Query(_) => ValidatorType::Query,
@@ -83,7 +79,7 @@ impl IsAllowed for IsAllowedBoxed {
             _ => panic!(
                 "Validator type mismatch: expected {}, got {}",
                 operation.required_validator_type(),
-                self.get_validator_type()
+                self.validator_type()
             ),
         }
     }

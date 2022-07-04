@@ -17,8 +17,7 @@ pub type InstructionJudgeBoxed = OperationJudgeBoxed<Instruction>;
 pub type QueryJudgeBoxed = OperationJudgeBoxed<QueryBox>;
 pub type ExpressionJudgeBoxed = OperationJudgeBoxed<Expression>;
 
-// TODO: Do I really need `GetValidatorType` here?
-pub trait Judge: GetValidatorType + std::fmt::Debug {
+pub trait Judge: std::fmt::Debug {
     type Operation: NeedsPermission;
 
     fn judge(
@@ -53,18 +52,6 @@ pub struct AtLeastOneAllow<O: NeedsPermission> {
     pub(crate) validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl<O: NeedsPermission> GetValidatorType for AtLeastOneAllow<O> {
-    fn get_validator_type(&self) -> ValidatorType {
-        // Since [`Self`] can be constructed only with TODO it's always panic-safe
-        let first = self
-            .validators
-            .first()
-            .expect("Expected at least one validator for `AtLeastOneAllow` judge");
-
-        first.get_validator_type()
-    }
-}
-
 impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
     type Operation = O;
 
@@ -95,19 +82,6 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
 #[derive(Debug)]
 pub struct NoDenies<O: NeedsPermission> {
     pub(crate) validators: Vec<IsOperationAllowedBoxed<O>>,
-}
-
-impl<O: NeedsPermission> GetValidatorType for NoDenies<O> {
-    fn get_validator_type(&self) -> ValidatorType {
-        // Since [`Self`] can be constructed only with
-        // [`super::builder::WithJudge`] it's always panic-safe
-        let first = self
-            .validators
-            .first()
-            .expect("Expected at least one validator for `NoDenies` judge");
-
-        first.get_validator_type()
-    }
 }
 
 impl<O: NeedsPermission> Judge for NoDenies<O> {
@@ -152,12 +126,6 @@ impl<O: NeedsPermission> AllowAll<O> {
     }
 }
 
-impl<O: NeedsPermission> GetValidatorType for AllowAll<O> {
-    fn get_validator_type(&self) -> ValidatorType {
-        unimplemented!("Implementation `GetValidatorType` for `AllowAll` has no meaning")
-    }
-}
-
 impl<O: NeedsPermission> Judge for AllowAll<O> {
     type Operation = O;
 
@@ -189,12 +157,6 @@ impl<O: NeedsPermission> DenyAll<O> {
         Self {
             _phantom_operation: PhantomData,
         }
-    }
-}
-
-impl<O: NeedsPermission> GetValidatorType for DenyAll<O> {
-    fn get_validator_type(&self) -> ValidatorType {
-        unimplemented!("Implementation `GetValidatorType` for `DenyAll` has no meaning")
     }
 }
 

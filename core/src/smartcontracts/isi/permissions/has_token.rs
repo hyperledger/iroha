@@ -24,12 +24,6 @@ pub trait HasToken: Debug {
     ) -> std::result::Result<PermissionToken, String>;
 }
 
-impl GetValidatorType for HasTokenBoxed {
-    fn get_validator_type(&self) -> ValidatorType {
-        ValidatorType::Instruction
-    }
-}
-
 impl IsAllowed for HasTokenBoxed {
     type Operation = Instruction;
 

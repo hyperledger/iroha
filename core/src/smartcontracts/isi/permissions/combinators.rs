@@ -37,14 +37,6 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
     }
 }
 
-impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> GetValidatorType
-    for Or<O, F, S>
-{
-    fn get_validator_type(&self) -> ValidatorType {
-        self.first.get_validator_type()
-    }
-}
-
 impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> IsAllowed
     for Or<O, F, S>
 {
@@ -83,12 +75,6 @@ impl CheckNested {
     /// Wraps `validator` to check nested permissions.
     pub fn new(validator: IsInstructionAllowedBoxed) -> Self {
         CheckNested { validator }
-    }
-}
-
-impl GetValidatorType for CheckNested {
-    fn get_validator_type(&self) -> ValidatorType {
-        ValidatorType::Instruction
     }
 }
 
