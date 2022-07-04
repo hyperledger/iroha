@@ -71,6 +71,7 @@ jobs:
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
           mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
+        if: ${{ matrix.feature_flag == 'all-features' }}
         uses: codecov/codecov-action@v3
         with:
           files: lcov.info
