@@ -160,7 +160,7 @@ where
 {
     pub fn no_denies(self) -> WithJudge<O, NoDenies<O>> {
         let no_denies = NoDenies {
-            validators: vec![(Box::new(self.judge) as IsOperationAllowedBoxed<O>)],
+            validators: vec![(Box::new(self.judge.into_validator()) as IsOperationAllowedBoxed<O>)],
         };
         WithJudge::new(no_denies)
     }
@@ -172,7 +172,9 @@ where
 {
     pub fn at_least_one_allow(self) -> WithJudge<O, AtLeastOneAllow<O>> {
         let at_least_one_allow = AtLeastOneAllow {
-            validators: vec![(Box::new(self.judge) as IsOperationAllowedBoxed<O>).into()],
+            validators: vec![
+                (Box::new(self.judge.into_validator()) as IsOperationAllowedBoxed<O>).into(),
+            ],
         };
         WithJudge::new(at_least_one_allow)
     }

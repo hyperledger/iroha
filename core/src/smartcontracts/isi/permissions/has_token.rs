@@ -2,9 +2,6 @@
 
 use super::*;
 
-/// Boxed validator implementing [`HasToken`] validator trait.
-pub type HasTokenBoxed = Box<dyn HasToken + Send + Sync>;
-
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
 pub trait HasToken: Debug {
     /// This function should return the token that `authority` should
@@ -24,7 +21,7 @@ pub trait HasToken: Debug {
     ) -> std::result::Result<PermissionToken, String>;
 }
 
-impl IsAllowed for HasTokenBoxed {
+impl<H: HasToken> IsAllowed for H {
     type Operation = Instruction;
 
     fn check(

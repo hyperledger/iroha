@@ -1,16 +1,5 @@
 use super::*;
 
-mod sealed {
-    use crate::smartcontracts::permissions::NeedsPermission;
-
-    pub trait Sealed {}
-
-    impl<O: NeedsPermission> Sealed for super::AtLeastOneAllow<O> {}
-    impl<O: NeedsPermission> Sealed for super::NoDenies<O> {}
-    impl<O: NeedsPermission> Sealed for super::AllowAll<O> {}
-    impl<O: NeedsPermission> Sealed for super::DenyAll<O> {}
-}
-
 pub type OperationJudgeBoxed<O> = Box<dyn Judge<Operation = O> + Send + Sync>;
 
 pub type InstructionJudgeBoxed = OperationJudgeBoxed<Instruction>;
@@ -26,15 +15,21 @@ pub trait Judge: std::fmt::Debug {
         operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason>;
+
+    fn into_validator(self) -> JudgeAsValidator<Self::Operation, Self>
+    where
+        Self: Sized,
+    {
+        JudgeAsValidator { judge: self }
+    }
 }
 
-/// Every *sealed* [`Judge`] is also a `Validator`
-///
-/// [`sealed::Sealed`] is used to prevent conflicting trait implementations
-/// for [`IsAllowedBoxed`].
-/// *Sealed* makes it impossible to generate this implementation for anything
-/// that is not listed in [`sealed`] module.
-impl<O: NeedsPermission, J: Judge<Operation = O> + sealed::Sealed> IsAllowed for J {
+#[derive(Debug)]
+pub struct JudgeAsValidator<O: NeedsPermission, J: Judge<Operation = O>> {
+    judge: J,
+}
+
+impl<O: NeedsPermission, J: Judge<Operation = O>> IsAllowed for JudgeAsValidator<O, J> {
     type Operation = O;
 
     fn check(
@@ -43,7 +38,7 @@ impl<O: NeedsPermission, J: Judge<Operation = O> + sealed::Sealed> IsAllowed for
         operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        self.judge(authority, operation, wsv).into()
+        self.judge.judge(authority, operation, wsv).into()
     }
 }
 

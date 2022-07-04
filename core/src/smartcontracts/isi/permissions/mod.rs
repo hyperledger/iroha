@@ -209,10 +209,11 @@ pub mod prelude {
 
     pub use super::{
         builder::Validator as ValidatorBuilder,
+        combinators::ValidatorApplyOr as _,
         error::DenialReason,
         judge::{AllowAll, Judge, OperationJudgeBoxed},
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
-        HasTokenBoxed, IsAllowed, IsAllowedBoxed, ValidatorVerdict,
+        IsAllowed, IsAllowedBoxed, ValidatorVerdict,
     };
 }
 
@@ -373,7 +374,7 @@ mod tests {
         )));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator: HasTokenBoxed = Box::new(GrantedToken);
+        let validator = GrantedToken;
         assert!(validator
             .check(&alice_id, &instruction_burn, &wsv)
             .is_deny());
@@ -407,7 +408,7 @@ mod tests {
         .into();
         let wsv = WorldStateView::new(World::new());
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        let judge = ValidatorBuilder::with_validator(DenyAll::new())
+        let judge = ValidatorBuilder::with_validator(DenyAll::new().into_validator())
             .no_denies()
             .build();
         assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &judge).is_err())
