@@ -217,7 +217,8 @@ impl Queue {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use iroha_config::derive::Configurable;
+    use iroha_config::derive::{Configurable, View};
+    use iroha_data_model::config::queue::Configuration as PublicConfiguration;
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(13);
@@ -227,10 +228,11 @@ pub mod config {
     const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 
     /// Configuration for `Queue`.
-    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq, View)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     #[config(env_prefix = "QUEUE_")]
+    #[view(PublicConfiguration)]
     pub struct Configuration {
         /// The upper limit of the number of transactions per block.
         pub maximum_transactions_in_block: u32,

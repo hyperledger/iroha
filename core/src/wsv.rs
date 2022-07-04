@@ -804,8 +804,11 @@ impl WorldStateView {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use iroha_config::derive::Configurable;
-    use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
+    use iroha_config::derive::{Configurable, View};
+    use iroha_data_model::{
+        config::wsv::Configuration as PublicConfiguration, metadata::Limits as MetadataLimits,
+        LengthLimits,
+    };
     use serde::{Deserialize, Serialize};
 
     use crate::smartcontracts::wasm;
@@ -815,9 +818,10 @@ pub mod config {
     const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
     /// [`WorldStateView`](super::WorldStateView) configuration.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
     #[config(env_prefix = "WSV_")]
     #[serde(rename_all = "UPPERCASE", default)]
+    #[view(PublicConfiguration)]
     pub struct Configuration {
         /// [`MetadataLimits`] for every asset with store.
         pub asset_metadata_limits: MetadataLimits,

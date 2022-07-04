@@ -500,3 +500,131 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     };
     out.into()
 }
+
+struct ViewType {
+    ident: Ident,
+}
+
+impl Parse for ViewType {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            ident: input.parse()?,
+        })
+    }
+}
+
+struct ViewIgnore {
+    _ident: Ident,
+}
+
+impl ViewIgnore {
+    const IGNORE: &'static str = "ignore";
+}
+
+impl Parse for ViewIgnore {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _ident: parse_const_ident(input, Self::IGNORE)?,
+        })
+    }
+}
+
+/// Derive conversation between type and it's view. Check other doc in `iroha_config` reexport.
+#[proc_macro_derive(View, attributes(view))]
+pub fn into_view_derive(input: TokenStream) -> TokenStream {
+    let ast = match syn::parse(input) {
+        Ok(ast) => ast,
+        Err(err) => {
+            abort_call_site!("Failed to parse input Token Stream: {}", err)
+        }
+    };
+    impl_into_view(&ast)
+}
+
+#[allow(clippy::str_to_string)]
+fn impl_into_view(ast: &DeriveInput) -> TokenStream {
+    let ty = &ast.ident;
+    #[allow(clippy::expect_used)]
+    let view = ast
+        .attrs
+        .iter()
+        .find_map(|attr| {
+            if !attr.path.is_ident("view") {
+                return None;
+            }
+            attr.parse_args::<ViewType>().ok()
+        })
+        .map(|view| view.ident)
+        .expect("Required to provide view type.");
+    let fields = if let Data::Struct(DataStruct {
+        fields: Fields::Named(fields),
+        ..
+    }) = &ast.data
+    {
+        &fields.named
+    } else {
+        abort!(ast, "Only structs are supported");
+    };
+    // Filter-out fields with `#[view(ignore)]`
+    let fields = fields
+        .iter()
+        .filter(|field| {
+            field
+                .attrs
+                .iter()
+                .find_map(|attr| {
+                    if !attr.path.is_ident("view") {
+                        return None;
+                    }
+                    attr.parse_args::<ViewIgnore>().ok()
+                })
+                .is_none()
+        })
+        .collect::<Vec<_>>();
+    let field_idents = fields
+        .iter()
+        .map(|field| {
+            #[allow(clippy::expect_used)]
+            field
+                .ident
+                .as_ref()
+                .expect("Should always be set for named structures")
+        })
+        .collect::<Vec<_>>();
+    let out = quote! {
+        impl From<#view> for #ty {
+            fn from(config: #view) -> Self {
+                let #view {
+                    #(
+                        #field_idents,
+                    )*
+                } =  config;
+                //  Important to write macro in uniform way.
+                #[allow(clippy::needless_update)]
+                Self {
+                    #(
+                        #field_idents: From::<_>::from(#field_idents),
+                    )*
+                    ..Self::default()
+                }
+            }
+        }
+
+        impl From<#ty> for #view {
+            fn from(config: #ty) -> Self {
+                let #ty {
+                    #(
+                        #field_idents,
+                    )*
+                    ..
+                } =  config;
+                Self {
+                    #(
+                        #field_idents: From::<_>::from(#field_idents),
+                    )*
+                }
+            }
+        }
+    };
+    out.into()
+}

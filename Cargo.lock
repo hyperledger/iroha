@@ -1913,6 +1913,7 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
+ "url",
  "warp",
 ]
 
@@ -1988,6 +1989,7 @@ dependencies = [
  "color-eyre",
  "derive_more",
  "iroha_config",
+ "iroha_data_model",
  "once_cell",
  "serde",
  "serde_json",
@@ -2104,6 +2106,7 @@ dependencies = [
  "eyre",
  "futures",
  "iroha_config",
+ "iroha_data_model",
  "iroha_futures",
  "iroha_logger",
  "iroha_telemetry_derive",

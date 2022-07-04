@@ -58,6 +58,51 @@ pub mod derive {
     /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
     /// ```
     pub use iroha_config_derive::Configurable;
+    /// Derive macro for conversation between type and it's view which contains only subset of type's fields.
+    ///
+    /// Works only with structs.
+    ///
+    /// Assumptions:
+    /// - View's fields are subset of type's fields;
+    /// - Type implements `Default`.
+    ///
+    /// ## Container attributes
+    ///
+    /// ### `#[view(ViewType)]`
+    /// Sets container type view type.
+    ///
+    /// ## Field attributes
+    /// ### `#[view(ignore)]`
+    /// Mark field to ignore it when converting to view type.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use iroha_config::derive::View;
+    ///
+    /// struct View {
+    ///     a: u32,
+    /// }
+    ///
+    /// #[derive(Default, View)]
+    /// #[view(View)]
+    /// struct Structure {
+    ///     a: u32,
+    ///     // `View` doesn't have field `b` so we must exclude it.
+    ///     #[view(ignore)]
+    ///     b: u32,
+    /// }
+    ///
+    /// let view = View { a: 32 };
+    /// let structure: Structure = view.into();
+    /// assert_eq!(structure.a, 32);
+    /// assert_eq!(structure.b, u32::default());
+    ///
+    /// let structure = Structure { a: 13, b: 37 };
+    /// let view: View = structure.into();
+    /// assert_eq!(view.a, 13);
+    /// ```
+    pub use iroha_config_derive::View;
 
     /// Error related to deserializing specific field
     #[derive(Debug, Display)]

@@ -560,7 +560,10 @@ pub mod config {
     use std::{num::NonZeroU64, path::Path};
 
     use eyre::{eyre, Result};
-    use iroha_config::derive::Configurable;
+    use iroha_config::derive::{Configurable, View};
+    use iroha_data_model::config::kura::{
+        Configuration as PublicKuraConfiguration, Mode as PublicMode,
+    };
     use serde::{Deserialize, Serialize};
 
     use super::Mode;
@@ -570,9 +573,10 @@ pub mod config {
     const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
     /// Configuration of kura
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq, View)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "KURA_")]
+    #[view(PublicKuraConfiguration)]
     pub struct KuraConfiguration {
         /// Possible modes: `strict`, `fast`.
         #[serde(default)]
@@ -626,6 +630,24 @@ pub mod config {
 
     const fn default_actor_channel_capacity() -> u32 {
         DEFAULT_ACTOR_CHANNEL_CAPACITY
+    }
+
+    impl From<Mode> for PublicMode {
+        fn from(mode: Mode) -> Self {
+            match mode {
+                Mode::Fast => PublicMode::Fast,
+                Mode::Strict => PublicMode::Strict,
+            }
+        }
+    }
+
+    impl From<PublicMode> for Mode {
+        fn from(mode: PublicMode) -> Self {
+            match mode {
+                PublicMode::Fast => Mode::Fast,
+                PublicMode::Strict => Mode::Strict,
+            }
+        }
     }
 }
 

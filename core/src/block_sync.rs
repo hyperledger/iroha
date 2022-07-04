@@ -336,7 +336,8 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use iroha_config::derive::Configurable;
+    use iroha_config::derive::{Configurable, View};
+    use iroha_data_model::config::block_sync::Configuration as PublicBlockSyncConfiguration;
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_BATCH_SIZE: u32 = 4;
@@ -344,10 +345,11 @@ pub mod config {
     const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
     /// Configuration for `BlockSynchronizer`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     #[config(env_prefix = "BLOCK_SYNC_")]
+    #[view(PublicBlockSyncConfiguration)]
     pub struct BlockSyncConfiguration {
         /// The time between sending requests for latest block.
         pub gossip_period_ms: u64,

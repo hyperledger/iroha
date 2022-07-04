@@ -1,17 +1,19 @@
 #[cfg(feature = "dev-telemetry")]
 use std::path::PathBuf;
 
-use iroha_config::derive::Configurable;
+use iroha_config::derive::{Configurable, View};
+use iroha_data_model::config::telemetry::Configuration as PublicConfiguration;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::retry_period::RetryPeriod;
 
 /// Configuration parameters container
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq, View)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "TELEMETRY_")]
+#[view(PublicConfiguration)]
 pub struct Configuration {
     /// The node's name to be seen on the telemetry
     #[config(serde_as_str)]

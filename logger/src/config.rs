@@ -2,10 +2,14 @@
 //! configuration, as well as run-time reloading of the log-level.
 use std::fmt::Debug;
 
+use derive_more::{Deref, DerefMut};
 use iroha_config::{
-    derive::Configurable,
+    derive::{Configurable, View},
     logger as config,
     runtime_upgrades::{handle, ReloadError, ReloadMut},
+};
+use iroha_data_model::config::logger::{
+    Configuration as PublicConfiguration, Level as PublicLevel,
 };
 use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
@@ -51,14 +55,27 @@ impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {
     }
 }
 
+/// Wrapper around [`Level`] for runtime upgrades.
+#[derive(Clone, Debug, Serialize, Deserialize, Deref, DerefMut, Default)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct SyncLevel(handle::SyncValue<Level, handle::Singleton<Level>>);
+
+impl From<Level> for SyncLevel {
+    fn from(level: Level) -> Self {
+        Self(level.into())
+    }
+}
+
 /// Configuration for [`crate`].
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Deserialize, Serialize, Debug, Configurable, View)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
+#[view(PublicConfiguration)]
 pub struct Configuration {
     /// Maximum log level
     #[config(serde_as_str)]
-    pub max_log_level: handle::SyncValue<Level, handle::Singleton<Level>>,
+    pub max_log_level: SyncLevel,
     /// Capacity (or batch size) for telemetry channel
     pub telemetry_capacity: u32,
     /// Compact mode (no spans from telemetry)
@@ -73,11 +90,37 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
-            max_log_level: handle::SyncValue::default(),
+            max_log_level: SyncLevel::default(),
             telemetry_capacity: TELEMETRY_CAPACITY,
             compact_mode: DEFAULT_COMPACT_MODE,
             log_file_path: None,
             terminal_colors: DEFAULT_TERMINAL_COLORS,
+        }
+    }
+}
+
+impl From<PublicLevel> for SyncLevel {
+    fn from(level: PublicLevel) -> Self {
+        let inner = match level {
+            PublicLevel::ERROR => config::Level::ERROR,
+            PublicLevel::WARN => config::Level::WARN,
+            PublicLevel::INFO => config::Level::INFO,
+            PublicLevel::DEBUG => config::Level::DEBUG,
+            PublicLevel::TRACE => config::Level::TRACE,
+        };
+        Self(Level(inner).into())
+    }
+}
+
+impl From<SyncLevel> for PublicLevel {
+    fn from(level: SyncLevel) -> Self {
+        let inner: Level = level.value();
+        match inner.0 {
+            config::Level::ERROR => PublicLevel::ERROR,
+            config::Level::WARN => PublicLevel::WARN,
+            config::Level::INFO => PublicLevel::INFO,
+            config::Level::DEBUG => PublicLevel::DEBUG,
+            config::Level::TRACE => PublicLevel::TRACE,
         }
     }
 }

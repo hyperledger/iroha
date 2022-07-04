@@ -2,7 +2,7 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config::derive::Configurable;
+use iroha_config::derive::{Configurable, View};
 use iroha_core::{
     block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
     kura::config::KuraConfiguration, queue::Configuration as QueueConfiguration,
@@ -10,22 +10,29 @@ use iroha_core::{
     wsv::config::Configuration as WorldStateViewConfiguration,
 };
 use iroha_crypto::prelude::*;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    config::{
+        network::Configuration as PublicNetworkConfiguration, Configuration as PublicConfiguration,
+    },
+    prelude::*,
+};
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
 use super::torii::config::ToriiConfiguration;
 
 /// Configuration parameters container.
-#[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
+#[derive(Debug, Clone, Deserialize, Serialize, Configurable, View)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
+#[view(PublicConfiguration)]
 pub struct Configuration {
     /// Public key of this peer.
     #[config(serde_as_str)]
     pub public_key: PublicKey,
     /// Private key of this peer.
+    #[view(ignore)]
     pub private_key: PrivateKey,
     /// Disable coloring of the backtrace and error report on panic.
     pub disable_panic_terminal_colors: bool,
@@ -90,10 +97,11 @@ impl Default for Configuration {
 }
 
 /// Network Configuration parameters container.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]
+#[view(PublicNetworkConfiguration)]
 pub struct NetworkConfiguration {
     /// Buffer capacity of actor's MPSC channel
     pub actor_channel_capacity: u32,

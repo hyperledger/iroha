@@ -338,7 +338,7 @@ null
 
 Maximum log level
 
-Has type `handle::SyncValue<Level,handle::Singleton<Level>>`. Can be configured via environment variable `MAX_LOG_LEVEL`
+Has type `SyncLevel`. Can be configured via environment variable `MAX_LOG_LEVEL`
 
 ```json
 "INFO"

@@ -2,9 +2,15 @@
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config::derive::Configurable;
+use iroha_config::derive::{Configurable, View};
 use iroha_crypto::prelude::*;
-use iroha_data_model::{prelude::*, transaction};
+use iroha_data_model::{
+    config::sumeragi::{
+        Configuration as PublicSumeragiConfiguration, TrustedPeers as PublicTrustedPeers,
+    },
+    prelude::*,
+    transaction,
+};
 use serde::{Deserialize, Serialize};
 
 /// Default Amount of time peer waits for the `CreatedBlock` message
@@ -20,13 +26,15 @@ const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
 /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
 /// and list of `TRUSTED_PEERS`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "SUMERAGI_")]
+#[view(PublicSumeragiConfiguration)]
 pub struct SumeragiConfiguration {
     /// Key pair of private and public keys.
     #[serde(skip)]
+    #[view(ignore)]
     pub key_pair: KeyPair,
     /// Current Peer Identification.
     pub peer_id: PeerId,
@@ -186,5 +194,19 @@ impl TrustedPeers {
         Ok(TrustedPeers {
             peers: trusted_peers,
         })
+    }
+}
+
+impl From<TrustedPeers> for PublicTrustedPeers {
+    fn from(trusted_peers: TrustedPeers) -> Self {
+        let TrustedPeers { peers } = trusted_peers;
+        Self { peers }
+    }
+}
+
+impl From<PublicTrustedPeers> for TrustedPeers {
+    fn from(trusted_peers: PublicTrustedPeers) -> Self {
+        let PublicTrustedPeers { peers } = trusted_peers;
+        Self { peers }
     }
 }
