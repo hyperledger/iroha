@@ -69,7 +69,7 @@ pub mod derive {
     /// ## Container attributes
     ///
     /// ### `#[view(ViewType)]`
-    /// Sets container type view type.
+    /// Sets container view type.
     ///
     /// ## Field attributes
     /// ### `#[view(ignore)]`

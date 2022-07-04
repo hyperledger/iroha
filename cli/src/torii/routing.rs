@@ -19,6 +19,7 @@ use iroha_core::{
 };
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
+    config::Configuration as PublicConfiguration,
     predicate::PredicateBox,
     prelude::*,
     query::{self, SignedQueryRequest},
@@ -189,7 +190,9 @@ async fn handle_get_configuration(
                 .wrap_err("Failed to get docs {:?field}")
                 .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs"))
         }
-        Value => serde_json::to_value(iroha_cfg).wrap_err("Failed to serialize value"),
+        // Cast to public configuration to hide private keys.
+        Value => serde_json::to_value(PublicConfiguration::from(iroha_cfg))
+            .wrap_err("Failed to serialize value"),
     }
     .map(|v| reply::json(&v))
     .map_err(Error::Config)

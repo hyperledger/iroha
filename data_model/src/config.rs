@@ -236,7 +236,7 @@ pub mod genesis {
 /// Module for wsv-related configuration and structs.
 pub mod wsv {
     use super::*;
-    use crate::metadata::Limits as MetadataLimits;
+    use crate::{metadata::Limits as MetadataLimits, LengthLimits};
 
     /// `WorldStateView` configuration.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -251,8 +251,8 @@ pub mod wsv {
         /// [`MetadataLimits`] of any domain's metadata.
         pub domain_metadata_limits: MetadataLimits,
         /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
-        pub ident_length_limits: crate::LengthLimits,
-        /// [`WASM Runtime`](wasm::Runtime) configuration
+        pub ident_length_limits: LengthLimits,
+        /// WASM Runtime configuration
         pub wasm_runtime_config: wasm::Configuration,
     }
 }
