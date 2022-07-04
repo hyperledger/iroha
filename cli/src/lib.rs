@@ -177,10 +177,11 @@ where
             domains(&config),
             config.sumeragi.trusted_peers.peers.clone(),
         );
-        let wsv = Arc::new(
-            WorldStateView::from_configuration(config.wsv, world)
-                .with_events(events_sender.clone()),
-        );
+        let wsv = Arc::new(WorldStateView::from_configuration(
+            config.wsv,
+            world,
+            events_sender.clone(),
+        ));
 
         let query_validator = Arc::new(query_validator);
 
