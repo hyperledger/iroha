@@ -186,13 +186,13 @@ impl<T: IntoSchema> IntoSchema for SignatureOf<T> {
         format!("{}::SignatureOf<{}>", module_path!(), T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        Signature::schema(map);
-
         map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![Signature::type_name()],
             })
         });
+
+        Signature::schema(map);
     }
 }
 

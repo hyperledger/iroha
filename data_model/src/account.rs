@@ -13,6 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
+#[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -88,9 +89,8 @@ impl From<GenesisAccount> for Account {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
 impl SignatureCheckCondition {
@@ -127,19 +127,9 @@ impl Default for SignatureCheckCondition {
 /// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    IntoFfi,
-    TryFromFfi,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "[{id}]")]
 pub struct NewAccount {
     /// Identification
@@ -207,7 +197,7 @@ impl NewAccount {
     }
 }
 
-#[ffi_export]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -232,10 +222,8 @@ impl NewAccount {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
-#[ffi_export]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "({id})")] // TODO: Add more?
 #[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
@@ -290,6 +278,7 @@ impl Ord for Account {
     }
 }
 
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
@@ -447,9 +436,8 @@ impl FromIterator<Account> for crate::Value {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}@{domain_id}")]
 pub struct Id {
     /// [`Account`]'s name.

@@ -1,294 +1,415 @@
-use crate::{AsFfi, FfiBorrow, FfiBorrowMut, FfiRef, FfiType, FfiWriteOut, IntoFfi, ReprC};
+//! Logic related to the conversion of slices to and from FFI-compatible representation
 
-const NONE: isize = -1;
+use crate::{
+    owned::LocalSlice, AsReprCRef, FfiOutput, FfiResult, IntoFfi, OutPtr, ReprC, TryFromReprC,
+};
 
-pub trait AsFfiSlice: FfiRef + Sized {
-    type ItemRef: FfiBorrow;
-    type ItemMut: FfiBorrowMut;
+/// Trait that facilitates the implementation of [`IntoFfi`] for immutable slices of foreign types
+pub trait IntoFfiSliceRef: Sized {
+    /// Immutable slice equivalent of [`IntoFfi::Target`]
+    type Target: ReprC;
 
-    /// Performs the conversion from [`&[Self]`] into [`SliceRef`] with a defined C ABI
-    fn into_ffi_slice(source: &[Self]) -> Self::ItemRef;
-
-    /// Performs the conversion from [`&mut [Self]`] into [`SliceMut`] with a defined C ABI
-    fn into_ffi_slice_mut(source: &mut [Self]) -> Self::ItemMut;
+    /// Convert from `&[Self]` into [`Self::Target`]
+    fn into_ffi(source: &[Self]) -> Self::Target;
 }
 
-/// Immutable slice with a defined C ABI
-#[repr(C)]
+/// Trait that facilitates the implementation of [`IntoFfi`] for mutable slices of foreign types
+///
+/// # Safety
+///
+/// `[Self]` and `[Self::Target]` must have the same representation, i.e. must be transmutable.
+/// This is because it's not possible to mutably reference local context across FFI boundary
+/// Additionally, if implemented on a non-robust type the invariant that trap representations
+/// will never be written into values of `Self` by foreign code must be upheld at all times
+pub unsafe trait IntoFfiSliceMut: Sized {
+    /// Mutable slice equivalent of [`IntoFfi::Target`]
+    type Target: ReprC;
+
+    /// Convert from `&mut [Self]` into [`Self::Target`]
+    fn into_ffi(source: &mut [Self]) -> Self::Target;
+}
+
+/// Trait that facilitates the implementation of [`TryFromReprC`] for immutable slices of foreign types
+pub trait TryFromReprCSliceRef<'slice>: Sized {
+    /// Immutable slice equivalent of [`TryFromReprC::Source`]
+    type Source: ReprC + Copy;
+
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
+
+    /// Convert from [`Self::Source`] into `&[Self]`
+    ///
+    /// # Errors
+    ///
+    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
+    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'slice mut Self::Store,
+    ) -> Result<&'slice [Self], FfiResult>;
+}
+
+/// Trait that facilitates the implementation of [`TryFromReprC`] for mutable slices of foreign types
+pub trait TryFromReprCSliceMut: Sized {
+    /// Mutable slice equivalent of [`TryFromReprC::Source`]
+    type Source: ReprC + Copy;
+
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
+
+    /// Perform the conversion from [`Self::Source`] into `&mut [Self]`
+    ///
+    /// # Errors
+    ///
+    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
+    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &mut Self::Store,
+    ) -> Result<&mut [Self], FfiResult>;
+}
+
+/// Immutable slice with a defined C ABI layout. Consists of data pointer and length
+// TODO: Rethink this comment
 // NOTE: There is no point in storing lifetime information in these slices
 // because that information cannot be sent across an extern FFI boundary
-// TODO: Rethink this comment
+#[repr(C)]
 pub struct SliceRef<T>(*const T, usize);
 
-/// Mutable slice with a defined C ABI
+/// Mutable slice with a defined C ABI layout. Consists of data pointer and length
 #[repr(C)]
 pub struct SliceMut<T>(*mut T, usize);
 
-/// Owned slice `Box<[T]>` with a defined C ABI
-// NOTE: Intermediary types don't require repr(C)
-pub struct BoxedSlice<T>(*mut T, usize);
-
+/// Immutable slice with a defined C ABI layout when used as a function return argument. Provides
+/// a pointer where data pointer should be stored, and a pointer where length should be stored.
 #[repr(C)]
-// NOTE: Returned size is isize to be able to support Option<&[T]>
-pub struct OutSliceMut<T>(*mut *mut T, *mut isize);
+pub struct OutSliceRef<T>(*mut *const T, *mut usize);
 
+/// Mutable slice with a defined C ABI layout when used as a function return argument. Provides
+/// a pointer where data pointer should be stored, and a pointer where length should be stored.
 #[repr(C)]
-// NOTE: Returned size is isize to be able to support Option<&[T]>
-pub struct OutSliceRef<T>(*mut *const T, *mut isize);
+pub struct OutSliceMut<T>(*mut *mut T, *mut usize);
 
+/// Owned slice with a defined C ABI layout when used as a function return argument. Provides
+/// a pointer to the allocation where the data should be copied into, length of the allocation,
+/// and a pointer where total length of the data should be stored in the case that the provided
+/// allocation is not large enough to store all the data
+///
+/// Returned length is [`isize`] to be able to support `None` values when converting types such as [`Option<T>`]
 #[repr(C)]
-// NOTE: Returned size is isize to be able to support Option<&[T]>
-pub struct OutBoxedSlice<T>(*mut T, usize, *mut isize);
+pub struct OutBoxedSlice<T: ReprC>(pub *mut T, pub usize, pub *mut isize);
 
-impl<T: ReprC> FfiBorrow for SliceRef<T> {
-    type Borrowed = Self;
-
-    #[inline]
-    fn borrow(&self) -> Self::Borrowed {
-        SliceRef(self.0, self.1)
+// NOTE: raw pointers are also `Copy`
+impl<T> Copy for SliceRef<T> {}
+impl<T> Clone for SliceRef<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1)
     }
 }
-
-impl<T: ReprC> FfiBorrowMut for SliceMut<T> {
-    type Borrowed = Self;
-
-    #[inline]
-    fn borrow_mut(&mut self) -> Self::Borrowed {
-        SliceMut(self.0, self.1)
+impl<T> Copy for SliceMut<T> {}
+impl<T> Clone for SliceMut<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1)
     }
 }
-
-impl<T: ReprC> FfiBorrow for BoxedSlice<T> {
-    type Borrowed = SliceRef<T>;
-
-    #[inline]
-    fn borrow(&self) -> Self::Borrowed {
-        SliceRef(self.0, self.1)
+impl<T> Copy for OutSliceRef<T> {}
+impl<T> Clone for OutSliceRef<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1)
     }
 }
-
-impl<T: ReprC> FfiBorrowMut for BoxedSlice<T> {
-    type Borrowed = SliceMut<T>;
-
-    #[inline]
-    fn borrow_mut(&mut self) -> Self::Borrowed {
-        SliceMut(self.0, self.1)
+impl<T> Copy for OutSliceMut<T> {}
+impl<T> Clone for OutSliceMut<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1)
     }
 }
-
-unsafe impl<T: ReprC> ReprC for OutSliceRef<T> {}
-unsafe impl<T: ReprC> ReprC for OutSliceMut<T> {}
-unsafe impl<T: ReprC> ReprC for OutBoxedSlice<T> {}
-
-unsafe impl<T: ReprC> ReprC for SliceRef<T> {}
-impl<T: ReprC> FfiWriteOut for SliceRef<T> {
-    type OutPtr = OutSliceRef<T>;
-
-    unsafe fn write(self, dest: Self::OutPtr) {
-        if self.is_null() {
-            dest.write_none();
-        } else {
-            dest.0.write(self.0);
-            dest.1.write(self.len());
-        }
-    }
-}
-
-unsafe impl<T: ReprC> ReprC for SliceMut<T> {}
-impl<T: ReprC> FfiWriteOut for SliceMut<T> {
-    type OutPtr = OutSliceMut<T>;
-
-    unsafe fn write(self, dest: Self::OutPtr) {
-        if self.is_null() {
-            dest.write_none();
-        } else {
-            dest.0.write(self.0);
-            dest.1.write(self.len());
-        }
-    }
-}
-
-impl<T: ReprC> FfiWriteOut for BoxedSlice<T> {
-    type OutPtr = OutBoxedSlice<T>;
-
-    unsafe fn write(self, dest: Self::OutPtr) {
-        let len = self.len();
-
-        if let Some(elems) = self.take(dest.1) {
-            dest.2.write(len);
-
-            for (i, elem) in elems.enumerate() {
-                dest.0.offset(i as isize).write(elem);
-            }
-        } else {
-            dest.write_none();
-        }
+impl<T: ReprC> Copy for OutBoxedSlice<T> {}
+impl<T: ReprC> Clone for OutBoxedSlice<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1, self.2)
     }
 }
 
 impl<T> SliceRef<T> {
-    pub(crate) const fn from_slice(slice: &[T]) -> Self {
+    /// Forms a slice from a data pointer and a length.
+    pub fn from_raw_parts(ptr: *const T, len: usize) -> Self {
+        Self(ptr, len)
+    }
+
+    /// Create [`Self`] from shared slice
+    pub const fn from_slice(slice: &[T]) -> Self {
         Self(slice.as_ptr(), slice.len())
     }
 
-    const fn null() -> Self {
-        // TODO: size should be uninitialized and never read from
-        Self(core::ptr::null_mut(), 0)
+    /// Convert [`Self`] into a shared slice. Return `None` if data pointer is null
+    ///
+    /// # Safety
+    ///
+    /// Data pointer must point to a valid memory
+    pub unsafe fn into_slice<'slice>(self) -> Option<&'slice [T]> {
+        if self.is_null() {
+            return None;
+        }
+
+        Some(core::slice::from_raw_parts(self.0, self.1))
     }
 
-    fn is_null(&self) -> bool {
+    pub(crate) fn null() -> Self {
+        // TODO: len could be uninitialized
+        Self(core::ptr::null(), 0)
+    }
+
+    pub(crate) fn is_null(&self) -> bool {
         self.0.is_null()
     }
-
-    fn len(&self) -> isize {
-        self.1.try_into().expect("Allocation too large")
-    }
 }
-
 impl<T> SliceMut<T> {
-    pub(crate) fn from_slice(slice: &mut [T]) -> Self {
+    /// Create [`Self`] from mutable slice
+    pub fn from_slice(slice: &mut [T]) -> Self {
         Self(slice.as_mut_ptr(), slice.len())
     }
 
-    const fn null() -> Self {
-        // TODO: size should be uninitialized and never read from
-        Self(core::ptr::null_mut(), 0)
-    }
-
-    fn is_null(&self) -> bool {
-        self.0.is_null()
-    }
-
-    fn len(&self) -> isize {
-        self.1.try_into().expect("Allocation too large")
-    }
-}
-
-impl<T> BoxedSlice<T> {
-    unsafe fn as_slice_mut<'slice>(&mut self) -> Option<&'slice mut [T]> {
-        if self.0.is_null() {
+    /// Convert [`Self`] into a mutable slice. Return `None` if data pointer is null
+    ///
+    /// # Safety
+    ///
+    /// Data pointer must point to a valid memory
+    pub unsafe fn into_slice<'slice>(self) -> Option<&'slice mut [T]> {
+        if self.is_null() {
             return None;
         }
 
         Some(core::slice::from_raw_parts_mut(self.0, self.1))
     }
 
-    unsafe fn take(self, n: usize) -> Option<impl ExactSizeIterator<Item = T>> {
-        if self.is_null() {
-            return None;
-        }
-
-        let slice = core::slice::from_raw_parts_mut(self.0, self.1);
-        Some(Box::<[_]>::from_raw(slice).into_vec().into_iter().take(n))
-    }
-
-    const fn null() -> Self {
-        // TODO: size should be uninitialized and never read from
+    pub(crate) fn null() -> Self {
+        // TODO: len could be uninitialized
         Self(core::ptr::null_mut(), 0)
     }
 
-    fn is_null(&self) -> bool {
+    pub(crate) fn is_null(&self) -> bool {
         self.0.is_null()
-    }
-
-    fn len(&self) -> isize {
-        self.1.try_into().expect("Allocation too large")
-    }
-}
-
-impl<T> OutBoxedSlice<T> {
-    unsafe fn write_none(self) {
-        self.2.write(NONE);
     }
 }
 
 impl<T> OutSliceRef<T> {
-    unsafe fn write_none(self) {
-        self.1.write(NONE);
+    pub(crate) unsafe fn write_none(self) {
+        self.0.write(core::ptr::null());
     }
 }
-
 impl<T> OutSliceMut<T> {
-    unsafe fn write_none(self) {
-        self.1.write(NONE);
+    pub(crate) unsafe fn write_none(self) {
+        self.0.write(core::ptr::null_mut());
+    }
+}
+impl<T: ReprC + Copy> OutBoxedSlice<T> {
+    const NONE: isize = -1;
+
+    /// Copies bytes from `slice` to `self`
+    ///
+    /// # Errors
+    ///
+    /// * [`FfiResult::ArgIsNull`] - if any of the out-pointers in [`Self`] is null
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    // For an internally created slice it is guaranteed that len will be valid
+    // https://doc.rust-lang.org/std/primitive.pointer.html#method.offset
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    pub unsafe fn copy_from_slice(self, slice: Option<&[T]>) -> Result<(), FfiResult> {
+        if !self.is_valid() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        slice.map_or_else(
+            || self.write_none(),
+            |slice_| {
+                self.2
+                    .write(slice_.len().try_into().expect("Allocation too large"));
+
+                if !self.0.is_null() {
+                    for (i, elem) in slice_.iter().take(self.1).enumerate() {
+                        self.0.add(i).write(*elem);
+                    }
+                }
+            },
+        );
+
+        Ok(())
+    }
+
+    pub(crate) unsafe fn write_none(self) {
+        self.2.write(Self::NONE);
     }
 }
 
-impl<T: IntoFfi> FfiType for &[T] {
-    type FfiType = SliceRef<T::FfiType>;
-}
-
-impl<T: IntoFfi> FfiType for &mut [T] {
-    type FfiType = SliceMut<T::FfiType>;
-}
-
-impl<T: FfiType> FfiRef for [T] {
-    type FfiRef = SliceRef<T::FfiType>;
-    type FfiMut = SliceMut<T::FfiType>;
-}
-
-impl<T: AsFfiSlice> AsFfi for [T]
-where
-    [T]: FfiRef,
-{
-    type ItemRef = <T as AsFfiSlice>::ItemRef;
-    type ItemMut = <T as AsFfiSlice>::ItemMut;
-
-    fn as_ffi_ref(&self) -> Self::ItemRef {
-        AsFfiSlice::into_ffi_slice(self)
+impl<T> OutPtr for OutSliceRef<T> {
+    fn is_valid(&self) -> bool {
+        !self.0.is_null()
     }
-    fn as_ffi_mut(&mut self) -> Self::ItemMut {
-        AsFfiSlice::into_ffi_slice_mut(self)
+}
+impl<T> OutPtr for OutSliceMut<T> {
+    fn is_valid(&self) -> bool {
+        !self.0.is_null()
+    }
+}
+impl<T: ReprC> OutPtr for OutBoxedSlice<T> {
+    fn is_valid(&self) -> bool {
+        !self.2.is_null()
     }
 }
 
-//impl<T: AsFfiSlice> FfiType for Option<&[T]> {
-//    type FfiType = SliceRef<<T as AsFfiSlice>::FfiType>;
-//}
-//
-//impl<T: AsFfiSlice> FfiType for Option<&mut [T]> {
-//    type FfiType = SliceMut<<T as AsFfiSlice>::FfiType>;
-//}
+unsafe impl<T> ReprC for SliceRef<T> {}
+unsafe impl<T> ReprC for SliceMut<T> {}
+unsafe impl<T> ReprC for OutSliceRef<T> {}
+unsafe impl<T> ReprC for OutSliceMut<T> {}
+unsafe impl<T: ReprC> ReprC for OutBoxedSlice<T> {}
 
-//impl<T: AsFfiSlice> IntoFfi for Option<&[T]> {
-//    type Item = Self::FfiType;
-//
-//    fn into_ffi(self) -> Self::Item {
-//        self.map_or_else(SliceRef::null, AsFfiSlice::into_ffi_slice)
-//    }
-//}
-//
-//impl<T: AsFfiSlice> IntoFfi for Option<&mut [T]> {
-//    type Item = Self::FfiType;
-//
-//    fn into_ffi(self) -> Self::Item {
-//        self.map_or_else(SliceMut::null, AsFfiSlice::into_ffi_slice_mut)
-//    }
-//}
+impl<T> AsReprCRef for SliceRef<T> {
+    type Target = Self;
 
-pub struct IteratorWrapper<T: IntoIterator>(T);
+    fn as_ref(&self) -> Self::Target {
+        *self
+    }
+}
 
-//impl FfiType for IteratorWrapper
-//type FfiType = SliceMut<'store, U::FfiType>;
-//impl<T: IntoIterator<Item = U>, U: IntoFfi> IntoFfi for IteratorWrapper<T>
-//where
-//    U::FfiType: ReprC
+//impl<'slice, T: TryFromReprCSliceRef<'slice> + Clone> TryFromReprCSliceRef<'slice>
+//    for &'slice [T]
 //{
-//    type Store = (Vec<U::FfiType>, Vec<U::Store>);
+//    type Source = SliceRef<T::Source>;
+//    type Store = (Vec<&'slice [T]>, Vec<Vec<T>>);
 //
-//    fn into_ffi(self, store: &'store mut Self::Store) -> Self::FfiType {
-//        store.1 = (0..self.len()).map(|_| Default::default()).collect();
+//    unsafe fn try_from_repr_c(
+//        source: Self::Source,
+//        store: &'slice mut Self::Store,
+//    ) -> Result<&[Self], FfiResult> {
+//        let prev_store_len = store.1.len();
+//        let slice = source.into_slice().ok_or(FfiResult::ArgIsNull)?;
+//        store
+//            .1
+//            .extend(core::iter::repeat_with(Default::default).take(slice.len()));
 //
-//        let mut slice = &mut store.1[..];
-//        self.0.into_iter().for_each(|item| {
-//            let (inner_store, rest) = slice.split_first_mut().expect("Defined");
-//            store.0.push(item.as_ffi(inner_store));
-//            slice = rest;
-//            store.1.push(Default::default());
-//            let inner_store = store.1.last_mut().expect("Defined");
-//            store.0.push(item.into_ffi(inner_store));
-//        });
+//        let mut substore = &mut store.1[prev_store_len..];
+//        for item in slice {
+//            let (first, rest) = substore.split_first_mut().expect("Defined");
+//            substore = rest;
+//            let mut tmp_store = Default::default();
+//            let subslice = TryFromReprCSliceRef::try_from_repr_c(*item, &mut tmp_store)?;
 //
-//        SliceMut::from_slice(&mut store.0)
+//            first.extend(subslice.to_vec());
+//            //store.0.push(store.1.last().expect("Defined"));
+//        }
+//
+//        Ok(&store.0[..])
 //    }
 //}
+impl<'slice, T: TryFromReprCSliceRef<'slice>> TryFromReprC<'slice> for &'slice [T] {
+    type Source = T::Source;
+    type Store = T::Store;
+
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'slice mut Self::Store,
+    ) -> Result<Self, FfiResult> {
+        TryFromReprCSliceRef::try_from_repr_c(source, store)
+    }
+}
+impl<'slice, T: TryFromReprCSliceMut> TryFromReprC<'slice> for &'slice mut [T] {
+    type Source = T::Source;
+    type Store = T::Store;
+
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'slice mut Self::Store,
+    ) -> Result<Self, FfiResult> {
+        TryFromReprCSliceMut::try_from_repr_c(source, store)
+    }
+}
+
+impl<T: IntoFfiSliceRef> IntoFfi for &[T] {
+    type Target = T::Target;
+
+    fn into_ffi(self) -> Self::Target {
+        IntoFfiSliceRef::into_ffi(self)
+    }
+}
+impl<T: IntoFfiSliceMut> IntoFfi for &mut [T] {
+    type Target = T::Target;
+
+    fn into_ffi(self) -> Self::Target {
+        IntoFfiSliceMut::into_ffi(self)
+    }
+}
+impl<T: IntoFfiSliceRef> IntoFfiSliceRef for &[T] {
+    type Target = LocalSlice<T::Target>;
+
+    fn into_ffi(source: &[Self]) -> Self::Target {
+        source
+            .iter()
+            .map(|item| IntoFfiSliceRef::into_ffi(item))
+            .collect()
+    }
+}
+impl<T: IntoFfiSliceRef> IntoFfiSliceRef for &mut [T] {
+    type Target = LocalSlice<T::Target>;
+
+    fn into_ffi(source: &[Self]) -> Self::Target {
+        source
+            .iter()
+            .map(|item| IntoFfiSliceRef::into_ffi(item))
+            .collect()
+    }
+}
+
+impl<T> FfiOutput for SliceRef<T> {
+    type OutPtr = OutSliceRef<T>;
+
+    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
+        if !dest.is_valid() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        if self.is_null() {
+            dest.write_none();
+        } else {
+            dest.0.write(self.0);
+            dest.1.write(self.1);
+        }
+
+        Ok(())
+    }
+}
+impl<T> FfiOutput for SliceMut<T> {
+    type OutPtr = OutSliceMut<T>;
+
+    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
+        if !dest.is_valid() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        if self.is_null() {
+            dest.write_none();
+        } else {
+            dest.0.write(self.0);
+            dest.1.write(self.1);
+        }
+
+        Ok(())
+    }
+}

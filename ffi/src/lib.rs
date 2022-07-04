@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 //! Structures, macros related to FFI and generation of FFI bindings.
 //! [Non-robust types](https://anssi-fr.github.io/rust-guide/07_ffi.html#non-robust-types-references-function-pointers-enums)
 //! are strictly avoided in the FFI API
@@ -13,479 +15,379 @@
 //! u8, u16 -> u32
 //! i8, i16 -> i32
 
-use core::marker::PhantomData;
-use std::borrow::{Borrow, BorrowMut};
-
 pub use iroha_ffi_derive::*;
+use owned::Local;
 
 pub mod handle;
-pub mod opaque;
+pub mod option;
+pub mod owned;
 mod primitives;
 pub mod slice;
 
-/// Represents handle in an FFI context
+/// Represents the handle in an FFI context
 ///
 /// # Safety
 ///
-/// If two structures implement the same id, this may result in void pointer being casted to the wrong type
+/// If two structures implement the same id, it may result in a void pointer being casted to the wrong type
 pub unsafe trait Handle {
     /// Unique identifier of the handle. Most commonly, it is
     /// used to facilitate generic monomorphization over FFI
     const ID: handle::Id;
 }
 
-/// Robust type which conforms to C ABI and can be safely shared across FFI boundaries. This does
-/// not ensure the ABI of the referent for pointers in which case the pointer should be made opaque
+/// Robust type that conforms to C ABI and can be safely shared across FFI boundaries. This does
+/// not guarantee the ABI compatibility of the referent for pointers. These pointers are opaque
 ///
 /// # Safety
 ///
-/// Type implementing the trait must be a robust type with a guaranteed C ABI
-pub unsafe trait ReprC {}
+/// Type implementing the trait must be a robust type with a guaranteed C ABI. Care must be taken
+/// not to dereference pointers whose referents don't implement `ReprC`; they are considered opaque
+pub unsafe trait ReprC: Sized {}
 
-pub trait FfiType: Sized {
+/// Used to do a cheap reference-to-[`ReprC`]-reference conversion
+pub trait AsReprCRef {
+    /// Robust C ABI compliant representation of &[`Self`]
+    type Target: ReprC;
+
+    /// Convert from &[`Self`] into [`Self::Target`].
+    fn as_ref(&self) -> Self::Target;
+}
+
+/// Conversion from a type that implements [`ReprC`].
+// TODO: bind Self or Self::Store with 'itm?
+pub trait TryFromReprC<'itm>: Sized {
     /// Robust C ABI compliant representation of [`Self`]
-    type FfiType: ReprC;
-}
+    type Source: ReprC + Copy;
 
-pub trait FfiRef {
-    /// Robust C ABI compliant representation of [`&Self`]
-    type FfiRef: ReprC;
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
 
-    /// Robust C ABI compliant representation of [`&mut Self`]
-    type FfiMut: ReprC;
-}
-
-/// Conversion into an FFI compatible representation that consumes the input value
-///
-// TODO: Make it an unsafe trait?
-pub trait IntoFfi: FfiType {
-    type Item: Into<Self::FfiType>;
-
-    /// Performs the conversion from [`Self`] into [`Self::FfiType`]
-    fn into_ffi(self) -> Self::Item;
-}
-
-/// Conversion from an FFI compatible representation that consumes the input value
-// TODO: Make it an unsafe trait?
-pub trait TryFromFfi: FfiType {
-    type Item: Into<Self>;
-
-    /// Performs the fallible conversion
+    /// Convert from [`Self::Source`] into [`Self`].
+    /// Transferring ownership over FFI is not permitted, except for opaque pointer types
     ///
     /// # Errors
     ///
-    /// * given pointer is null
-    /// * given id doesn't identify any known handle
-    /// * given id is not a valid enum discriminant
+    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
+    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
     ///
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    #[allow(unsafe_code)]
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self::Item, FfiResult>;
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'itm mut Self::Store,
+    ) -> Result<Self, FfiResult>;
 }
 
-// TODO: Make it an unsafe trait?
-pub trait FromOption: OptionWrapped + IntoFfi {
-    /// Performs the conversion from [Option<`Self`>] into [`<Self as FromOption>::FfiType`]
-    fn into_ffi(source: Option<Self>) -> <Self as OptionWrapped>::FfiType;
+/// Type that can be used as an out-pointer
+pub trait OutPtr: ReprC {
+    /// Return `false` if any of the out-pointers in `Self` are null, otherwise `true`
+    fn is_valid(&self) -> bool;
 }
 
-pub trait FfiWriteOut {
-    /// Type used to represent Rust function output as an argument in an FFI function. Must be a repr(C) as well
-    type OutPtr: ReprC;
+/// Conversion into a type that can be converted to an FFI-compatible [`ReprC`] type
+/// Except for opaque pointer types, ownership transfer over FFI is not permitted
+pub trait IntoFfi: Sized {
+    /// The resulting type after conversion
+    type Target: ReprC;
 
-    /// Write [`Self`] into [`Self::OutPtr`]
-    unsafe fn write(self, dest: Self::OutPtr);
+    /// Convert from [`Self`] into [`Self::Target`]
+    fn into_ffi(self) -> Self::Target;
 }
 
-pub trait FfiBorrow {
-    type Borrowed: ReprC;
-    fn borrow(&self) -> Self::Borrowed;
-}
+/// Type that can be returned from an FFI function as an out pointer function argument
+pub trait FfiOutput {
+    /// Type used to represent function return value as an out pointer function argument
+    type OutPtr: OutPtr;
 
-pub trait FfiBorrowMut {
-    type Borrowed: ReprC;
-    fn borrow_mut(&mut self) -> Self::Borrowed;
-}
-
-pub trait AsFfi: FfiRef {
-    type ItemRef: FfiBorrow;
-    type ItemMut: FfiBorrowMut;
-
-    /// Performs the conversion of shared reference into an FFI equivalent representation
-    fn as_ffi_ref(&self) -> Self::ItemRef;
-
-    /// Performs the conversion of mutable reference into an FFI equivalent representation
-    fn as_ffi_mut(&mut self) -> Self::ItemMut;
-}
-
-pub trait TryAsRust<'itm>: FfiRef {
-    type ItemRef: Borrow<Self> + 'itm;
-    type ItemMut: BorrowMut<Self> + 'itm;
-
-    /// Performs the fallible conversion from FFI equivalent into shared reference
+    /// Try to write [`Self`] into [`Self::OutPtr`] and return whether or not it was successful
     ///
     /// # Errors
     ///
-    /// * given pointer is null
-    /// * given id doesn't identify any known handle
-    /// * given id is not a valid enum discriminant
+    /// * [`FfiResult::ArgIsNull`] - if any of the out-pointers in [`Self::OutPtr`] is set to null
     ///
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    #[allow(unsafe_code)]
-    unsafe fn try_as_rust_ref(source: Self::FfiRef) -> Result<Self::ItemRef, FfiResult>;
-
-    /// Performs the fallible conversion from FFI equivalent into mutable reference
-    ///
-    /// # Errors
-    ///
-    /// * given pointer is null
-    /// * given id doesn't identify any known handle
-    /// * given id is not a valid enum discriminant
-    ///
-    /// # Safety
-    ///
-    /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn try_as_rust_mut(source: Self::FfiMut) -> Result<Self::ItemMut, FfiResult>;
+    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult>;
 }
-
-pub trait OptionWrapped: FfiType {
-    /// Robust C ABI compliant representation of [Option<`Self`>]
-    type FfiType: ReprC;
-}
-
-pub struct Boxed<T>(Box<T>);
-
-pub struct IntoWrapper<T: Into<U>, U>(T, PhantomData<U>);
 
 /// Result of execution of an FFI function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// NOTE: Enum is `repr(i32)` becasuse WebAssembly supports only
-// u32/i32, u64/i64 natively. Otherwise, `repr(i8)` would suffice
-#[repr(i32)]
+#[repr(i8)]
 pub enum FfiResult {
-    /// Indicates that the FFI function execution panicked
-    UnrecoverableError = -5_i32,
-    /// Handle id doesn't identify any known handles
-    UnknownHandle = -4_i32,
-    /// Executing the wrapped method on handle returned error
-    ExecutionFail = -3_i32,
-    /// Raw pointer input argument to FFI function was null
-    ArgIsNull = -2_i32,
-    /// Given bytes don't comprise a valid UTF8 string
-    Utf8Error = -1_i32,
-    /// FFI function executed successfully
-    Ok = 0_i32,
+    /// The input argument provided to FFI function has a trap representation.
+    TrapRepresentation = -6,
+    /// FFI function execution panicked.
+    UnrecoverableError = -5,
+    /// Provided handle id doesn't match any known handles.
+    UnknownHandle = -4,
+    /// FFI function failed during the execution of the wrapped method on the provided handle.
+    ExecutionFail = -3,
+    /// The input argument provided to FFI function is a null pointer.
+    ArgIsNull = -2,
+    /// The input argument provided to FFI function is not a valid UTF-8 string.
+    Utf8Error = -1,
+    /// FFI function executed successfully.
+    Ok = 0,
 }
-
-impl<T> FfiBorrow for *const T {
-    type Borrowed = Self;
-
-    #[inline]
-    fn borrow(&self) -> Self::Borrowed {
-        *self
-    }
-}
-
-impl<T> FfiBorrowMut for *mut T {
-    type Borrowed = Self;
-
-    #[inline]
-    fn borrow_mut(&mut self) -> Self::Borrowed {
-        *self
-    }
-}
-
-impl<T: ReprC> FfiBorrow for Boxed<T> {
-    type Borrowed = *const T;
-
-    #[inline]
-    fn borrow(&self) -> Self::Borrowed {
-        <*const _>::from(self.0.as_ref())
-    }
-}
-
-impl<T: ReprC> FfiBorrowMut for Boxed<T> {
-    type Borrowed = *mut T;
-
-    #[inline]
-    fn borrow_mut(&mut self) -> Self::Borrowed {
-        <*mut _>::from(self.0.as_mut())
-    }
-}
-
 
 unsafe impl<T> ReprC for *const T {}
-impl<T> FfiWriteOut for *const T {
-    type OutPtr = *mut Self;
-
-    unsafe fn write(self, dest: Self::OutPtr) {
-        dest.write(self)
-    }
-}
-
 unsafe impl<T> ReprC for *mut T {}
-impl<T> FfiWriteOut for *mut T {
+
+impl<T: ReprC + Copy> AsReprCRef for T
+where
+    T: IntoFfi<Target = Self>,
+{
+    type Target = Self;
+
+    fn as_ref(&self) -> Self::Target {
+        *self
+    }
+}
+impl<T> AsReprCRef for *const T {
+    type Target = Self;
+
+    fn as_ref(&self) -> Self::Target {
+        *self
+    }
+}
+
+impl<T: ReprC + Copy> IntoFfi for &T
+where
+    T: IntoFfi<Target = T>,
+{
+    type Target = *const T;
+
+    fn into_ffi(self) -> Self::Target {
+        Self::Target::from(self)
+    }
+}
+impl<T: ReprC + Copy> IntoFfi for &mut T
+where
+    T: IntoFfi<Target = T>,
+{
+    type Target = *mut T;
+
+    fn into_ffi(self) -> Self::Target {
+        Self::Target::from(self)
+    }
+}
+
+impl<T: ReprC> TryFromReprC<'_> for &T {
+    type Source = *const T;
+    type Store = ();
+
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+        source.as_ref().ok_or(FfiResult::ArgIsNull)
+    }
+}
+impl<T: ReprC> TryFromReprC<'_> for &mut T {
+    type Source = *mut T;
+    type Store = ();
+
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+        source.as_mut().ok_or(FfiResult::ArgIsNull)
+    }
+}
+
+impl<T: ReprC> OutPtr for *mut T {
+    fn is_valid(&self) -> bool {
+        (*self).is_null()
+    }
+}
+
+impl<T: ReprC + Copy> FfiOutput for T
+where
+    T: IntoFfi<Target = Self>,
+{
     type OutPtr = *mut Self;
 
-    unsafe fn write(self, dest: Self::OutPtr) {
-        dest.write(self)
+    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
+        if dest.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        dest.write(self);
+        Ok(())
+    }
+}
+impl<T> FfiOutput for *const T {
+    type OutPtr = *mut Self;
+
+    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
+        if dest.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        dest.write(self);
+        Ok(())
+    }
+}
+impl<T> FfiOutput for *mut T {
+    type OutPtr = *mut Self;
+
+    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
+        if dest.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        dest.write(self);
+        Ok(())
     }
 }
 
-impl<T: ReprC> FfiWriteOut for Boxed<T> {
-    type OutPtr = *mut T;
-
-    unsafe fn write(self, dest: Self::OutPtr) {
-        dest.write(*self.0);
-    }
-}
-
-//impl<'slice, T: ?Sized> IntoFfi for &'slice T
-//where
-//    &'slice T: FfiType<FfiType = T::FfiRef>,
-//{
-//    fn into_ffi(self) -> Self::FfiType {
-//        self.as_ffi_ref()
-//    }
-//}
-//
-//impl<'slice, T: ?Sized> IntoFfi for &'slice mut T
-//where
-//    &'slice mut T: FfiType<FfiType = T::FfiMut>,
-//    T: AsFfi,
-//{
-//    fn into_ffi(self) -> Self::FfiType {
-//        self.as_ffi_mut()
-//    }
-//}
-
-//impl<'s, T: AsFfi<Store = ()>> IntoFfi for &'s mut [T]
-//where
-//    &'s mut T: FfiType<FfiType = T::FfiMut>,
-//{
-//    fn into_ffi(self) -> Self::FfiType {
-//        self.as_ffi_mut(&mut ())
-//    }
-//}
-//
-//impl<'store, T: Into<U> + 'store, U: IntoFfi<'store>> IntoFfi<'store> for IntoWrapper<T, U> {
-//    type FfiType = U::FfiType;
-//    type Store = U::Store;
-//
-//    fn into_ffi(self, store: &'store mut Self::Store) -> Self::FfiType {
-//        self.0.into().into_ffi(store)
-//    }
-//}
-//
-//impl<'store, T, U> FromOption<'store> for &'store T
-//where
-//    Self: IntoFfi<FfiType = *const U>,
-//{
-//    type Store = <Self as IntoFfi<'store>>::Store;
-//
-//    fn into_ffi(
-//        source: Option<Self>,
-//        store: &'store mut <Self as FromOption<'store>>::Store,
-//    ) -> <Self as OptionWrapped>::FfiType {
-//        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
-//    }
-//}
-//
-//impl<'store, T, U> FromOption<'store> for &'store mut T
-//where
-//    Self: IntoFfi<'store, FfiType = *mut U>,
-//{
-//    type Store = <Self as IntoFfi<'store>>::Store;
-//
-//    fn into_ffi(
-//        source: Option<Self>,
-//        store: &'store mut <Self as FromOption<'store>>::Store,
-//    ) -> <Self as OptionWrapped>::FfiType {
-//        source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
-//    }
-//}
-
-impl<T> OptionWrapped for &T
-where
-    Self: FfiType,
-{
-    type FfiType = <Self as FfiType>::FfiType;
-}
-
-impl<T> OptionWrapped for &mut T
-where
-    Self: FfiType,
-{
-    type FfiType = <Self as FfiType>::FfiType;
-}
-
-impl<T: OptionWrapped> FfiType for Option<T> {
-    type FfiType = <T as OptionWrapped>::FfiType;
-}
-
-//impl<'store, T: FromOption<'store>> IntoFfi for Option<T>
-//where
-//    <T as FromOption<'store>>::Store: Default,
-//{
-//    fn into_ffi(self) -> Self::FfiType {
-//        // TODO: Fix this
-//        let store = Default::default();
-//        FromOption::into_ffi(self, &mut store)
-//    }
-//}
-
-//impl<'store, T> TryFromFfi<'store> for &'store [T]
-//where
-//    &'store T: TryFromFfi<'store>,
-//    <&'store T as IntoFfi<'store>>::FfiType: Copy,
-//{
-//    type Store = Vec<<&'store T as TryFromFfi<'store>>::Store>;
-//
-//    unsafe fn try_from_ffi(
-//        source: Self::FfiType,
-//        store: &'store mut Self::Store,
-//    ) -> Result<Self, FfiResult> {
-//        if source.is_null() {
-//            return Err(FfiResult::ArgIsNull);
-//        }
-//
-//        let slice: &'store [<&'store T as IntoFfi<'store>>::FfiType] =
-//            core::slice::from_raw_parts(source.0, source.1);
-//
-//        //for item in slice {
-//        //    store.push(Default::default());
-//        //    let inner_store = store.last_mut().expect("Defined");
-//        //    let ffi_ty = <&'store T as TryFromFfi<'store>>::try_from_ffi(*item, inner_store);
-//        //}
-//
-//        unimplemented!("TODO")
-//        //if let Some(first) = iter.next() {
-//        //    let first: &_ = first?;
-//        //    let first: *const _ = first;
-//        //    return Ok(core::slice::from_raw_parts(first, source.1));
-//        //}
-//
-//        //return Ok(, 0);
-//    }
-//}
-
-//impl<'store, T> TryFromFfi<'store> for Option<&'store [T]>
-//where
-//    &'store [T]: TryFromFfi<'store, FfiType = SliceRef<'store, <&'store T as IntoFfi<'store>>::FfiType>>,
-//    &'store T: TryFromFfi<'store>,
-//    <&'store T as IntoFfi<'store>>::FfiType: ReprC,
-//{
-//    type Store = <&'store [T] as TryFromFfi<'store>>::Store;
-//
-//    unsafe fn try_from_ffi(
-//        source: Self::FfiType,
-//        store: &'store mut Self::Store,
-//    ) -> Result<Self, FfiResult> {
-//        Ok(if !source.is_null() {
-//            Some(TryFromFfi::try_from_ffi(source, store)?)
-//        } else {
-//            None
-//        })
-//    }
-//}
-//
-//impl<'store, T> TryFromFfi<'store> for Option<&'store mut [T]>
-//where
-//    &'store mut [T]:
-//        TryFromFfi<'store, FfiType = SliceMut<'store, <&'store mut T as IntoFfi<'store>>::FfiType>>,
-//    &'store mut T: TryFromFfi<'store>,
-//    <&'store mut T as IntoFfi<'store>>::FfiType: ReprC,
-//{
-//    type Store = <&'store mut [T] as TryFromFfi<'store>>::Store;
-//
-//    unsafe fn try_from_ffi(
-//        source: Self::FfiType,
-//        store: &'store mut Self::Store,
-//    ) -> Result<Self, FfiResult> {
-//        Ok(if !source.is_null() {
-//            Some(TryFromFfi::try_from_ffi(source, store)?)
-//        } else {
-//            None
-//        })
-//    }
-//}
-
-macro_rules! impl_tuples {
-    ( $( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ),+ $(,)?) => { $(
-        /// FFI compatible tuple with n elements
+macro_rules! impl_tuple {
+    ( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ) => {
+        /// FFI-compatible tuple with n elements
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         #[repr(C)]
-        pub struct $ffi_ty<$($ty: FfiType),+>($($ty::FfiType),+);
-
-        unsafe impl<$($ty: FfiType),+> ReprC for $ffi_ty<$($ty),+> {}
-        impl<$($ty: FfiType),+> FfiWriteOut for $ffi_ty<$($ty),+> {
-            type OutPtr = *mut Self;
-
-            unsafe fn write(self, dest: Self::OutPtr) {
-                dest.write(self)
-            }
-        }
-
-        impl<$($ty: FfiType),+> FfiType for ($( $ty, )+) {
-            type FfiType = $ffi_ty<$($ty),+>;
-        }
-
-        impl<$($ty: FfiRef),+> FfiRef for ($( $ty, )+) {
-            type FfiRef = *const Self;
-            type FfiMut = *mut Self;
-        }
+        pub struct $ffi_ty<$($ty),+>($($ty),+);
 
         #[allow(non_snake_case)]
-        impl<$($ty),+> IntoFfi for ($( $ty, )+) where $( $ty: IntoFfi ),+ {
-            type Item = Self::FfiType;
-
-            fn into_ffi(self) -> Self::Item {
-                let ($($ty,)+) = self;
-
-                $ffi_ty::<$($ty),+>($( <$ty as IntoFfi>::into_ffi($ty).into()),+)
+        impl<$($ty),+> From<($( $ty, )*)> for $ffi_ty<$($ty),+> {
+            fn from(source: ($( $ty, )*)) -> Self {
+                let ($($ty,)+) = source;
+                Self($( $ty ),*)
             }
         }
-    )+ }
 
-        // TODO: Add implementations for references
-        //impl<$($ty),+> AsFfi for ($( $ty, )+) where $( $ty: AsFfi ),+ {
-        //    type Store = ($($ty::Store,)+);
+        unsafe impl<$($ty: ReprC),+> ReprC for $ffi_ty<$($ty),+> {}
+
+        impl<$($ty: ReprC),+> AsReprCRef for $ffi_ty<$($ty),+> {
+            type Target = *const Self;
+
+            fn as_ref(&self) -> Self::Target {
+                <*const Self>::from(self)
+            }
+        }
+
+        impl<'itm, $($ty: TryFromReprC<'itm>),+> TryFromReprC<'itm> for ($($ty,)+) {
+            type Source = $ffi_ty<$($ty::Source),+>;
+            type Store = ($( $ty::Store, )*);
+
+            #[allow(non_snake_case)]
+            unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self, FfiResult> {
+                impl_tuple! {@decl_priv_mod $($ty),+}
+
+                let $ffi_ty($($ty,)+) = source;
+                let store: private::Store<$($ty),+> = store.into();
+                Ok(($( <$ty as TryFromReprC>::try_from_repr_c($ty, store.$ty)?, )+))
+            }
+        }
+
+        //impl<'itm, $($ty: TryFromReprC<'itm>),+> TryFromReprC<'itm> for &($($ty,)+) where $($ty::Source: Copy),+ {
+        //    type Source = *const $ffi_ty<$($ty::Source),+>;
+        //    type Store = ($( $ty::Store, )*);
 
         //    #[allow(non_snake_case)]
-        //    fn as_ffi_ref<'store>(&'store self, store: &'store mut Self::Store) -> Self::FfiRef {
-        //        mod private {
-        //            // NOTE: This is a trick to index tuples
-        //            pub struct Store<'tup, $($ty: super::AsFfi),+>{
-        //                $(pub $ty: &'tup mut $ty::Store),+
-        //            }
+        //    unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self, FfiResult> {
+        //        impl_tuple! {@decl_priv_mod $($ty),+}
 
-        //            impl<'store, 'tup, $($ty: super::AsFfi),+> From<&'tup mut ($($ty::Store,)+)> for Store<'tup, $($ty),+> {
-        //                fn from(($($ty,)+): &'tup mut ($($ty::Store,)+)) -> Self {
-        //                    Self {$($ty,)+}
-        //                }
-        //            }
-        //        }
-
-        //        let ($($ty,)+) = self;
+        //        let $ffi_ty($($ty,)+) = &*source;
         //        let store: private::Store<$($ty),+> = store.into();
-
-        //        $ffi_ty::<$($ty),+>($( <$ty as AsFfi>::as_ffi($ty, store.$ty)),+)
+        //        Ok(($( <$ty as TryFromReprC>::try_from_repr_c($ty, store.$ty)?, )+))
         //    }
+        //}
+
+        impl<$($ty: IntoFfi),+> IntoFfi for ($( $ty, )+) {
+            type Target = $ffi_ty<$($ty::Target),+>;
+
+            #[allow(non_snake_case)]
+            fn into_ffi(self) -> Self::Target {
+                let ($($ty,)+) = self;
+                $ffi_ty($( <$ty as IntoFfi>::into_ffi($ty),)+)
+            }
+        }
+        // TODO: With specialization it should be possible to avoid clone
+        impl<$($ty: IntoFfi + Clone),+> IntoFfi for &($( $ty, )+) {
+            type Target = Local<$ffi_ty<$($ty::Target,)+>>;
+
+            #[allow(non_snake_case)]
+            fn into_ffi(self) -> Self::Target {
+                let ($($ty,)+) = Clone::clone(self);
+                Local::new($ffi_ty($( <$ty as IntoFfi>::into_ffi($ty),)+))
+            }
+        }
+
+        //impl<$($ty),+> slice::IntoFfiSliceRef for ($( $ty, )+) where Self: IntoFfi + Clone {
+        //    type Item = slice::LocalSliceRef<<Self as IntoFfi>::Item>;
+
+        //    fn into_ffi_slice(source: &[Self]) -> Self::Item {
+        //        source.iter().map(|item| Clone::clone(item).into_ffi()).collect()
+        //    }
+        //}
+
+        //impl<$($ty: TryAsRust),+> TryAsRust for ($( $ty, )+) {
+        //    type Item = ($($ty::Item,)+);
+
+        //    #[allow(non_snake_case)]
+        //    unsafe fn try_as_rust(source: &mut Self::Item) -> Result<Self, FfiResult> {
+        //        let ($($ty,)+) = source;
+        //        Ok(($(<$ty as TryAsRust>::try_as_rust($ty)?,)+))
+        //    }
+        //}
+        //impl<$($ty),+> TryAsRust for &($( $ty, )+) where Local<($($ty,)+)>: TryFromReprC {
+        //    type Item = Local<($($ty,)+)>;
+
+        //    #[allow(non_snake_case)]
+        //    unsafe fn try_as_rust(source: &mut Self::Item) -> Result<Self, FfiResult> {
+        //        Ok(&source.0)
+        //    }
+        //}
+
+        // TODO: why this clone
+        //impl<$($ty: Clone),+> slice::TryFromReprCSliceRef for ($( $ty, )+) {
+        //    type Item = slice::LocalSliceRef<Self>;
+
+        //    fn try_from_ffi_slice(source: &Self::Item) -> Result<&[Self], FfiResult> {
+        //        Ok(source)
+        //    }
+        //}
+
+        impl<$($ty: ReprC),+> FfiOutput for $ffi_ty<$($ty),+> {
+            type OutPtr = *mut Self;
+
+            unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
+                if dest.is_null() {
+                    return Err(FfiResult::ArgIsNull);
+                }
+
+                Ok(dest.write(self))
+            }
+        }
+    };
+
+    // NOTE: This is a trick to index tuples
+    ( @decl_priv_mod $( $ty:ident ),+ $(,)? ) => {
+        mod private {
+            #[allow(non_snake_case)]
+            pub struct Store<'itm, $($ty: super::TryFromReprC<'itm>),+>{
+                $(pub $ty: &'itm mut $ty::Store),+
+            }
+
+            #[allow(non_snake_case)]
+            impl<'store, 'tup, $($ty: super::TryFromReprC<'tup>),+> From<&'tup mut ($($ty::Store,)+)> for Store<'tup, $($ty),+> {
+                fn from(($($ty,)+): &'tup mut ($($ty::Store,)+)) -> Self {
+                    Self {$($ty,)+}
+                }
+            }
+        }
+    };
 }
 
-impl_tuples! {
-    (A) -> FfiTuple1,
-    (A, B) -> FfiTuple2,
-    (A, B, C) -> FfiTuple3,
-    (A, B, C, D) -> FfiTuple4,
-    (A, B, C, D, E) -> FfiTuple5,
-    (A, B, C, D, E, F) -> FfiTuple6,
-    (A, B, C, D, E, F, G) -> FfiTuple7,
-    (A, B, C, D, E, F, G, H) -> FfiTuple8,
-    (A, B, C, D, E, F, G, H, I) -> FfiTuple9,
-    (A, B, C, D, E, F, G, H, I, J) -> FfiTuple10,
-}
+impl_tuple! {(A) -> FfiTuple1}
+impl_tuple! {(A, B) -> FfiTuple2}
+impl_tuple! {(A, B, C) -> FfiTuple3}
+impl_tuple! {(A, B, C, D) -> FfiTuple4}
+impl_tuple! {(A, B, C, D, E) -> FfiTuple5}
+impl_tuple! {(A, B, C, D, E, F) -> FfiTuple6}
+impl_tuple! {(A, B, C, D, E, F, G) -> FfiTuple7}
+impl_tuple! {(A, B, C, D, E, F, G, H) -> FfiTuple8}
+impl_tuple! {(A, B, C, D, E, F, G, H, I) -> FfiTuple9}
+impl_tuple! {(A, B, C, D, E, F, G, H, I, J) -> FfiTuple10}
+impl_tuple! {(A, B, C, D, E, F, G, H, I, J, K) -> FfiTuple11}
+impl_tuple! {(A, B, C, D, E, F, G, H, I, J, K, L) -> FfiTuple12}

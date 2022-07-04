@@ -1,9 +1,9 @@
-// NOTE: Using `u32` to be compatible with WebAssembly.
-// Otherwise `u8` should be sufficient
-/// Type of the handle id
-pub type Id = u32;
+//! Logic related to opaque pointer handles and functions that are common to multiple handle types
 
-/// Implement [`Handle`] for given types with first argument as the initial handle id.
+/// Type of the handle id
+pub type Id = u8;
+
+/// Implement [`$crate::Handle`] for given types with the given initial handle id.
 #[macro_export]
 macro_rules! handles {
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
@@ -50,8 +50,7 @@ macro_rules! gen_ffi_impl {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
-                        let handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(handle_ptr)?;
-                        let handle_ref: &$other = handle.borrow();
+                        let handle_ref: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(handle_ptr, &mut ())?;
 
                         let new_handle = Clone::clone(handle_ref);
                         let new_handle_ptr = iroha_ffi::IntoFfi::into_ffi(new_handle).into();
@@ -86,13 +85,10 @@ macro_rules! gen_ffi_impl {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
 
-                        let left_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(lhandle_ptr)?;
-                        let right_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(rhandle_ptr)?;
+                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut ())?;
+                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut ())?;
 
-                        let left_handle_ref: &$other = left_handle.borrow();
-                        let right_handle_ref: &$other = right_handle.borrow();
-
-                        output_ptr.write(iroha_ffi::IntoFfi::into_ffi(left_handle_ref == right_handle_ref).into());
+                        output_ptr.write(iroha_ffi::IntoFfi::into_ffi(lhandle == rhandle).into());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),
@@ -123,13 +119,10 @@ macro_rules! gen_ffi_impl {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
 
-                        let left_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(lhandle_ptr)?;
-                        let right_handle = <$other as iroha_ffi::TryAsRust>::try_as_rust_ref(rhandle_ptr)?;
+                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut ())?;
+                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut ())?;
 
-                        let left_handle_ref: &$other = left_handle.borrow();
-                        let right_handle_ref: &$other = right_handle.borrow();
-
-                        output_ptr.write(iroha_ffi::IntoFfi::into_ffi(left_handle_ref.cmp(right_handle_ref)).into());
+                        output_ptr.write(iroha_ffi::IntoFfi::into_ffi(lhandle.cmp(rhandle)).into());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),
@@ -155,7 +148,7 @@ macro_rules! gen_ffi_impl {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
-                        <$other as iroha_ffi::TryFromFfi>::try_from_ffi(handle_ptr)?;
+                        let handle: $other = iroha_ffi::TryFromReprC::try_from_repr_c(handle_ptr, &mut ())?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),

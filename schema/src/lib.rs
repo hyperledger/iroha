@@ -205,14 +205,14 @@ impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, 
     }
 
     fn schema(metamap: &mut MetaMap) {
-        I::schema(metamap);
-
         let _ = metamap.entry(Self::type_name()).or_insert_with(|| {
             Metadata::FixedPoint(FixedMeta {
                 base: I::type_name(),
                 decimal_places: P::decimal_places(),
             })
         });
+
+        I::schema(metamap);
     }
 }
 
@@ -245,14 +245,14 @@ impl<T: IntoSchema> IntoSchema for Vec<T> {
         format!("Vec<{}>", T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        T::schema(map);
-
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Vec(VecMeta {
                 ty: T::type_name(),
                 sorted: false,
             })
         });
+
+        T::schema(map);
     }
 }
 
@@ -261,11 +261,11 @@ impl<T: IntoSchema> IntoSchema for Option<T> {
         format!("Option<{}>", T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        T::schema(map);
-
         let _ = map
             .entry(Self::type_name())
             .or_insert_with(|| Metadata::Option(T::type_name()));
+
+        T::schema(map);
     }
 }
 
@@ -284,15 +284,15 @@ impl<T: IntoSchema, E: IntoSchema> IntoSchema for Result<T, E> {
         format!("Result<{}, {}>", T::type_name(), E::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        T::schema(map);
-        E::schema(map);
-
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Result(ResultMeta {
                 ok: T::type_name(),
                 err: E::type_name(),
             })
         });
+
+        T::schema(map);
+        E::schema(map);
     }
 }
 
@@ -301,9 +301,6 @@ impl<K: IntoSchema, V: IntoSchema> IntoSchema for BTreeMap<K, V> {
         format!("Map<{}, {}>", K::type_name(), V::type_name(),)
     }
     fn schema(map: &mut MetaMap) {
-        K::schema(map);
-        V::schema(map);
-
         map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Map(MapMeta {
                 key: K::type_name(),
@@ -311,6 +308,9 @@ impl<K: IntoSchema, V: IntoSchema> IntoSchema for BTreeMap<K, V> {
                 sorted_by_key: true,
             })
         });
+
+        K::schema(map);
+        V::schema(map);
     }
 }
 
@@ -319,14 +319,14 @@ impl<K: IntoSchema> IntoSchema for BTreeSet<K> {
         format!("Vec<{}>", K::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        K::schema(map);
-
         map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Vec(VecMeta {
                 ty: K::type_name(),
                 sorted: true,
             })
         });
+
+        K::schema(map);
     }
 }
 
@@ -354,8 +354,6 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
     }
 
     fn schema(map: &mut MetaMap) {
-        T::schema(map);
-
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
             #[allow(clippy::expect_used)]
             Metadata::Array(ArrayMeta {
@@ -364,6 +362,8 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
                 sorted: false,
             })
         });
+
+        T::schema(map);
     }
 }
 

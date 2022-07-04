@@ -303,9 +303,7 @@ mod tests {
         let blocks = FindAllBlocks::new().execute(&wsv)?;
 
         assert_eq!(blocks.len() as u64, num_blocks);
-        assert!(blocks
-            .windows(2)
-            .all(|wnd| wnd[0].header.timestamp >= wnd[1].header.timestamp));
+        assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
 
         Ok(())
     }

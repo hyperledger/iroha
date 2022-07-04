@@ -1,7 +1,7 @@
 //! This module contains [`Name`](`crate::name::Name`) structure
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
@@ -17,20 +17,9 @@ use crate::{ParseError, ValidationError};
 /// [`Domain`](`crate::domain::Domain`)'s name or
 /// [`Account`](`crate::account::Account`)'s name.
 #[derive(
-    DebugCustom,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Encode,
-    Serialize,
-    IntoSchema,
-    IntoFfi,
-    TryFromFfi,
+    DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(transparent)]
 // TODO: This struct doesn't have to be opaque
 pub struct Name(ConstString);
@@ -45,7 +34,7 @@ impl Name {
         range: impl Into<RangeInclusive<usize>>,
     ) -> Result<(), ValidationError> {
         let range = range.into();
-        if range.contains(&self.as_ref().chars().count()) {
+        if range.contains(&self.0.chars().count()) {
             Ok(())
         } else {
             Err(ValidationError::new(&format!(
@@ -101,26 +90,29 @@ impl FromStr for Name {
 ///
 /// All of the given pointers must be valid
 #[no_mangle]
+#[cfg(feature = "ffi")]
 #[allow(non_snake_case, unsafe_code)]
-pub unsafe extern "C" fn Name__from_str(
-    candidate: *const u8,
-    candidate_len: usize,
-    output: *mut *mut Name,
+pub unsafe extern "C" fn Name__from_str<'itm>(
+    candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
+    output: <<Name as IntoFfi>::Target as iroha_ffi::FfiOutput>::OutPtr,
 ) -> iroha_ffi::FfiResult {
     let res = std::panic::catch_unwind(|| {
-        let candidate = core::slice::from_raw_parts(candidate, candidate_len);
-
-        let method_res = match core::str::from_utf8(candidate) {
-            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-            Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
-            Ok(candidate) => Name::from_str(candidate),
+        // False positive - doesn't compile otherwise
+        #[allow(clippy::let_unit_value)]
+        let fn_body = || {
+            let mut store = Default::default();
+            let candidate: &str = iroha_ffi::TryFromReprC::try_from_repr_c(candidate, &mut store)?;
+            let method_res = Name::from_str(candidate)
+                .map_err(|_e| iroha_ffi::FfiResult::ExecutionFail)?
+                .into_ffi();
+            iroha_ffi::FfiOutput::write(method_res, output)?;
+            Ok(())
         };
-        let method_res = Box::into_raw(Box::new(match method_res {
-            Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
-            Ok(method_res) => method_res,
-        }));
 
-        output.write(method_res);
+        if let Err(err) = fn_body() {
+            return err;
+        }
+
         iroha_ffi::FfiResult::Ok
     });
 

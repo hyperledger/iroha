@@ -2,8 +2,6 @@ use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
 use syn::{parse_quote, visit::Visit, visit_mut::VisitMut, Ident, Type};
 
-use crate::{get_ident, SelfResolver};
-
 pub trait Arg {
     fn name(&self) -> &Ident;
     fn src_type(&self) -> &Type;
@@ -77,7 +75,7 @@ impl Arg for Receiver<'_> {
         resolve_src_type(self.self_ty, self.type_.clone())
     }
     fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty, self.type_.clone())
+        resolve_ffi_type(self.self_ty, self.type_.clone(), false)
     }
 }
 
@@ -92,7 +90,7 @@ impl Arg for InputArg<'_> {
         resolve_src_type(self.self_ty, self.type_.clone())
     }
     fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty, self.type_.clone())
+        resolve_ffi_type(self.self_ty, self.type_.clone(), false)
     }
 }
 
@@ -107,38 +105,36 @@ impl Arg for ReturnArg<'_> {
         resolve_src_type(self.self_ty, self.type_.clone())
     }
     fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty, self.type_.clone())
+        resolve_ffi_type(self.self_ty, self.type_.clone(), true)
     }
 }
 
 fn resolve_src_type(self_ty: &syn::Path, mut arg_type: Type) -> Type {
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
-
-    if matches!(arg_type, Type::ImplTrait(_)) {
-        //ImplTraitResolver::new().visit_type(&mut out_src_type);
-    }
+    ImplTraitResolver.visit_type_mut(&mut arg_type);
 
     arg_type
 }
 
-fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type) -> Type {
+fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type, is_output: bool) -> Type {
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
+    ImplTraitResolver.visit_type_mut(&mut arg_type);
 
-    if matches!(arg_type, Type::ImplTrait(_)) {
-        //ImplTraitResolver::new().visit_type(&mut out_src_type);
+    if is_output {
+        return parse_quote! {<#arg_type as iroha_ffi::IntoFfi>::Target};
     }
 
     if let Type::Reference(ref_type) = &arg_type {
         let elem = &ref_type.elem;
 
-        if ref_type.mutability.is_some() {
-            return parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiMut};
-        }
-
-        return parse_quote! {<#elem as iroha_ffi::FfiRef>::FfiRef};
+        return if ref_type.mutability.is_some() {
+            parse_quote! {<&'itm mut #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+        } else {
+            parse_quote! {<&'itm #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+        };
     }
 
-    parse_quote! {<#arg_type as iroha_ffi::FfiType>::FfiType}
+    parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'itm>>::Source}
 }
 
 pub struct FnDescriptor<'ast> {
@@ -239,12 +235,12 @@ impl<'ast> ImplVisitor<'ast> {
     fn visit_self_type(&mut self, node: &'ast Type) {
         if let Type::Path(self_ty) = node {
             if self_ty.qself.is_some() {
-                abort!(self_ty, "Qualified types not supported as self type");
+                abort!(self_ty, "Qualified types are not supported as self type");
             }
 
             self.self_ty = Some(&self_ty.path);
         } else {
-            abort!(node, "Only nominal types supported as self type");
+            abort!(node, "Only nominal types are supported as self type");
         }
     }
 }
@@ -455,17 +451,86 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
                 self.add_output_arg(&**src_type);
             }
         }
+    }
+}
 
-        if let Some(receiver) = &self.receiver {
-            let self_src_type = &receiver.src_type();
+/// Visitor replaces all occurrences of `Self` in a path type with a fully qualified type
+struct SelfResolver<'ast> {
+    self_ty: &'ast syn::Path,
+}
 
-            if matches!(self_src_type, Type::Path(_)) {
-                let output_arg = self.output_arg.as_ref();
+impl<'ast> SelfResolver<'ast> {
+    fn new(self_ty: &'ast syn::Path) -> Self {
+        Self { self_ty }
+    }
+}
 
-                if output_arg.map_or(true, |out_arg| receiver.name != out_arg.name) {
-                    abort!(self_src_type, "Methods which consume self not supported");
+impl VisitMut for SelfResolver<'_> {
+    fn visit_path_mut(&mut self, node: &mut syn::Path) {
+        if node.leading_colon.is_some() {
+            // NOTE: It's irrelevant
+        }
+        for segment in &mut node.segments {
+            self.visit_path_arguments_mut(&mut segment.arguments);
+        }
+
+        if node.segments[0].ident == "Self" {
+            let mut node_segments = self.self_ty.segments.clone();
+
+            for segment in core::mem::take(&mut node.segments).into_iter().skip(1) {
+                node_segments.push(segment);
+            }
+
+            node.segments = node_segments;
+        }
+    }
+}
+
+struct ImplTraitResolver;
+
+impl VisitMut for ImplTraitResolver {
+    fn visit_type_mut(&mut self, node: &mut Type) {
+        let mut new_node = None;
+
+        if let Type::ImplTrait(impl_trait) = node {
+            for bound in &impl_trait.bounds {
+                if let syn::TypeParamBound::Trait(trait_) = bound {
+                    let trait_ = trait_.path.segments.last().expect_or_abort("Defined");
+
+                    if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
+                        if let syn::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                            for arg in &args.args {
+                                if let syn::GenericArgument::Binding(binding) = arg {
+                                    if binding.ident == "Item" {
+                                        let mut ty = binding.ty.clone();
+                                        ImplTraitResolver.visit_type_mut(&mut ty);
+
+                                        new_node = Some(parse_quote! {
+                                            Vec<#ty>
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    } else if trait_.ident == "Into" {
+                        if let syn::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                            for arg in &args.args {
+                                if let syn::GenericArgument::Type(type_) = arg {
+                                    new_node = Some(type_.clone());
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        if let Some(new_node) = new_node {
+            *node = new_node;
+        }
     }
+}
+
+fn get_ident(path: &syn::Path) -> &Ident {
+    &path.segments.last().expect_or_abort("Defined").ident
 }

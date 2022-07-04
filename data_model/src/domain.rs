@@ -12,7 +12,8 @@ use core::{cmp::Ordering, str::FromStr};
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
-use iroha_ffi::{ffi_export, IntoFfi};
+#[cfg(feature = "ffi")]
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -71,19 +72,9 @@ impl From<GenesisDomain> for Domain {
 
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    IntoFfi,
-    TryFromFfi,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
 pub struct NewDomain {
@@ -150,7 +141,7 @@ impl NewDomain {
     }
 }
 
-#[ffi_export]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
@@ -181,10 +172,9 @@ impl NewDomain {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
-#[ffi_export]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[cfg_attr(feature = "ffi", ffi_export)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
 pub struct Domain {
@@ -197,7 +187,6 @@ pub struct Domain {
     /// IPFS link to the `Domain` logo
     // FIXME: Getter implemented manually because `getset`
     // returns &Option<T> when it should return Option<&T>
-    #[getset(skip)]
     logo: Option<IpfsPath>,
     /// [`Metadata`] of this `Domain` as a key-value store.
     #[getset(get = "pub")]
@@ -238,6 +227,7 @@ impl Ord for Domain {
     }
 }
 
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
@@ -359,20 +349,8 @@ impl FromIterator<Domain> for crate::Value {
 
 /// Represents path in IPFS. Performs checks to ensure path validity.
 /// Construct using [`FromStr::from_str`] method.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Encode,
-    Serialize,
-    IntoSchema,
-    IntoFfi,
-    TryFromFfi,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct IpfsPath(ConstString);
 
 impl FromStr for IpfsPath {
@@ -475,9 +453,8 @@ impl Decode for IpfsPath {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}")]
 pub struct Id {
     /// [`Name`] unique to a [`Domain`] e.g. company name

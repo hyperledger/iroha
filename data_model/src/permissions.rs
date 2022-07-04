@@ -2,6 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    boxed::Box,
     collections::{btree_map, btree_set},
     format,
     string::String,
@@ -12,6 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::Getters;
+#[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -37,10 +39,9 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
-#[ffi_export]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[cfg_attr(feature = "ffi", ffi_export)]
 #[getset(get = "pub")]
 #[display(fmt = "{name}")]
 pub struct PermissionToken {

@@ -2,13 +2,14 @@
 //! instructions implementations.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, format, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::btree_map, format, string::String, vec::Vec};
 use core::{cmp::Ordering, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
+#[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
@@ -58,10 +59,9 @@ impl std::error::Error for MintabilityError {}
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
-#[ffi_export]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[cfg_attr(feature = "ffi", ffi_export)]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
 pub struct AssetDefinitionEntry {
@@ -86,7 +86,7 @@ impl Ord for AssetDefinitionEntry {
     }
 }
 
-#[ffi_export]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl AssetDefinitionEntry {
     /// Constructor.
     pub const fn new(
@@ -125,9 +125,8 @@ impl AssetDefinitionEntry {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "{id} {value_type}{mintable}")]
 pub struct AssetDefinition {
@@ -181,9 +180,8 @@ impl Ord for AssetDefinition {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(u8)]
 pub enum Mintable {
     /// Regular asset with elastic supply. Can be minted and burned.
@@ -212,10 +210,9 @@ pub enum Mintable {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
-#[ffi_export]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[cfg_attr(feature = "ffi", ffi_export)]
 #[getset(get = "pub")]
 #[display(fmt = "{id}: {value}")]
 pub struct Asset {
@@ -242,9 +239,8 @@ pub struct Asset {
     Serialize,
     IntoSchema,
     EnumString,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(u8)]
 pub enum AssetValueType {
     /// Asset's Quantity.
@@ -274,9 +270,8 @@ pub enum AssetValueType {
     Serialize,
     FromVariant,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(u8)]
 pub enum AssetValue {
     /// Asset's Quantity.
@@ -385,9 +380,8 @@ impl_try_as_for_asset_value! {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}#{domain_id}")]
 pub struct DefinitionId {
     /// Asset's name.
@@ -411,9 +405,8 @@ pub struct DefinitionId {
     Deserialize,
     Serialize,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{definition_id}@{account_id}")] // TODO: change this?
 pub struct Id {
     /// Entity Identification.
@@ -425,19 +418,9 @@ pub struct Id {
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    IntoFfi,
-    TryFromFfi,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{id} {mintable}{value_type}")]
 pub struct NewAssetDefinition {
     id: <AssetDefinition as Identifiable>::Id,
@@ -500,7 +483,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[ffi_export]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl NewAssetDefinition {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
@@ -519,7 +502,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[ffi_export]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
@@ -567,6 +550,7 @@ impl AssetDefinition {
     }
 }
 
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl Asset {
     /// Constructor
     pub fn new(

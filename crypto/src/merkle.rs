@@ -125,8 +125,6 @@ impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
         format!("{}::MerkleTree<{}>", module_path!(), T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        HashOf::<T>::schema(map);
-
         // NOTE: Leaf nodes in the order of insertion
         map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Vec(VecMeta {
@@ -134,6 +132,8 @@ impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
                 sorted: false,
             })
         });
+
+        HashOf::<T>::schema(map);
     }
 }
 

@@ -293,9 +293,8 @@ pub type ValueBox = Box<Value>;
     Serialize,
     FromVariant,
     IntoSchema,
-    IntoFfi,
-    TryFromFfi,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::enum_variant_names)]
 #[repr(u8)]
 pub enum Value {
@@ -794,6 +793,7 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
+#[cfg(feature = "ffi")]
 mod ffi {
     use iroha_ffi::{gen_ffi_impl, handles};
 
@@ -809,7 +809,7 @@ mod ffi {
         Name,
     }
 
-    gen_ffi_impl! { pub Clone:
+    gen_ffi_impl! { Clone:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -818,7 +818,7 @@ mod ffi {
         role::Role,
         Name,
     }
-    gen_ffi_impl! { pub Eq:
+    gen_ffi_impl! { Eq:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -827,7 +827,7 @@ mod ffi {
         role::Role,
         Name,
     }
-    gen_ffi_impl! { pub Ord:
+    gen_ffi_impl! { Ord:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -835,7 +835,7 @@ mod ffi {
         role::Role,
         Name,
     }
-    gen_ffi_impl! { pub Drop:
+    gen_ffi_impl! { Drop:
         account::Account,
         asset::Asset,
         domain::Domain,

@@ -34,7 +34,8 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     quote! {
         #[doc = #ffi_fn_doc]
         #[no_mangle]
-        unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiResult {
+        unsafe extern "C" fn #ffi_fn_name<'itm>(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiResult {
+            #[allow(clippy::shadow_unrelated)]
             let res = std::panic::catch_unwind(|| {
                 let fn_body = || #ffi_fn_body;
 
@@ -88,12 +89,12 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
         stmts = if matches!(arg.src_type(), Type::Path(_)) {
             quote! {let __tmp_handle = #arg_name.read();}
         } else {
-            gen_arg_ffi_to_src(arg)
+            gen_arg_ffi_to_src(arg, false)
         };
     }
 
     for arg in &fn_descriptor.input_args {
-        stmts.extend(gen_arg_ffi_to_src(arg));
+        stmts.extend(gen_arg_ffi_to_src(arg, false));
     }
 
     stmts
@@ -116,7 +117,7 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     let method_call = quote! {#self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*)};
 
     fn_descriptor.output_arg.as_ref().map_or_else(
-        || method_call.clone(),
+        || quote! {#method_call;},
         |output_arg| {
             let output_arg_name = &output_arg.name();
 
@@ -142,48 +143,82 @@ fn ffi_output_arg<'tmp: 'ast, 'ast>(
     })
 }
 
-pub fn gen_arg_ffi_to_src(arg: &impl crate::impl_visitor::Arg) -> TokenStream {
+pub fn gen_arg_ffi_to_src(arg: &impl crate::impl_visitor::Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
 
-    if let Type::Reference(ref_type) = &src_type {
-        let elem = &ref_type.elem;
-
-        return if ref_type.mutability.is_some() {
-            quote! {
-                let mut #arg_name = <#elem as iroha_ffi::TryAsRust>::try_as_rust_mut(#arg_name)?;
-                let #arg_name = core::borrow::BorrowMut::<#elem>::borrow_mut(&mut #arg_name);
-            }
-        } else {
-            quote! {
-                let #arg_name = <#elem as iroha_ffi::TryAsRust>::try_as_rust_ref(#arg_name)?;
-                let #arg_name = core::borrow::Borrow::<#elem>::borrow(&#arg_name);
-            }
+    if is_output {
+        let mut stmt = quote! {
+            let mut store = ();
+            let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
         };
+
+        if let Type::Reference(ref_type) = &src_type {
+            let elem = &ref_type.elem;
+
+            stmt.extend(if ref_type.mutability.is_some() {
+                quote! {
+                    // NOTE: Type having `type TryFromReprC::Store = ()` will never reference
+                    // local context, i.e. it's lifetime can be attached to that of the wrapping fn
+                    unsafe { &mut *(#arg_name as *mut #elem) }
+                }
+            } else {
+                quote! {
+                    unsafe { &*(#arg_name as *const #elem) }
+                }
+            });
+        }
+
+        return stmt;
     }
 
     quote! {
-        let #arg_name: #src_type = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name)?.into();
+        let mut store = Default::default();
+        let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
     }
 }
 
-pub fn gen_arg_src_to_ffi(arg: &impl crate::impl_visitor::Arg) -> TokenStream {
-    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
+pub fn gen_arg_src_to_ffi(arg: &impl crate::impl_visitor::Arg, is_output: bool) -> TokenStream {
+    let (arg_name, src_type) = (arg.name(), arg.src_type());
 
-    if let Type::Reference(ref_type) = &src_type {
-        return if ref_type.mutability.is_some() {
-            quote! {
-                let mut #arg_name = iroha_ffi::AsFfi::as_ffi_mut(#arg_name);
-                let #arg_name = iroha_ffi::FfiBorrowMut::borrow_mut(&mut #arg_name);
+    let mut resolve_impl_trait = None;
+    if let Type::ImplTrait(type_) = &src_type {
+        for bound in &type_.bounds {
+            if let syn::TypeParamBound::Trait(trait_) = bound {
+                let trait_ = trait_.path.segments.last().expect_or_abort("Defined");
+
+                if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
+                    resolve_impl_trait = Some(quote! {
+                        let #arg_name: Vec<_> = #arg_name.into_iter().collect();
+                    });
+                } else if trait_.ident == "Into" {
+                    resolve_impl_trait = Some(quote! {
+                        let #arg_name = #arg_name.into();
+                    });
+                }
             }
-        } else {
-            quote! {
-                let #arg_name = iroha_ffi::AsFfi::as_ffi_ref(#arg_name);
-                let #arg_name = iroha_ffi::FfiBorrow::borrow(&#arg_name);
-            }
-        };
+        }
     }
 
-    quote! { let #arg_name = iroha_ffi::IntoFfi::into_ffi(#arg_name).into(); }
+    let ffi_conversion = quote! {
+        #resolve_impl_trait
+        let #arg_name = iroha_ffi::IntoFfi::into_ffi(#arg_name);
+    };
+
+    if is_output {
+        return ffi_conversion;
+    }
+
+    if let Type::Reference(ref_type) = &src_type {
+        if ref_type.mutability.is_some() {
+            return ffi_conversion;
+        }
+    }
+
+    quote! {
+        #ffi_conversion
+        // NOTE: `AsReprCRef` prevents ownerhip transfer over FFI
+        let #arg_name = iroha_ffi::AsReprCRef::as_ref(&#arg_name);
+    }
 }
 
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
@@ -193,16 +228,22 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             let src_type = receiver.src_type();
 
             if matches!(src_type, Type::Path(_)) {
-                return quote! {__out_ptr.write(#arg_name);};
+                return quote! {
+                    if __out_ptr.is_null() {
+                        return Err(iroha_ffi::FfiResult::ArgIsNull);
+                    }
+
+                    __out_ptr.write(#arg_name);
+                };
             }
         }
 
         let (arg_name, arg_type) = (output_arg.name(), output_arg.ffi_type_resolved());
-        let output_arg_conversion = gen_arg_src_to_ffi(output_arg);
+        let output_arg_conversion = gen_arg_src_to_ffi(output_arg, true);
 
         return quote! {
             #output_arg_conversion
-            <#arg_type as iroha_ffi::FfiWriteOut>::write(#arg_name, __out_ptr);
+            <#arg_type as iroha_ffi::FfiOutput>::write(#arg_name, __out_ptr)?;
         };
     }
 
@@ -220,5 +261,5 @@ pub fn gen_ffi_fn_out_ptr_arg(arg: &impl crate::impl_visitor::Arg) -> TokenStrea
     let arg_name = arg.name();
     let arg_type = arg.ffi_type_resolved();
 
-    quote! { #arg_name: <#arg_type as iroha_ffi::FfiWriteOut>::OutPtr }
+    quote! { #arg_name: <#arg_type as iroha_ffi::FfiOutput>::OutPtr }
 }

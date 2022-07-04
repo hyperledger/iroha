@@ -5,8 +5,10 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::{parse_quote, Ident, ItemStruct};
 
-use crate::export::{gen_arg_ffi_to_src, gen_arg_src_to_ffi};
-use crate::impl_visitor::{Arg, InputArg, Receiver, ReturnArg};
+use crate::{
+    export::{gen_arg_ffi_to_src, gen_arg_src_to_ffi},
+    impl_visitor::{Arg, InputArg, Receiver, ReturnArg},
+};
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,7 +115,7 @@ fn gen_ffi_fn_args(handle: &Receiver, field: &impl Arg, derive: Derive) -> Token
             #handle_name: #handle_type, #field_name: #field_type,
         },
         Derive::Getter | Derive::MutGetter => quote! {
-            #handle_name: #handle_type, #field_name: <#field_type as iroha_ffi::FfiWriteOut>::OutPtr,
+            #handle_name: #handle_type, #field_name: <#field_type as iroha_ffi::FfiOutput>::OutPtr,
         },
     }
 }
@@ -124,11 +126,11 @@ fn gen_ffi_fn_body(
     field_arg: &impl Arg,
     derive: Derive,
 ) -> TokenStream {
-    let (handle_name, into_handle) = (handle_arg.name(), gen_arg_ffi_to_src(handle_arg));
+    let (handle_name, into_handle) = (handle_arg.name(), gen_arg_ffi_to_src(handle_arg, false));
 
     match derive {
         Derive::Setter => {
-            let (field_name, into_field) = (field_arg.name(), gen_arg_ffi_to_src(field_arg));
+            let (field_name, into_field) = (field_arg.name(), gen_arg_ffi_to_src(field_arg, false));
 
             quote! {{
                 #into_handle
@@ -139,7 +141,7 @@ fn gen_ffi_fn_body(
             }}
         }
         Derive::Getter | Derive::MutGetter => {
-            let (field_name, from_field) = (field_arg.name(), gen_arg_src_to_ffi(field_arg));
+            let (field_name, from_field) = (field_arg.name(), gen_arg_src_to_ffi(field_arg, true));
 
             quote! {{
                 #into_handle
@@ -147,6 +149,7 @@ fn gen_ffi_fn_body(
                 let __out_ptr = #field_name;
                 let #field_name = #handle_name.#method_name();
                 #from_field
+                iroha_ffi::FfiOutput::write(#field_name, __out_ptr)?;
                 Ok(())
             }}
         }
@@ -206,8 +209,9 @@ fn gen_ffi_derive(item_name: &Ident, field: &syn::Field, derive: Derive) -> syn:
     parse_quote! {
         #[doc = #ffi_fn_doc]
         #[no_mangle]
-        unsafe extern "C" fn #ffi_fn_name(#ffi_fn_args) -> iroha_ffi::FfiResult {
+        unsafe extern "C" fn #ffi_fn_name<'itm>(#ffi_fn_args) -> iroha_ffi::FfiResult {
             let res = std::panic::catch_unwind(|| {
+                #[allow(clippy::shadow_unrelated)]
                 let fn_body = || #ffi_fn_body;
 
                 if let Err(err) = fn_body() {
