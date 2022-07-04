@@ -61,10 +61,7 @@ impl IsAllowed for OnlyAccountsDomain {
             // Private blockchains should have debugging too, hence
             // all accounts should also be
             FindTriggerById(query) => {
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let id = try_evaluate_or_deny!(query.id, wsv);
                 wsv.triggers()
                     .inspect(&id, |action| {
                         if action.technical_account() == authority {
@@ -77,18 +74,18 @@ impl IsAllowed for OnlyAccountsDomain {
                             )
                         }
                     })
-                    .ok_or_else(|| {
-                        format!(
-                            "A trigger with the specified Id: {} is not accessible to you",
-                            id.clone()
+                    .unwrap_or_else(|| {
+                        ValidatorVerdict::Deny(
+                            format!(
+                                "A trigger with the specified Id: {} is not accessible to you",
+                                id.clone()
+                            )
+                            .into(),
                         )
-                    })?
+                    })
             }
             FindTriggerKeyValueByIdAndKey(query) => {
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let id = try_evaluate_or_deny!(query.id, wsv);
                 wsv.triggers()
                     .inspect(&id, |action| {
                         if action.technical_account() == authority {
@@ -100,18 +97,18 @@ impl IsAllowed for OnlyAccountsDomain {
                             )
                         }
                     })
-                    .ok_or_else(|| {
-                        format!(
-                            "A trigger with the specified Id: {} is not accessible to you",
-                            id.clone()
+                    .unwrap_or_else(|| {
+                        ValidatorVerdict::Deny(
+                            format!(
+                                "A trigger with the specified Id: {} is not accessible to you",
+                                id.clone()
+                            )
+                            .into(),
                         )
-                    })?
+                    })
             }
             FindTriggersByDomainId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
 
                 if domain_id == authority.domain_id {
                     return ValidatorVerdict::Allow;
@@ -126,10 +123,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 )
             }
             FindAccountById(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -143,10 +137,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -160,10 +151,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAccountsByDomainId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -177,10 +165,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_id.account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -194,10 +179,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -211,10 +193,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetsByDomainId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -228,10 +207,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetsByDomainIdAndAssetDefinitionId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -245,10 +221,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetDefinitionKeyValueByIdAndKey(query) => {
-                let asset_definition_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_definition_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_definition_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -260,10 +233,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetQuantityById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_id.account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -277,10 +247,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_id.account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -295,7 +262,7 @@ impl IsAllowed for OnlyAccountsDomain {
             }
             FindDomainById(query::FindDomainById { id })
             | FindDomainKeyValueByIdAndKey(query::FindDomainKeyValueByIdAndKey { id, .. }) => {
-                let domain_id = id.evaluate(wsv, &context).map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(id, wsv);
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -313,10 +280,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     .into(),
             ),
             FindTransactionsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -331,10 +295,7 @@ impl IsAllowed for OnlyAccountsDomain {
             }
             FindTransactionByHash(_query) => ValidatorVerdict::Allow,
             FindRolesByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -348,10 +309,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindPermissionTokensByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
@@ -365,10 +323,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAssetDefinitionById(query) => {
-                let asset_definition_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_definition_id = try_evaluate_or_deny!(query.id, wsv);
 
                 if asset_definition_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
@@ -434,10 +389,8 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if wsv.triggers().inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
@@ -450,10 +403,8 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindTriggerKeyValueByIdAndKey(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if wsv.triggers().inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
@@ -465,10 +416,8 @@ impl IsAllowed for OnlyAccountsData {
                 ).into())
             }
             FindAccountById(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -480,10 +429,8 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -494,10 +441,8 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAssetById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &asset_id.account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -508,10 +453,8 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAssetsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .account_id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -523,10 +466,8 @@ impl IsAllowed for OnlyAccountsData {
             }
 
             FindAssetQuantityById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &asset_id.account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -537,10 +478,8 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &asset_id.account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -557,10 +496,8 @@ impl IsAllowed for OnlyAccountsData {
                 ValidatorVerdict::Deny("Only access to transactions of the same account is permitted.".to_owned().into())
             },
             FindTransactionsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .account_id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -569,10 +506,8 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindTransactionByHash(_query) => ValidatorVerdict::Allow,
             FindRolesByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -580,10 +515,8 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindPermissionTokensByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {

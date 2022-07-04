@@ -11,7 +11,7 @@ pub fn default_instructions_permissions() -> InstructionJudgeBoxed {
         ValidatorBuilder::with_recursive_validator(
             register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
         )
-        .all_should_succeed()
+        .at_least_one_allow()
         .build(),
     )
 }
@@ -19,8 +19,8 @@ pub fn default_instructions_permissions() -> InstructionJudgeBoxed {
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_query_permissions() -> QueryJudgeBoxed {
     Box::new(
-        ValidatorBuilder::with_validator(AllowAll::new())
-            .all_should_succeed()
+        ValidatorBuilder::with_validator(AllowAll::new().into_validator())
+            .at_least_one_allow()
             .build(),
     )
 }
@@ -38,8 +38,8 @@ impl IsGrantAllowed for ProhibitGrant {
         _authority: &AccountId,
         _instruction: &GrantBox,
         _wsv: &WorldStateView,
-    ) -> Result<(), DenialReason> {
-        Err("Granting at runtime is prohibited.".to_owned().into())
+    ) -> ValidatorVerdict {
+        ValidatorVerdict::Deny("Granting at runtime is prohibited.".to_owned().into())
     }
 }
 
@@ -190,17 +190,17 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
-                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_deny());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_deny());
             }
         }
 
@@ -219,17 +219,17 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
-                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
-                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_allow());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_allow());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
-                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_allow());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_deny());
             }
         }
 
@@ -251,17 +251,17 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
-                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
-                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_allow());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_allow());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
-                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_allow());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_deny());
             }
         }
 
@@ -280,17 +280,17 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
-                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_deny());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_deny());
             }
         }
 
@@ -314,13 +314,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_first_domain, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_by_first_domain, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_by_first_domain, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -328,13 +328,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_first_domain, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_by_first_domain, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_by_first_domain, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             let find_by_second_domain =
@@ -345,13 +345,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_second_domain, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_by_second_domain, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_by_second_domain, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -359,13 +359,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_second_domain, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_by_second_domain, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_by_second_domain, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -384,17 +384,17 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
-                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_deny());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_deny());
             }
         }
 
@@ -407,13 +407,13 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_deny());
             }
         }
 
@@ -426,13 +426,13 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_deny());
             }
         }
 
@@ -457,16 +457,16 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_silver, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_bronze, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -474,16 +474,16 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_silver, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -514,16 +514,16 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_silver, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_bronze, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -531,16 +531,16 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_silver, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -568,16 +568,16 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_silver, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -585,16 +585,16 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_silver, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_bronze, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -613,17 +613,17 @@ mod tests {
             {
                 let only_accounts_domain = query::OnlyAccountsDomain;
 
-                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
-                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
-                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_allow());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_allow());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_deny());
             }
 
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
-                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
-                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
-                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_allow());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_deny());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_deny());
             }
         }
 
@@ -647,13 +647,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -661,11 +661,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold, &wsv)
-                    .is_err());
-                assert!(only_accounts_data.check(&bob_id, &find_gold, &wsv).is_err());
+                    .is_deny());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_gold, &wsv)
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_gold, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -689,10 +691,10 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -700,10 +702,10 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_denoland, &wsv)
-                    .is_err())
+                    .is_deny())
             }
         }
 
@@ -750,17 +752,17 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_by_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_bronze_by_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_bronze_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -768,17 +770,17 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_bronze_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_bronze_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -807,41 +809,41 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_quantity, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_gold_quantity, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_bronze_quantity, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_gold_quantity, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_bronze_quantity, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
             {
                 let only_accounts_data = query::OnlyAccountsData;
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_quantity, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_silver_quantity, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze_quantity, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_silver_quantity, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_bronze_quantity, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_gold_quantity, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -872,19 +874,19 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_gold_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_bronze_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_gold_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_bronze_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -892,25 +894,25 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_silver_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_silver_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_gold_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_bronze_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_gold_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -949,19 +951,19 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_gold_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_gold_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_bronze_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_gold_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_bronze_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -969,13 +971,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_gold_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_silver_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -996,13 +998,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_domains, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_domains, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_domains, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1010,13 +1012,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_domains, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_domains, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_domains, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1038,13 +1040,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1052,13 +1054,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1082,13 +1084,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_wonderland_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_wonderland_key_value, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_wonderland_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1096,13 +1098,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_wonderland_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_wonderland_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_wonderland_key_value, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1124,13 +1126,13 @@ mod tests {
                 // Always allow do it for any account.
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_peers, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_peers, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_peers, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1139,13 +1141,13 @@ mod tests {
                 // Always returns an error for any account.
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_peers, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_peers, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_peers, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1167,13 +1169,13 @@ mod tests {
                 // Always returns an error for any account.
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_blocks, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_blocks, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_blocks, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1182,13 +1184,13 @@ mod tests {
                 // Always returns an error for any account.
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_blocks, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_blocks, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_blocks, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1210,13 +1212,13 @@ mod tests {
                 // Always returns an error for any account.
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1225,13 +1227,13 @@ mod tests {
                 // Always returns an error for any account.
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1260,22 +1262,22 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_alice_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_carol_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_alice_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_bob_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_alice_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_carol_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1283,22 +1285,22 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_alice_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_carol_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_alice_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_bob_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_alice_transactions, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_carol_transactions, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
         }
 
@@ -1321,13 +1323,13 @@ mod tests {
                 // Always allow for any account.
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_alice_transaction, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_alice_transaction, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_alice_transaction, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1336,13 +1338,13 @@ mod tests {
                 // Always allow for any account.
                 assert!(only_accounts_data
                     .check(&alice_id, &find_alice_transaction, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_alice_transaction, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_alice_transaction, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
         }
 
@@ -1374,22 +1376,22 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_alice_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_carol_permission_tokens, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_alice_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_bob_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_alice_permission_tokens, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_carol_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1397,22 +1399,22 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_alice_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_carol_permission_tokens, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_alice_permission_tokens, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_bob_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_alice_permission_tokens, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_carol_permission_tokens, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
         }
 
@@ -1435,13 +1437,13 @@ mod tests {
                 // Always allow for any account.
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_active_triggers, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_active_triggers, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_active_triggers, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1450,13 +1452,13 @@ mod tests {
                 // Always returns an error for any account.
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_active_triggers, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_active_triggers, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_active_triggers, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1480,13 +1482,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1494,13 +1496,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1526,13 +1528,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1540,13 +1542,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_trigger, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1572,22 +1574,22 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger_by_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_trigger_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_trigger_by_wonderland, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_trigger_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_trigger_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_trigger_by_denoland, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1595,22 +1597,22 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&alice_id, &find_trigger_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_trigger_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_trigger_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_trigger_by_wonderland, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_trigger_by_denoland, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1631,13 +1633,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_roles, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_roles, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_roles, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1645,13 +1647,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_roles, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_roles, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_roles, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1672,13 +1674,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_all_role_ids, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_all_role_ids, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_all_role_ids, &wsv)
-                    .is_ok());
+                    .is_allow());
             }
 
             {
@@ -1686,13 +1688,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_all_role_ids, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_all_role_ids, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_all_role_ids, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1714,13 +1716,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_alice, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_by_alice, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_by_alice, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1728,13 +1730,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_alice, &wsv)
-                    .is_ok());
+                    .is_allow());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_by_alice, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_by_alice, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
 
@@ -1756,13 +1758,13 @@ mod tests {
 
                 assert!(only_accounts_domain
                     .check(&alice_id, &find_by_admin, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&bob_id, &find_by_admin, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_domain
                     .check(&carol_id, &find_by_admin, &wsv)
-                    .is_err());
+                    .is_deny());
             }
 
             {
@@ -1770,13 +1772,13 @@ mod tests {
 
                 assert!(only_accounts_data
                     .check(&alice_id, &find_by_admin, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&bob_id, &find_by_admin, &wsv)
-                    .is_err());
+                    .is_deny());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_by_admin, &wsv)
-                    .is_err());
+                    .is_deny());
             }
         }
     }
@@ -1796,7 +1798,7 @@ mod tests {
 
             assert!(register::ProhibitRegisterDomains
                 .check(&alice_id, &instruction, &wsv)
-                .is_err());
+                .is_deny());
         }
 
         #[test]
@@ -1812,7 +1814,7 @@ mod tests {
 
             assert!(register::ProhibitRegisterDomains
                 .check(&alice_id, &instruction, &wsv)
-                .is_ok());
+                .is_allow());
         }
 
         #[test]
@@ -1838,8 +1840,8 @@ mod tests {
                 "newdomain".parse().expect("Valid"),
             )));
 
-            assert!(validator.check(&alice_id, &op, &wsv).is_ok());
-            assert!(validator.check(&bob_id, &op, &wsv).is_err());
+            assert!(validator.check(&alice_id, &op, &wsv).is_allow());
+            assert!(validator.check(&bob_id, &op, &wsv).is_deny());
         }
 
         #[test]
@@ -1863,7 +1865,7 @@ mod tests {
                 "newdomain".parse().expect("Valid"),
             )));
 
-            assert!(validator.check(&alice_id, &op, &wsv).is_err());
+            assert!(validator.check(&alice_id, &op, &wsv).is_deny());
         }
     }
 }
