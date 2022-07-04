@@ -243,10 +243,10 @@ pub mod scale {
     /// # bytes.append(&mut bytes.clone());
     /// # let excessive_bytes = bytes;
     ///
-    /// // Succeeds with warning log "Left bytes after decoding as `VersionedEventPublisherMessage`"
+    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `VersionedEventPublisherMessage`"
     /// let msg = try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &excessive_bytes)?;
     ///
-    /// // Succeeds with warning log "Left bytes after decoding as `Message`"
+    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `Message`"
     /// let msg = try_decode_all_or_just_decode!(VersionedEventPublisherMessage as "Message", &excessive_bytes)?;
     ///
     /// # Ok::<(), iroha_version::error::Error>(())
@@ -262,7 +262,7 @@ pub mod scale {
         (impl $t:ty, $i:expr, $n:expr) => {{
             let mut res = <$t as DecodeVersioned>::decode_all_versioned($i);
             if let Err(iroha_version::error::Error::ExtraBytesLeft(left_bytes)) = res {
-                warn!(%left_bytes, "Left bytes after decoding as `{}`", $n);
+                warn!(%left_bytes, "Extra bytes left after decoding as `{}`", $n);
                 res = <$t as DecodeVersioned>::decode_versioned($i);
             }
             res
