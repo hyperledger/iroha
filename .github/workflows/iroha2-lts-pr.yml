@@ -2,7 +2,7 @@ name: I2::Release::Tests
 
 on:
   pull_request:
-    branches: [iroha2]
+    branches: [iroha2-lts]
 
 env:
   CARGO_TERM_COLOR: always

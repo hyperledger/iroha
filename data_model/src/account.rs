@@ -75,7 +75,18 @@ impl From<GenesisAccount> for Account {
 
 /// Condition which checks if the account has the right signatures.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 

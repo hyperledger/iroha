@@ -29,19 +29,10 @@ RUN set -ex; \
     rustup target add wasm32-unknown-unknown; \
     rustup component add rust-src
 
-FROM rust-base as cargo-chef
-RUN cargo install cargo-chef
 
-FROM cargo-chef as planner
-WORKDIR /iroha
-COPY . .
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM cargo-chef as builder
+FROM rust-base as builder
 ARG PROFILE
 WORKDIR /iroha
-COPY --from=planner /iroha/recipe.json recipe.json
-RUN cargo chef cook $PROFILE --recipe-path recipe.json
 COPY . .
 RUN cargo build $PROFILE --workspace
 

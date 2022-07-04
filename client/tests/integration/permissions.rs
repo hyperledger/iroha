@@ -3,9 +3,17 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::smartcontracts::isi::permissions::combinators::DenyAll;
+use iroha_core::{
+    prelude::ValidatorBuilder,
+    smartcontracts::{
+        isi::permissions::combinators::DenyAll, permissions::combinators::ValidatorApplyOr as _,
+    },
+};
 use iroha_data_model::prelude::*;
-use iroha_permissions_validators::{private_blockchain, public_blockchain};
+use iroha_permissions_validators::{
+    private_blockchain,
+    public_blockchain::{self, key_value::CanSetKeyValueInUserAssets},
+};
 use test_network::{PeerBuilder, *};
 
 use super::Configuration;
@@ -200,4 +208,84 @@ fn permissions_checked_before_transaction_execution() {
     let root_cause = rejection_reason.root_cause().to_string();
 
     assert!(root_cause.contains("Account does not have the needed permission token"));
+}
+
+#[test]
+fn permissions_differ_not_only_by_names() {
+    let instruction_validator = ValidatorBuilder::with_recursive_validator(
+        public_blockchain::key_value::AssetSetOnlyForSignerAccount
+            .or(public_blockchain::key_value::SetGrantedByAssetOwner),
+    )
+    .all_should_succeed()
+    .build();
+
+    let (_rt, _not_drop, client) = <PeerBuilder>::new()
+        .with_instruction_validator(instruction_validator)
+        .with_query_validator(DenyAll)
+        .start_with_runtime();
+
+    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
+
+    // Registering `Store` asset definitions
+    let hat_definition_id: <AssetDefinition as Identifiable>::Id =
+        "hat#wonderland".parse().expect("Valid");
+    let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
+    let shoes_definition_id: <AssetDefinition as Identifiable>::Id =
+        "shoes#wonderland".parse().expect("Valid");
+    let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
+    client
+        .submit_all_blocking([
+            RegisterBox::new(new_hat_definition).into(),
+            RegisterBox::new(new_shoes_definition).into(),
+        ])
+        .expect("Failed to register new asset definitions");
+
+    // Registering mouse
+    let new_mouse_account = Account::new(mouse_id.clone(), []);
+    client
+        .submit_blocking(RegisterBox::new(new_mouse_account))
+        .expect("Failed to register mouse");
+
+    // Granting permission to Alice to modify metadata in Mouse's hats
+    let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
+    client
+        .submit_blocking(GrantBox::new(
+            PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_hat_id.clone())),
+            alice_id.clone(),
+        ))
+        .expect("Failed grant permission to modify Mouse's hats");
+
+    // Checking that Alice can modify Mouse's hats ...
+    client
+        .submit_blocking(SetKeyValueBox::new(
+            mouse_hat_id,
+            Name::from_str("color").expect("Valid"),
+            "red".to_owned(),
+        ))
+        .expect("Failed to modify Mouse's hats");
+
+    // ... but not shoes
+    let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id);
+    let set_shoes_color = SetKeyValueBox::new(
+        mouse_shoes_id.clone(),
+        Name::from_str("color").expect("Valid"),
+        "yellow".to_owned(),
+    );
+    let _err = client
+        .submit_blocking(set_shoes_color.clone())
+        .expect_err("Expected Alice to fail to modify Mouse's shoes");
+
+    // Granting permission to Alice to modify metadata in Mouse's shoes
+    client
+        .submit_blocking(GrantBox::new(
+            PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_shoes_id)),
+            alice_id,
+        ))
+        .expect("Failed grant permission to modify Mouse's shoes");
+
+    // Checking that Alice can modify Mouse's shoes
+    client
+        .submit_blocking(set_shoes_color)
+        .expect("Failed to modify Mouse's shoes");
 }

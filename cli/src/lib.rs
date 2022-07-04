@@ -192,6 +192,13 @@ where
             Arc::clone(&wsv),
         );
 
+        // Validate every transaction in genesis block
+        if let Some(ref genesis) = genesis {
+            transaction_validator
+                .validate_every(&***genesis)
+                .wrap_err("Transaction validation failed in genesis block")?;
+        }
+
         let notify_shutdown = Arc::new(Notify::new());
 
         let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
