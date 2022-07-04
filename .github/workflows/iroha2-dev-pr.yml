@@ -59,18 +59,21 @@ jobs:
       #
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Run tests and generate lcov report, with ${{ matrix.feature_flag }}
+      - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo llvm-cov clean --workspace
           mold --run cargo +nightly-2022-04-20 llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --doc
           mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace
+      - name: Generate lcov report
+        if: ${{ matrix.feature_flag == 'all-features' }}
+        run: |
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
-          mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path all-features.lcov.info
+          mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v3
         with:
-          files: ${{ matrix.feature_flag }}.lcov.info
+          files: lcov.info
           fail_ci_if_error: true
 
   integration_tests:
