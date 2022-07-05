@@ -23,9 +23,7 @@ impl IsAllowed for ProhibitRegisterDomains {
     ) -> ValidatorVerdict {
         if let Instruction::Register(register) = instruction {
             if let Ok(RegistrableBox::Domain(_)) = register.object.evaluate(wsv, &Context::new()) {
-                return ValidatorVerdict::Deny(
-                    "Domain registration is prohibited.".to_owned().into(),
-                );
+                return ValidatorVerdict::Deny("Domain registration is prohibited.".to_owned());
             }
 
             return ValidatorVerdict::Allow;

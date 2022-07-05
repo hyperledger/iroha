@@ -81,9 +81,7 @@ impl IsAllowed for AssetSetOnlyForSignerAccount {
         match object_id {
             IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
                 ValidatorVerdict::Deny(
-                    "Can't set value to asset store from another account."
-                        .to_owned()
-                        .into(),
+                    "Can't set value to asset store from another account.".to_owned(),
                 )
             }
             _ => ValidatorVerdict::Allow,
@@ -138,9 +136,7 @@ impl IsGrantAllowed for GrantMyAssetAccessSet {
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+                "Asset specified in permission token is not owned by signer.".to_owned(),
             );
         }
 
@@ -170,9 +166,7 @@ impl IsAllowed for AccountSetOnlyForSignerAccount {
 
         match &object_id {
             IdBox::AccountId(account_id) if account_id != authority => ValidatorVerdict::Deny(
-                "Can't set value to account store from another account."
-                    .to_owned()
-                    .into(),
+                "Can't set value to account store from another account.".to_owned(),
             ),
             _ => ValidatorVerdict::Allow,
         }
@@ -224,9 +218,7 @@ impl IsGrantAllowed for GrantMyMetadataAccessSet {
             ok_or_skip!(extract_specialized_token(instruction, wsv));
         if &token.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Account specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+                "Account specified in permission token is not owned by signer.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -255,9 +247,7 @@ impl IsAllowed for AssetRemoveOnlyForSignerAccount {
         match object_id {
             IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
                 ValidatorVerdict::Deny(
-                    "Can't remove value from asset store from another account."
-                        .to_owned()
-                        .into(),
+                    "Can't remove value from asset store from another account.".to_owned(),
                 )
             }
             _ => ValidatorVerdict::Allow,
@@ -311,9 +301,7 @@ impl IsGrantAllowed for GrantMyAssetAccessRemove {
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+                "Asset specified in permission token is not owned by signer.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -342,9 +330,7 @@ impl IsAllowed for AccountRemoveOnlyForSignerAccount {
 
         match object_id {
             IdBox::AccountId(account_id) if &account_id != authority => ValidatorVerdict::Deny(
-                "Can't remove value from account store from another account."
-                    .to_owned()
-                    .into(),
+                "Can't remove value from account store from another account.".to_owned(),
             ),
             _ => ValidatorVerdict::Allow,
         }
@@ -397,9 +383,7 @@ impl IsGrantAllowed for GrantMyMetadataAccessRemove {
 
         if &token.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Account specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+                "Account specified in permission token is not owned by signer.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -472,9 +456,7 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
             .unwrap_or(false);
         if !registered_by_signer_account {
             return ValidatorVerdict::Deny(
-                "Can't set key value to asset definition registered by other accounts."
-                    .to_owned()
-                    .into(),
+                "Can't set key value to asset definition registered by other accounts.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -510,8 +492,7 @@ impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
         if !registered_by_signer_account {
             return ValidatorVerdict::Deny(
                 "Can't remove key value to asset definition registered by other accounts."
-                    .to_owned()
-                    .into(),
+                    .to_owned(),
             );
         }
         ValidatorVerdict::Allow

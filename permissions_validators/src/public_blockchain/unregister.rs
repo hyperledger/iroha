@@ -40,9 +40,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
             .unwrap_or(false);
         if !registered_by_signer_account {
             return ValidatorVerdict::Deny(
-                "Can't unregister assets registered by other accounts."
-                    .to_owned()
-                    .into(),
+                "Can't unregister assets registered by other accounts.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -114,11 +112,11 @@ impl IsRevokeAllowed for RevokeRegisteredByMeAccess {
         let value = try_evaluate_or_deny!(instruction.object, wsv);
         let permission_token: PermissionToken = ok_or_skip!(value
             .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| DenialReason::Custom(e.to_string())));
+            .map_err(|e: ErrorTryFromEnum<_, _>| (e.to_string())));
 
         let token: CanUnregisterAssetWithDefinition = ok_or_skip!(permission_token
             .try_into()
-            .map_err(|e: PredefinedTokenConversionError| DenialReason::Custom(e.to_string())));
+            .map_err(|e: PredefinedTokenConversionError| (e.to_string())));
 
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }

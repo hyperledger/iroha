@@ -5,7 +5,6 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 pub use checks::*;
-use error::*;
 pub use has_token::*;
 use iroha_data_model::prelude::*;
 use iroha_schema::IntoSchema;
@@ -217,61 +216,20 @@ impl From<Result<()>> for ValidatorVerdict {
     }
 }
 
-pub mod error {
-    //! Contains errors structures
-
-    use std::{convert::Infallible, str::FromStr};
-
-    use super::{Decode, Encode, IntoSchema, ValidatorType};
-    use crate::smartcontracts::Mismatch;
-
-    /// TODO: Remove
-    pub type ValidatorTypeMismatch = Mismatch<ValidatorType>;
-
-    /// Reason for prohibiting the execution of the particular instruction.
-    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Decode, Encode, IntoSchema)]
-    #[allow(variant_size_differences)]
-    pub enum DenialReason {
-        /// [`ValidatorTypeMismatch`] variant
-        /// TODO: Remove
-        #[error("Wrong validator type: {0}")]
-        ValidatorTypeMismatch(#[from] ValidatorTypeMismatch),
-        /// Variant for custom error
-        #[error("{0}")]
-        Custom(String),
-        /// Variant used when at least one [`Validator`](super::IsAllowed) should be provided
-        /// TODO: Remove
-        #[error("No validators provided")]
-        NoValidatorsProvided,
-    }
-
-    impl From<String> for DenialReason {
-        fn from(s: String) -> Self {
-            Self::Custom(s)
-        }
-    }
-
-    impl FromStr for DenialReason {
-        type Err = Infallible;
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            Ok(Self::Custom(s.to_owned()))
-        }
-    }
-}
+/// Reason for prohibiting the execution of the particular instruction.
+pub type DenialReason = String;
 
 pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
         combinators::ValidatorApplyOr as _,
-        error::DenialReason,
         judge::{
             builder::Builder as JudgeBuilder, AllowAll, DenyAll, Judge, OperationJudgeBoxed,
             QueryJudgeArc,
         },
         roles::{IsGrantAllowed, IsRevokeAllowed},
-        IsAllowed, ValidatorVerdict,
+        DenialReason, IsAllowed, ValidatorVerdict,
     };
 }
 
@@ -299,9 +257,7 @@ mod tests {
             _wsv: &WorldStateView,
         ) -> ValidatorVerdict {
             match instruction {
-                Instruction::Burn(_) => {
-                    ValidatorVerdict::Deny("Denying sequence isi.".to_owned().into())
-                }
+                Instruction::Burn(_) => ValidatorVerdict::Deny("Denying sequence isi.".to_owned()),
                 _ => ValidatorVerdict::Skip,
             }
         }
@@ -320,7 +276,7 @@ mod tests {
             _wsv: &WorldStateView,
         ) -> ValidatorVerdict {
             if authority.name.as_ref() == "alice" {
-                ValidatorVerdict::Deny("Alice account is denied.".to_owned().into())
+                ValidatorVerdict::Deny("Alice account is denied.".to_owned())
             } else {
                 ValidatorVerdict::Skip
             }

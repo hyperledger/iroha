@@ -24,9 +24,7 @@ pub fn check_instruction_permissions(
     check_permissions_directly(account_id, revoked_instructions, instruction_judge, wsv)?;
 
     check_query_in_instruction(account_id, instruction, wsv, query_judge)
-        .map_err(|reason| NotPermittedFail {
-            reason: reason.to_string(),
-        })
+        .map_err(|reason| NotPermittedFail { reason })
         .map_err(TransactionRejectionReason::NotPermitted)?;
 
     Ok(())
@@ -41,9 +39,7 @@ fn check_permissions_directly(
     for isi in instructions {
         is_instruction_allowed
             .judge(account_id, isi, wsv)
-            .map_err(|reason| NotPermittedFail {
-                reason: reason.to_string(),
-            })
+            .map_err(|reason| NotPermittedFail { reason })
             .map_err(TransactionRejectionReason::NotPermitted)?;
     }
     Ok(())

@@ -113,9 +113,9 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
             }
         }
 
-        Err(DenialReason::Custom(format!(
+        Err(format!(
             "None of the validators has allowed operation {operation:?}: {messages:#?}",
-        )))
+        ))
     }
 }
 
@@ -138,9 +138,9 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
     ) -> std::result::Result<(), DenialReason> {
         for validator in &self.validators {
             if let ValidatorVerdict::Deny(reason) = validator.check(authority, operation, wsv) {
-                return Err(DenialReason::Custom(format!(
+                return Err(format!(
                     "Validator {validator:?} denied operation {operation:?}: {reason}"
-                )));
+                ));
             }
         }
 
@@ -184,9 +184,9 @@ impl<O: NeedsPermission> Judge for NoDeniesAndAtLeastOneAllow<O> {
         if allowed {
             Ok(())
         } else {
-            Err(DenialReason::Custom(format!(
+            Err(format!(
                 "None of the validators has allowed operation {operation:?}: {messages:#?}",
-            )))
+            ))
         }
     }
 }
@@ -249,7 +249,7 @@ impl<O: NeedsPermission> Judge for DenyAll<O> {
         _operation: &Self::Operation,
         _wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
-        Err("All operations are denied.".to_owned().into())
+        Err("All operations are denied.".to_owned())
     }
 }
 

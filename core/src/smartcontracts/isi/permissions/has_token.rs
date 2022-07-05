@@ -54,9 +54,10 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
         let permission_token = match self.has_token.token(authority, instruction, wsv) {
             Ok(permission_token) => permission_token,
             Err(err) => {
-                return ValidatorVerdict::Deny(
-                    format!("Unable to identify corresponding permission token: {}", err).into(),
-                );
+                return ValidatorVerdict::Deny(format!(
+                    "Unable to identify corresponding permission token: {}",
+                    err
+                ));
             }
         };
 
@@ -65,22 +66,20 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
         }) {
             Ok(contain) => contain,
             Err(err) => {
-                return ValidatorVerdict::Deny(
-                    format!("Unable to check if account has permission token: {}", err).into(),
-                );
+                return ValidatorVerdict::Deny(format!(
+                    "Unable to check if account has permission token: {}",
+                    err
+                ));
             }
         };
 
         if contain {
             ValidatorVerdict::Allow
         } else {
-            ValidatorVerdict::Deny(
-                format!(
-                    "Account does not have the needed permission token: {:?}.",
-                    permission_token
-                )
-                .into(),
-            )
+            ValidatorVerdict::Deny(format!(
+                "Account does not have the needed permission token: {:?}.",
+                permission_token
+            ))
         }
     }
 }

@@ -47,7 +47,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                         .unwrap_or(false);
                     if !registered_by_signer_account {
                         return ValidatorVerdict::Deny(
-                            "Can't unregister assets with definitions registered by other accounts.".to_owned().into()
+                            "Can't unregister assets with definitions registered by other accounts.".to_owned()
                         );
                     }
                 }
@@ -65,8 +65,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                 if !registered_by_signer_account {
                     return ValidatorVerdict::Deny(
                         "Can't burn assets with definitions registered by other accounts."
-                            .to_owned()
-                            .into(),
+                            .to_owned(),
                     );
                 }
                 ValidatorVerdict::Allow
@@ -155,9 +154,7 @@ impl IsAllowed for OnlyOwnedAssets {
                 if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
                     if &asset_id.account_id != authority {
                         return ValidatorVerdict::Deny(
-                            "Can't unregister assets from another account."
-                                .to_owned()
-                                .into(),
+                            "Can't unregister assets from another account.".to_owned(),
                         );
                     }
                 }
@@ -168,7 +165,7 @@ impl IsAllowed for OnlyOwnedAssets {
                 let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 if &asset_id.account_id != authority {
                     return ValidatorVerdict::Deny(
-                        "Can't burn assets from another account.".to_owned().into(),
+                        "Can't burn assets from another account.".to_owned(),
                     );
                 }
                 ValidatorVerdict::Allow
@@ -234,9 +231,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+                "Asset specified in permission token is not owned by signer.".to_owned(),
             );
         }
 

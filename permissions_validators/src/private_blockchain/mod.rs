@@ -40,7 +40,7 @@ impl IsGrantAllowed for ProhibitGrant {
         _instruction: &GrantBox,
         _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        ValidatorVerdict::Deny("Granting at runtime is prohibited.".to_owned().into())
+        ValidatorVerdict::Deny("Granting at runtime is prohibited.".to_owned())
     }
 }
 

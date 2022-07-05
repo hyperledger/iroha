@@ -354,7 +354,6 @@ pub fn generate_map() -> DumpDecodedMap {
         smartcontracts::isi::error::FindError,
         smartcontracts::isi::error::Mismatch<smartcontracts::isi::permissions::ValidatorType>,
         smartcontracts::isi::permissions::ValidatorType,
-        smartcontracts::isi::permissions::error::DenialReason,
         smartcontracts::isi::query::Error,
         sumeragi::network_topology::Topology,
         sumeragi::view_change::BlockCreationTimeout,

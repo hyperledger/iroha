@@ -38,8 +38,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     if !registered_by_signer_account {
                         return ValidatorVerdict::Deny(
                             "Can't register assets with definitions registered by other accounts."
-                                .to_owned()
-                                .into(),
+                                .to_owned(),
                         );
                     }
                 }
@@ -57,8 +56,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                 if !registered_by_signer_account {
                     return ValidatorVerdict::Deny(
                         "Can't mint assets with definitions registered by other accounts."
-                            .to_owned()
-                            .into(),
+                            .to_owned(),
                     );
                 }
                 ValidatorVerdict::Allow

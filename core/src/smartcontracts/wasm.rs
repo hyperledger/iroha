@@ -123,7 +123,7 @@ impl Validator<'_> {
     fn validate_query(&self, account_id: &AccountId, query: &QueryBox) -> Result<(), Trap> {
         self.query_judge
             .judge(account_id, query, self.wsv)
-            .map_err(|err| Trap::new(err.to_string()))
+            .map_err(Trap::new)
     }
 }
 

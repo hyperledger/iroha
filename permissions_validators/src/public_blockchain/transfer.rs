@@ -48,9 +48,7 @@ impl IsAllowed for OnlyOwnedAssets {
 
         if &source_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Can't transfer assets of the other account."
-                    .to_owned()
-                    .into(),
+                "Can't transfer assets of the other account.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -103,9 +101,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+                "Asset specified in permission token is not owned by signer.".to_owned(),
             );
         }
 
@@ -149,9 +145,7 @@ impl IsAllowed for ExecutionCountFitsInLimit {
             .expect("`usize` should always fit in `u32`");
         if executions_count >= count {
             return ValidatorVerdict::Deny(
-                "Transfer transaction limit for current period is exceed"
-                    .to_owned()
-                    .into(),
+                "Transfer transaction limit for current period is exceed".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -175,7 +169,7 @@ fn retrieve_permission_params(
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect()
     })
-    .map_err(|e| e.to_string().into())
+    .map_err(|e| e.to_string())
 }
 
 /// Retrieve period from `params`
@@ -193,10 +187,9 @@ fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration> {
         Value::U128(period) => Ok(Duration::from_millis(
             u64::try_from(*period).map_err(|e| e.to_string())?,
         )),
-        _ => Err(
-            format!("`{period_param_name}` parameter has wrong value type. Expected `u128`",)
-                .into(),
-        ),
+        _ => Err(format!(
+            "`{period_param_name}` parameter has wrong value type. Expected `u128`",
+        )),
     }
 }
 
@@ -212,9 +205,9 @@ fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32> {
         .ok_or_else(|| format!("Expected `{count_param_name}` parameter"))?
     {
         Value::U32(count) => Ok(*count),
-        _ => Err(
-            format!("`{count_param_name}` parameter has wrong value type. Expected `u32`").into(),
-        ),
+        _ => Err(format!(
+            "`{count_param_name}` parameter has wrong value type. Expected `u32`"
+        )),
     }
 }
 

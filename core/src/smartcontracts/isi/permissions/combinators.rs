@@ -60,11 +60,11 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
         if let (ValidatorVerdict::Deny(first_reason), ValidatorVerdict::Deny(second_reason)) =
             (&first_verdict, &second_verdict)
         {
-            return ValidatorVerdict::Deny(DenialReason::Custom(format!(
+            return ValidatorVerdict::Deny(format!(
                 "Nor first validator {:?} succeed: {first_reason}, \
                  nor second validator {:?} succeed: {second_reason}",
                 self.first, self.second
-            )));
+            ));
         }
 
         first_verdict.most_permissive(second_verdict)

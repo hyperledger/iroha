@@ -26,38 +26,26 @@ impl IsAllowed for OnlyAccountsDomain {
         match query {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
                 ValidatorVerdict::Deny(
-                    "Only access to the assets of the same domain is permitted."
-                        .to_owned()
-                        .into(),
+                    "Only access to the assets of the same domain is permitted.".to_owned(),
                 )
             }
             FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
                 ValidatorVerdict::Deny(
-                    "Only access to the accounts of the same domain is permitted."
-                        .to_owned()
-                        .into(),
+                    "Only access to the accounts of the same domain is permitted.".to_owned(),
                 )
             }
             FindAllAssetsDefinitions(_) => ValidatorVerdict::Deny(
-                "Only access to the asset definitions of the same domain is permitted."
-                    .to_owned()
-                    .into(),
+                "Only access to the asset definitions of the same domain is permitted.".to_owned(),
             ),
             FindAllDomains(_) => ValidatorVerdict::Deny(
-                "Only access to the domain of the account is permitted."
-                    .to_owned()
-                    .into(),
+                "Only access to the domain of the account is permitted.".to_owned(),
             ),
             FindAllRoles(_) => ValidatorVerdict::Deny(
-                "Only access to roles of the same domain is permitted."
-                    .to_owned()
-                    .into(),
+                "Only access to roles of the same domain is permitted.".to_owned(),
             ),
             FindAllRoleIds(_) => ValidatorVerdict::Allow, // In case you need to debug the permissions.
             FindRoleByRoleId(_) => ValidatorVerdict::Deny(
-                "Only access to roles of the same domain is permitted."
-                    .to_owned()
-                    .into(),
+                "Only access to roles of the same domain is permitted.".to_owned(),
             ),
             FindAllPeers(_) => ValidatorVerdict::Allow, // Can be obtained in other ways, so why hide it.
             FindAllActiveTriggerIds(_) => ValidatorVerdict::Allow,
@@ -72,19 +60,15 @@ impl IsAllowed for OnlyAccountsDomain {
                         } else {
                             ValidatorVerdict::Deny(
                                 "Cannot access Trigger if you're not the technical account."
-                                    .to_owned()
-                                    .into(),
+                                    .to_owned(),
                             )
                         }
                     })
                     .unwrap_or_else(|| {
-                        ValidatorVerdict::Deny(
-                            format!(
-                                "A trigger with the specified Id: {} is not accessible to you",
-                                id.clone()
-                            )
-                            .into(),
-                        )
+                        ValidatorVerdict::Deny(format!(
+                            "A trigger with the specified Id: {} is not accessible to you",
+                            id.clone()
+                        ))
                     })
             }
             FindTriggerKeyValueByIdAndKey(query) => {
@@ -96,7 +80,7 @@ impl IsAllowed for OnlyAccountsDomain {
                         } else {
                             ValidatorVerdict::Deny(
                                 "Cannot access Trigger internal state if you're not the technical account."
-                            .to_owned().into()
+                            .to_owned()
                             )
                         }
                     })
@@ -105,8 +89,7 @@ impl IsAllowed for OnlyAccountsDomain {
                             format!(
                                 "A trigger with the specified Id: {} is not accessible to you",
                                 id.clone()
-                            )
-                            .into(),
+                            ),
                         )
                     })
             }
@@ -117,26 +100,20 @@ impl IsAllowed for OnlyAccountsDomain {
                     return ValidatorVerdict::Allow;
                 }
 
-                ValidatorVerdict::Deny(
-                    format!(
-                        "Cannot access triggers with given domain {}, {} is permitted..",
-                        domain_id, authority.domain_id
-                    )
-                    .into(),
-                )
+                ValidatorVerdict::Deny(format!(
+                    "Cannot access triggers with given domain {}, {} is permitted..",
+                    domain_id, authority.domain_id
+                ))
             }
             FindAccountById(query) => {
                 let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access account {} as it is in a different domain.",
-                            account_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access account {} as it is in a different domain.",
+                        account_id
+                    ))
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
@@ -144,13 +121,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access account {} as it is in a different domain.",
-                            account_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access account {} as it is in a different domain.",
+                        account_id
+                    ))
                 }
             }
             FindAccountsByDomainId(query) => {
@@ -158,13 +132,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access accounts from a different domain with name {}.",
-                            domain_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access accounts from a different domain with name {}.",
+                        domain_id
+                    ))
                 }
             }
             FindAssetById(query) => {
@@ -172,13 +143,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if asset_id.account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access asset {} as it is in a different domain.",
-                            asset_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access asset {} as it is in a different domain.",
+                        asset_id
+                    ))
                 }
             }
             FindAssetsByAccountId(query) => {
@@ -186,13 +154,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access account {} as it is in a different domain.",
-                            account_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access account {} as it is in a different domain.",
+                        account_id
+                    ))
                 }
             }
             FindAssetsByDomainId(query) => {
@@ -200,13 +165,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access assets from a different domain with name {}.",
-                            domain_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access assets from a different domain with name {}.",
+                        domain_id
+                    ))
                 }
             }
             FindAssetsByDomainIdAndAssetDefinitionId(query) => {
@@ -214,13 +176,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access assets from a different domain with name {}.",
-                            domain_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access assets from a different domain with name {}.",
+                        domain_id
+                    ))
                 }
             }
             FindAssetDefinitionKeyValueByIdAndKey(query) => {
@@ -232,7 +191,7 @@ impl IsAllowed for OnlyAccountsDomain {
                         "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
                         asset_definition_id.domain_id,
                         authority.domain_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetQuantityById(query) => {
@@ -240,13 +199,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if asset_id.account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access asset {} as it is in a different domain.",
-                            asset_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access asset {} as it is in a different domain.",
+                        asset_id
+                    ))
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
@@ -254,13 +210,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if asset_id.account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access asset {} as it is in a different domain.",
-                            asset_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access asset {} as it is in a different domain.",
+                        asset_id
+                    ))
                 }
             }
             FindDomainById(query::FindDomainById { id })
@@ -269,31 +222,27 @@ impl IsAllowed for OnlyAccountsDomain {
                 if domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!("Cannot access a different domain: {}.", domain_id).into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access a different domain: {}.",
+                        domain_id
+                    ))
                 }
             }
             FindAllBlocks(_) => {
-                ValidatorVerdict::Deny("Access to all blocks not permitted".to_owned().into())
+                ValidatorVerdict::Deny("Access to all blocks not permitted".to_owned())
             }
             FindAllTransactions(_) => ValidatorVerdict::Deny(
-                "Only access to transactions in the same domain is permitted."
-                    .to_owned()
-                    .into(),
+                "Only access to transactions in the same domain is permitted.".to_owned(),
             ),
             FindTransactionsByAccountId(query) => {
                 let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access account {} as it is in a different domain.",
-                            account_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access account {} as it is in a different domain.",
+                        account_id
+                    ))
                 }
             }
             FindTransactionByHash(_query) => ValidatorVerdict::Allow,
@@ -302,13 +251,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access account {} as it is in a different domain.",
-                            account_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access account {} as it is in a different domain.",
+                        account_id
+                    ))
                 }
             }
             FindPermissionTokensByAccountId(query) => {
@@ -316,13 +262,10 @@ impl IsAllowed for OnlyAccountsDomain {
                 if account_id.domain_id == authority.domain_id {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(
-                        format!(
-                            "Cannot access account {} as it is in a different domain.",
-                            account_id
-                        )
-                        .into(),
-                    )
+                    ValidatorVerdict::Deny(format!(
+                        "Cannot access account {} as it is in a different domain.",
+                        account_id
+                    ))
                 }
             }
             FindAssetDefinitionById(query) => {
@@ -335,7 +278,7 @@ impl IsAllowed for OnlyAccountsDomain {
                         "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
                         asset_definition_id.domain_id,
                         authority.domain_id,
-                    ).into())
+                    ))
                 }
             }
         }
@@ -363,12 +306,12 @@ impl IsAllowed for OnlyAccountsData {
                 | FindAccountsByDomainId(_)
                 | FindAccountsWithAsset(_)
                 | FindAllAccounts(_) => {
-                    ValidatorVerdict::Deny("Other accounts are private.".to_owned().into())
+                    ValidatorVerdict::Deny("Other accounts are private.".to_owned())
                 }
                 | FindAllDomains(_)
                 | FindDomainById(_)
                 | FindDomainKeyValueByIdAndKey(_) => {
-                    ValidatorVerdict::Deny("Only access to your account's data is permitted.".to_owned().into())
+                    ValidatorVerdict::Deny("Only access to your account's data is permitted.".to_owned())
                 },
             FindAssetsByDomainIdAndAssetDefinitionId(_)
                 | FindAssetsByName(_) // TODO: I think this is a mistake.
@@ -378,16 +321,16 @@ impl IsAllowed for OnlyAccountsData {
                 | FindAssetDefinitionById(_)
                 | FindAssetDefinitionKeyValueByIdAndKey(_)
                 | FindAllAssets(_) => {
-                    ValidatorVerdict::Deny("Only access to the assets of your account is permitted.".to_owned().into())
+                    ValidatorVerdict::Deny("Only access to the assets of your account is permitted.".to_owned())
                 }
             FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
-                ValidatorVerdict::Deny("Only access to roles of the same account is permitted.".to_owned().into())
+                ValidatorVerdict::Deny("Only access to roles of the same account is permitted.".to_owned())
             },
             FindAllActiveTriggerIds(_) | FindTriggersByDomainId(_) => {
-                ValidatorVerdict::Deny("Only access to the triggers of the same account is permitted.".to_owned().into())
+                ValidatorVerdict::Deny("Only access to the triggers of the same account is permitted.".to_owned())
             }
             FindAllPeers(_) => {
-                ValidatorVerdict::Deny("Only access to your account-local data is permitted.".to_owned().into())
+                ValidatorVerdict::Deny("Only access to your account-local data is permitted.".to_owned())
             }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
@@ -400,7 +343,7 @@ impl IsAllowed for OnlyAccountsData {
                 ValidatorVerdict::Deny(format!(
                     "A trigger with the specified Id: {} is not accessible to you",
                     id
-                ).into())
+                ))
             }
             FindTriggerKeyValueByIdAndKey(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
@@ -413,7 +356,7 @@ impl IsAllowed for OnlyAccountsData {
                 ValidatorVerdict::Deny(format!(
                     "A trigger with the specified Id: {} is not accessible to you",
                     id
-                ).into())
+                ))
             }
             FindAccountById(query) => {
                 let account_id = try_evaluate_or_deny!(query.id, wsv);
@@ -424,7 +367,7 @@ impl IsAllowed for OnlyAccountsData {
                         "Cannot access account {} as only access to your own account, {} is permitted..",
                         account_id,
                         authority
-                    ).into())
+                    ))
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
@@ -435,7 +378,7 @@ impl IsAllowed for OnlyAccountsData {
                     ValidatorVerdict::Deny(format!(
                         "Cannot access account {} as only access to your own account is permitted..",
                         account_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetById(query) => {
@@ -446,7 +389,7 @@ impl IsAllowed for OnlyAccountsData {
                     ValidatorVerdict::Deny(format!(
                         "Cannot access asset {} as it is in a different account.",
                         asset_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetsByAccountId(query) => {
@@ -458,7 +401,7 @@ impl IsAllowed for OnlyAccountsData {
                     ValidatorVerdict::Deny(format!(
                         "Cannot access a different account: {}.",
                         account_id
-                    ).into())
+                    ))
                 }
             }
 
@@ -470,7 +413,7 @@ impl IsAllowed for OnlyAccountsData {
                     ValidatorVerdict::Deny(format!(
                         "Cannot access asset {} as it is in a different account.",
                         asset_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
@@ -481,14 +424,14 @@ impl IsAllowed for OnlyAccountsData {
                     ValidatorVerdict::Deny(format!(
                         "Cannot access asset {} as it is in a different account.",
                         asset_id
-                    ).into())
+                    ))
                 }
             }
             FindAllBlocks(_) => {
-                ValidatorVerdict::Deny("Access to all blocks not permitted".to_owned().into())
+                ValidatorVerdict::Deny("Access to all blocks not permitted".to_owned())
             }
             FindAllTransactions(_) => {
-                ValidatorVerdict::Deny("Only access to transactions of the same account is permitted.".to_owned().into())
+                ValidatorVerdict::Deny("Only access to transactions of the same account is permitted.".to_owned())
             },
             FindTransactionsByAccountId(query) => {
                 let account_id = try_evaluate_or_deny!(query
@@ -496,7 +439,7 @@ impl IsAllowed for OnlyAccountsData {
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(format!("Cannot access another account: {}.", account_id).into())
+                    ValidatorVerdict::Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
             FindTransactionByHash(_query) => ValidatorVerdict::Allow,
@@ -505,7 +448,7 @@ impl IsAllowed for OnlyAccountsData {
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(format!("Cannot access another account: {}.", account_id).into())
+                    ValidatorVerdict::Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
             FindPermissionTokensByAccountId(query) => {
@@ -513,7 +456,7 @@ impl IsAllowed for OnlyAccountsData {
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
-                    ValidatorVerdict::Deny(format!("Cannot access another account: {}.", account_id).into())
+                    ValidatorVerdict::Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
         }
