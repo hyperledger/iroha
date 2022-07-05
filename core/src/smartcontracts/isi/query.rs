@@ -54,6 +54,9 @@ pub enum Error {
     /// Query found wrong type of asset.
     #[error("Query found wrong type of asset: {0}")]
     Conversion(String),
+    /// Query without account.
+    #[error("Unauthorized query: account not provided")]
+    Unauthorized,
 }
 
 impl From<FindError> for Error {
