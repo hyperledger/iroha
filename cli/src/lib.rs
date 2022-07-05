@@ -4,7 +4,7 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-use std::{path::PathBuf, sync::Arc};
+use std::{panic, path::PathBuf, process, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use config::Configuration;
@@ -127,6 +127,8 @@ where
             None
         };
 
+        Self::prepare_panic_hook();
+
         Self::with_genesis(
             genesis,
             config,
@@ -136,6 +138,14 @@ where
             telemetry,
         )
         .await
+    }
+
+    fn prepare_panic_hook() {
+        let hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            hook(info);
+            process::exit(1);
+        }));
     }
 
     /// Create Iroha with specified broker, config, and genesis.
