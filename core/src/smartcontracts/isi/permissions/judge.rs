@@ -81,6 +81,7 @@ impl<O: NeedsPermission, J: Judge<Operation = O>> IsAllowed for JudgeAsValidator
 
 /// Judge which succeeds only if there is at least one
 /// [`Allow`](ValidatorVerdict::Allow) verdict from the contained validators.
+///
 /// Stops on first successful verdict
 ///
 /// Provides detailed message as [`DenialReason`]
@@ -121,6 +122,7 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
 
 /// Judge which succeeds only if there is no
 /// [`Deny`](ValidatorVerdict::Deny) verdict from the contained validators.
+///
 /// Will iterate over all validators
 #[derive(Debug)]
 pub struct NoDenies<O: NeedsPermission> {
@@ -151,7 +153,9 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
 /// Judge which succeeds only if there is no
 /// [`Deny`](ValidatorVerdict::Deny) verdict and there is at least one
 /// [`Allow`](ValidatorVerdict::Allow) from the contained validators.
-/// Will iterate over all validators
+///
+/// Will iterate over all validators until first `Deny` is found or
+/// all validators are checked.
 #[derive(Debug)]
 pub struct NoDeniesAndAtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
@@ -173,7 +177,9 @@ impl<O: NeedsPermission> Judge for NoDeniesAndAtLeastOneAllow<O> {
             match validator.check(authority, operation, wsv) {
                 ValidatorVerdict::Allow => allowed = true,
                 ValidatorVerdict::Deny(reason) => {
-                    messages.push(format!("Validator {validator:?} denied: {reason}"));
+                    return Err(format!(
+                        "Validator {validator:?} denied operation {operation:?}: {reason}"
+                    ));
                 }
                 ValidatorVerdict::Skip => {
                     messages.push(format!("Validator {validator:?} skipped"));
