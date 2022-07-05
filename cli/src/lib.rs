@@ -21,7 +21,6 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use quit;
 use tokio::{
     signal,
     sync::{broadcast, Notify},
@@ -128,8 +127,6 @@ where
             None
         };
 
-        Self::prepare_panic_hook();
-
         Self::with_genesis(
             genesis,
             config,
@@ -141,11 +138,11 @@ where
         .await
     }
 
-    fn prepare_panic_hook() {
+    fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
         let hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
             hook(info);
-            quit::with_code(1);
+            notify_shutdown.notify_one();
         }));
     }
 
@@ -253,7 +250,9 @@ where
             Arc::clone(&notify_shutdown),
         );
 
-        Self::start_listening_signal(notify_shutdown)?;
+        Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
+
+        Self::prepare_panic_hook(notify_shutdown);
 
         let torii = Some(torii);
         Ok(Self {
@@ -362,4 +361,21 @@ where
 fn domains(configuration: &config::Configuration) -> [Domain; 1] {
     let key = configuration.genesis.account_public_key.clone();
     [Domain::from(GenesisDomain::new(key))]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::thread;
+    use super::*;
+
+    #[tokio::test]
+    async fn iroha_should_notify_on_panic() {
+        let notify = Arc::new(Notify::new());
+        <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
+        let _ = thread::spawn(move || {
+            panic!("Test panic");
+        }).join();
+        notify.notified().await;
+        assert!(true);
+    }
 }

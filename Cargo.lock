@@ -1698,7 +1698,6 @@ dependencies = [
  "iroha_telemetry",
  "iroha_version",
  "parity-scale-codec",
- "quit",
  "serde",
  "serde_json",
  "test_network",
@@ -2840,21 +2839,6 @@ name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
-
-[[package]]
-name = "quit"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bad314fc86f60b58587ffaf97e3150ed6f0aece74012db9cf0e36ee88768e49d"
-dependencies = [
- "quit_macros",
-]
-
-[[package]]
-name = "quit_macros"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a411616b47dce3139c0169c89899ba5ea3534e545ab4d0c1d3956460fe781bae"
 
 [[package]]
 name = "quote"
