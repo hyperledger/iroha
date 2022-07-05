@@ -131,7 +131,6 @@ impl WorldStateView {
     /// Fails if there is no domain or account
     pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryError> {
         self.map_account(id, |account| account.assets().cloned().collect())
-        // .map_err(Into::into)
     }
 
     /// Returns a set of permission tokens granted to this account as part of roles and separately.
