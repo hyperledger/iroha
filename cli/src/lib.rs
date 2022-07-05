@@ -4,7 +4,7 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-use std::{panic, path::PathBuf, process, sync::Arc};
+use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use config::Configuration;
@@ -21,6 +21,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
+use quit;
 use tokio::{
     signal,
     sync::{broadcast, Notify},
@@ -144,7 +145,7 @@ where
         let hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
             hook(info);
-            process::exit(1);
+            quit::with_code(1);
         }));
     }
 

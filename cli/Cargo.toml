@@ -51,16 +51,17 @@ iroha_p2p = { version = "=2.0.0-pre-rc.5", path = "../p2p" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.5", path = "../schema/gen", optional = true }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }
 
+async-trait = "0.1"
+color-eyre = "0.5.11"
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
+quit = "1.1.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-async-trait = "0.1"
+thiserror = "1.0.28"
 tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
 warp = "0.3"
-thiserror = "1.0.28"
-color-eyre = "0.5.11"
 
 [dev-dependencies]
 test_network = { version = "=2.0.0-pre-rc.5", path = "../core/test_network" }

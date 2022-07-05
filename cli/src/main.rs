@@ -8,6 +8,7 @@ use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 
 #[tokio::main]
+#[quit::main]
 async fn main() -> Result<(), color_eyre::Report> {
     let mut args = Arguments::default();
     if std::env::args().any(|a| is_help(&a)) {
