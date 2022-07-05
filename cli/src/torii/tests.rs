@@ -398,14 +398,8 @@ async fn find_asset_with_no_account() {
             asset_id("rose", "alice"),
         )))
         .await
-        .status(StatusCode::NOT_FOUND)
-        .body_matches_err(|body| {
-            if let query::Error::Find(err) = body {
-                matches!(**err, FindError::Account(_))
-            } else {
-                false
-            }
-        })
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(body, query::Error::Unauthorized))
         .assert()
 }
 
@@ -515,14 +509,8 @@ async fn find_account_with_no_account() {
             AccountId::new("alice".parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
         )))
         .await
-        .status(StatusCode::NOT_FOUND)
-        .body_matches_err(|body| {
-            if let query::Error::Find(err) = body {
-                matches!(**err, FindError::Account(_))
-            } else {
-                false
-            }
-        })
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(body, query::Error::Unauthorized))
         .assert()
 }
 
@@ -671,8 +659,8 @@ async fn query_with_no_find() {
     // .deny_all()
         .query(query())
         .await
-        .status(StatusCode::NOT_FOUND)
-        .body_matches_err(|body| matches!(*body, query::Error::Find(_)))
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(body, query::Error::Unauthorized))
         .assert()
 }
 

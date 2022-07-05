@@ -397,14 +397,13 @@ pub mod query {
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            wsv.asset(&id)
-                .map_err(
-                    |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
-                        Ok(_) => asset_err,
-                        Err(definition_err) => definition_err,
-                    },
-                )
-                .map_err(Into::into)
+            wsv.asset(&id).map_err(|asset_err| {
+                if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                    definition_err.into()
+                } else {
+                    asset_err
+                }
+            })
         }
     }
 
@@ -543,12 +542,13 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
             wsv.asset(&id)
-                .map_err(
-                    |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
-                        Ok(_) => Error::Find(Box::new(asset_err)),
-                        Err(definition_err) => Error::Find(Box::new(definition_err)),
-                    },
-                )?
+                .map_err(|asset_err| {
+                    if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                        Error::Find(Box::new(definition_err))
+                    } else {
+                        asset_err
+                    }
+                })?
                 .value()
                 .try_as_ref()
                 .map_err(eyre::Error::from)
@@ -571,9 +571,10 @@ pub mod query {
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
-                match wsv.asset_definition_entry(&id.definition_id) {
-                    Ok(_) => asset_err,
-                    Err(definition_err) => definition_err,
+                if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                    Error::Find(Box::new(definition_err))
+                } else {
+                    asset_err
                 }
             })?;
             iroha_logger::trace!(%id, %key);
