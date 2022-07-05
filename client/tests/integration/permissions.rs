@@ -16,16 +16,6 @@ use test_network::{PeerBuilder, *};
 
 use super::Configuration;
 
-const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
-    and second check with Account does not have the needed permission token: \
-    PermissionToken { name: \"can_burn_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
-    DefinitionId { name: \"xor\", domain_id: Id { name: \"wonderland\" } }, account_id: Id { name: \"bob\", domain_id: Id { name: \"wonderland\" } } }))} }..";
-
-const MINT_REJECTION_REASON: &str = "Failed to pass first check with Can\'t transfer assets of the other account. \
-    and second check with Account does not have the needed permission token: \
-    PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
-    DefinitionId { name: \"xor\", domain_id: Id { name: \"wonderland\" } }, account_id: Id { name: \"bob\", domain_id: Id { name: \"wonderland\" } } }))} }..";
-
 fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
     iroha_client
         .request(client::asset::by_account_id(id.clone()))
@@ -76,14 +66,12 @@ fn permissions_disallow_asset_transfer() {
         .downcast_ref::<PipelineRejectionReason>()
         .unwrap_or_else(|| panic!("Error {} is not PipelineRejectionReasons.", err));
     //Then
-    assert_eq!(
+    assert!(matches!(
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
-            NotPermittedFail {
-                reason: MINT_REJECTION_REASON.to_owned(),
-            }
+            NotPermittedFail { .. }
         ))
-    );
+    ));
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
 }
@@ -135,14 +123,12 @@ fn permissions_disallow_asset_burn() {
         .downcast_ref::<PipelineRejectionReason>()
         .unwrap_or_else(|| panic!("Error {} is not PipelineRejectionReasons.", err));
     //Then
-    assert_eq!(
+    assert!(matches!(
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
-            NotPermittedFail {
-                reason: BURN_REJECTION_REASON.to_owned(),
-            }
+            NotPermittedFail { .. }
         ))
-    );
+    ));
 
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
@@ -225,7 +211,7 @@ fn permissions_differ_not_only_by_names() {
         public_blockchain::key_value::AssetSetOnlyForSignerAccount
             .or(public_blockchain::key_value::SetGrantedByAssetOwner.into_validator()),
     )
-    .at_least_one_allow()
+    .no_denies()
     .build();
 
     let (_rt, _not_drop, client) = <PeerBuilder>::new()

@@ -1,7 +1,7 @@
 //! This module contains [`Name`](`crate::name::Name`) structure
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};

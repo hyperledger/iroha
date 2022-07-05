@@ -62,20 +62,22 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
         operation: &Self::Operation,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason> {
-        let mut deny_messages = Vec::new();
+        let mut messages = Vec::new();
 
         for validator in &self.validators {
             match validator.check(authority, operation, wsv) {
                 ValidatorVerdict::Allow => return Ok(()),
                 ValidatorVerdict::Deny(reason) => {
-                    deny_messages.push(format!("Validator {validator:?} denied: {reason}"));
+                    messages.push(format!("Validator {validator:?} denied: {reason}"));
                 }
-                ValidatorVerdict::Skip => {}
+                ValidatorVerdict::Skip => {
+                    messages.push(format!("Validator {validator:?} skipped"));
+                }
             }
         }
 
         Err(DenialReason::Custom(format!(
-            "None of the validators has allowed operation {operation:?}: {deny_messages:#?}",
+            "None of the validators has allowed operation {operation:?}: {messages:#?}",
         )))
     }
 }

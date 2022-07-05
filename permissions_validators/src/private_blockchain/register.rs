@@ -27,6 +27,8 @@ impl IsAllowed for ProhibitRegisterDomains {
                     "Domain registration is prohibited.".to_owned().into(),
                 );
             }
+
+            return ValidatorVerdict::Allow;
         }
 
         ValidatorVerdict::Skip
