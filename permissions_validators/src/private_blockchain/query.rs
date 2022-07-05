@@ -19,7 +19,6 @@ impl IsAllowed for OnlyAccountsDomain {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         use QueryBox::*;
-        let context = Context::new();
         match query {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
                 ValidatorVerdict::Deny(
@@ -355,7 +354,6 @@ impl IsAllowed for OnlyAccountsData {
     ) -> ValidatorVerdict {
         use QueryBox::*;
 
-        let context = Context::new();
         match query {
             FindAccountsByName(_)
                 | FindAccountsByDomainId(_)
