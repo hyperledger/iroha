@@ -4,6 +4,10 @@ on:
   push:
     branches: [iroha2-lts]
 
+concurrency:
+  group: I2::Release::Deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 

@@ -15,6 +15,10 @@ on:
       - "data_model/**.rs"
       - "data_model/**.toml"
 
+concurrency: 
+  group: ${{ github.head_ref }}
+  cancel-in-progress: true      
+
 env:
   RUSTC_BOOTSTRAP: 1
 
