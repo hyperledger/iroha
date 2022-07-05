@@ -211,7 +211,7 @@ pub mod prelude {
         builder::Validator as ValidatorBuilder,
         combinators::ValidatorApplyOr as _,
         error::DenialReason,
-        judge::{AllowAll, Judge, OperationJudgeBoxed},
+        judge::{AllowAll, DenyAll, Judge, OperationJudgeBoxed, QueryJudgeArc},
         roles::{IsGrantAllowed, IsRevokeAllowed},
         IsAllowed, IsAllowedBoxed, ValidatorVerdict,
     };

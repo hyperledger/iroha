@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
 use super::*;
 
 pub type OperationJudgeBoxed<O> = Box<dyn Judge<Operation = O> + Send + Sync>;
-
 pub type InstructionJudgeBoxed = OperationJudgeBoxed<Instruction>;
 pub type QueryJudgeBoxed = OperationJudgeBoxed<QueryBox>;
 pub type ExpressionJudgeBoxed = OperationJudgeBoxed<Expression>;
+
+pub type OperationJudgeArc<O> = Arc<dyn Judge<Operation = O> + Send + Sync>;
+pub type InstructionJudgeArc = OperationJudgeArc<Instruction>;
+pub type QueryJudgeArc = OperationJudgeArc<QueryBox>;
+pub type ExpressionJudgeArc = OperationJudgeArc<Expression>;
 
 pub trait Judge: std::fmt::Debug {
     type Operation: NeedsPermission;

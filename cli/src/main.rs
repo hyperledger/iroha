@@ -53,7 +53,11 @@ async fn main() -> Result<(), color_eyre::Report> {
         }
     }
 
-    <iroha::Iroha>::new(&args, default_permissions(), AllowAll.into())
+    if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
+        args.genesis_path = std::path::PathBuf::from_str(&genesis_path)?;
+    }
+
+    <iroha::Iroha>::new(&args, default_permissions(), Box::new(AllowAll::new()))
         .await?
         .start()
         .await?;

@@ -16,7 +16,10 @@ use wasmtime::{
 
 use super::permissions::prelude::Judge;
 use crate::{
-    smartcontracts::{permissions::check_instruction_permissions, Execute, ValidQuery},
+    smartcontracts::{
+        permissions::{check_instruction_permissions, prelude::*},
+        Execute, ValidQuery,
+    },
     wsv::WorldStateView,
 };
 
@@ -75,7 +78,7 @@ struct Validator<'wrld> {
     /// If this particular instruction is allowed
     instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
     /// If this particular query is allowed
-    query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
+    query_judge: QueryJudgeArc,
     /// Current [`WorldStateView`]
     wsv: &'wrld WorldStateView,
 }
@@ -154,7 +157,7 @@ impl<'wrld> State<'wrld> {
         mut self,
         max_instruction_count: u64,
         instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
-        query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
+        query_judge: QueryJudgeArc,
     ) -> Self {
         let validator = Validator {
             instruction_count: 0,
@@ -430,7 +433,7 @@ impl<'wrld> Runtime<'wrld> {
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
         instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
-        query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
+        query_judge: QueryJudgeArc,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id.clone(), self.config).with_validator(
             max_instruction_count,

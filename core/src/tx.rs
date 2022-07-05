@@ -19,7 +19,11 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     prelude::*,
     smartcontracts::{
-        permissions::{check_instruction_permissions, judge::Judge},
+        permissions::{
+            check_instruction_permissions,
+            judge::{InstructionJudgeArc, Judge},
+            prelude::*,
+        },
         wasm, Evaluate, Execute, FindError,
     },
 };
@@ -31,7 +35,7 @@ use crate::{
 pub struct TransactionValidator {
     transaction_limits: TransactionLimits,
     instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
-    query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
+    query_judge: QueryJudgeArc,
     wsv: Arc<WorldStateView>,
 }
 
@@ -39,8 +43,8 @@ impl TransactionValidator {
     /// Construct [`TransactionValidator`]
     pub fn new(
         transaction_limits: TransactionLimits,
-        instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
-        query_judge: Arc<dyn Judge<Operation = QueryBox> + Send + Sync>,
+        instruction_judge: InstructionJudgeArc,
+        query_judge: QueryJudgeArc,
         wsv: Arc<WorldStateView>,
     ) -> Self {
         Self {
