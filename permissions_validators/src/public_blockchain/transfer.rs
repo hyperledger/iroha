@@ -99,7 +99,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanTransferUserAssets = ok_or_deny!(extract_specialized_token(instruction, wsv));
+        let token: CanTransferUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(

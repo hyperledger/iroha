@@ -122,7 +122,7 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         let token: CanMintUserAssetDefinitions =
-            ok_or_deny!(extract_specialized_token(instruction, wsv));
+            ok_or_skip!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }

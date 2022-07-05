@@ -93,7 +93,7 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         let token: CanUnregisterAssetWithDefinition =
-            ok_or_deny!(extract_specialized_token(instruction, wsv));
+            ok_or_skip!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
@@ -112,11 +112,11 @@ impl IsRevokeAllowed for RevokeRegisteredByMeAccess {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         let value = try_evaluate_or_deny!(instruction.object, wsv);
-        let permission_token: PermissionToken = ok_or_deny!(value
+        let permission_token: PermissionToken = ok_or_skip!(value
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| DenialReason::Custom(e.to_string())));
 
-        let token: CanUnregisterAssetWithDefinition = ok_or_deny!(permission_token
+        let token: CanUnregisterAssetWithDefinition = ok_or_skip!(permission_token
             .try_into()
             .map_err(|e: PredefinedTokenConversionError| DenialReason::Custom(e.to_string())));
 
