@@ -32,15 +32,11 @@ pub mod isi {
 
             match wsv.asset(asset_id) {
                 Err(err) => match err {
-                    QueryError::Find(ref find_err) => {
-                        if let FindError::Asset(_) = **find_err {
-                            assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
-                            wsv.asset_or_insert(asset_id, self.object.value().clone())
-                                .expect("Account exists");
-                            Ok(())
-                        } else {
-                            Err(err.into())
-                        }
+                    QueryError::Find(find_err) if matches!(*find_err, FindError::Asset(_)) => {
+                        assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
+                        wsv.asset_or_insert(asset_id, self.object.value().clone())
+                            .expect("Account exists");
+                        Ok(())
                     }
                     _ => Err(err.into()),
                 },
