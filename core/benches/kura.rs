@@ -45,8 +45,8 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         .chain_first()
         .validate(&TransactionValidator::new(
             transaction_limits,
-            AllowAll::new(),
-            AllowAll::new(),
+            Arc::new(AllowAll::new()),
+            Arc::new(AllowAll::new()),
             Arc::new(WorldStateView::new(World::new())),
         ));
     for _ in 0..n_validators {
