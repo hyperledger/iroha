@@ -11,7 +11,11 @@ pub struct OnlyAccountsDomain;
 impl IsAllowed for OnlyAccountsDomain {
     type Operation = QueryBox;
 
-    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::match_same_arms,
+        clippy::cognitive_complexity
+    )]
     fn check(
         &self,
         authority: &AccountId,

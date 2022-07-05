@@ -50,7 +50,7 @@ fn check_permissions_directly(
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
         is_instruction_allowed
-            .judge(account_id, &isi, wsv)
+            .judge(account_id, isi, wsv)
             .map_err(|reason| NotPermittedFail {
                 reason: reason.to_string(),
             })
@@ -120,7 +120,7 @@ pub fn check_query_in_expression(
             wsv,
             is_query_allowed,
         )),
-        Expression::Query(query) => is_query_allowed.judge(authority, &query, wsv),
+        Expression::Query(query) => is_query_allowed.judge(authority, query, wsv),
         Expression::Contains(expression) => check_query_in_expression(
             authority,
             &expression.collection.expression,

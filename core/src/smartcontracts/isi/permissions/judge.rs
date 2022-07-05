@@ -115,6 +115,7 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
 /// the exact implementation has no meaning.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AllowAll<O: NeedsPermission> {
+    #[serde(skip_serializing, default)]
     _phantom_operation: PhantomData<O>,
 }
 
@@ -149,6 +150,7 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
 /// the exact implementation has no meaning.
 #[derive(Debug, Default, Clone, Copy, Serialize)]
 pub struct DenyAll<O: NeedsPermission> {
+    #[serde(default, skip_serializing)]
     _phantom_operation: PhantomData<O>,
 }
 

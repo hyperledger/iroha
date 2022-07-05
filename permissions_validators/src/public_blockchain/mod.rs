@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn burn_granted_assets() -> Result<()> {
+    fn burn_granted_assets() {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let alice_xor_id = <Asset as Identifiable>::Id::new(
@@ -558,7 +558,6 @@ mod tests {
         let validator = burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner.into_validator());
         assert!(validator.check(&alice_id, &transfer, &wsv).is_allow());
         assert!(validator.check(&bob_id, &transfer, &wsv).is_allow());
-        Ok(())
     }
 
     #[test]

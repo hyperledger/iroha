@@ -91,6 +91,7 @@ pub enum ValidatorVerdict {
 }
 
 impl PartialOrd for ValidatorVerdict {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(Ord::cmp(self, other))
     }
@@ -99,36 +100,44 @@ impl PartialOrd for ValidatorVerdict {
 impl Ord for ValidatorVerdict {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (self, other) {
-            (ValidatorVerdict::Deny(_), ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Equal,
-            (ValidatorVerdict::Deny(_), ValidatorVerdict::Skip) => std::cmp::Ordering::Less,
-            (ValidatorVerdict::Deny(_), ValidatorVerdict::Allow) => std::cmp::Ordering::Less,
+            (ValidatorVerdict::Deny(_), ValidatorVerdict::Deny(_))
+            | (ValidatorVerdict::Skip, ValidatorVerdict::Skip)
+            | (ValidatorVerdict::Allow, ValidatorVerdict::Allow) => std::cmp::Ordering::Equal,
+            (ValidatorVerdict::Deny(_), ValidatorVerdict::Skip | ValidatorVerdict::Allow) => {
+                std::cmp::Ordering::Less
+            }
             (ValidatorVerdict::Skip, ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Greater,
-            (ValidatorVerdict::Skip, ValidatorVerdict::Skip) => std::cmp::Ordering::Equal,
             (ValidatorVerdict::Skip, ValidatorVerdict::Allow) => std::cmp::Ordering::Less,
-            (ValidatorVerdict::Allow, ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Greater,
-            (ValidatorVerdict::Allow, ValidatorVerdict::Skip) => std::cmp::Ordering::Greater,
-            (ValidatorVerdict::Allow, ValidatorVerdict::Allow) => std::cmp::Ordering::Equal,
+            (ValidatorVerdict::Allow, ValidatorVerdict::Deny(_) | ValidatorVerdict::Skip) => {
+                std::cmp::Ordering::Greater
+            }
         }
     }
 }
 
 impl ValidatorVerdict {
+    #[inline]
     pub fn is_allow(&self) -> bool {
         matches!(self, ValidatorVerdict::Allow)
     }
 
+    #[inline]
     pub fn is_deny(&self) -> bool {
         matches!(self, ValidatorVerdict::Deny(_))
     }
 
+    #[inline]
     pub fn is_skip(&self) -> bool {
         matches!(self, ValidatorVerdict::Skip)
     }
 
+    #[must_use]
+    #[inline]
     pub fn least_permissive(self, other: Self) -> Self {
         std::cmp::min(self, other)
     }
 
+    #[must_use]
     pub fn least_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
         if let Self::Deny(_) = &self {
             self
@@ -137,10 +146,13 @@ impl ValidatorVerdict {
         }
     }
 
+    #[must_use]
+    #[inline]
     pub fn most_permissive(self, other: Self) -> Self {
         std::cmp::max(self, other)
     }
 
+    #[must_use]
     pub fn most_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
         if let Self::Allow = &self {
             self

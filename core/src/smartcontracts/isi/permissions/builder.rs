@@ -46,18 +46,15 @@ impl Validator {
     >(
         validator: V,
     ) -> WithValidators<Instruction> {
-        let nested_validator = CheckNested::new(Box::new(validator) as IsInstructionAllowedBoxed);
+        let nested_validator = CheckNested::new(Box::new(validator));
         WithValidators::new(nested_validator)
     }
 }
 
-impl<O: NeedsPermission + 'static> WithValidators<O>
-where
-    O: NeedsPermission,
-{
+impl<O: NeedsPermission + 'static> WithValidators<O> {
     fn new<V: IsAllowed<Operation = O> + Send + Sync + 'static>(validator: V) -> Self {
         Self {
-            validators: vec![Box::new(validator) as IsOperationAllowedBoxed<O>],
+            validators: vec![Box::new(validator)],
             _phantom_operation: PhantomData,
         }
     }
@@ -67,8 +64,7 @@ where
         mut self,
         validator: V,
     ) -> Self {
-        self.validators
-            .push(Box::new(validator) as IsOperationAllowedBoxed<O>);
+        self.validators.push(Box::new(validator));
         self
     }
 
@@ -98,7 +94,7 @@ impl WithValidators<Instruction> {
         self,
         validator: V,
     ) -> Self {
-        let nested_validator = CheckNested::new(Box::new(validator) as IsInstructionAllowedBoxed);
+        let nested_validator = CheckNested::new(Box::new(validator));
         self.with_validator(nested_validator)
     }
 }
@@ -160,7 +156,7 @@ where
 {
     pub fn no_denies(self) -> WithJudge<O, NoDenies<O>> {
         let no_denies = NoDenies {
-            validators: vec![(Box::new(self.judge.into_validator()) as IsOperationAllowedBoxed<O>)],
+            validators: vec![(Box::new(self.judge.into_validator()))],
         };
         WithJudge::new(no_denies)
     }
@@ -172,9 +168,7 @@ where
 {
     pub fn at_least_one_allow(self) -> WithJudge<O, AtLeastOneAllow<O>> {
         let at_least_one_allow = AtLeastOneAllow {
-            validators: vec![
-                (Box::new(self.judge.into_validator()) as IsOperationAllowedBoxed<O>).into(),
-            ],
+            validators: vec![(Box::new(self.judge.into_validator()))],
         };
         WithJudge::new(at_least_one_allow)
     }

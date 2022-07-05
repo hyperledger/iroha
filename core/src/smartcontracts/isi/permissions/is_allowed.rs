@@ -55,6 +55,7 @@ impl IsAllowedBoxed {
 impl IsAllowed for IsAllowedBoxed {
     type Operation = NeedsPermissionBox;
 
+    #[allow(clippy::panic)]
     fn check(
         &self,
         authority: &AccountId,
