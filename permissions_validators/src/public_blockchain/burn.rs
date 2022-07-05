@@ -38,11 +38,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
     ) -> ValidatorVerdict {
         match instruction {
             Instruction::Unregister(unregister) => {
-                if let IdBox::AssetId(asset_id) = unregister
-                    .object_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?
-                {
+                if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
                     let registered_by_signer_account = wsv
                         .asset_definition_entry(&asset_id.definition_id)
                         .map(|asset_definition_entry| {
@@ -58,11 +54,8 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                 ValidatorVerdict::Allow
             }
             Instruction::Burn(burn_box) => {
-                let destination_id = burn_box
-                    .destination_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_skip!(destination_id);
+                let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
+                let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&asset_id.definition_id)
                     .map(|asset_definition_entry| {
@@ -136,8 +129,9 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanBurnAssetWithDefinition = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanBurnAssetWithDefinition =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
@@ -158,11 +152,7 @@ impl IsAllowed for OnlyOwnedAssets {
     ) -> ValidatorVerdict {
         match instruction {
             Instruction::Unregister(unregister) => {
-                if let IdBox::AssetId(asset_id) = unregister
-                    .object_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?
-                {
+                if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
                     if &asset_id.account_id != authority {
                         return ValidatorVerdict::Deny(
                             "Can't unregister assets from another account."
@@ -174,11 +164,8 @@ impl IsAllowed for OnlyOwnedAssets {
                 ValidatorVerdict::Allow
             }
             Instruction::Burn(burn_box) => {
-                let destination_id = burn_box
-                    .destination_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_skip!(destination_id);
+                let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
+                let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 if &asset_id.account_id != authority {
                     return ValidatorVerdict::Deny(
                         "Can't burn assets from another account.".to_owned().into(),
@@ -242,17 +229,17 @@ impl IsGrantAllowed for GrantMyAssetAccess {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanBurnUserAssets = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanBurnUserAssets = ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return Err(
+            return ValidatorVerdict::Deny(
                 "Asset specified in permission token is not owned by signer."
                     .to_owned()
                     .into(),
             );
         }
 
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }

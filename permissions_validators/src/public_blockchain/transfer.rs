@@ -44,12 +44,14 @@ impl IsAllowed for OnlyOwnedAssets {
             return ValidatorVerdict::Skip;
         };
         let source_id: AssetId =
-            try_into_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv));
+            ok_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv).try_into());
 
         if &source_id.account_id != authority {
-            return Err("Can't transfer assets of the other account."
-                .to_owned()
-                .into());
+            return ValidatorVerdict::Deny(
+                "Can't transfer assets of the other account."
+                    .to_owned()
+                    .into(),
+            );
         }
         ValidatorVerdict::Allow
     }
@@ -96,18 +98,18 @@ impl IsGrantAllowed for GrantMyAssetAccess {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanTransferUserAssets = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanTransferUserAssets = ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return Err(
+            return ValidatorVerdict::Deny(
                 "Asset specified in permission token is not owned by signer."
                     .to_owned()
                     .into(),
             );
         }
 
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -130,13 +132,18 @@ impl IsAllowed for ExecutionCountFitsInLimit {
             return ValidatorVerdict::Skip;
         };
 
-        let params = retrieve_permission_params(wsv, authority)?;
+        let params = match retrieve_permission_params(wsv, authority) {
+            Ok(params) => params,
+            Err(err) => {
+                return ValidatorVerdict::Deny(err);
+            }
+        };
         if params.is_empty() {
             return ValidatorVerdict::Allow;
         }
 
-        let period = retrieve_period(&params)?;
-        let count = retrieve_count(&params)?;
+        let period = ok_or_deny!(retrieve_period(&params));
+        let count = ok_or_deny!(retrieve_count(&params));
         let executions_count: u32 = count_executions(wsv, authority, period)
             .try_into()
             .expect("`usize` should always fit in `u32`");

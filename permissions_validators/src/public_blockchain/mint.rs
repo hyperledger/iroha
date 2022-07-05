@@ -24,14 +24,10 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         match instruction {
             Instruction::Register(register) => {
-                if let RegistrableBox::Asset(asset) = register
-                    .object
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?
-                {
+                if let RegistrableBox::Asset(asset) = try_evaluate_or_deny!(register.object, wsv) {
                     let registered_by_signer_account = wsv
                         .asset_definition_entry(&asset.id().definition_id)
                         .map(|asset_definition_entry| {
@@ -50,11 +46,8 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                 ValidatorVerdict::Allow
             }
             Instruction::Mint(mint_box) => {
-                let destination_id = mint_box
-                    .destination_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_skip!(destination_id);
+                let destination_id = try_evaluate_or_deny!(mint_box.destination_id, wsv);
+                let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&asset_id.definition_id)
                     .map(|asset_definition_entry| {
@@ -127,8 +120,9 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanMintUserAssetDefinitions = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanMintUserAssetDefinitions =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }

@@ -86,7 +86,7 @@ impl IsAllowed for AssetSetOnlyForSignerAccount {
                         .into(),
                 )
             }
-            _ => Ok(()),
+            _ => ValidatorVerdict::Allow,
         }
     }
 }
@@ -132,18 +132,19 @@ impl IsGrantAllowed for GrantMyAssetAccessSet {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanSetKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanSetKeyValueInUserAssets =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return Err(
+            return ValidatorVerdict::Deny(
                 "Asset specified in permission token is not owned by signer."
                     .to_owned()
                     .into(),
             );
         }
 
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -218,16 +219,17 @@ impl IsGrantAllowed for GrantMyMetadataAccessSet {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanSetKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanSetKeyValueInUserMetadata =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
         if &token.account_id != authority {
-            return Err(
+            return ValidatorVerdict::Deny(
                 "Account specified in permission token is not owned by signer."
                     .to_owned()
                     .into(),
             );
         }
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -303,17 +305,18 @@ impl IsGrantAllowed for GrantMyAssetAccessRemove {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanRemoveKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanRemoveKeyValueInUserAssets =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return Err(
+            return ValidatorVerdict::Deny(
                 "Asset specified in permission token is not owned by signer."
                     .to_owned()
                     .into(),
             );
         }
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -388,17 +391,18 @@ impl IsGrantAllowed for GrantMyMetadataAccessRemove {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanRemoveKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanRemoveKeyValueInUserMetadata =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         if &token.account_id != authority {
-            return Err(
+            return ValidatorVerdict::Deny(
                 "Account specified in permission token is not owned by signer."
                     .to_owned()
                     .into(),
             );
         }
-        Ok(())
+        ValidatorVerdict::Allow
     }
 }
 
@@ -413,8 +417,9 @@ impl IsGrantAllowed for GrantMyAssetDefinitionSet {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanSetKeyValueInAssetDefinition = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanSetKeyValueInAssetDefinition =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
@@ -431,9 +436,9 @@ impl IsGrantAllowed for GrantMyAssetDefinitionRemove {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let token: CanRemoveKeyValueInAssetDefinition =
-            extract_specialized_token(instruction, wsv)?;
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
 
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
@@ -459,7 +464,7 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
         };
 
         let object_id: AssetDefinitionId =
-            try_into_or_skip!(try_evaluate_or_deny!(set_kv_box.object_id, wsv));
+            ok_or_skip!(try_evaluate_or_deny!(set_kv_box.object_id, wsv).try_into());
 
         let registered_by_signer_account = wsv
             .asset_definition_entry(&object_id)
@@ -496,7 +501,7 @@ impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
         };
 
         let object_id: AssetDefinitionId =
-            try_into_or_skip!(try_evaluate_or_deny!(rem_kv_box.object_id, wsv));
+            ok_or_skip!(try_evaluate_or_deny!(rem_kv_box.object_id, wsv).try_into());
 
         let registered_by_signer_account = wsv
             .asset_definition_entry(&object_id)

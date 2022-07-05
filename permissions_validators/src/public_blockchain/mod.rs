@@ -178,19 +178,19 @@ pub fn check_asset_creator_for_asset_definition(
     definition_id: &AssetDefinitionId,
     authority: &AccountId,
     wsv: &WorldStateView,
-) -> Result<()> {
+) -> ValidatorVerdict {
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
         .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
         .unwrap_or(false);
     if !registered_by_signer_account {
-        return Err(
-            "Cannot grant access for assets, registered by another account."
+        return ValidatorVerdict::Deny(
+            "Can not grant access for assets, registered by another account."
                 .to_owned()
                 .into(),
         );
     }
-    Ok(())
+    ValidatorVerdict::Allow
 }
 
 #[cfg(test)]

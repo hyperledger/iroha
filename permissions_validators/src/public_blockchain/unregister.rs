@@ -32,11 +32,8 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
             return ValidatorVerdict::Skip;
         };
 
-        let object_id = unregister_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let asset_definition_id: AssetDefinitionId = try_into_or_skip!(object_id);
+        let object_id = try_evaluate_or_deny!(unregister_box.object_id, wsv);
+        let asset_definition_id: AssetDefinitionId = ok_or_skip!(object_id.try_into());
         let registered_by_signer_account = wsv
             .asset_definition_entry(&asset_definition_id)
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
@@ -94,8 +91,9 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanUnregisterAssetWithDefinition = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanUnregisterAssetWithDefinition =
+            ok_or_deny!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
@@ -112,17 +110,15 @@ impl IsRevokeAllowed for RevokeRegisteredByMeAccess {
         authority: &AccountId,
         instruction: &RevokeBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
+    ) -> ValidatorVerdict {
+        let value = try_evaluate_or_deny!(instruction.object, wsv);
+        let permission_token: PermissionToken = ok_or_deny!(value
             .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+            .map_err(|e: ErrorTryFromEnum<_, _>| DenialReason::Custom(e.to_string())));
 
-        let token: CanUnregisterAssetWithDefinition = permission_token
+        let token: CanUnregisterAssetWithDefinition = ok_or_deny!(permission_token
             .try_into()
-            .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+            .map_err(|e: PredefinedTokenConversionError| DenialReason::Custom(e.to_string())));
 
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }

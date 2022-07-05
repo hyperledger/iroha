@@ -26,12 +26,20 @@ macro_rules! try_evaluate_or_deny {
     };
 }
 
-macro_rules! try_into_or_skip {
-    ($e:expr) => {
-        if let Ok(into) = $e.try_into() {
-            into
-        } else {
-            return ValidatorVerdict::Skip;
+macro_rules! ok_or_deny {
+    ($r:expr) => {
+        match $r {
+            Ok(value) => value,
+            Err(err) => return ValidatorVerdict::Deny(err),
+        }
+    };
+}
+
+macro_rules! ok_or_skip {
+    ($r:expr) => {
+        match $r {
+            Ok(value) => value,
+            Err(_) => return ValidatorVerdict::Skip,
         }
     };
 }
