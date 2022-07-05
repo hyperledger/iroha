@@ -389,8 +389,7 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
-                let id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let id = try_evaluate_or_deny!(query.id, wsv);
                 if wsv.triggers().inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
@@ -403,8 +402,7 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindTriggerKeyValueByIdAndKey(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
-                let id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let id = try_evaluate_or_deny!(query.id, wsv);
                 if wsv.triggers().inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
@@ -416,8 +414,7 @@ impl IsAllowed for OnlyAccountsData {
                 ).into())
             }
             FindAccountById(query) => {
-                let account_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -429,8 +426,7 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
-                let account_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -441,8 +437,7 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAssetById(query) => {
-                let asset_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -466,8 +461,7 @@ impl IsAllowed for OnlyAccountsData {
             }
 
             FindAssetQuantityById(query) => {
-                let asset_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -478,8 +472,7 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
-                let asset_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -506,8 +499,7 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindTransactionByHash(_query) => ValidatorVerdict::Allow,
             FindRolesByAccountId(query) => {
-                let account_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
@@ -515,8 +507,7 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindPermissionTokensByAccountId(query) => {
-                let account_id = try_evaluate_or_deny!(query
-                    .id, wsv);
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
                     ValidatorVerdict::Allow
                 } else {
