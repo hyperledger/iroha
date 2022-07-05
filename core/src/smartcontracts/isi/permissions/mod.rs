@@ -212,7 +212,7 @@ pub mod prelude {
         combinators::ValidatorApplyOr as _,
         error::DenialReason,
         judge::{AllowAll, Judge, OperationJudgeBoxed},
-        roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
+        roles::{IsGrantAllowed, IsRevokeAllowed},
         IsAllowed, IsAllowedBoxed, ValidatorVerdict,
     };
 }
