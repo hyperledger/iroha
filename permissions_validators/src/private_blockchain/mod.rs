@@ -9,7 +9,8 @@ pub mod register;
 pub fn default_instructions_permissions() -> InstructionJudgeBoxed {
     Box::new(
         ValidatorBuilder::with_recursive_validator(
-            register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
+            register::ProhibitRegisterDomains
+                .or(register::GrantedAllowedRegisterDomains.into_validator()),
         )
         .at_least_one_allow()
         .build(),
@@ -1834,7 +1835,7 @@ mod tests {
 
             let wsv = WorldStateView::new(World::with([domain], Vec::new()));
 
-            let validator = register::GrantedAllowedRegisterDomains;
+            let validator = register::GrantedAllowedRegisterDomains.into_validator();
 
             let op = Instruction::Register(RegisterBox::new(Domain::new(
                 "newdomain".parse().expect("Valid"),
@@ -1859,7 +1860,7 @@ mod tests {
 
             let wsv = WorldStateView::new(World::with([domain], Vec::new()));
 
-            let validator = register::GrantedAllowedRegisterDomains;
+            let validator = register::GrantedAllowedRegisterDomains.into_validator();
 
             let op = Instruction::Register(RegisterBox::new(Domain::new(
                 "newdomain".parse().expect("Valid"),

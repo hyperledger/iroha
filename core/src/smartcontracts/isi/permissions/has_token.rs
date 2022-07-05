@@ -19,9 +19,21 @@ pub trait HasToken: Debug {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String>;
+
+    fn into_validator(self) -> HasTokenAsValidator<Self>
+    where
+        Self: Sized,
+    {
+        HasTokenAsValidator { has_token: self }
+    }
 }
 
-impl<H: HasToken> IsAllowed for H {
+#[derive(Debug)]
+pub struct HasTokenAsValidator<H: HasToken> {
+    has_token: H,
+}
+
+impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
     type Operation = Instruction;
 
     fn check(
@@ -30,7 +42,7 @@ impl<H: HasToken> IsAllowed for H {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let permission_token = match self.token(authority, instruction, wsv) {
+        let permission_token = match self.has_token.token(authority, instruction, wsv) {
             Ok(permission_token) => permission_token,
             Err(err) => {
                 return ValidatorVerdict::Deny(

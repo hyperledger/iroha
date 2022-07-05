@@ -374,7 +374,7 @@ mod tests {
         )));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator = GrantedToken;
+        let validator = GrantedToken.into_validator();
         assert!(validator
             .check(&alice_id, &instruction_burn, &wsv)
             .is_deny());
