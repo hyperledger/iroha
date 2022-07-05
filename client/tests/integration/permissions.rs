@@ -152,7 +152,7 @@ fn permissions_disallow_asset_burn() {
 fn account_can_query_only_its_own_domain() {
     let query_judge =
         ValidatorBuilder::with_validator(private_blockchain::query::OnlyAccountsDomain)
-            .no_denies()
+            .at_least_one_allow()
             .build();
 
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
@@ -191,7 +191,7 @@ fn permissions_checked_before_transaction_execution() {
     let instruction_judge = ValidatorBuilder::with_validator(
         private_blockchain::register::GrantedAllowedRegisterDomains.into_validator(),
     )
-    .no_denies()
+    .at_least_one_allow()
     .build();
 
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
@@ -221,16 +221,16 @@ fn permissions_checked_before_transaction_execution() {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let instruction_validator = ValidatorBuilder::with_recursive_validator(
+    let instruction_judge = ValidatorBuilder::with_recursive_validator(
         public_blockchain::key_value::AssetSetOnlyForSignerAccount
-            .or(public_blockchain::key_value::SetGrantedByAssetOwner),
+            .or(public_blockchain::key_value::SetGrantedByAssetOwner.into_validator()),
     )
-    .all_should_succeed()
+    .at_least_one_allow()
     .build();
 
     let (_rt, _not_drop, client) = <PeerBuilder>::new()
-        .with_instruction_validator(instruction_validator)
-        .with_query_validator(DenyAll)
+        .with_instruction_judge(Box::new(instruction_judge))
+        .with_query_judge(Box::new(DenyAll::new()))
         .start_with_runtime();
 
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
