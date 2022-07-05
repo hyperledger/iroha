@@ -8,9 +8,7 @@ pub use checks::*;
 use error::*;
 pub use has_token::*;
 use iroha_data_model::prelude::*;
-use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
-pub use is_allowed::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -19,15 +17,17 @@ use crate::wsv::WorldStateView;
 mod checks;
 pub mod combinators;
 mod has_token;
-mod is_allowed;
 pub mod judge;
 pub mod roles;
 
-/// Result type for permission validators
+/// Result type associated with permission validators
 pub type Result<T> = std::result::Result<T, DenialReason>;
 
-/// Operation for which the permission should be checked.
+/// Operation for which the permission should be checked
 pub trait NeedsPermission: Debug {
+    /// Get type of validator required to check the operation
+    ///
+    /// Accepts `self` because of the [`NeedsPermissionBox`]
     fn required_validator_type(&self) -> ValidatorType;
 }
 
@@ -50,10 +50,14 @@ impl NeedsPermission for Expression {
     }
 }
 
+/// Boxed version of [`NeedsPermission`]
 #[derive(Debug, derive_more::From, derive_more::TryInto)]
 pub enum NeedsPermissionBox {
+    /// [`Instruction`] operation
     Instruction(Instruction),
+    /// [`QueryBox`] operation
     Query(QueryBox),
+    /// [`Expression`] operation
     Expression(Expression),
 }
 
@@ -67,25 +71,54 @@ impl NeedsPermission for NeedsPermissionBox {
     }
 }
 
-/// Type of object validator can check
+/// Implement this to provide custom permission checks for the Iroha based blockchain.
+pub trait IsAllowed: Debug {
+    /// Type of operation to be checked
+    type Operation: NeedsPermission;
+
+    /// Checks if the `authority` is allowed to perform `instruction`
+    /// given the current state of `wsv`.
+    ///
+    /// # Denial reasons
+    /// If the execution of `instruction` under given `authority` with
+    /// the current state of `wsv` is disallowed.
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Self::Operation,
+        wsv: &WorldStateView,
+    ) -> ValidatorVerdict;
+}
+
+/// Box with dyn type implementing [`IsAllowed`]
+pub type IsOperationAllowedBoxed<O> = Box<dyn IsAllowed<Operation = O> + Send + Sync>;
+
+/// Type of validator
 #[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
 pub enum ValidatorType {
-    /// [`Instruction`] variant
+    /// Validator checking [`Instruction`]
     Instruction,
-    /// [`QueryBox`] variant
+    /// Validator checking [`QueryBox`]
     Query,
-    /// [`Expression`] variant
+    /// Validator checking [`Expression`]
     Expression,
 }
 
 /// Verdict returned by validators
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
 pub enum ValidatorVerdict {
-    /// Instruction is denied
+    /// Deny operation
+    ///
+    /// Something went wrong and validator vote to deny the instruction
     Deny(DenialReason),
-    /// Instruction is skipped cause it is not supported by the validator
+    /// Skip operation
+    ///
+    /// Validator vote to skip if operation is not supported by the validator
+    /// or has no meaning in the particular context
     Skip,
-    /// Instruction is allowed
+    /// Allow instruction
+    ///
+    /// Validator is sure that the operation is correct from his point of view
     Allow,
 }
 
@@ -96,6 +129,7 @@ impl PartialOrd for ValidatorVerdict {
     }
 }
 
+// Deny < Skip < Allow
 impl Ord for ValidatorVerdict {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (self, other) {
@@ -115,27 +149,35 @@ impl Ord for ValidatorVerdict {
 }
 
 impl ValidatorVerdict {
+    /// Check if verdict is [`Allow`](ValidatorVerdict::Allow)
     #[inline]
     pub fn is_allow(&self) -> bool {
         matches!(self, ValidatorVerdict::Allow)
     }
 
+    /// Check if verdict is [`Deny`](ValidatorVerdict::Deny)
     #[inline]
     pub fn is_deny(&self) -> bool {
         matches!(self, ValidatorVerdict::Deny(_))
     }
 
+    /// Check if verdict is [`Skip`](ValidatorVerdict::Skip)
     #[inline]
     pub fn is_skip(&self) -> bool {
         matches!(self, ValidatorVerdict::Skip)
     }
 
+    /// Compare `self` with `other` and return the least permissive one
+    ///
+    /// Returns `self` if both are equal
     #[must_use]
     #[inline]
     pub fn least_permissive(self, other: Self) -> Self {
         std::cmp::min(self, other)
     }
 
+    /// Similar to [`least_permissive`](Self::least_permissive)
+    /// but won't compute `f` if `self` is [`Deny`](ValidatorVerdict::Deny)
     #[must_use]
     pub fn least_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
         if let Self::Deny(_) = &self {
@@ -145,12 +187,17 @@ impl ValidatorVerdict {
         }
     }
 
+    /// Compare `self` with `other` and return the most permissive one
+    ///
+    /// Returns `self` if both are equal
     #[must_use]
     #[inline]
     pub fn most_permissive(self, other: Self) -> Self {
         std::cmp::max(self, other)
     }
 
+    /// Similar to [`most_permissive`](Self::most_permissive)
+    /// but won't compute `f` if `self` is [`Allow`](ValidatorVerdict::Allow)
     #[must_use]
     pub fn most_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
         if let Self::Allow = &self {
@@ -178,11 +225,7 @@ pub mod error {
     use super::{Decode, Encode, IntoSchema, ValidatorType};
     use crate::smartcontracts::Mismatch;
 
-    /// Wrong validator expectation error
-    ///
-    /// I.e. used when user tries to validate [`QueryBox`](super::QueryBox) with
-    /// [`IsAllowedBoxed`](super::IsAllowedBoxed) containing
-    /// [`IsAllowedBoxed::Instruction`](super::IsAllowedBoxed::Instruction) variant
+    /// TODO: Remove
     pub type ValidatorTypeMismatch = Mismatch<ValidatorType>;
 
     /// Reason for prohibiting the execution of the particular instruction.
@@ -190,12 +233,14 @@ pub mod error {
     #[allow(variant_size_differences)]
     pub enum DenialReason {
         /// [`ValidatorTypeMismatch`] variant
+        /// TODO: Remove
         #[error("Wrong validator type: {0}")]
         ValidatorTypeMismatch(#[from] ValidatorTypeMismatch),
         /// Variant for custom error
         #[error("{0}")]
         Custom(String),
         /// Variant used when at least one [`Validator`](super::IsAllowed) should be provided
+        /// TODO: Remove
         #[error("No validators provided")]
         NoValidatorsProvided,
     }
@@ -226,7 +271,7 @@ pub mod prelude {
             QueryJudgeArc,
         },
         roles::{IsGrantAllowed, IsRevokeAllowed},
-        IsAllowed, IsAllowedBoxed, ValidatorVerdict,
+        IsAllowed, ValidatorVerdict,
     };
 }
 

@@ -5,9 +5,9 @@ use super::*;
 /// Trait for joining validators with `or` method, auto-implemented
 /// for all types implementing [`IsAllowed`]
 pub trait ValidatorApplyOr<O: NeedsPermission>: IsAllowed<Operation = O> + Sized {
-    /// Combines two validators into [`Or`].
+    /// Combines two validators into [`Or`]
     ///
-    /// Validators verdicts will be combined using [`ValidatorVerdict::most_permissive_with()`]
+    /// Validators verdicts will be combined like using [`ValidatorVerdict::most_permissive_with()`]
     fn or<V: IsAllowed<Operation = O> + Sized>(self, another: V) -> Or<O, Self, V>;
 }
 
@@ -17,7 +17,9 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>> ValidatorApplyOr<O> for F 
     }
 }
 
-/// `check` succeeds if either `first` or `second` validator succeeds.
+/// *Or*-combinator for two validators
+///
+/// `check` succeeds if either `first` or `second` validator succeeds
 #[derive(Debug, Clone, Serialize)]
 pub struct Or<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> {
     first: F,
@@ -49,13 +51,19 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         let first_verdict = self.first.check(authority, operation, wsv);
+        if first_verdict == ValidatorVerdict::Allow {
+            return first_verdict;
+        }
+
         let second_verdict = self.second.check(authority, operation, wsv);
 
         if let (ValidatorVerdict::Deny(first_reason), ValidatorVerdict::Deny(second_reason)) =
             (&first_verdict, &second_verdict)
         {
             return ValidatorVerdict::Deny(DenialReason::Custom(format!(
-                "Nor first validator succeed: {first_reason}, nor second: {second_reason}"
+                "Nor first validator {:?} succeed: {first_reason}, \
+                 nor second validator {:?} succeed: {second_reason}",
+                self.first, self.second
             )));
         }
 
@@ -63,22 +71,23 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
     }
 }
 
-/// Wraps validator to check nested permissions.  Pay attention to
-/// wrap only validators that do not check nested instructions by
-/// themselves.
+/// Wraps validator to check nested permissions.
+///
+/// Pay attention to wrap only validators
+/// that do not check nested instructions by themselves.
 #[derive(Debug)]
-pub struct CheckNested {
-    validator: IsInstructionAllowedBoxed,
+pub struct CheckNested<V: IsAllowed<Operation = Instruction>> {
+    validator: V,
 }
 
-impl CheckNested {
+impl<V: IsAllowed<Operation = Instruction>> CheckNested<V> {
     /// Wraps `validator` to check nested permissions.
-    pub fn new(validator: IsInstructionAllowedBoxed) -> Self {
+    pub fn new(validator: V) -> Self {
         CheckNested { validator }
     }
 }
 
-impl IsAllowed for CheckNested {
+impl<V: IsAllowed<Operation = Instruction>> IsAllowed for CheckNested<V> {
     type Operation = Instruction;
 
     fn check(

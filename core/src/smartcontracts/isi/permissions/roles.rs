@@ -15,6 +15,10 @@ pub trait IsGrantAllowed: Debug {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict;
 
+    /// Convert this object to a type implementing [`IsAllowed`] trait
+    ///
+    /// Could not use `impl<G: IsGrantAllowed> IsAllowed for G`
+    /// because of conflicting trait implementations
     fn into_validator(self) -> IsGrantAllowedAsValidator<Self>
     where
         Self: Sized,
@@ -25,6 +29,10 @@ pub trait IsGrantAllowed: Debug {
     }
 }
 
+/// Wrapper for types implementing [`IsGrantAllowed`]
+///
+/// Implements [`IsAllowed`] trait so that
+/// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug)]
 pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed> {
     is_grant_allowed: G,
@@ -60,6 +68,10 @@ pub trait IsRevokeAllowed: Debug {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict;
 
+    /// Convert this object to a type implementing [`IsAllowed`] trait
+    ///
+    /// Could not use `impl<R: IsGrantAllowed> IsAllowed for R`
+    /// because of conflicting trait implementations
     fn into_validator(self) -> IsRevokeAllowedAsValidator<Self>
     where
         Self: Sized,
@@ -70,6 +82,10 @@ pub trait IsRevokeAllowed: Debug {
     }
 }
 
+/// Wrapper for types implementing [`IsGrantAllowed`]
+///
+/// Implements [`IsAllowed`] trait so that
+/// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug)]
 pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed> {
     is_revoke_allowed: R,
