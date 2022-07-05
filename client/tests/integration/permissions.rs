@@ -4,10 +4,8 @@ use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
 use iroha_core::{
-    prelude::ValidatorBuilder,
-    smartcontracts::{
-        isi::permissions::combinators::DenyAll, permissions::combinators::ValidatorApplyOr as _,
-    },
+    prelude::*,
+    smartcontracts::permissions::{prelude::*, HasToken},
 };
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{
@@ -37,7 +35,7 @@ fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
 #[test]
 fn permissions_disallow_asset_transfer() {
     let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
-        .with_instruction_validator(public_blockchain::default_permissions())
+        .with_instruction_judge(public_blockchain::default_permissions())
         .start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
@@ -93,7 +91,7 @@ fn permissions_disallow_asset_transfer() {
 #[test]
 fn permissions_disallow_asset_burn() {
     let (_rt, _not_drop, mut iroha_client) = <PeerBuilder>::new()
-        .with_instruction_validator(public_blockchain::default_permissions())
+        .with_instruction_judge(public_blockchain::default_permissions())
         .start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
@@ -152,8 +150,13 @@ fn permissions_disallow_asset_burn() {
 
 #[test]
 fn account_can_query_only_its_own_domain() {
+    let query_judge =
+        ValidatorBuilder::with_validator(private_blockchain::query::OnlyAccountsDomain)
+            .no_denies()
+            .build();
+
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
-        .with_query_validator(private_blockchain::query::OnlyAccountsDomain)
+        .with_query_judge(Box::new(query_judge))
         .start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
@@ -185,9 +188,15 @@ fn account_can_query_only_its_own_domain() {
 // If permissions are checked after instruction is executed during validation this introduces
 // a potential security liability that gives an attacker a backdoor for gaining root access
 fn permissions_checked_before_transaction_execution() {
+    let instruction_judge = ValidatorBuilder::with_validator(
+        private_blockchain::register::GrantedAllowedRegisterDomains.into_validator(),
+    )
+    .no_denies()
+    .build();
+
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
-        .with_instruction_validator(private_blockchain::register::GrantedAllowedRegisterDomains)
-        .with_query_validator(DenyAll)
+        .with_instruction_judge(Box::new(instruction_judge))
+        .with_query_judge(Box::new(DenyAll::new()))
         .start_with_runtime();
 
     let isi = [

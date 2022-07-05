@@ -28,8 +28,8 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     rt.block_on(
         PeerBuilder::new()
             .with_configuration(configuration.clone())
-            .with_instruction_validator(AllowAll)
-            .with_query_validator(AllowAll)
+            .with_instruction_judge(Box::new(AllowAll::new()))
+            .with_query_judge(Box::new(AllowAll::new()))
             .with_dir(Arc::clone(&temp_dir))
             .start_with_peer(&mut peer),
     );
@@ -71,8 +71,8 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     let builder = PeerBuilder::new()
         .with_configuration(configuration)
-        .with_instruction_validator(AllowAll)
-        .with_query_validator(AllowAll)
+        .with_instruction_judge(Box::new(AllowAll::new()))
+        .with_query_judge(Box::new(AllowAll::new()))
         .with_dir(temp_dir);
 
     rt.block_on(builder.start_with_peer(&mut peer));

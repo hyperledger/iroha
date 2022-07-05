@@ -20,12 +20,12 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Setting up client and peer.
     // Peer has a special permission validator we need for this test
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
-        .with_instruction_validator(
+        .with_instruction_judge(Box::new(
             ValidatorBuilder::with_recursive_validator(transfer::ExecutionCountFitsInLimit)
-                .all_should_succeed()
+                .at_least_one_allow()
                 .build(),
-        )
-        .with_query_validator(AllowAll)
+        ))
+        .with_query_judge(Box::new(AllowAll::new()))
         .start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
