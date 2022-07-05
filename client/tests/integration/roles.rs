@@ -21,7 +21,7 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Peer has a special permission validator we need for this test
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_instruction_judge(Box::new(
-            ValidatorBuilder::with_recursive_validator(transfer::ExecutionCountFitsInLimit)
+            JudgeBuilder::with_recursive_validator(transfer::ExecutionCountFitsInLimit)
                 .with_validator(AllowAll::new().into_validator())
                 .no_denies()
                 .at_least_one_allow()

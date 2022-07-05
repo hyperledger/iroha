@@ -8,7 +8,7 @@ pub mod register;
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_instructions_permissions() -> InstructionJudgeBoxed {
     Box::new(
-        ValidatorBuilder::with_recursive_validator(
+        JudgeBuilder::with_recursive_validator(
             register::ProhibitRegisterDomains
                 .or(register::GrantedAllowedRegisterDomains.into_validator()),
         )
@@ -20,7 +20,7 @@ pub fn default_instructions_permissions() -> InstructionJudgeBoxed {
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_query_permissions() -> QueryJudgeBoxed {
     Box::new(
-        ValidatorBuilder::with_validator(AllowAll::new().into_validator())
+        JudgeBuilder::with_validator(AllowAll::new().into_validator())
             .at_least_one_allow()
             .build(),
     )

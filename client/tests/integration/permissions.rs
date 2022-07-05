@@ -3,10 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::{
-    prelude::*,
-    smartcontracts::permissions::{prelude::*, HasToken},
-};
+use iroha_core::{prelude::*, smartcontracts::permissions::HasToken};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{
     private_blockchain,
@@ -136,10 +133,9 @@ fn permissions_disallow_asset_burn() {
 
 #[test]
 fn account_can_query_only_its_own_domain() {
-    let query_judge =
-        ValidatorBuilder::with_validator(private_blockchain::query::OnlyAccountsDomain)
-            .at_least_one_allow()
-            .build();
+    let query_judge = JudgeBuilder::with_validator(private_blockchain::query::OnlyAccountsDomain)
+        .at_least_one_allow()
+        .build();
 
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
         .with_query_judge(Box::new(query_judge))
@@ -174,7 +170,7 @@ fn account_can_query_only_its_own_domain() {
 // If permissions are checked after instruction is executed during validation this introduces
 // a potential security liability that gives an attacker a backdoor for gaining root access
 fn permissions_checked_before_transaction_execution() {
-    let instruction_judge = ValidatorBuilder::with_validator(
+    let instruction_judge = JudgeBuilder::with_validator(
         private_blockchain::register::GrantedAllowedRegisterDomains.into_validator(),
     )
     .at_least_one_allow()
@@ -207,7 +203,7 @@ fn permissions_checked_before_transaction_execution() {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let instruction_judge = ValidatorBuilder::with_recursive_validator(
+    let instruction_judge = JudgeBuilder::with_recursive_validator(
         public_blockchain::key_value::AssetSetOnlyForSignerAccount
             .or(public_blockchain::key_value::SetGrantedByAssetOwner.into_validator()),
     )

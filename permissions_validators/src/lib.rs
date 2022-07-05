@@ -7,7 +7,6 @@ use iroha_core::{
     smartcontracts::{
         permissions::{
             judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
-            prelude::*,
             HasToken,
         },
         Evaluate,

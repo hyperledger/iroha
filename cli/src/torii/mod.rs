@@ -9,7 +9,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::{isi::query, permissions::prelude::*},
+    smartcontracts::isi::query,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;

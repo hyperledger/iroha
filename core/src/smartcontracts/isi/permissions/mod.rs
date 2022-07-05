@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::wsv::WorldStateView;
 
-pub mod builder;
 mod checks;
 pub mod combinators;
 mod has_token;
@@ -220,10 +219,12 @@ pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
-        builder::Validator as ValidatorBuilder,
         combinators::ValidatorApplyOr as _,
         error::DenialReason,
-        judge::{AllowAll, DenyAll, Judge, OperationJudgeBoxed, QueryJudgeArc},
+        judge::{
+            builder::Builder as JudgeBuilder, AllowAll, DenyAll, Judge, OperationJudgeBoxed,
+            QueryJudgeArc,
+        },
         roles::{IsGrantAllowed, IsRevokeAllowed},
         IsAllowed, IsAllowedBoxed, ValidatorVerdict,
     };
@@ -237,7 +238,7 @@ mod tests {
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
-    use super::{builder::Validator as ValidatorBuilder, judge::DenyAll, prelude::*, *};
+    use super::{judge::DenyAll, prelude::*, *};
     use crate::wsv::World;
 
     #[derive(Debug, Clone, Serialize)]
@@ -319,7 +320,7 @@ mod tests {
 
     #[test]
     pub fn multiple_validators_combined() {
-        let permissions_validator = ValidatorBuilder::with_validator(DenyBurn)
+        let permissions_validator = JudgeBuilder::with_validator(DenyBurn)
             .with_validator(DenyAlice)
             .no_denies()
             .build();
@@ -347,7 +348,7 @@ mod tests {
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator = ValidatorBuilder::with_recursive_validator(DenyBurn)
+        let permissions_validator = JudgeBuilder::with_recursive_validator(DenyBurn)
             .no_denies()
             .build();
         let instruction_burn: Instruction =
@@ -420,7 +421,7 @@ mod tests {
         .into();
         let wsv = WorldStateView::new(World::new());
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        let judge = ValidatorBuilder::with_validator(DenyAll::new().into_validator())
+        let judge = JudgeBuilder::with_validator(DenyAll::new().into_validator())
             .no_denies()
             .build();
         assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &judge).is_err())

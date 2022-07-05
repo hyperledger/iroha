@@ -71,7 +71,7 @@ pub mod prelude {
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
             DEFAULT_CONSENSUS_ESTIMATION_MS,
         },
-        smartcontracts::permissions::{builder::Validator as ValidatorBuilder, judge::AllowAll},
+        smartcontracts::permissions::prelude::*,
         smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,

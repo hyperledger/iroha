@@ -68,7 +68,7 @@ impl From<PredefinedPermissionToken> for PermissionToken {
 pub fn default_permissions() -> InstructionJudgeBoxed {
     // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
     let grant_instruction_judge =
-        ValidatorBuilder::with_validator(transfer::GrantMyAssetAccess.into_validator())
+        JudgeBuilder::with_validator(transfer::GrantMyAssetAccess.into_validator())
             .with_validator(unregister::GrantRegisteredByMeAccess.into_validator())
             .with_validator(mint::GrantRegisteredByMeAccess.into_validator())
             .with_validator(burn::GrantMyAssetAccess.into_validator())
@@ -82,7 +82,7 @@ pub fn default_permissions() -> InstructionJudgeBoxed {
             .no_denies()
             .build();
     Box::new(
-        ValidatorBuilder::with_recursive_validator(grant_instruction_judge.into_validator())
+        JudgeBuilder::with_recursive_validator(grant_instruction_judge.into_validator())
             .with_recursive_validator(
                 transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner.into_validator()),
             )
