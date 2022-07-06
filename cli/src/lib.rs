@@ -365,17 +365,21 @@ fn domains(configuration: &config::Configuration) -> [Domain; 1] {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
+    use std::{panic, thread};
+
     use super::*;
 
     #[tokio::test]
     async fn iroha_should_notify_on_panic() {
         let notify = Arc::new(Notify::new());
+        let hook = panic::take_hook();
         <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
         let _ = thread::spawn(move || {
             panic!("Test panic");
-        }).join();
+        })
+        .join();
         notify.notified().await;
         assert!(true);
+        panic::set_hook(hook);
     }
 }
