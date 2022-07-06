@@ -16,7 +16,7 @@ on:
       - "data_model/**.toml"
 
 concurrency: 
-  group: ${{ github.head_ref || github.run_id }}
+  group: I2::Dev::Wasm-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true      
 
 env:

@@ -5,7 +5,7 @@ on:
     branches: [iroha2]
 
 concurrency: 
-  group: ${{ github.head_ref || github.run_id }}
+  group: I2::Release::Tests-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 env:
