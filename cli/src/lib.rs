@@ -370,16 +370,16 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[allow(clippy::panic)]
     async fn iroha_should_notify_on_panic() {
         let notify = Arc::new(Notify::new());
         let hook = panic::take_hook();
         <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
-        let _ = thread::spawn(move || {
+        let _res = thread::spawn(move || {
             panic!("Test panic");
         })
         .join();
         notify.notified().await;
-        assert!(true);
         panic::set_hook(hook);
     }
 }
