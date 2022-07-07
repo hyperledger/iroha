@@ -292,6 +292,7 @@ pub mod builder {
         /// Add a validator to the list
         ///
         /// Returns new [`JudgeBuilder with validators`][WithValidators] with provided `validator`
+        #[inline]
         pub fn with_validator<
             O: NeedsPermission + 'static,
             V: IsAllowed<Operation = O> + Send + Sync + 'static,
@@ -305,6 +306,7 @@ pub mod builder {
         ///
         /// Returns new [`JudgeBuilder with validators`][WithValidators]
         /// with provided recursive instruction `validator`
+        #[inline]
         pub fn with_recursive_validator<
             V: IsAllowed<Operation = Instruction> + Send + Sync + 'static,
         >(
@@ -316,6 +318,7 @@ pub mod builder {
     }
 
     impl<O: NeedsPermission + 'static> WithValidators<O> {
+        #[inline]
         fn new<V: IsAllowed<Operation = O> + Send + Sync + 'static>(validator: V) -> Self {
             Self {
                 validators: vec![Box::new(validator)],
@@ -323,6 +326,7 @@ pub mod builder {
         }
 
         /// Add a validator to the list
+        #[inline]
         pub fn with_validator<V: IsAllowed<Operation = O> + Send + Sync + 'static>(
             mut self,
             validator: V,
@@ -332,6 +336,7 @@ pub mod builder {
         }
 
         /// Wrap provided validators with [`AtLeastOneAllow`] *judge*
+        #[inline]
         pub fn at_least_one_allow(self) -> WithJudge<O, AtLeastOneAllow<O>> {
             let at_least_one_allow = AtLeastOneAllow {
                 validators: self.validators,
@@ -340,6 +345,7 @@ pub mod builder {
         }
 
         /// Wrap provided validators with [`NoDenies`] *judge*
+        #[inline]
         pub fn no_denies(self) -> WithJudge<O, NoDenies<O>> {
             let no_denies = NoDenies {
                 validators: self.validators,
@@ -351,6 +357,7 @@ pub mod builder {
 
     impl WithValidators<Instruction> {
         /// Add a validator to the list and wrap it with [`CheckNested`] to check nested permissions.
+        #[inline]
         pub fn with_recursive_validator<
             V: IsAllowed<Operation = Instruction> + Send + Sync + 'static,
         >(
@@ -423,6 +430,7 @@ pub mod builder {
         /// The effect of calling this method is the same as
         /// calling [`WithValidators::no_denies()`]
         /// and then [`WithJudge::at_least_one_allow()`]
+        #[inline]
         pub fn no_denies(self) -> WithJudge<O, NoDeniesAndAtLeastOneAllow<O>> {
             let no_denies_and_at_least_one_allow = NoDeniesAndAtLeastOneAllow {
                 validators: self.judge.validators,
@@ -440,6 +448,7 @@ pub mod builder {
         /// The effect of calling this method is the same as
         /// calling [`WithValidators::at_least_one_allow()`]
         /// and then [`WithJudge::no_denies()`]
+        #[inline]
         pub fn at_least_one_allow(self) -> WithJudge<O, NoDeniesAndAtLeastOneAllow<O>> {
             let no_denies_and_at_least_one_allow = NoDeniesAndAtLeastOneAllow {
                 validators: self.judge.validators,

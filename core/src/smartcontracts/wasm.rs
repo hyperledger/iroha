@@ -14,7 +14,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::prelude::Judge;
+use super::permissions::judge::{InstructionJudgeArc, Judge};
 use crate::{
     smartcontracts::{
         permissions::{check_instruction_permissions, prelude::*},
@@ -76,7 +76,7 @@ struct Validator<'wrld> {
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
     /// If this particular instruction is allowed
-    instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
+    instruction_judge: InstructionJudgeArc,
     /// If this particular query is allowed
     query_judge: QueryJudgeArc,
     /// Current [`WorldStateView`]

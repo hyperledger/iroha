@@ -132,19 +132,7 @@ impl PartialOrd for ValidatorVerdict {
 // Deny < Skip < Allow
 impl Ord for ValidatorVerdict {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (ValidatorVerdict::Deny(_), ValidatorVerdict::Deny(_))
-            | (ValidatorVerdict::Skip, ValidatorVerdict::Skip)
-            | (ValidatorVerdict::Allow, ValidatorVerdict::Allow) => std::cmp::Ordering::Equal,
-            (ValidatorVerdict::Deny(_), ValidatorVerdict::Skip | ValidatorVerdict::Allow) => {
-                std::cmp::Ordering::Less
-            }
-            (ValidatorVerdict::Skip, ValidatorVerdict::Deny(_)) => std::cmp::Ordering::Greater,
-            (ValidatorVerdict::Skip, ValidatorVerdict::Allow) => std::cmp::Ordering::Less,
-            (ValidatorVerdict::Allow, ValidatorVerdict::Deny(_) | ValidatorVerdict::Skip) => {
-                std::cmp::Ordering::Greater
-            }
-        }
+        self.as_u8().cmp(&other.as_u8())
     }
 }
 
@@ -204,6 +192,15 @@ impl ValidatorVerdict {
             self
         } else {
             self.most_permissive(f())
+        }
+    }
+
+    // Not implemented as some trait implementation cause it should stay private
+    fn as_u8(&self) -> u8 {
+        match self {
+            ValidatorVerdict::Deny(_) => 0,
+            ValidatorVerdict::Skip => 1,
+            ValidatorVerdict::Allow => 2,
         }
     }
 }

@@ -56,6 +56,9 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
         }
 
         let second_verdict = self.second.check(authority, operation, wsv);
+        if second_verdict == ValidatorVerdict::Allow {
+            return second_verdict;
+        }
 
         if let (ValidatorVerdict::Deny(first_reason), ValidatorVerdict::Deny(second_reason)) =
             (&first_verdict, &second_verdict)
