@@ -363,6 +363,23 @@ pub struct BlockValueWrapper(BlockValue);
 )]
 pub struct BlockValueWrapper(Box<BlockValue>);
 
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+impl Deref for BlockValueWrapper {
+    type Target = BlockValue;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+impl AsRef<BlockValue> for BlockValueWrapper {
+    fn as_ref(&self) -> &BlockValue {
+        &self.0
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 impl Deref for BlockValueWrapper {
     type Target = BlockValue;
 
@@ -371,6 +388,7 @@ impl Deref for BlockValueWrapper {
     }
 }
 
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 impl AsRef<BlockValue> for BlockValueWrapper {
     fn as_ref(&self) -> &BlockValue {
         self.0.as_ref()
