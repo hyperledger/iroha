@@ -4,7 +4,7 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-use std::{path::PathBuf, sync::Arc};
+use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use config::Configuration;
@@ -138,6 +138,14 @@ where
         .await
     }
 
+    fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
+        let hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            hook(info);
+            notify_shutdown.notify_one();
+        }));
+    }
+
     /// Create Iroha with specified broker, config, and genesis.
     ///
     /// # Errors
@@ -242,7 +250,9 @@ where
             Arc::clone(&notify_shutdown),
         );
 
-        Self::start_listening_signal(notify_shutdown)?;
+        Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
+
+        Self::prepare_panic_hook(notify_shutdown);
 
         let torii = Some(torii);
         Ok(Self {
@@ -351,4 +361,25 @@ where
 fn domains(configuration: &config::Configuration) -> [Domain; 1] {
     let key = configuration.genesis.account_public_key.clone();
     [Domain::from(GenesisDomain::new(key))]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{panic, thread};
+
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::panic)]
+    async fn iroha_should_notify_on_panic() {
+        let notify = Arc::new(Notify::new());
+        let hook = panic::take_hook();
+        <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
+        let _res = thread::spawn(move || {
+            panic!("Test panic");
+        })
+        .join();
+        notify.notified().await;
+        panic::set_hook(hook);
+    }
 }
