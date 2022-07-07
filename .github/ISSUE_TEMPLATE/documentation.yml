@@ -1,0 +1,42 @@
+name: "\U0001F4D6 Documentation"
+description: Submit a doc request or report outdated, incorrect, or insufficient documentation
+title: "[documentation] "
+labels: [ "Documentation", "iroha2" ]
+body:
+  - type: textarea
+    id: doc-urls
+    attributes:
+      label: Documentation URL(s)
+      description: |
+        Tell us which page(s) should be updated or fixed
+      placeholder: https://github.com/hyperledger/iroha/blob/main/README.md
+  - type: textarea
+    id: improvement-section
+    attributes:
+      label: Description
+      description: Tell us what exactly needs to be improved, updated, or fixed in Iroha documentation
+      placeholder: |
+        The documentation for feature X is outdated.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion-text
+    attributes:
+      label: Your suggestions
+      description: Share your ideas on how to address the issue
+      placeholder: |
+        Feature X currently works in a different way: …
+    validations:
+      required: false
+  - type: input
+    id: who-can-help
+    attributes:
+      label: Who can help?
+      description: |
+        If you figure out the right person to tag, your issue might be resolved faster.
+        You can use `git blame` or tag the documentation owners:
+        
+        * Ekaterina Mekhnetsova (`@outoftardis`)
+        * Victor Gridnevsky (`@6r1d`)
+
+      placeholder: "@Username ..."

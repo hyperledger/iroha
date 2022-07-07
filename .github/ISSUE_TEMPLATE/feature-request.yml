@@ -1,0 +1,39 @@
+name: "\U0001F680 Feature / enhancement request"
+description: Suggest a feature or an enhancement you'd like to see in Iroha
+title: "[suggestion] "
+labels: [ "Enhancement", "iroha2" ]
+body:
+  - type: textarea
+    id: feature-request
+    attributes:
+      label: Feature request
+      description: |
+        Please describe a feature or an enhancement you'd like to see in Iroha. To better explain your idea, provide examples and as many relevant details as you can.
+      placeholder: |
+        I'd like Iroha 2 to …
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: |
+        Outline the motivation for adding a new feature.
+        If your request is related to other issues, adding a link to those issues would be helpful.
+      placeholder: |
+        Iroha will be even more useful if …
+    validations:
+      required: true
+  - type: input
+    id: who-can-help
+    attributes:
+      label: Who can help?
+      description: |
+        If you figure out the right person to tag, your request might be addressed faster.
+        You can **tag** people from the following list based on the issue topic:
+        
+         - WASM: Marin Veršić (`@mversic`)
+         - Triggers: Daniil Polyakov (`@Arjentix`)
+         - Theoretical questions: Shunkichi Sato (`@s8sato`)
+         - Other topics: Aleksandr Petrosyan (`@appetrosyan`)
+      placeholder: "@Username ..."
