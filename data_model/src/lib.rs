@@ -350,7 +350,7 @@ pub enum Value {
 }
 
 /// Cross-platform wrapper for `BlockValue`.
-#[cfg(target_arch = "x86_64")]
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
 )]
@@ -377,7 +377,7 @@ impl AsRef<BlockValue> for BlockValueWrapper {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
 impl From<BlockValue> for BlockValueWrapper {
     fn from(block_value: BlockValue) -> Self {
         BlockValueWrapper(block_value)
@@ -391,15 +391,17 @@ impl From<BlockValue> for BlockValueWrapper {
     }
 }
 
-impl BlockValueWrapper {
-    #[cfg(target_arch = "x86_64")]
-    pub fn into_inner(self) -> BlockValue {
-        self.0
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+impl From<BlockValueWrapper> for BlockValue {
+    fn from(block_value: BlockValueWrapper) -> Self {
+        block_value.0
     }
+}
 
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    pub fn into_inner(self) -> BlockValue {
-        *self.0
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+impl From<BlockValueWrapper> for BlockValue {
+    fn from(block_value: BlockValueWrapper) -> Self {
+        *block_value.0
     }
 }
 
@@ -686,7 +688,7 @@ impl TryFrom<Value> for BlockValue {
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Block(block_value) = value {
-            return Ok(block_value.into_inner());
+            return Ok(block_value.into());
         }
 
         Err(Self::Error::default())
