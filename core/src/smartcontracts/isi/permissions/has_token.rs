@@ -2,16 +2,16 @@
 
 use super::*;
 
-/// Trait that should be implemented by validator that checks the need
-/// to have permission token for a certain action
+/// Trait that checks whether a permission token is needed for a certain action.
+/// The trait should be implemented by the validator.
 pub trait HasToken: Debug {
-    /// This function should return the token that `authority` should
+    /// Get the token that `authority` should
     /// possess, given the `instruction` they are planning to execute
     /// on the current state of `wsv`
     ///
     /// # Errors
     ///
-    /// In the case when it is impossible to deduce the required token
+    /// If it is impossible to deduce the required token
     /// given current data (e.g. non-existent account or inapplicable
     /// instruction)
     fn token(

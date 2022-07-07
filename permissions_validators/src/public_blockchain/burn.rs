@@ -231,7 +231,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Asset specified in permission token is not owned by signer.".to_owned(),
+                "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
 

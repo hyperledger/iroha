@@ -24,7 +24,7 @@ pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Operation for which the permission should be checked
 pub trait NeedsPermission: Debug {
-    /// Get type of validator required to check the operation
+    /// Get the type of validator required to check the operation
     ///
     /// Accepts `self` because of the [`NeedsPermissionBox`]
     fn required_validator_type(&self) -> ValidatorType;
@@ -70,12 +70,12 @@ impl NeedsPermission for NeedsPermissionBox {
     }
 }
 
-/// Implement this to provide custom permission checks for the Iroha based blockchain.
+/// Implementation of this trait provides custom permission checks for the Iroha-base
 pub trait IsAllowed: Debug {
     /// Type of operation to be checked
     type Operation: NeedsPermission;
 
-    /// Checks if the `authority` is allowed to perform `instruction`
+    /// Check if the `authority` is allowed to perform `instruction`
     /// given the current state of `wsv`.
     ///
     /// # Denial reasons
@@ -106,18 +106,19 @@ pub enum ValidatorType {
 /// Verdict returned by validators
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
 pub enum ValidatorVerdict {
-    /// Deny operation
+    /// Deny the execution of an operation and provide the [`DenialReason`].
     ///
-    /// Something went wrong and validator vote to deny the instruction
+    /// Something went wrong and the validator voted to deny the execution of the instruction.
     Deny(DenialReason),
-    /// Skip operation
+    /// Skip an operation.
     ///
-    /// Validator vote to skip if operation is not supported by the validator
-    /// or has no meaning in the particular context
+    /// The validator votes to skip an operation if it is not supported by the validator
+    /// or has no meaning in a particular context.
     Skip,
-    /// Allow instruction
+    /// Allow the execution of an instruction.
     ///
-    /// Validator is sure that the operation is correct from his point of view
+    /// The validator allows an instruction to be executed if
+    /// the operation is correct from its point of view.
     Allow,
 }
 
@@ -216,7 +217,7 @@ impl From<Result<()>> for ValidatorVerdict {
     }
 }
 
-/// Reason for prohibiting the execution of the particular instruction.
+/// Reason for prohibiting the execution of a particular instruction.
 pub type DenialReason = String;
 
 pub mod prelude {

@@ -192,7 +192,7 @@ pub fn check_asset_creator_for_asset_definition(
         .unwrap_or(false);
     if !registered_by_signer_account {
         return ValidatorVerdict::Deny(
-            "Cannot grant access for assets, registered by another account.".to_owned(),
+            "Cannot grant access for assets registered by another account.".to_owned(),
         );
     }
     ValidatorVerdict::Allow

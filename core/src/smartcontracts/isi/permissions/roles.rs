@@ -108,7 +108,7 @@ impl<R: IsRevokeAllowed> IsAllowed for IsRevokeAllowedAsValidator<R> {
     }
 }
 
-/// Used in `unpack_` functions below
+/// Used in `unpack_` functions for role granting and revoking
 macro_rules! unpack {
     ($i:ident, $w:ident, Instruction::$v:ident => $t:ty) => {{
         let operation = if let Instruction::$v(operation) = &$i {

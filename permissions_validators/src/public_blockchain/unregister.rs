@@ -40,7 +40,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
             .unwrap_or(false);
         if !registered_by_signer_account {
             return ValidatorVerdict::Deny(
-                "Can't unregister assets registered by other accounts.".to_owned(),
+                "Cannot unregister assets registered by other accounts.".to_owned(),
             );
         }
         ValidatorVerdict::Allow

@@ -48,7 +48,7 @@ impl IsAllowed for OnlyOwnedAssets {
 
         if &source_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Can't transfer assets of the other account.".to_owned(),
+                "Cannot transfer assets of the other account.".to_owned(),
             );
         }
         ValidatorVerdict::Allow
@@ -101,7 +101,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 
         if &token.asset_id.account_id != authority {
             return ValidatorVerdict::Deny(
-                "Asset specified in permission token is not owned by signer.".to_owned(),
+                "The signer does not own the asset specified in the permission token".to_owned(),
             );
         }
 

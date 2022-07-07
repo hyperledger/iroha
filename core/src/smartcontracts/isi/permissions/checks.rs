@@ -2,7 +2,7 @@
 
 use super::{judge::Judge, *};
 
-/// Verify that the given `instruction` is allowed to execute
+/// Verify that the given `instruction` is allowed to be executed
 ///
 /// # Errors
 ///
@@ -49,7 +49,7 @@ fn check_permissions_directly(
 /// inside of it and if the user has permission to execute this query.
 ///
 /// As the function is recursive, caution should be exercised to have
-/// a limit of nesting, that would not cause stack overflow.  Up to
+/// a nesting limit, that would not cause stack overflow.  Up to
 /// 2^13 calls were tested and are ok. This is within default
 /// instruction limit.
 ///

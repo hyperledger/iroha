@@ -1,4 +1,4 @@
-//! Module with [`Judge`] trait and some judges implementing it
+//! Module with [`Judge`] trait and its implementations
 
 use std::sync::Arc;
 
@@ -22,22 +22,22 @@ pub type QueryJudgeArc = OperationJudgeArc<QueryBox>;
 /// [`Arc`] with [`Expression`] judge
 pub type ExpressionJudgeArc = OperationJudgeArc<Expression>;
 
-/// Judge which gives the final decision
-/// if `operation` should be accepted or not
+/// The judge that gives the final decision
+/// whether or not the `operation` should be accepted.
 ///
-/// Unlike [`IsAllowed`] this trait requires to return [`Result`]
+/// Unlike [`IsAllowed`], this trait requires the [`Result`] to be returned.
 ///
-/// Basically judge accumulates [`verdicts`](ValidatorVerdict) from validators
-/// and decides how to combine them to get the result
+/// The judge accumulates [`verdicts`](ValidatorVerdict) from all validators,
+/// makes a decision, and returns the result.
 pub trait Judge: std::fmt::Debug {
     /// Type of operation to be checked
     type Operation: NeedsPermission;
 
-    /// Checks if `operation` is allowed for `authority`
+    /// Check if `operation` is allowed for `authority`
     ///
     /// # Errors
     ///
-    /// Returns error if `operation` is not permitted
+    /// Returns an error if `operation` is not permitted
     fn judge(
         &self,
         authority: &AccountId,
@@ -79,13 +79,13 @@ impl<O: NeedsPermission, J: Judge<Operation = O>> IsAllowed for JudgeAsValidator
     }
 }
 
-/// Judge which succeeds only if there is at least one
+/// The judge that succeeds only if there is at least one
 /// [`Allow`](ValidatorVerdict::Allow) verdict from the contained validators.
 ///
-/// Stops on first successful verdict
+/// Stops on first successful verdict.
 ///
-/// Provides detailed message as [`DenialReason`]
-/// if none of the validators returned [`Allow`](ValidatorVerdict::Allow)
+/// Provides detailed message as [`DenialReason`] if none of the validators
+/// returned [`Allow`](ValidatorVerdict::Allow) verdict.
 #[derive(Debug)]
 pub struct AtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
@@ -120,10 +120,10 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
     }
 }
 
-/// Judge which succeeds only if there is no
+/// The judge that succeeds only if there is no
 /// [`Deny`](ValidatorVerdict::Deny) verdict from the contained validators.
 ///
-/// Will iterate over all validators
+/// Iterates over all validators.
 #[derive(Debug)]
 pub struct NoDenies<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
@@ -150,11 +150,11 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
     }
 }
 
-/// Judge which succeeds only if there is no
+/// The judge that succeeds only if there is no
 /// [`Deny`](ValidatorVerdict::Deny) verdict and there is at least one
-/// [`Allow`](ValidatorVerdict::Allow) from the contained validators.
+/// [`Allow`](ValidatorVerdict::Allow) verdict from the contained validators.
 ///
-/// Will iterate over all validators until first `Deny` is found or
+/// Iterates over all validators until first `Deny` is found or
 /// all validators are checked.
 #[derive(Debug)]
 pub struct NoDeniesAndAtLeastOneAllow<O: NeedsPermission> {
@@ -197,8 +197,8 @@ impl<O: NeedsPermission> Judge for NoDeniesAndAtLeastOneAllow<O> {
     }
 }
 
-/// Allows all operations to be executed for all possible values.
-/// Mostly for tests and simple cases
+/// All operations are allowed to be executed for all possible values.
+/// Mostly for tests and simple cases.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AllowAll<O: NeedsPermission> {
     #[serde(skip_serializing, default)]
@@ -228,8 +228,8 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
     }
 }
 
-/// Disallows all operations to be executed for all possible
-/// values. Mostly for tests and simple cases
+/// All operations are disallowed to be executed for all possible
+/// values. Mostly for tests and simple cases.
 #[derive(Debug, Default, Clone, Copy, Serialize)]
 pub struct DenyAll<O: NeedsPermission> {
     #[serde(default, skip_serializing)]
@@ -350,7 +350,7 @@ pub mod builder {
     }
 
     impl WithValidators<Instruction> {
-        /// Add a validator to the list and wraps it with [`CheckNested`] to check nested permissions.
+        /// Add a validator to the list and wrap it with [`CheckNested`] to check nested permissions.
         pub fn with_recursive_validator<
             V: IsAllowed<Operation = Instruction> + Send + Sync + 'static,
         >(
@@ -384,7 +384,7 @@ pub mod builder {
         O: NeedsPermission + Send + Sync + 'static,
         J: Judge<Operation = O> + IsAllowed<Operation = O> + Send + Sync + 'static,
     {
-        /// Adds a validator to the list.
+        /// Add a validator to the list.
         #[inline]
         pub fn with_validator<V: IsAllowed<Operation = O> + Send + Sync + 'static>(
             self,
@@ -402,7 +402,7 @@ pub mod builder {
             + Sync
             + 'static,
     {
-        /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
+        /// Add a validator to the list and wrap it with `CheckNested` to check nested permissions.
         #[inline]
         pub fn with_recursive_validator<
             V: IsAllowed<Operation = Instruction> + Send + Sync + 'static,

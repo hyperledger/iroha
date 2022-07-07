@@ -26,26 +26,27 @@ impl IsAllowed for OnlyAccountsDomain {
         match query {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
                 ValidatorVerdict::Deny(
-                    "Only access to the assets of the same domain is permitted.".to_owned(),
+                    "Only the access to the assets of the same domain is permitted.".to_owned(),
                 )
             }
             FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
                 ValidatorVerdict::Deny(
-                    "Only access to the accounts of the same domain is permitted.".to_owned(),
+                    "Only the access to the accounts of the same domain is permitted.".to_owned(),
                 )
             }
             FindAllAssetsDefinitions(_) => ValidatorVerdict::Deny(
-                "Only access to the asset definitions of the same domain is permitted.".to_owned(),
+                "Only the access to the asset definitions of the same domain is permitted."
+                    .to_owned(),
             ),
             FindAllDomains(_) => ValidatorVerdict::Deny(
-                "Only access to the domain of the account is permitted.".to_owned(),
+                "Only the access to the domain of the account is permitted.".to_owned(),
             ),
             FindAllRoles(_) => ValidatorVerdict::Deny(
-                "Only access to roles of the same domain is permitted.".to_owned(),
+                "Only the access to roles of the same domain is permitted.".to_owned(),
             ),
             FindAllRoleIds(_) => ValidatorVerdict::Allow, // In case you need to debug the permissions.
             FindRoleByRoleId(_) => ValidatorVerdict::Deny(
-                "Only access to roles of the same domain is permitted.".to_owned(),
+                "Only the access to roles of the same domain is permitted.".to_owned(),
             ),
             FindAllPeers(_) => ValidatorVerdict::Allow, // Can be obtained in other ways, so why hide it.
             FindAllActiveTriggerIds(_) => ValidatorVerdict::Allow,
@@ -59,8 +60,7 @@ impl IsAllowed for OnlyAccountsDomain {
                             ValidatorVerdict::Allow
                         } else {
                             ValidatorVerdict::Deny(
-                                "Cannot access Trigger if you're not the technical account."
-                                    .to_owned(),
+                                "Only technical accounts can access triggers.".to_owned(),
                             )
                         }
                     })
@@ -79,8 +79,8 @@ impl IsAllowed for OnlyAccountsDomain {
                             ValidatorVerdict::Allow
                         } else {
                             ValidatorVerdict::Deny(
-                                "Cannot access Trigger internal state if you're not the technical account."
-                            .to_owned()
+                                "Only technical accounts can access the internal state of a Trigger."
+                                .to_owned()
                             )
                         }
                     })
@@ -229,11 +229,11 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAllBlocks(_) => {
-                ValidatorVerdict::Deny("Access to all blocks not permitted".to_owned())
+                ValidatorVerdict::Deny("You are not permitted to access all blocks.".to_owned())
             }
-            FindAllTransactions(_) => ValidatorVerdict::Deny(
-                "Only access to transactions in the same domain is permitted.".to_owned(),
-            ),
+            FindAllTransactions(_) => {
+                ValidatorVerdict::Deny("Cannot access transactions of another domain.".to_owned())
+            }
             FindTransactionsByAccountId(query) => {
                 let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if account_id.domain_id == authority.domain_id {
@@ -311,7 +311,7 @@ impl IsAllowed for OnlyAccountsData {
                 | FindAllDomains(_)
                 | FindDomainById(_)
                 | FindDomainKeyValueByIdAndKey(_) => {
-                    ValidatorVerdict::Deny("Only access to your account's data is permitted.".to_owned())
+                    ValidatorVerdict::Deny("Only the access to the data in your own account is permitted.".to_owned())
                 },
             FindAssetsByDomainIdAndAssetDefinitionId(_)
                 | FindAssetsByName(_) // TODO: I think this is a mistake.
@@ -321,16 +321,16 @@ impl IsAllowed for OnlyAccountsData {
                 | FindAssetDefinitionById(_)
                 | FindAssetDefinitionKeyValueByIdAndKey(_)
                 | FindAllAssets(_) => {
-                    ValidatorVerdict::Deny("Only access to the assets of your account is permitted.".to_owned())
+                    ValidatorVerdict::Deny("Only the access to the assets of your own account is permitted.".to_owned())
                 }
             FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
-                ValidatorVerdict::Deny("Only access to roles of the same account is permitted.".to_owned())
+                ValidatorVerdict::Deny("Only the access to the roles of your own account is permitted.".to_owned())
             },
             FindAllActiveTriggerIds(_) | FindTriggersByDomainId(_) => {
-                ValidatorVerdict::Deny("Only access to the triggers of the same account is permitted.".to_owned())
+                ValidatorVerdict::Deny("Only the access to the triggers of your own account is permitted.".to_owned())
             }
             FindAllPeers(_) => {
-                ValidatorVerdict::Deny("Only access to your account-local data is permitted.".to_owned())
+                ValidatorVerdict::Deny("Only the access to the local data of your account is permitted.".to_owned())
             }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
@@ -428,10 +428,10 @@ impl IsAllowed for OnlyAccountsData {
                 }
             }
             FindAllBlocks(_) => {
-                ValidatorVerdict::Deny("Access to all blocks not permitted".to_owned())
+                ValidatorVerdict::Deny("You are not permitted to access all blocks.".to_owned())
             }
             FindAllTransactions(_) => {
-                ValidatorVerdict::Deny("Only access to transactions of the same account is permitted.".to_owned())
+                ValidatorVerdict::Deny("Cannot access transactions of another account.".to_owned())
             },
             FindTransactionsByAccountId(query) => {
                 let account_id = try_evaluate_or_deny!(query
