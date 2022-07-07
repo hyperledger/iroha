@@ -73,7 +73,7 @@ jobs:
         uses: andstor/file-existence-action@v1
         with:
           files: "lcov.xml"
-        # TODO Remove these steps #2165 ??
+        # TODO Remove these steps #2165 ?
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
