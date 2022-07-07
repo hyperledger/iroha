@@ -3,8 +3,6 @@
 //! to wasm format and submitted in a transaction
 #![allow(clippy::expect_used)]
 
-use std::sync::Arc;
-
 use config::Configuration;
 use eyre::WrapErr;
 use iroha_data_model::{prelude::*, ParseError};
@@ -14,7 +12,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::judge::{InstructionJudgeArc, Judge};
+use super::permissions::judge::InstructionJudgeArc;
 use crate::{
     smartcontracts::{
         permissions::{check_instruction_permissions, prelude::*},
@@ -156,7 +154,7 @@ impl<'wrld> State<'wrld> {
     fn with_validator(
         mut self,
         max_instruction_count: u64,
-        instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
+        instruction_judge: InstructionJudgeArc,
         query_judge: QueryJudgeArc,
     ) -> Self {
         let validator = Validator {
@@ -432,7 +430,7 @@ impl<'wrld> Runtime<'wrld> {
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
-        instruction_judge: Arc<dyn Judge<Operation = Instruction> + Send + Sync>,
+        instruction_judge: InstructionJudgeArc,
         query_judge: QueryJudgeArc,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id.clone(), self.config).with_validator(
@@ -555,7 +553,7 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::str::FromStr as _;
+    use std::{str::FromStr as _, sync::Arc};
 
     use iroha_crypto::KeyPair;
 
