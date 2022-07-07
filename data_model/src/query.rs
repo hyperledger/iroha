@@ -83,6 +83,10 @@ pub enum QueryBox {
     FindAllPeers(FindAllPeers),
     /// [`FindAllBlocks`] variant.
     FindAllBlocks(FindAllBlocks),
+    /// [`FindAllBlockHeaders`] variant.
+    FindAllBlockHeaders(FindAllBlockHeaders),
+    /// [`FindBlockHeaderByHash`] variant.
+    FindBlockHeaderByHash(FindBlockHeaderByHash),
     /// [`FindAllTransactions`] variant.
     FindAllTransactions(FindAllTransactions),
     /// [`FindTransactionsByAccountId`] variant.
@@ -1481,19 +1485,23 @@ pub mod transaction {
 }
 
 pub mod block {
-    //! Queries related to `Transaction`.
+    //! Queries related to `Block`.
 
     #![allow(clippy::missing_inline_in_public_items)]
 
     #[cfg(not(feature = "std"))]
     use alloc::{boxed::Box, format, string::String, vec::Vec};
 
+    use iroha_crypto::Hash;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use super::Query;
-    use crate::block_value::BlockValue;
+    use crate::{
+        block_value::{BlockHeaderValue, BlockValue},
+        prelude::EvaluatesTo,
+    };
 
     #[derive(
         Default,
@@ -1524,9 +1532,68 @@ pub mod block {
         }
     }
 
+    #[derive(
+        Default,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    /// `FindAllBlockHeaders` Iroha Query will list all block headers
+    pub struct FindAllBlockHeaders;
+
+    impl Query for FindAllBlockHeaders {
+        type Output = Vec<BlockHeaderValue>;
+    }
+
+    impl FindAllBlockHeaders {
+        /// Construct [`FindAllBlockHeaders`].
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    /// `FindBlockHeaderByHash` Iroha Query will find block header by block hash
+    pub struct FindBlockHeaderByHash {
+        /// Block hash hash.
+        pub hash: EvaluatesTo<Hash>,
+    }
+
+    impl Query for FindBlockHeaderByHash {
+        type Output = BlockHeaderValue;
+    }
+
+    impl FindBlockHeaderByHash {
+        /// Construct [`FindBlockHeaderByHash`].
+        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+            Self { hash: hash.into() }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::FindAllBlocks;
+        pub use super::{FindAllBlockHeaders, FindAllBlocks, FindBlockHeaderByHash};
     }
 }
 

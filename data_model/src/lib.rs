@@ -17,7 +17,7 @@ use alloc::{
 };
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 
-use block_value::BlockValue;
+use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
@@ -336,6 +336,7 @@ pub enum Value {
     Hash(Hash),
     /// Block
     Block(BlockValueWrapper),
+    BlockHeader(BlockHeaderValue),
 }
 
 /// Cross-platform wrapper for `BlockValue`.
@@ -429,6 +430,7 @@ impl fmt::Display for Value {
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
             Value::Block(v) => fmt::Display::fmt(&**v, f),
+            Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -454,7 +456,8 @@ impl Value {
             | TransactionQueryResult(_)
             | PermissionToken(_)
             | Hash(_)
-            | Block(_) => 1_usize,
+            | Block(_)
+            | BlockHeader(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),

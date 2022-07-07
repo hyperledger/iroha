@@ -1109,6 +1109,28 @@ pub mod asset {
     }
 }
 
+pub mod block {
+    //! Module with queries related to blocks
+    use iroha_crypto::Hash;
+
+    use super::*;
+
+    /// Get query to find all blocks
+    pub fn all() -> FindAllBlocks {
+        FindAllBlocks::new()
+    }
+
+    /// Get query to find all block headers
+    pub fn all_headers() -> FindAllBlockHeaders {
+        FindAllBlockHeaders::new()
+    }
+
+    /// Get query to find block header by hash
+    pub fn header_by_hash(hash: impl Into<EvaluatesTo<Hash>>) -> FindBlockHeaderByHash {
+        FindBlockHeaderByHash::new(hash)
+    }
+}
+
 pub mod domain {
     //! Module with queries for domains
     use super::*;

@@ -92,6 +92,8 @@ impl ValidQuery for QueryBox {
             FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAllBlocks(query) => query.execute_into_value(wsv),
+            FindAllBlockHeaders(query) => query.execute_into_value(wsv),
+            FindBlockHeaderByHash(query) => query.execute_into_value(wsv),
             FindAllTransactions(query) => query.execute_into_value(wsv),
             FindTransactionsByAccountId(query) => query.execute_into_value(wsv),
             FindTransactionByHash(query) => query.execute_into_value(wsv),

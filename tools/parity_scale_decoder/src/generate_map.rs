@@ -148,6 +148,8 @@ pub fn generate_map() -> DumpDecodedMap {
         FindAllAssets,
         FindAllAssetsDefinitions,
         FindAllBlocks,
+        FindAllBlockHeaders,
+        FindBlockHeaderByHash,
         FindAllDomains,
         FindAllParameters,
         FindAllPeers,
