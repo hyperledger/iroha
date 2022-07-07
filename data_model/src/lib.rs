@@ -15,7 +15,12 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::{fmt, fmt::Debug, ops::RangeInclusive};
+use core::{
+    convert::AsRef,
+    fmt,
+    fmt::Debug,
+    ops::{Deref, RangeInclusive},
+};
 
 use block_value::BlockValue;
 use derive_more::Display;
@@ -341,8 +346,61 @@ pub enum Value {
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
-    // Boxed because of M1 issues
-    Block(Box<BlockValue>),
+    Block(BlockValueWrapper),
+}
+
+/// Cross-platform wrapper for `BlockValue`.
+#[cfg(target_arch = "x86_64")]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+)]
+pub struct BlockValueWrapper(BlockValue);
+
+/// Cross-platform wrapper for `BlockValue`.
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+)]
+pub struct BlockValueWrapper(Box<BlockValue>);
+
+impl Deref for BlockValueWrapper {
+    type Target = BlockValue;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl AsRef<BlockValue> for BlockValueWrapper {
+    fn as_ref(&self) -> &BlockValue {
+        self.0.as_ref()
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl From<BlockValue> for BlockValueWrapper {
+    fn from(block_value: BlockValue) -> Self {
+        BlockValueWrapper(block_value)
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+impl From<BlockValue> for BlockValueWrapper {
+    fn from(block_value: BlockValue) -> Self {
+        BlockValueWrapper(Box::new(block_value))
+    }
+}
+
+impl BlockValueWrapper {
+    #[cfg(target_arch = "x86_64")]
+    pub fn into_inner(self) -> BlockValue {
+        self.0
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    pub fn into_inner(self) -> BlockValue {
+        *self.0
+    }
 }
 
 impl fmt::Display for Value {
@@ -374,7 +432,7 @@ impl fmt::Display for Value {
             Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
-            Value::Block(v) => fmt::Display::fmt(&v, f),
+            Value::Block(v) => fmt::Display::fmt(&**v, f),
         }
     }
 }
@@ -405,6 +463,12 @@ impl Value {
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
         }
+    }
+}
+
+impl From<BlockValue> for Value {
+    fn from(block_value: BlockValue) -> Self {
+        Value::Block(block_value.into())
     }
 }
 
@@ -611,6 +675,18 @@ where
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_e| Self::Error::default());
+        }
+
+        Err(Self::Error::default())
+    }
+}
+
+impl TryFrom<Value> for BlockValue {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Block(block_value) = value {
+            return Ok(block_value.into_inner());
         }
 
         Err(Self::Error::default())
