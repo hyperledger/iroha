@@ -1,4 +1,5 @@
 //! Module with combinators for permission validators
+// TODO: This module should be removed once common combinators API will be implemented (#2458)
 
 use super::*;
 
