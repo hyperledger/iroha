@@ -3,7 +3,7 @@
 use std::{thread, time::Duration};
 
 use iroha_client::client::{self, Client};
-use iroha_config::logger;
+use iroha_config::base::logger;
 use iroha_data_model::prelude::*;
 use iroha_logger::Level;
 use test_network::*;

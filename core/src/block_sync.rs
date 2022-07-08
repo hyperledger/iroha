@@ -3,15 +3,13 @@
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_actor::{broker::*, prelude::*, Context};
+use iroha_config::block_sync::Configuration;
 use iroha_crypto::SignatureOf;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use rand::{prelude::SliceRandom, SeedableRng};
 
-use self::{
-    config::BlockSyncConfiguration,
-    message::{Message, *},
-};
+use self::message::{Message, *};
 use crate::{
     prelude::*,
     sumeragi::{
@@ -52,7 +50,7 @@ pub trait BlockSynchronizerTrait: Actor + Handler<ContinueSync> + Handler<Messag
 
     /// Constructs `BlockSync`
     fn from_configuration(
-        config: &BlockSyncConfiguration,
+        config: &Configuration,
         wsv: Arc<WorldStateView>,
         sumeragi: AlwaysAddr<Self::Sumeragi>,
         peer_id: PeerId,
@@ -64,7 +62,7 @@ impl<S: SumeragiTrait> BlockSynchronizerTrait for BlockSynchronizer<S> {
     type Sumeragi = S;
 
     fn from_configuration(
-        config: &BlockSyncConfiguration,
+        config: &Configuration,
         wsv: Arc<WorldStateView>,
         sumeragi: AlwaysAddr<S>,
         peer_id: PeerId,
@@ -330,43 +328,6 @@ pub mod message {
                 peer: peer.clone(),
             };
             broker.issue_send(message).await;
-        }
-    }
-}
-
-/// This module contains all configuration related logic.
-pub mod config {
-    use iroha_config::derive::{Configurable, View};
-    use iroha_data_model::config::block_sync::Configuration as PublicBlockSyncConfiguration;
-    use serde::{Deserialize, Serialize};
-
-    const DEFAULT_BLOCK_BATCH_SIZE: u32 = 4;
-    const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
-    const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
-
-    /// Configuration for `BlockSynchronizer`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
-    #[serde(rename_all = "UPPERCASE")]
-    #[serde(default)]
-    #[config(env_prefix = "BLOCK_SYNC_")]
-    #[view(PublicBlockSyncConfiguration)]
-    pub struct BlockSyncConfiguration {
-        /// The time between sending requests for latest block.
-        pub gossip_period_ms: u64,
-        /// The number of blocks that can be sent in one message.
-        /// Underlying network (`iroha_network`) should support transferring messages this large.
-        pub block_batch_size: u32,
-        /// Buffer capacity of actor's MPSC channel
-        pub actor_channel_capacity: u32,
-    }
-
-    impl Default for BlockSyncConfiguration {
-        fn default() -> Self {
-            Self {
-                gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
-                block_batch_size: DEFAULT_BLOCK_BATCH_SIZE,
-                actor_channel_capacity: DEFAULT_ACTOR_CHANNEL_CAPACITY,
-            }
         }
     }
 }

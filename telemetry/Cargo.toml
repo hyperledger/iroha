@@ -8,12 +8,12 @@ build = "build.rs"
 [features]
 # Support developer-specific telemetry.
 # Should not be enabled on production builds.
-dev-telemetry = ["iroha_data_model/dev-telemetry"]
+dev-telemetry = ["iroha_data_model/dev-telemetry", "iroha_config/dev-telemetry"]
 # Export Prometheus metrics. See https://prometheus.io/.
 metric-instrumentation = []
 
 [dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config" }
+iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config", features = ["telemetry"] }
 iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model" }
 iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre-rc.5", path = "../futures", features = ["telemetry"] }

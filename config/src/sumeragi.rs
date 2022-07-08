@@ -2,15 +2,9 @@
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config::derive::{Configurable, View};
+use iroha_config_base::derive::Configurable;
 use iroha_crypto::prelude::*;
-use iroha_data_model::{
-    config::sumeragi::{
-        Configuration as PublicSumeragiConfiguration, TrustedPeers as PublicTrustedPeers,
-    },
-    prelude::*,
-    transaction,
-};
+use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
 
 /// Default Amount of time peer waits for the `CreatedBlock` message
@@ -24,27 +18,26 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
-/// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
+/// `Sumeragi` configuration.
+/// [`Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
 /// and list of `TRUSTED_PEERS`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "SUMERAGI_")]
-#[view(PublicSumeragiConfiguration)]
-pub struct SumeragiConfiguration {
+pub struct Configuration {
     /// Key pair of private and public keys.
     #[serde(skip)]
-    #[view(ignore)]
     pub key_pair: KeyPair,
     /// Current Peer Identification.
     pub peer_id: PeerId,
-    /// Amount of time peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+    /// The amount of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
     pub block_time_ms: u64,
     /// Optional list of predefined trusted peers.
     pub trusted_peers: TrustedPeers,
-    /// Amount of time Peer waits for CommitMessage from the proxy tail.
+    /// The amount of time a peer waits for `CommitMessage` from the proxy tail.
     pub commit_time_limit_ms: u64,
-    /// Amount of time Peer waits for TxReceipt from the leader.
+    /// The amount of time a peer waits for `TxReceipt` from the leader.
     pub tx_receipt_time_limit_ms: u64,
     /// Limits to which transactions must adhere
     pub transaction_limits: TransactionLimits,
@@ -56,7 +49,7 @@ pub struct SumeragiConfiguration {
     pub gossip_period_ms: u64,
 }
 
-impl Default for SumeragiConfiguration {
+impl Default for Configuration {
     fn default() -> Self {
         Self {
             key_pair: Self::placeholder_keypair(),
@@ -76,7 +69,7 @@ impl Default for SumeragiConfiguration {
     }
 }
 
-impl SumeragiConfiguration {
+impl Configuration {
     /// Key-pair used by default for demo purposes
     #[allow(clippy::expect_used)]
     fn placeholder_keypair() -> KeyPair {
@@ -194,19 +187,5 @@ impl TrustedPeers {
         Ok(TrustedPeers {
             peers: trusted_peers,
         })
-    }
-}
-
-impl From<TrustedPeers> for PublicTrustedPeers {
-    fn from(trusted_peers: TrustedPeers) -> Self {
-        let TrustedPeers { peers } = trusted_peers;
-        Self { peers }
-    }
-}
-
-impl From<PublicTrustedPeers> for TrustedPeers {
-    fn from(trusted_peers: PublicTrustedPeers) -> Self {
-        let PublicTrustedPeers { peers } = trusted_peers;
-        Self { peers }
     }
 }

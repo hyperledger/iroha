@@ -11,7 +11,7 @@ use std::{
 
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_config::logger;
+use iroha_config::base::logger;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_logger::{prelude::*, Configuration, Level};
 use iroha_p2p::{

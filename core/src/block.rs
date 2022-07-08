@@ -10,6 +10,9 @@ use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
+use iroha_config::sumeragi::{
+    DEFAULT_BLOCK_TIME_MS, DEFAULT_COMMIT_TIME_LIMIT_MS, DEFAULT_TX_RECEIPT_TIME_LIMIT_MS,
+};
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     block_value::{BlockHeaderValue, BlockValue},
@@ -24,7 +27,6 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     prelude::*,
     sumeragi::{
-        config::*,
         network_topology::Topology,
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },

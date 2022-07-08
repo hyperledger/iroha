@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use iroha_config::logger as config;
+use iroha_config::base::logger as config;
 use iroha_logger::{info, init, Configuration, Level, Telemetry, TelemetryFields};
 use tokio::time;
 

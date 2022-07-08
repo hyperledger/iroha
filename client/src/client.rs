@@ -7,7 +7,10 @@ use std::{
 use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use http_default::WebSocketStream;
-use iroha_config::{GetConfiguration, PostConfiguration};
+use iroha_config::{
+    base::{GetConfiguration, PostConfiguration},
+    client::Configuration,
+};
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRequest};
@@ -20,7 +23,6 @@ use rand::Rng;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    config::Configuration,
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
@@ -1222,8 +1224,9 @@ mod tests {
     #![allow(clippy::restriction)]
     use std::str::FromStr;
 
+    use iroha_config::client::{BasicAuth, WebLogin};
+
     use super::*;
-    use crate::config::{BasicAuth, WebLogin};
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";

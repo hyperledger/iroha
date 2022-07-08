@@ -1,5 +1,5 @@
 #![allow(clippy::restriction)]
-use iroha_config::{logger::Level::*, PostConfiguration};
+use iroha_config::base::{logger::Level::*, PostConfiguration};
 use test_network::{prepare_test_for_nextest, PeerBuilder};
 
 #[test]

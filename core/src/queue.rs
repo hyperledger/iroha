@@ -6,12 +6,12 @@ use std::{sync::Arc, time::Duration};
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
+use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
-pub use self::config::Configuration;
 use crate::prelude::*;
 
 /// Lockfree queue for transactions
@@ -212,47 +212,6 @@ impl Queue {
             .try_for_each(|hash| self.queue.push(hash))
             .expect("As we never exceed the number of transactions pending");
         out
-    }
-}
-
-/// This module contains all configuration related logic.
-pub mod config {
-    use iroha_config::derive::{Configurable, View};
-    use iroha_data_model::config::queue::Configuration as PublicConfiguration;
-    use serde::{Deserialize, Serialize};
-
-    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(13);
-    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
-    // 24 hours
-    const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
-    const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
-
-    /// Configuration for `Queue`.
-    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq, View)]
-    #[serde(rename_all = "UPPERCASE")]
-    #[serde(default)]
-    #[config(env_prefix = "QUEUE_")]
-    #[view(PublicConfiguration)]
-    pub struct Configuration {
-        /// The upper limit of the number of transactions per block.
-        pub maximum_transactions_in_block: u32,
-        /// The upper limit of the number of transactions waiting in this queue.
-        pub maximum_transactions_in_queue: u32,
-        /// The transaction will be dropped after this time if it is still in a `Queue`.
-        pub transaction_time_to_live_ms: u64,
-        /// The threshold to determine if a transaction has been tampered to have a future timestamp.
-        pub future_threshold_ms: u64,
-    }
-
-    impl Default for Configuration {
-        fn default() -> Self {
-            Self {
-                maximum_transactions_in_block: DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK,
-                maximum_transactions_in_queue: DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE,
-                transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
-                future_threshold_ms: DEFAULT_FUTURE_THRESHOLD_MS,
-            }
-        }
     }
 }
 

@@ -3,13 +3,10 @@
 use std::fmt::Debug;
 
 use derive_more::{Deref, DerefMut};
-use iroha_config::{
-    derive::{Configurable, View},
+use iroha_config_base::{
+    derive::Configurable,
     logger as config,
     runtime_upgrades::{handle, ReloadError, ReloadMut},
-};
-use iroha_data_model::config::logger::{
-    Configuration as PublicConfiguration, Level as PublicLevel,
 };
 use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
@@ -67,11 +64,10 @@ impl From<Level> for SyncLevel {
     }
 }
 
-/// Configuration for [`crate`].
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable, View)]
+/// 'Logger' configuration.
+#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
-#[view(PublicConfiguration)]
 pub struct Configuration {
     /// Maximum log level
     #[config(serde_as_str)]
@@ -95,32 +91,6 @@ impl Default for Configuration {
             compact_mode: DEFAULT_COMPACT_MODE,
             log_file_path: None,
             terminal_colors: DEFAULT_TERMINAL_COLORS,
-        }
-    }
-}
-
-impl From<PublicLevel> for SyncLevel {
-    fn from(level: PublicLevel) -> Self {
-        let inner = match level {
-            PublicLevel::ERROR => config::Level::ERROR,
-            PublicLevel::WARN => config::Level::WARN,
-            PublicLevel::INFO => config::Level::INFO,
-            PublicLevel::DEBUG => config::Level::DEBUG,
-            PublicLevel::TRACE => config::Level::TRACE,
-        };
-        Self(Level(inner).into())
-    }
-}
-
-impl From<SyncLevel> for PublicLevel {
-    fn from(level: SyncLevel) -> Self {
-        let inner: Level = level.value();
-        match inner.0 {
-            config::Level::ERROR => PublicLevel::ERROR,
-            config::Level::WARN => PublicLevel::WARN,
-            config::Level::INFO => PublicLevel::INFO,
-            config::Level::DEBUG => PublicLevel::DEBUG,
-            config::Level::TRACE => PublicLevel::TRACE,
         }
     }
 }

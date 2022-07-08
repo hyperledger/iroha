@@ -13,6 +13,7 @@ query = []
 iroha = { path = "../../cli", features = ["test-network"] }
 iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
 iroha_client = { version = "=2.0.0-pre-rc.5", path = "../../client" }
+iroha_config = { version = "=2.0.0-pre-rc.5", path = "../../config" }
 iroha_core = { version = "=2.0.0-pre-rc.5", path = "../../core" }
 iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../../data_model" }
 iroha_primitives = { version = "=2.0.0-pre-rc.5", path = "../../primitives" }

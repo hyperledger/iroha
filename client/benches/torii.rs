@@ -5,7 +5,7 @@ use std::thread;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::samples::get_config;
 use iroha_client::client::{asset, Client};
-use iroha_config::runtime_upgrades::Reload;
+use iroha_config::base::{logger, runtime_upgrades::Reload};
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
@@ -46,7 +46,7 @@ fn query_requests(criterion: &mut Criterion) {
     configuration
         .logger
         .max_log_level
-        .reload(iroha_logger::Level(iroha_config::logger::Level::ERROR))
+        .reload(iroha_logger::Level(logger::Level::ERROR))
         .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");

@@ -1,7 +1,6 @@
 //! Iroha's logging utilities.
 #![allow(clippy::expect_used)]
 
-pub mod config;
 pub mod layer;
 pub mod telemetry;
 
@@ -16,6 +15,7 @@ use std::{
 };
 
 use color_eyre::{eyre::WrapErr, Report, Result};
+pub use iroha_config::logger::{Configuration, Level};
 pub use telemetry::{Telemetry, TelemetryFields, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
 pub use tracing::{
@@ -26,8 +26,6 @@ use tracing::{subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 pub use tracing_futures::Instrument as InstrumentFutures;
 use tracing_subscriber::{layer::SubscriberExt, registry::Registry, reload};
-
-pub use crate::config::{Configuration, Level};
 
 /// Substrate telemetry
 pub type SubstrateTelemetry = Receiver<Telemetry>;

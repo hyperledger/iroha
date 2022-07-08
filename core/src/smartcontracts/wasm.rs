@@ -3,8 +3,8 @@
 //! to wasm format and submitted in a transaction
 #![allow(clippy::expect_used)]
 
-use config::Configuration;
 use eyre::WrapErr;
+use iroha_config::wasm::Configuration;
 use iroha_data_model::{prelude::*, ParseError};
 use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -515,39 +515,6 @@ impl<'wrld> Runtime<'wrld> {
             .map_err(Error::ExportFnCall)?;
 
         Ok(())
-    }
-}
-
-/// This module contains all configuration related logic.
-pub mod config {
-    use iroha_config::derive::{Configurable, View};
-    use iroha_data_model::config::wasm::Configuration as PublicConfiguration;
-    use serde::{Deserialize, Serialize};
-
-    const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
-    const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
-
-    /// [`WebAssembly Runtime`](super::Runtime) configuration.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
-    #[config(env_prefix = "WASM_")]
-    #[serde(rename_all = "UPPERCASE", default)]
-    #[view(PublicConfiguration)]
-    pub struct Configuration {
-        /// Every WASM instruction costs approximately 1 unit of fuel. See
-        /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
-        pub fuel_limit: u64,
-
-        /// Maximum amount of linear memory a given smartcontract can allocate
-        pub max_memory: u32,
-    }
-
-    impl Default for Configuration {
-        fn default() -> Self {
-            Configuration {
-                fuel_limit: DEFAULT_FUEL_LIMIT,
-                max_memory: DEFAULT_MAX_MEMORY,
-            }
-        }
     }
 }
 

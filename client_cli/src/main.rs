@@ -15,7 +15,8 @@ use color_eyre::{
     Result,
 };
 use dialoguer::Confirm;
-use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
+use iroha_client::client::Client;
+use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 
@@ -190,7 +191,8 @@ pub fn submit(
 }
 
 mod events {
-    use iroha_client::{client::Client, config::Configuration};
+    use iroha_client::client::Client;
+    use iroha_config::client::Configuration;
 
     use super::*;
 
@@ -230,7 +232,8 @@ mod events {
 }
 
 mod domain {
-    use iroha_client::{client, config::Configuration};
+    use iroha_client::client;
+    use iroha_config::client::Configuration;
 
     use super::*;
 

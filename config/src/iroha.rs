@@ -2,78 +2,63 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config::derive::{Configurable, View};
-use iroha_core::{
-    block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
-    kura::config::KuraConfiguration, queue::Configuration as QueueConfiguration,
-    sumeragi::config::SumeragiConfiguration,
-    wsv::config::Configuration as WorldStateViewConfiguration,
-};
+use iroha_config_base::derive::Configurable;
 use iroha_crypto::prelude::*;
-use iroha_data_model::{
-    config::{
-        network::Configuration as PublicNetworkConfiguration, Configuration as PublicConfiguration,
-    },
-    prelude::*,
-};
-use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
-use super::torii::config::ToriiConfiguration;
+use super::*;
 
-/// Configuration parameters container.
-#[derive(Debug, Clone, Deserialize, Serialize, Configurable, View)]
+/// Configuration parameters for a peer
+#[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
-#[view(PublicConfiguration)]
 pub struct Configuration {
-    /// Public key of this peer.
+    /// Public key of this peer
     #[config(serde_as_str)]
     pub public_key: PublicKey,
-    /// Private key of this peer.
-    #[view(ignore)]
+    /// Private key of this peer
     pub private_key: PrivateKey,
-    /// Disable coloring of the backtrace and error report on panic.
+    /// Disable coloring of the backtrace and error report on panic
     pub disable_panic_terminal_colors: bool,
     /// Iroha will shutdown on any panic if this option is set to `true`.
     pub shutdown_on_panic: bool,
-    /// `Kura` related configuration.
+    /// `Kura` configuration
     #[config(inner)]
-    pub kura: KuraConfiguration,
-    /// `Sumeragi` related configuration.
+    pub kura: kura::Configuration,
+    /// `Sumeragi` configuration
     #[config(inner)]
-    pub sumeragi: SumeragiConfiguration,
-    /// `Torii` related configuration.
+    pub sumeragi: sumeragi::Configuration,
+    /// `Torii` configuration
     #[config(inner)]
-    pub torii: ToriiConfiguration,
-    /// `BlockSynchronizer` configuration.
+    pub torii: torii::Configuration,
+    /// `BlockSynchronizer` configuration
     #[config(inner)]
-    pub block_sync: BlockSyncConfiguration,
-    /// `Queue` configuration.
+    pub block_sync: block_sync::Configuration,
+    /// `Queue` configuration
     #[config(inner)]
-    pub queue: QueueConfiguration,
-    /// `Logger` configuration.
+    pub queue: queue::Configuration,
+    /// `Logger` configuration
     #[config(inner)]
-    pub logger: LoggerConfiguration,
-    /// Configuration for `GenesisBlock`.
+    pub logger: logger::Configuration,
+    /// `GenesisBlock` configuration
     #[config(inner)]
-    pub genesis: GenesisConfiguration,
-    /// Configuration for `WorldStateView`.
+    pub genesis: genesis::Configuration,
+    /// `WorldStateView` configuration
     #[config(inner)]
-    pub wsv: WorldStateViewConfiguration,
+    pub wsv: wsv::Configuration,
     /// Network configuration
     #[config(inner)]
-    pub network: NetworkConfiguration,
-    /// Configuration for telemetry
+    pub network: network::Configuration,
+    /// Telemetry configuration
     #[config(inner)]
     #[cfg(feature = "telemetry")]
-    pub telemetry: iroha_telemetry::Configuration,
+    pub telemetry: telemetry::Configuration,
 }
 
 impl Default for Configuration {
     fn default() -> Self {
-        let sumeragi_configuration = SumeragiConfiguration::default();
+        let sumeragi_configuration = sumeragi::Configuration::default();
         let (public_key, private_key) = sumeragi_configuration.key_pair.clone().into();
 
         Self {
@@ -81,38 +66,17 @@ impl Default for Configuration {
             private_key,
             disable_panic_terminal_colors: bool::default(),
             shutdown_on_panic: false,
-            kura: KuraConfiguration::default(),
+            kura: kura::Configuration::default(),
             sumeragi: sumeragi_configuration,
-            torii: ToriiConfiguration::default(),
-            block_sync: BlockSyncConfiguration::default(),
-            queue: QueueConfiguration::default(),
-            logger: LoggerConfiguration::default(),
-            genesis: GenesisConfiguration::default(),
-            wsv: WorldStateViewConfiguration::default(),
-            network: NetworkConfiguration::default(),
+            torii: torii::Configuration::default(),
+            block_sync: block_sync::Configuration::default(),
+            queue: queue::Configuration::default(),
+            logger: logger::Configuration::default(),
+            genesis: genesis::Configuration::default(),
+            wsv: wsv::Configuration::default(),
+            network: network::Configuration::default(),
             #[cfg(feature = "telemetry")]
-            telemetry: iroha_telemetry::Configuration::default(),
-        }
-    }
-}
-
-/// Network Configuration parameters container.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable, View)]
-#[serde(default)]
-#[serde(rename_all = "UPPERCASE")]
-#[config(env_prefix = "IROHA_NETWORK_")]
-#[view(PublicNetworkConfiguration)]
-pub struct NetworkConfiguration {
-    /// Buffer capacity of actor's MPSC channel
-    pub actor_channel_capacity: u32,
-}
-
-const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
-
-impl Default for NetworkConfiguration {
-    fn default() -> Self {
-        Self {
-            actor_channel_capacity: DEFAULT_ACTOR_CHANNEL_CAPACITY,
+            telemetry: telemetry::Configuration::default(),
         }
     }
 }
@@ -140,7 +104,8 @@ impl Configuration {
 
     fn finalize(&mut self) -> Result<()> {
         self.sumeragi.key_pair = KeyPair::new(self.public_key.clone(), self.private_key.clone())?;
-        self.sumeragi.peer_id = PeerId::new(&self.torii.p2p_addr, &self.public_key.clone());
+        self.sumeragi.peer_id =
+            iroha_data_model::peer::Id::new(&self.torii.p2p_addr, &self.public_key.clone());
 
         Ok(())
     }
@@ -151,7 +116,7 @@ impl Configuration {
     /// If Configuration deserialize fails:
     /// - Configuration `TrustedPeers` contains entries with duplicate public keys
     pub fn load_environment(&mut self) -> Result<()> {
-        iroha_config::Configurable::load_environment(self)?;
+        iroha_config_base::Configurable::load_environment(self)?;
         self.finalize()?;
         Ok(())
     }
@@ -161,9 +126,8 @@ impl Configuration {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use iroha_core::sumeragi::config::TrustedPeers;
-
     use super::*;
+    use crate::sumeragi::TrustedPeers;
 
     const CONFIGURATION_PATH: &str = "../configs/peer/config.json";
 

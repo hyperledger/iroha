@@ -99,7 +99,7 @@ impl Parse for SerdeAsStr {
     }
 }
 
-/// Derive for config. Check other doc in `iroha_config` reexport
+/// Derive for config. Check other doc in `iroha_config_base` reexport
 #[proc_macro_derive(Configurable, attributes(config))]
 pub fn configurable_derive(input: TokenStream) -> TokenStream {
     let ast = match syn::parse(input) {
@@ -135,12 +135,12 @@ fn impl_load_env(
             } else if as_str_attr {
                 quote! {
                     #l_value = serde_json::from_value(var.into())
-                        .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
             } else {
                 quote! {
                     #l_value = serde_json::from_str(&var)
-                        .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
             };
             (set_field, l_value)
@@ -166,7 +166,7 @@ fn impl_load_env(
     quote! {
         fn load_environment(
             &'_ mut self
-        ) -> core::result::Result<(), iroha_config::derive::Error> {
+        ) -> core::result::Result<(), iroha_config_base::derive::Error> {
             #(#set_field)*
             Ok(())
         }
@@ -183,9 +183,9 @@ fn impl_get_doc_recursive(
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
-            ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
+            ) -> core::result::Result<std::option::Option<String>, iroha_config_base::derive::Error>
             {
-                Err(iroha_config::derive::Error::UnknownField(
+                Err(iroha_config_base::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
                 ))
             }
@@ -201,11 +201,11 @@ fn impl_get_doc_recursive(
                 quote! {
                     [stringify!(#ident)] => {
                         let curr_doc = #documentation;
-                        let inner_docs = <#ty as iroha_config::Configurable>::get_inner_docs();
+                        let inner_docs = <#ty as iroha_config_base::Configurable>::get_inner_docs();
                         let total_docs = format!("{}\n\nHas following fields:\n\n{}\n", curr_doc, inner_docs);
                         Some(total_docs)
                     },
-                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config::Configurable>::get_doc_recursive(rest)?,
+                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config_base::Configurable>::get_doc_recursive(rest)?,
                 }
             } else {
                 quote! { [stringify!(#ident)] => Some(#documentation.to_owned()), }
@@ -218,12 +218,12 @@ fn impl_get_doc_recursive(
     quote! {
         fn get_doc_recursive<'a>(
             inner_field: impl AsRef<[&'a str]>,
-        ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
+        ) -> core::result::Result<std::option::Option<String>, iroha_config_base::derive::Error>
         {
             let inner_field = inner_field.as_ref();
             let doc = match inner_field {
                 #variants
-                field => return Err(iroha_config::derive::Error::UnknownField(
+                field => return Err(iroha_config_base::derive::Error::UnknownField(
                     field.iter().map(ToString::to_string).collect()
                 )),
             };
@@ -245,7 +245,7 @@ fn impl_get_inner_docs(
         .zip(field_ty)
         .map(|(((ident, inner_thing), documentation), ty)| {
             let doc = if inner_thing {
-                quote!{ <#ty as iroha_config::Configurable>::get_inner_docs().as_str() }
+                quote!{ <#ty as iroha_config_base::Configurable>::get_inner_docs().as_str() }
             } else {
                 quote!{ #documentation.into() }
             };
@@ -283,7 +283,7 @@ fn impl_get_docs(
         .zip(field_ty)
         .map(|(((ident, inner_thing), documentation), ty)| {
             let doc = if inner_thing {
-                quote!{ <#ty as iroha_config::Configurable>::get_docs().into() }
+                quote!{ <#ty as iroha_config_base::Configurable>::get_docs().into() }
             } else {
                 quote!{ #documentation.into() }
             };
@@ -313,11 +313,11 @@ fn impl_get_recursive(
             fn get_recursive<'a, T>(
                 &self,
                 inner_field: T,
-            ) -> iroha_config::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
+            ) -> iroha_config_base::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
             where
                 T: AsRef<[&'a str]> + Send + 'a,
             {
-                Err(iroha_config::derive::Error::UnknownField(
+                Err(iroha_config_base::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
                 ))
             }
@@ -340,7 +340,7 @@ fn impl_get_recursive(
             quote! {
                 [stringify!(#ident)] => {
                     serde_json::to_value(&#l_value)
-                        .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
                 #inner_thing2
             }
@@ -360,7 +360,7 @@ fn impl_get_recursive(
             let inner_field = inner_field.as_ref();
             let value = match inner_field {
                 #variants
-                field => return Err(iroha_config::derive::Error::UnknownField(
+                field => return Err(iroha_config_base::derive::Error::UnknownField(
                     field.iter().map(ToString::to_string).collect()
                 )),
             };
@@ -488,8 +488,8 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     let get_docs = impl_get_docs(&field_ty, &field_idents, inner, docs);
 
     let out = quote! {
-        impl iroha_config::Configurable for #name {
-            type Error = iroha_config::derive::Error;
+        impl iroha_config_base::Configurable for #name {
+            type Error = iroha_config_base::derive::Error;
 
             #get_recursive
             #get_doc_recursive
@@ -529,7 +529,7 @@ impl Parse for ViewIgnore {
     }
 }
 
-/// Derive conversation between type and it's view. Check other doc in `iroha_config` reexport.
+/// Derive conversation between type and it's view. Check other doc in `iroha_config_base` reexport.
 #[proc_macro_derive(View, attributes(view))]
 pub fn into_view_derive(input: TokenStream) -> TokenStream {
     let ast = match syn::parse(input) {
