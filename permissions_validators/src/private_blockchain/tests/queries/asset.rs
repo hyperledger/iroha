@@ -455,13 +455,13 @@ fn find_asset_key_value_by_id_and_key() {
         ..
     } = TestEnv::new();
     let find_gold_key_value = QueryBox::FindAssetKeyValueByIdAndKey(
-        FindAssetKeyValueByIdAndKey::new(gold_asset_id, "foo".to_string()),
+        FindAssetKeyValueByIdAndKey::new(gold_asset_id, "foo".to_owned()),
     );
     let find_silver_key_value = QueryBox::FindAssetKeyValueByIdAndKey(
-        FindAssetKeyValueByIdAndKey::new(silver_asset_id, "foo".to_string()),
+        FindAssetKeyValueByIdAndKey::new(silver_asset_id, "foo".to_owned()),
     );
     let find_bronze_key_value = QueryBox::FindAssetKeyValueByIdAndKey(
-        FindAssetKeyValueByIdAndKey::new(bronze_asset_id, "foo".to_string()),
+        FindAssetKeyValueByIdAndKey::new(bronze_asset_id, "foo".to_owned()),
     );
 
     {
@@ -524,13 +524,13 @@ fn find_asset_definition_key_value_by_id_and_key() {
         ..
     } = TestEnv::new();
     let find_gold_key_value = QueryBox::FindAssetDefinitionKeyValueByIdAndKey(
-        FindAssetDefinitionKeyValueByIdAndKey::new(gold_asset_definition_id, "foo".to_string()),
+        FindAssetDefinitionKeyValueByIdAndKey::new(gold_asset_definition_id, "foo".to_owned()),
     );
     let find_silver_key_value = QueryBox::FindAssetDefinitionKeyValueByIdAndKey(
-        FindAssetDefinitionKeyValueByIdAndKey::new(silver_asset_definition_id, "foo".to_string()),
+        FindAssetDefinitionKeyValueByIdAndKey::new(silver_asset_definition_id, "foo".to_owned()),
     );
     let find_bronze_key_value = QueryBox::FindAssetDefinitionKeyValueByIdAndKey(
-        FindAssetDefinitionKeyValueByIdAndKey::new(bronze_asset_definition_id, "foo".to_string()),
+        FindAssetDefinitionKeyValueByIdAndKey::new(bronze_asset_definition_id, "foo".to_owned()),
     );
     {
         let only_accounts_domain = query::OnlyAccountsDomain;

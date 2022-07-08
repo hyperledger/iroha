@@ -133,7 +133,7 @@ fn find_role_by_role_id() {
         ..
     } = TestEnv::new();
 
-    let find_by_admin = QueryBox::FindRoleByRoleId(FindRoleByRoleId::new("admin".to_string()));
+    let find_by_admin = QueryBox::FindRoleByRoleId(FindRoleByRoleId::new("admin".to_owned()));
 
     {
         let only_accounts_domain = query::OnlyAccountsDomain;

@@ -41,17 +41,15 @@ impl IsAllowed for OnlyOwnedAssets {
         let transfer_box = if let Instruction::Transfer(transfer) = instruction {
             transfer
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
         let source_id: AssetId =
             ok_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv).try_into());
 
         if &source_id.account_id != authority {
-            return ValidatorVerdict::Deny(
-                "Cannot transfer assets of the other account.".to_owned(),
-            );
+            return Deny("Cannot transfer assets of the other account.".to_owned());
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -100,12 +98,12 @@ impl IsGrantAllowed for GrantMyAssetAccess {
         let token: CanTransferUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "The signer does not own the asset specified in the permission token".to_owned(),
             );
         }
 
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -125,17 +123,17 @@ impl IsAllowed for ExecutionCountFitsInLimit {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if !matches!(instruction, Instruction::Transfer(_)) {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
 
         let params = match retrieve_permission_params(wsv, authority) {
             Ok(params) => params,
             Err(err) => {
-                return ValidatorVerdict::Deny(err);
+                return Deny(err);
             }
         };
         if params.is_empty() {
-            return ValidatorVerdict::Allow;
+            return Allow;
         }
 
         let period = ok_or_deny!(retrieve_period(&params));
@@ -144,11 +142,9 @@ impl IsAllowed for ExecutionCountFitsInLimit {
             .try_into()
             .expect("`usize` should always fit in `u32`");
         if executions_count >= count {
-            return ValidatorVerdict::Deny(
-                "Transfer transaction limit for current period is exceed".to_owned(),
-            );
+            return Deny("Transfer transaction limit for current period is exceed".to_owned());
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 

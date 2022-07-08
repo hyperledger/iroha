@@ -100,7 +100,7 @@ fn find_trigger_key_value_by_id_and_key() {
 
     let find_trigger = QueryBox::FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey {
         id: mintbox_gold_trigger_id.into(),
-        key: "foo".to_string().into(),
+        key: "foo".to_owned().into(),
     });
 
     {

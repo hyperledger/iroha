@@ -191,11 +191,9 @@ pub fn check_asset_creator_for_asset_definition(
         .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
         .unwrap_or(false);
     if !registered_by_signer_account {
-        return ValidatorVerdict::Deny(
-            "Cannot grant access for assets registered by another account.".to_owned(),
-        );
+        return Deny("Cannot grant access for assets registered by another account.".to_owned());
     }
-    ValidatorVerdict::Allow
+    Allow
 }
 
 #[cfg(test)]

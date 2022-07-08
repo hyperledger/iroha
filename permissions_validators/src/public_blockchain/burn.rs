@@ -46,12 +46,12 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                         })
                         .unwrap_or(false);
                     if !registered_by_signer_account {
-                        return ValidatorVerdict::Deny(
+                        return Deny(
                             "Can't unregister assets with definitions registered by other accounts.".to_owned()
                         );
                     }
                 }
-                ValidatorVerdict::Allow
+                Allow
             }
             Instruction::Burn(burn_box) => {
                 let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
@@ -63,14 +63,14 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return ValidatorVerdict::Deny(
+                    return Deny(
                         "Can't burn assets with definitions registered by other accounts."
                             .to_owned(),
                     );
                 }
-                ValidatorVerdict::Allow
+                Allow
             }
-            _ => ValidatorVerdict::Skip,
+            _ => Skip,
         }
     }
 }
@@ -153,24 +153,20 @@ impl IsAllowed for OnlyOwnedAssets {
             Instruction::Unregister(unregister) => {
                 if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
                     if &asset_id.account_id != authority {
-                        return ValidatorVerdict::Deny(
-                            "Can't unregister assets from another account.".to_owned(),
-                        );
+                        return Deny("Can't unregister assets from another account.".to_owned());
                     }
                 }
-                ValidatorVerdict::Allow
+                Allow
             }
             Instruction::Burn(burn_box) => {
                 let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
                 let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 if &asset_id.account_id != authority {
-                    return ValidatorVerdict::Deny(
-                        "Can't burn assets from another account.".to_owned(),
-                    );
+                    return Deny("Can't burn assets from another account.".to_owned());
                 }
-                ValidatorVerdict::Allow
+                Allow
             }
-            _ => ValidatorVerdict::Skip,
+            _ => Skip,
         }
     }
 }
@@ -230,11 +226,11 @@ impl IsGrantAllowed for GrantMyAssetAccess {
         let token: CanBurnUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
 
-        ValidatorVerdict::Allow
+        Allow
     }
 }

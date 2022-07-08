@@ -36,13 +36,13 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                         .unwrap_or(false);
 
                     if !registered_by_signer_account {
-                        return ValidatorVerdict::Deny(
+                        return Deny(
                             "Can't register assets with definitions registered by other accounts."
                                 .to_owned(),
                         );
                     }
                 }
-                ValidatorVerdict::Allow
+                Allow
             }
             Instruction::Mint(mint_box) => {
                 let destination_id = try_evaluate_or_deny!(mint_box.destination_id, wsv);
@@ -54,14 +54,14 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return ValidatorVerdict::Deny(
+                    return Deny(
                         "Can't mint assets with definitions registered by other accounts."
                             .to_owned(),
                     );
                 }
-                ValidatorVerdict::Allow
+                Allow
             }
-            _ => ValidatorVerdict::Skip,
+            _ => Skip,
         }
     }
 }

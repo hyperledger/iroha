@@ -29,7 +29,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
         let unregister_box = if let Instruction::Unregister(unregister) = instruction {
             unregister
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
 
         let object_id = try_evaluate_or_deny!(unregister_box.object_id, wsv);
@@ -39,11 +39,9 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
-            return ValidatorVerdict::Deny(
-                "Cannot unregister assets registered by other accounts.".to_owned(),
-            );
+            return Deny("Cannot unregister assets registered by other accounts.".to_owned());
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 

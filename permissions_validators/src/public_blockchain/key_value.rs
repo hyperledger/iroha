@@ -74,17 +74,15 @@ impl IsAllowed for AssetSetOnlyForSignerAccount {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
         let object_id = try_evaluate_or_deny!(set_kv_box.object_id, wsv);
 
         match object_id {
             IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
-                ValidatorVerdict::Deny(
-                    "Cannot set value to the asset store of another account.".to_owned(),
-                )
+                Deny("Cannot set value to the asset store of another account.".to_owned())
             }
-            _ => ValidatorVerdict::Allow,
+            _ => Allow,
         }
     }
 }
@@ -135,12 +133,12 @@ impl IsGrantAllowed for GrantMyAssetAccessSet {
             ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
 
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -160,15 +158,15 @@ impl IsAllowed for AccountSetOnlyForSignerAccount {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
         let object_id = try_evaluate_or_deny!(set_kv_box.object_id, wsv);
 
         match &object_id {
-            IdBox::AccountId(account_id) if account_id != authority => ValidatorVerdict::Deny(
-                "Cannot set values to the account store of another account.".to_owned(),
-            ),
-            _ => ValidatorVerdict::Allow,
+            IdBox::AccountId(account_id) if account_id != authority => {
+                Deny("Cannot set values to the account store of another account.".to_owned())
+            }
+            _ => Allow,
         }
     }
 }
@@ -217,11 +215,11 @@ impl IsGrantAllowed for GrantMyMetadataAccessSet {
         let token: CanSetKeyValueInUserMetadata =
             ok_or_skip!(extract_specialized_token(instruction, wsv));
         if &token.account_id != authority {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -241,16 +239,14 @@ impl IsAllowed for AssetRemoveOnlyForSignerAccount {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
         let object_id = try_evaluate_or_deny!(rem_kv_box.object_id, wsv);
         match object_id {
             IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
-                ValidatorVerdict::Deny(
-                    "Cannot remove values from the asset store of another account.".to_owned(),
-                )
+                Deny("Cannot remove values from the asset store of another account.".to_owned())
             }
-            _ => ValidatorVerdict::Allow,
+            _ => Allow,
         }
     }
 }
@@ -300,11 +296,11 @@ impl IsGrantAllowed for GrantMyAssetAccessRemove {
             ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -324,15 +320,15 @@ impl IsAllowed for AccountRemoveOnlyForSignerAccount {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
         let object_id = try_evaluate_or_deny!(rem_kv_box.object_id, wsv);
 
         match object_id {
-            IdBox::AccountId(account_id) if &account_id != authority => ValidatorVerdict::Deny(
-                "Cannot remove values from the account store of another account.".to_owned(),
-            ),
-            _ => ValidatorVerdict::Allow,
+            IdBox::AccountId(account_id) if &account_id != authority => {
+                Deny("Cannot remove values from the account store of another account.".to_owned())
+            }
+            _ => Allow,
         }
     }
 }
@@ -382,11 +378,11 @@ impl IsGrantAllowed for GrantMyMetadataAccessRemove {
             ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.account_id != authority {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -444,7 +440,7 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
 
         let object_id: AssetDefinitionId =
@@ -455,12 +451,12 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "Cannot set key values to asset definitions registered by other accounts."
                     .to_owned(),
             );
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 
@@ -480,7 +476,7 @@ impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return ValidatorVerdict::Skip;
+            return Skip;
         };
 
         let object_id: AssetDefinitionId =
@@ -491,12 +487,12 @@ impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
-            return ValidatorVerdict::Deny(
+            return Deny(
                 "Cannot remove key values from asset definitions registered by other accounts."
                     .to_owned(),
             );
         }
-        ValidatorVerdict::Allow
+        Allow
     }
 }
 

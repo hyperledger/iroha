@@ -8,6 +8,7 @@ use iroha_core::{
         permissions::{
             judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
             HasToken,
+            ValidatorVerdict::*,
         },
         Evaluate,
     },
@@ -20,7 +21,7 @@ macro_rules! try_evaluate_or_deny {
     ($e:expr, $wsv:ident) => {
         match $e.evaluate($wsv, &Context::new()) {
             Ok(value) => value,
-            Err(err) => return ValidatorVerdict::Deny(err.to_string().into()),
+            Err(err) => return ValidatorVerdict::Deny(err.to_string()),
         }
     };
 }
