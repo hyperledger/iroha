@@ -58,12 +58,12 @@ pub mod derive {
     /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
     /// ```
     pub use iroha_config_derive::Configurable;
-    /// Derive macro for conversation between type and it's view which contains only subset of type's fields.
+    /// Derive macro for conversation between a type and its view. which contains a subset of the fields that the type has.
     ///
     /// Works only with structs.
     ///
     /// Assumptions:
-    /// - View's fields are subset of type's fields;
+    /// - The fields in `View` are a subset of the fields in the corresponding type.
     /// - Type implements `Default`.
     ///
     /// ## Container attributes
@@ -73,7 +73,7 @@ pub mod derive {
     ///
     /// ## Field attributes
     /// ### `#[view(ignore)]`
-    /// Mark field to ignore it when converting to view type.
+    /// Marks fields to ignore when converting to view type.
     ///
     /// ## Examples
     ///
