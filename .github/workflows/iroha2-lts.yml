@@ -20,50 +20,45 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: set up buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v2
         id: buildx
         with:
           install: true
+          driver: docker
+
+      - name: Build iroha2:base image
+        uses: docker/build-push-action@v3
+        with:
+          load: true
+          tags: iroha2:base
+          context: .
+          file: Dockerfile.ci        
+
+      - name: Build iroha2:build docker image
+        uses: docker/build-push-action@v3
+        with:
+          load: true
+          tags: iroha2:build
+          context: .
+          file: Dockerfile.build
+
+      - name: build iroha2:stable docker image
+        run: |
+          docker build -f Dockerfile -t hyperledger/iroha2:stable .
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push docker image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          push: true
-          tags: hyperledger/iroha2:lts
-          build-args: |
-            TARGET_DIR=release
-            PROFILE=--release
-      - name: Build and push docker image (iroha_client_cli)
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          push: true
-          tags: hyperledger/iroha2:client-cli-lts
-          build-args: |
-            TARGET_DIR=release
-            PROFILE=--release
-            BIN=iroha_client_cli
-      - name: Build and push docker image (kagami)
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          push: true
-          tags: hyperledger/iroha2:kagami-lts
-          build-args: |
-            TARGET_DIR=release
-            PROFILE=--release
-            BIN=kagami
+      - name: push iroha2:stable docker image
+        run: |
+          docker push hyperledger/iroha2:stable
 
       - name: Build and push docker image (load-rs:release)
         run: |
           sleep 10s
           echo "wait to finish other workflow"
-      - uses: convictional/trigger-workflow-and-wait@v1.6.0
+      - uses: convictional/trigger-workflow-and-wait@v1.6.2
         with:
           owner: soramitsu
           repo: iroha2-longevity-load-rs

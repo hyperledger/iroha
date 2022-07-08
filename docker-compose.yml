@@ -17,7 +17,7 @@ services:
     volumes:
       - './configs/peer:/config'
     init: true
-    command: ./iroha --submit-genesis
+    command: iroha --submit-genesis
 
   iroha1:
     image: hyperledger/iroha2:dev

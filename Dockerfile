@@ -11,8 +11,8 @@ RUN  set -ex && \
      apk --update add curl ca-certificates && \
      adduser --disabled-password iroha --shell /bin/bash --home /app && \
      mkdir -p $CONFIG_DIR && \
-     mkdir /chain && \
-     chown iroha:iroha /chain
+     mkdir /storage && \
+     chown iroha:iroha /storage
 
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH

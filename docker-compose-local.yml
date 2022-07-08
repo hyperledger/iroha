@@ -62,8 +62,8 @@ services:
       - "8182:8182"
     init: true
     volumes:
-      - ./configs/peer:/config
-      - ./:/root/soramitsu/iroha
+      - './configs/peer:/config'
+      - './:/root/soramitsu/iroha'
 
 
   iroha3:

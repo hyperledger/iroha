@@ -2,10 +2,10 @@ version: "3.8"
 services:
   iroha0:
     build: .
-    image: iroha0:debug
+    image: iroha2:dev
     volumes:
       - './configs/peer:/config'
-      - ./:/root/soramitsu/iroha
+      - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
@@ -18,4 +18,4 @@ services:
       - "8080:8080"
       - "8180:8180"
     init: true
-    command: ./iroha --submit-genesis
+    command: iroha --submit-genesis
