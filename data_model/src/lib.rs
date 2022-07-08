@@ -18,7 +18,9 @@ use alloc::{
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 
 use block_value::BlockValue;
-use derive_more::{AsRef, Deref, Display, From, Into};
+#[cfg(not(target_arch = "aarch64"))]
+use derive_more::Into;
+use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
