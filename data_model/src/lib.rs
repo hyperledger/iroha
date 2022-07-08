@@ -18,7 +18,7 @@ use alloc::{
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 
 use block_value::BlockValue;
-use derive_more::{AsRef, Deref, Display, From, TryInto};
+use derive_more::{AsRef, Deref, Display, From, Into};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
@@ -347,8 +347,23 @@ pub enum Value {
 /// Cross-platform wrapper for `BlockValue`.
 #[cfg(not(target_arch = "aarch64"))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    AsRef,
+    Clone,
+    Debug,
+    Decode,
+    Deref,
+    Deserialize,
+    Encode,
+    Eq,
+    From,
+    Into,
+    IntoSchema,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
 )]
+#[serde(transparent)]
 pub struct BlockValueWrapper(BlockValue);
 
 /// Cross-platform wrapper for `BlockValue`.
@@ -374,36 +389,6 @@ pub struct BlockValueWrapper(BlockValue);
 #[from(forward)]
 #[serde(transparent)]
 pub struct BlockValueWrapper(Box<BlockValue>);
-
-#[cfg(not(target_arch = "aarch64"))]
-impl Deref for BlockValueWrapper {
-    type Target = BlockValue;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-impl AsRef<BlockValue> for BlockValueWrapper {
-    fn as_ref(&self) -> &BlockValue {
-        &self.0
-    }
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-impl From<BlockValue> for BlockValueWrapper {
-    fn from(block_value: BlockValue) -> Self {
-        BlockValueWrapper(block_value)
-    }
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-impl From<BlockValueWrapper> for BlockValue {
-    fn from(block_value: BlockValueWrapper) -> Self {
-        block_value.0
-    }
-}
 
 #[cfg(target_arch = "aarch64")]
 impl From<BlockValueWrapper> for BlockValue {
