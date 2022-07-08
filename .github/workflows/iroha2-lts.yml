@@ -42,17 +42,17 @@ jobs:
           context: .
           file: Dockerfile.build
 
-      - name: build iroha2:stable docker image
+      - name: build iroha2:lts docker image
         run: |
-          docker build -f Dockerfile -t hyperledger/iroha2:stable .
+          docker build -f Dockerfile -t hyperledger/iroha2:lts .
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: push iroha2:stable docker image
+      - name: push iroha2:lts docker image
         run: |
-          docker push hyperledger/iroha2:stable
+          docker push hyperledger/iroha2:lts
 
       - name: Build and push docker image (load-rs:release)
         run: |
