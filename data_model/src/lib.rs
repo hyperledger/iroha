@@ -350,20 +350,20 @@ pub enum Value {
 }
 
 /// Cross-platform wrapper for `BlockValue`.
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+#[cfg(not(target_arch = "aarch64"))]
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
 )]
 pub struct BlockValueWrapper(BlockValue);
 
 /// Cross-platform wrapper for `BlockValue`.
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[cfg(target_arch = "aarch64")]
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
 )]
 pub struct BlockValueWrapper(Box<BlockValue>);
 
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+#[cfg(not(target_arch = "aarch64"))]
 impl Deref for BlockValueWrapper {
     type Target = BlockValue;
 
@@ -372,14 +372,14 @@ impl Deref for BlockValueWrapper {
     }
 }
 
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+#[cfg(not(target_arch = "aarch64"))]
 impl AsRef<BlockValue> for BlockValueWrapper {
     fn as_ref(&self) -> &BlockValue {
         &self.0
     }
 }
 
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[cfg(target_arch = "aarch64")]
 impl Deref for BlockValueWrapper {
     type Target = BlockValue;
 
@@ -388,35 +388,35 @@ impl Deref for BlockValueWrapper {
     }
 }
 
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[cfg(target_arch = "aarch64")]
 impl AsRef<BlockValue> for BlockValueWrapper {
     fn as_ref(&self) -> &BlockValue {
         self.0.as_ref()
     }
 }
 
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+#[cfg(not(target_arch = "aarch64"))]
 impl From<BlockValue> for BlockValueWrapper {
     fn from(block_value: BlockValue) -> Self {
         BlockValueWrapper(block_value)
     }
 }
 
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[cfg(target_arch = "aarch64")]
 impl From<BlockValue> for BlockValueWrapper {
     fn from(block_value: BlockValue) -> Self {
         BlockValueWrapper(Box::new(block_value))
     }
 }
 
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+#[cfg(not(target_arch = "aarch64"))]
 impl From<BlockValueWrapper> for BlockValue {
     fn from(block_value: BlockValueWrapper) -> Self {
         block_value.0
     }
 }
 
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[cfg(target_arch = "aarch64")]
 impl From<BlockValueWrapper> for BlockValue {
     fn from(block_value: BlockValueWrapper) -> Self {
         *block_value.0
