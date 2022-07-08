@@ -163,7 +163,7 @@ pub fn check_query_in_expression(
 ///
 /// # Errors
 /// If a user is not allowed to execute one of the inner queries,
-/// given the current `judge`.
+/// given the current [`Judge`].
 #[allow(clippy::too_many_lines)]
 pub fn check_query_in_instruction(
     authority: &AccountId,

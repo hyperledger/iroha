@@ -25,6 +25,8 @@ macro_rules! try_evaluate_or_deny {
     };
 }
 
+/// TODO: Use [`FromResidual`](https://doc.rust-lang.org/std/ops/trait.FromResidual.html)
+/// once it becomes stable
 macro_rules! ok_or_deny {
     ($r:expr) => {
         match $r {
@@ -34,6 +36,8 @@ macro_rules! ok_or_deny {
     };
 }
 
+/// TODO: Use [`FromResidual`](https://doc.rust-lang.org/std/ops/trait.FromResidual.html)
+/// once it becomes stable
 macro_rules! ok_or_skip {
     ($r:expr) => {
         match $r {

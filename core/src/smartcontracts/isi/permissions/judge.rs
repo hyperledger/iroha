@@ -29,7 +29,7 @@ pub type ExpressionJudgeArc = OperationJudgeArc<Expression>;
 ///
 /// The judge accumulates [`verdicts`](ValidatorVerdict) from all validators,
 /// makes a decision, and returns the result.
-pub trait Judge: std::fmt::Debug {
+pub trait Judge {
     /// Type of operation to be checked
     type Operation: NeedsPermission;
 
@@ -66,7 +66,9 @@ pub struct JudgeAsValidator<O: NeedsPermission, J: Judge<Operation = O>> {
     judge: J,
 }
 
-impl<O: NeedsPermission, J: Judge<Operation = O>> IsAllowed for JudgeAsValidator<O, J> {
+impl<O: NeedsPermission, J: Judge<Operation = O> + std::fmt::Debug> IsAllowed
+    for JudgeAsValidator<O, J>
+{
     type Operation = O;
 
     fn check(

@@ -2,7 +2,7 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData, ops::Deref};
 
 pub use checks::*;
 pub use has_token::*;
@@ -132,7 +132,21 @@ impl PartialOrd for ValidatorVerdict {
 // Deny < Skip < Allow
 impl Ord for ValidatorVerdict {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.as_u8().cmp(&other.as_u8())
+        let lhs: u8 = **self;
+        let rhs: u8 = **other;
+        lhs.cmp(&rhs)
+    }
+}
+
+impl Deref for ValidatorVerdict {
+    type Target = u8;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ValidatorVerdict::Deny(_) => &0,
+            ValidatorVerdict::Skip => &1,
+            ValidatorVerdict::Allow => &2,
+        }
     }
 }
 
@@ -192,15 +206,6 @@ impl ValidatorVerdict {
             self
         } else {
             self.most_permissive(f())
-        }
-    }
-
-    // Not implemented as some trait implementation cause it should stay private
-    fn as_u8(&self) -> u8 {
-        match self {
-            ValidatorVerdict::Deny(_) => 0,
-            ValidatorVerdict::Skip => 1,
-            ValidatorVerdict::Allow => 2,
         }
     }
 }
