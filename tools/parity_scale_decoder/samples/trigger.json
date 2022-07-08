@@ -1,0 +1,55 @@
+{
+    "id": {
+        "name": "mint_rose"
+    },
+    "action": {
+        "executable": {
+            "Instructions": [
+                {
+                    "Mint": {
+                        "object": {
+                            "Raw": {
+                                "U32": 1
+                            }
+                        },
+                        "destination_id": {
+                            "Raw": {
+                                "Id": {
+                                    "AssetId": {
+                                        "definition_id": {
+                                            "name": "rose",
+                                            "domain_id": {
+                                                "name": "wonderland"
+                                            }
+                                        },
+                                        "account_id": {
+                                            "name": "alice",
+                                            "domain_id": {
+                                                "name": "wonderland"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "repeats": "Indefinitely",
+        "technical_account": {
+            "name": "alice",
+            "domain_id": {
+                "name": "wonderland"
+            }
+        },
+        "filter": {
+            "Data": {
+                "BySome": {
+                    "ByAccount": "AcceptAll"
+                }
+            }
+        },
+        "metadata": {}
+    }
+}
