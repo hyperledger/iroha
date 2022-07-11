@@ -48,7 +48,6 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      # TODO Remove these steps #2165
       - uses: actions/checkout@v2
       - name: Find hash
         id: hash
@@ -67,6 +66,7 @@ jobs:
         uses: andstor/file-existence-action@v1
         with:
           files: "lcov-${{ steps.hash.outputs.hash }}.info"
+      # TODO Remove these steps #2165
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable

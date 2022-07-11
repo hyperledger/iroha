@@ -32,7 +32,7 @@ jobs:
           load: true
           tags: iroha2:base
           context: .
-          file: Dockerfile.ci        
+          file: Dockerfile.base   
 
       - name: Build iroha2:build docker image
         uses: docker/build-push-action@v3
@@ -42,7 +42,7 @@ jobs:
           context: .
           file: Dockerfile.build
 
-      - name: build iroha2:stable docker image
+      - name: Build iroha2:stable docker image
         run: |
           docker build -f Dockerfile -t hyperledger/iroha2:stable .
       - name: Login to DockerHub
@@ -50,7 +50,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: push iroha2:stable docker image
+      - name: Push iroha2:stable docker image
         run: |
           docker push hyperledger/iroha2:stable
 

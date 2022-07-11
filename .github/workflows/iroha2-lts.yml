@@ -32,7 +32,7 @@ jobs:
           load: true
           tags: iroha2:base
           context: .
-          file: Dockerfile.ci        
+          file: Dockerfile.base
 
       - name: Build iroha2:build docker image
         uses: docker/build-push-action@v3
