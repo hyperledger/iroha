@@ -10,6 +10,7 @@ use http_default::WebSocketStream;
 use iroha_config::{
     base::{GetConfiguration, PostConfiguration},
     client::Configuration,
+    torii::uri,
 };
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::{HashOf, KeyPair};

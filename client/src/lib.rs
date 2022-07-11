@@ -10,8 +10,8 @@ mod http_default;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
+    use iroha_config::torii::uri;
     use iroha_crypto::KeyPair;
-    use iroha_data_model::uri;
 
     use super::Configuration;
 

@@ -9,6 +9,8 @@ use iroha_data_model::{prelude::*, transaction};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 
+use crate::torii::uri;
+
 const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;

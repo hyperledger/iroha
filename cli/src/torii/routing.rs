@@ -6,7 +6,10 @@ use std::num::TryFromIntError;
 
 use eyre::WrapErr;
 use iroha_actor::Addr;
-use iroha_config::base::{Configurable, GetConfiguration, PostConfiguration};
+use iroha_config::{
+    base::{Configurable, GetConfiguration, PostConfiguration},
+    torii::uri,
+};
 use iroha_core::{
     block::stream::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
