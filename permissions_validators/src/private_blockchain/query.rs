@@ -25,24 +25,23 @@ impl IsAllowed for OnlyAccountsDomain {
         use QueryBox::*;
         match query {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
-                Deny("Only the access to the assets of the same domain is permitted.".to_owned())
+                Deny("Only access to the assets of the same domain is permitted.".to_owned())
             }
             FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
-                Deny("Only the access to the accounts of the same domain is permitted.".to_owned())
+                Deny("Only access to the accounts of the same domain is permitted.".to_owned())
             }
             FindAllAssetsDefinitions(_) => Deny(
-                "Only the access to the asset definitions of the same domain is permitted."
-                    .to_owned(),
+                "Only access to the asset definitions of the same domain is permitted.".to_owned(),
             ),
             FindAllDomains(_) => {
-                Deny("Only the access to the domain of the account is permitted.".to_owned())
+                Deny("Only access to the domain of the account is permitted.".to_owned())
             }
             FindAllRoles(_) => {
-                Deny("Only the access to roles of the same domain is permitted.".to_owned())
+                Deny("Only access to roles of the same domain is permitted.".to_owned())
             }
             FindAllRoleIds(_) => Allow, // In case you need to debug the permissions.
             FindRoleByRoleId(_) => {
-                Deny("Only the access to roles of the same domain is permitted.".to_owned())
+                Deny("Only access to roles of the same domain is permitted.".to_owned())
             }
             FindAllPeers(_) => Allow, // Can be obtained in other ways, so why hide it.
             FindAllActiveTriggerIds(_) => Allow,

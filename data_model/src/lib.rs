@@ -341,6 +341,7 @@ pub enum Value {
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
+    // Boxed because of M1 issues
     Block(Box<BlockValue>),
 }
 
