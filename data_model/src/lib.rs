@@ -40,7 +40,6 @@ use crate::{
 pub mod account;
 pub mod asset;
 pub mod block_value;
-pub mod config;
 pub mod domain;
 pub mod events;
 pub mod expression;
