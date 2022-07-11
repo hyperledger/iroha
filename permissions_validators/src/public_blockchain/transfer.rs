@@ -47,7 +47,7 @@ impl IsAllowed for OnlyOwnedAssets {
             ok_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv).try_into());
 
         if &source_id.account_id != authority {
-            return Deny("Cannot transfer assets of the other account.".to_owned());
+            return Deny("Cannot transfer assets of another account.".to_owned());
         }
         Allow
     }
@@ -142,7 +142,7 @@ impl IsAllowed for ExecutionCountFitsInLimit {
             .try_into()
             .expect("`usize` should always fit in `u32`");
         if executions_count >= count {
-            return Deny("Transfer transaction limit for current period is exceed".to_owned());
+            return Deny("Transfer transaction limit for current period is exceeded".to_owned());
         }
         Allow
     }

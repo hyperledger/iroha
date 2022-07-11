@@ -78,7 +78,7 @@ pub trait IsAllowed: Debug {
     /// Check if the `authority` is allowed to perform `instruction`
     /// given the current state of `wsv`.
     ///
-    /// # Denial reasons
+    /// # Reasons to deny
     /// If the execution of `instruction` under given `authority` with
     /// the current state of `wsv` is disallowed.
     fn check(
@@ -219,7 +219,7 @@ impl From<Result<()>> for ValidatorVerdict {
     }
 }
 
-/// Reason for prohibiting the execution of a particular instruction.
+/// Reason for denying the execution of a particular instruction.
 pub type DenialReason = String;
 
 pub mod prelude {

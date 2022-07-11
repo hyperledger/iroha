@@ -6,7 +6,7 @@ use super::{super::Evaluate, *};
 pub trait IsGrantAllowed: Debug {
     /// Checks the [`GrantBox`] instruction.
     ///
-    /// # Denies
+    /// # Reasons to deny
     /// If this validator doesn't approve this Grant instruction.
     fn check(
         &self,

@@ -15,30 +15,30 @@ struct TestEnv {
     bob_id: AccountId,
     /// Carol's Id that owns Bronze asset.
     carol_id: AccountId,
-    /// Gold asset's Id.
+    /// Gold asset Id.
     gold_asset_id: AssetId,
-    /// Gold asset definition's Id.
+    /// Gold asset definition Id.
     gold_asset_definition_id: AssetDefinitionId,
-    /// Silver asset's Id.
+    /// Silver asset Id.
     silver_asset_id: AssetId,
-    /// Silver asset definition's Id.
+    /// Silver asset definition Id.
     silver_asset_definition_id: AssetDefinitionId,
-    /// Bronze asset's Id.
+    /// Bronze asset Id.
     bronze_asset_id: AssetId,
-    /// Bronze asset definition's Id.
+    /// Bronze asset definition Id.
     bronze_asset_definition_id: AssetDefinitionId,
-    /// Wonderland is a domain that contains Alice and Bob
+    /// Wonderland is the domain where Alice is registered
     wonderland: (DomainId, Domain),
-    /// Denoland is a domain that contains Carol
+    /// Denoland is the domain where Carol is registered
     denoland: (DomainId, Domain),
     /// World state view contains wonderland and denoland domains.
     wsv: WorldStateView,
-    /// A trigger that mints Gold asset and created by Alice
+    /// A trigger that mints Gold asset created by Alice
     mintbox_gold_trigger_id: TriggerId,
 }
 
 impl TestEnv {
-    /// Creates a test environment
+    /// Create a test environment
     fn new() -> Self {
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let mut alice = Account::new(alice_id.clone(), []).build();
