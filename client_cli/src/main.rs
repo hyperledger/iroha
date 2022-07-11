@@ -101,7 +101,7 @@ pub trait RunArgs {
 macro_rules! match_run_all {
     (($self:ident, $cfg:ident), { $($variants:path),* }) => {
         match $self {
-            $($variants(variant) => variant.run($cfg),)*
+            $($variants(variant) => RunArgs::run(variant, $cfg),)*
         }
     };
 }
@@ -313,11 +313,13 @@ mod account {
         /// List accounts
         #[clap(subcommand)]
         List(List),
+        /// Grant permission to account
+        Grant(Grant),
     }
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            match_run_all!((self, cfg), { Args::Register, Args::Set, Args::List })
+            match_run_all!((self, cfg), { Args::Register, Args::Set, Args::List, Args::Grant })
         }
     }
 
@@ -416,6 +418,48 @@ mod account {
             }?;
             println!("{:#?}", vec);
             Ok(())
+        }
+    }
+
+    #[derive(StructOpt, Debug)]
+    pub struct Grant {
+        /// Account id
+        #[structopt(short, long)]
+        pub id: <Account as Identifiable>::Id,
+        /// The filename with permission token in JSON
+        #[structopt(short, long)]
+        pub permission: Permission,
+        /// The filename with key-value metadata pairs in JSON
+        #[structopt(short, long, default_value = "")]
+        pub metadata: super::Metadata,
+    }
+
+    /// [`PermissionToken`] wrapper implementing [`FromStr`]
+    #[derive(Debug)]
+    pub struct Permission(PermissionToken);
+
+    impl FromStr for Permission {
+        type Err = Error;
+
+        fn from_str(s: &str) -> Result<Self> {
+            let file = File::open(s)
+                .wrap_err(format!("Failed to open the permission token file {}", &s))?;
+            let permission_token: PermissionToken = serde_json::from_reader(file).wrap_err(
+                format!("Failed to deserialize permission token from file {}", &s),
+            )?;
+            Ok(Self(permission_token))
+        }
+    }
+
+    impl RunArgs for Grant {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let Self {
+                id,
+                permission,
+                metadata: Metadata(metadata),
+            } = self;
+            let grant = GrantBox::new(permission.0, id);
+            submit(grant, cfg, metadata).wrap_err("Failed to grant permission to account")
         }
     }
 }
