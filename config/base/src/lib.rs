@@ -1,6 +1,6 @@
 //! Package for managing iroha configuration
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 pub mod derive {
@@ -168,36 +168,6 @@ pub mod derive {
 
 pub mod runtime_upgrades;
 
-pub mod logger {
-    //! Module containing configuration structures for logger
-
-    use serde::{Deserialize, Serialize};
-
-    const DEFAULT_MAX_LOG_LEVEL: Level = Level::INFO;
-
-    /// Log level for reading from environment and (de)serializing
-    #[allow(clippy::upper_case_acronyms)]
-    #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub enum Level {
-        /// Error
-        ERROR,
-        /// Warn
-        WARN,
-        /// Info (Default)
-        INFO,
-        /// Debug
-        DEBUG,
-        /// Trace
-        TRACE,
-    }
-
-    impl Default for Level {
-        fn default() -> Self {
-            DEFAULT_MAX_LOG_LEVEL
-        }
-    }
-}
-
 /// Trait for dynamic and asynchronous configuration via maintenance endpoint for rust structures
 pub trait Configurable: Serialize + DeserializeOwned {
     /// Error type returned by methods of trait
@@ -242,35 +212,4 @@ pub trait Configurable: Serialize + DeserializeOwned {
 
     /// Gets inner docs for non-leaf fields
     fn get_inner_docs() -> String;
-}
-
-/// Json config for getting configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum GetConfiguration {
-    /// Getting docs of specific field
-    ///
-    /// Top-level fields must be enclosed in an array (of strings). This array
-    /// provides the fully qualified path to the fields.
-    ///
-    /// # Examples
-    ///
-    /// To get the top-level configuration docs for `iroha_core::Torii`
-    /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i`
-    ///
-    /// To get the documentation on the [`Logger::config::Configuration.max_log_level`]
-    /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["logger", "max_log_level"]}' -i`
-    Docs(Vec<String>),
-    /// Get the original Value of the full configuration.
-    Value,
-}
-
-/// Message acceptable for `POST` requests to the configuration endpoint.
-#[derive(Clone, Debug, Deserialize, Serialize, Copy)]
-pub enum PostConfiguration {
-    /// Change the maximum logging level of logger.
-    ///
-    /// # Examples
-    /// To silence all logging events that aren't `ERROR`s
-    /// `curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "ERROR"}' -i`
-    LogLevel(logger::Level),
 }

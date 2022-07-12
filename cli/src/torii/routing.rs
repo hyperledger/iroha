@@ -6,10 +6,7 @@ use std::num::TryFromIntError;
 
 use eyre::WrapErr;
 use iroha_actor::Addr;
-use iroha_config::{
-    base::{Configurable, GetConfiguration, PostConfiguration},
-    torii::uri,
-};
+use iroha_config::{base::Configurable, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_core::{
     block::stream::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
@@ -210,7 +207,7 @@ async fn handle_post_configuration(
     iroha_logger::debug!(?cfg);
     match cfg {
         LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level.into())?;
+            iroha_cfg.logger.max_log_level.reload(level)?;
         }
     };
 

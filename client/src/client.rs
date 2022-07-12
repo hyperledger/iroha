@@ -7,11 +7,7 @@ use std::{
 use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use http_default::WebSocketStream;
-use iroha_config::{
-    base::{GetConfiguration, PostConfiguration},
-    client::Configuration,
-    torii::uri,
-};
+use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRequest};
