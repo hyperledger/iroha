@@ -253,7 +253,7 @@ mod domain {
     /// Add subcommand for domain
     #[derive(Debug, StructOpt)]
     pub struct Register {
-        /// Domain's name as double-quoted string
+        /// Domain name as double-quoted string
         #[structopt(short, long)]
         pub id: DomainId,
         /// The JSON file with key-value metadata pairs
@@ -313,7 +313,7 @@ mod account {
         /// List accounts
         #[clap(subcommand)]
         List(List),
-        /// Grant permission to the account
+        /// Grant a permission to the account
         Grant(Grant),
     }
 
@@ -444,9 +444,11 @@ mod account {
         fn from_str(s: &str) -> Result<Self> {
             let file = File::open(s)
                 .wrap_err(format!("Failed to open the permission token file {}", &s))?;
-            let permission_token: PermissionToken = serde_json::from_reader(file).wrap_err(
-                format!("Failed to deserialize permission token from file {}", &s),
-            )?;
+            let permission_token: PermissionToken =
+                serde_json::from_reader(file).wrap_err(format!(
+                    "Failed to deserialize the permission token from file {}",
+                    &s
+                ))?;
             Ok(Self(permission_token))
         }
     }
@@ -459,7 +461,7 @@ mod account {
                 metadata: Metadata(metadata),
             } = self;
             let grant = GrantBox::new(permission.0, id);
-            submit(grant, cfg, metadata).wrap_err("Failed to grant permission to account")
+            submit(grant, cfg, metadata).wrap_err("Failed to grant the permission to the account")
         }
     }
 }
