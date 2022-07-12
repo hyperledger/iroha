@@ -1,10 +1,15 @@
 use iroha_actor::{broker::*, prelude::*};
 
-struct Alice(Broker);
+#[subscribe(MsgAA)]
+#[publish(MsgAA, MsgAB, MsgAC)]
+struct Alice;
 
-struct Bob(Broker);
+#[subscribe(MsgAB)]
+#[publish(MsgBC)]
+struct Bob;
 
-struct Carol(Broker);
+#[subscribe(MsgAC, MsgBC)]
+struct Carol;
 
 #[derive(Clone, Debug, Message)]
 #[message(result = "()")]
@@ -22,70 +27,43 @@ struct MsgAC;
 #[message(result = "()")]
 struct MsgBC;
 
-#[async_trait::async_trait]
-impl Actor for Alice {
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.0.subscribe::<MsgXA, _>(ctx);
-    }
-}
-
-#[async_trait::async_trait]
-impl Actor for Bob {
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.0.subscribe::<MsgAB, _>(ctx);
-    }
-}
-
-#[async_trait::async_trait]
-impl Actor for Carol {
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.0.subscribe::<MsgAC, _>(ctx);
-        self.0.subscribe::<MsgBC, _>(ctx);
-    }
-}
-
-#[async_trait::async_trait]
-impl Handler<MsgXA> for Alice {
-    type Result = ();
-    async fn handle(&mut self, msg: MsgXA) {
+impl Subscribe<MsgAA> for Alice {
+    fn handle(&mut self, msg: MsgAA) {
         println!("{:?}", msg);
-        self.0.issue_send(MsgAB).await;
-        self.0.issue_send(MsgAC).await;
+        self.publish(MsgAB);
+        self.publish(MsgAC);
     }
 }
 
-#[async_trait::async_trait]
-impl Handler<MsgAB> for Bob {
-    type Result = ();
-    async fn handle(&mut self, msg: MsgAB) {
+impl Subscribe<MsgAB> for Bob {
+    fn handle(&mut self, msg: MsgAB) {
         println!("{:?}", msg);
-        self.0.issue_send(MsgBC).await;
+        self.publish(MsgBC);
     }
 }
 
-#[async_trait::async_trait]
-impl Handler<MsgAC> for Carol {
-    type Result = ();
-    async fn handle(&mut self, msg: MsgAC) {
+impl Subscribe<MsgAC> for Carol {
+    fn handle(&mut self, msg: MsgAC) {
         println!("{:?}", msg);
     }
 }
 
-#[async_trait::async_trait]
-impl Handler<MsgBC> for Carol {
-    type Result = ();
-    async fn handle(&mut self, msg: MsgBC) {
+impl Subscribe<MsgBC> for Carol {
+    fn handle(&mut self, msg: MsgBC) {
         println!("{:?}", msg);
     }
 }
 
 #[tokio::main]
 async fn main() {
-    let broker = Broker::new();
-    Alice(broker.clone()).start().await;
-    Bob(broker.clone()).start().await;
-    Carol(broker.clone()).start().await;
-    broker.issue_send(MsgXA).await;
+    // Establish all the possible channels at the components initialization
+    let (alice, bob, carol) = new_with_channels!(Alice, Bob, Carol);
+
+    alice.start().await;
+    bob.start().await;
+    carol.start().await;
+
+    alice.publish(MsgAA);
     // Expected:
-    // MsgXA, MsgAB, MsgAC, and MsgBC appear once each （may be in no particular order)
+    // MsgAA, MsgAB, MsgAC, and MsgBC appear once each （may be in no particular order)
 }
