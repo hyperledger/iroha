@@ -87,3 +87,14 @@ harness = false
 [[bench]]
 name = "kura"
 harness = false
+
+
+[package.metadata.cargo-all-features]
+denylist = [
+"bridge",
+"dex",
+"schema-endpoint",
+"telemetry",
+"test-network"
+] # TODO: remove `dex` and `bridge` once there's code for them.
+skip_optional_dependencies = true
