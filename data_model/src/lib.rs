@@ -7,6 +7,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+#[cfg(feature = "std")]
+use std::boxed::Box;            // Necessary so that `cargo check --no-default-features --features default,ffi_api -p iroha_data_model` passes
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::ToOwned as _,
