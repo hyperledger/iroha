@@ -1116,12 +1116,12 @@ pub mod block {
     use super::*;
 
     /// Get query to find all blocks
-    pub fn all() -> FindAllBlocks {
+    pub const fn all() -> FindAllBlocks {
         FindAllBlocks::new()
     }
 
     /// Get query to find all block headers
-    pub fn all_headers() -> FindAllBlockHeaders {
+    pub const fn all_headers() -> FindAllBlockHeaders {
         FindAllBlockHeaders::new()
     }
 

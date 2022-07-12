@@ -16,7 +16,7 @@ impl ValidQuery for FindAllBlocks {
             .map(|block| block.clone())
             .map(VersionedCommittedBlock::into_value)
             .collect();
-        blocks.reverse();
+        blocks.reverse(); // Sorted by height desc.
         Ok(blocks)
     }
 }
@@ -30,7 +30,7 @@ impl ValidQuery for FindAllBlockHeaders {
             .map(VersionedCommittedBlock::into_value)
             .map(|block_value| block_value.header)
             .collect();
-        blocks.reverse();
+        blocks.reverse(); // Sorted by height desc.
         Ok(blocks)
     }
 }
