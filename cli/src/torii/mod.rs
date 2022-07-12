@@ -34,7 +34,7 @@ pub struct Torii {
     queue: Arc<Queue>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed>,
-    #[allow(dead_code)]         // False positive
+    #[allow(dead_code)] // False positive
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
 }

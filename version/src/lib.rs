@@ -23,9 +23,6 @@ use serde::{Deserialize, Serialize};
 
 /// Module which contains error and result for versioning
 pub mod error {
-    #[allow(unused_imports)]     // False-positive
-    use super::*;
-    
     #[cfg(not(feature = "std"))]
     use alloc::{borrow::ToOwned, boxed::Box};
     use core::fmt;
@@ -37,6 +34,8 @@ pub mod error {
     use parity_scale_codec::{Decode, Encode};
 
     use super::UnsupportedVersion;
+    #[allow(unused_imports)] // False-positive
+    use super::*;
 
     /// Versioning errors
     #[derive(Debug, FromVariant)]
