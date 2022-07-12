@@ -256,7 +256,7 @@ mod domain {
         /// Domain's name as double-quoted string
         #[structopt(short, long)]
         pub id: DomainId,
-        /// The filename with key-value metadata pairs in JSON
+        /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -313,7 +313,7 @@ mod account {
         /// List accounts
         #[clap(subcommand)]
         List(List),
-        /// Grant permission to account
+        /// Grant permission to the account
         Grant(Grant),
     }
 
@@ -332,7 +332,7 @@ mod account {
         /// Its public key
         #[structopt(short, long)]
         pub key: PublicKey,
-        /// The filename with key-value metadata pairs in JSON
+        /// /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -383,7 +383,7 @@ mod account {
     pub struct SignatureCondition {
         /// Signature condition file
         pub condition: Signature,
-        /// The filename with key-value metadata pairs in JSON
+        /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -426,10 +426,10 @@ mod account {
         /// Account id
         #[structopt(short, long)]
         pub id: <Account as Identifiable>::Id,
-        /// The filename with permission token in JSON
+        /// The JSON file with a permission token
         #[structopt(short, long)]
         pub permission: Permission,
-        /// The filename with key-value metadata pairs in JSON
+        /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -506,7 +506,7 @@ mod asset {
         /// Value type stored in asset
         #[structopt(short, long)]
         pub value_type: AssetValueType,
-        /// The filename with key-value metadata pairs in JSON
+        /// /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -545,7 +545,7 @@ mod asset {
         /// Quantity to mint
         #[structopt(short, long)]
         pub quantity: u32,
-        /// The filename with key-value metadata pairs in JSON
+        /// /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -581,7 +581,7 @@ mod asset {
         /// Quantity of asset as number
         #[structopt(short, long)]
         pub quantity: u32,
-        /// The filename with key-value metadata pairs in JSON
+        /// /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -680,7 +680,7 @@ mod peer {
         /// Public key of the peer
         #[structopt(short, long)]
         pub key: PublicKey,
-        /// The filename with key-value metadata pairs in JSON
+        /// /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -710,7 +710,7 @@ mod peer {
         /// Public key of the peer
         #[structopt(short, long)]
         pub key: PublicKey,
-        /// The filename with key-value metadata pairs in JSON
+        /// /// The JSON file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
