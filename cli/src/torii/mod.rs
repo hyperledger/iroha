@@ -9,7 +9,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
+    smartcontracts::isi::query,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -33,7 +33,7 @@ pub struct Torii {
     wsv: Arc<WorldStateView>,
     queue: Arc<Queue>,
     events: EventsSender,
-    query_validator: Arc<IsQueryAllowedBoxed>,
+    query_judge: QueryJudgeArc,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
 }

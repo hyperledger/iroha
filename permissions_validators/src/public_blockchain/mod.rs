@@ -65,56 +65,70 @@ impl From<PredefinedPermissionToken> for PermissionToken {
 }
 
 /// A preconfigured set of permissions for simple use cases.
-pub fn default_permissions() -> IsInstructionAllowedBoxed {
+pub fn default_permissions() -> InstructionJudgeBoxed {
     // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
-    let grant_instruction_validator: IsInstructionAllowedBoxed =
-        ValidatorBuilder::with_validator(transfer::GrantMyAssetAccess)
-            .with_validator(unregister::GrantRegisteredByMeAccess)
-            .with_validator(mint::GrantRegisteredByMeAccess)
-            .with_validator(burn::GrantMyAssetAccess)
-            .with_validator(burn::GrantRegisteredByMeAccess)
-            .with_validator(key_value::GrantMyAssetAccessRemove)
-            .with_validator(key_value::GrantMyAssetAccessSet)
-            .with_validator(key_value::GrantMyMetadataAccessSet)
-            .with_validator(key_value::GrantMyMetadataAccessRemove)
-            .with_validator(key_value::GrantMyAssetDefinitionSet)
-            .with_validator(key_value::GrantMyAssetDefinitionRemove)
-            .any_should_succeed("Grant instruction validator.".to_owned())
+    let grant_instruction_judge =
+        JudgeBuilder::with_validator(transfer::GrantMyAssetAccess.into_validator())
+            .with_validator(unregister::GrantRegisteredByMeAccess.into_validator())
+            .with_validator(mint::GrantRegisteredByMeAccess.into_validator())
+            .with_validator(burn::GrantMyAssetAccess.into_validator())
+            .with_validator(burn::GrantRegisteredByMeAccess.into_validator())
+            .with_validator(key_value::GrantMyAssetAccessRemove.into_validator())
+            .with_validator(key_value::GrantMyAssetAccessSet.into_validator())
+            .with_validator(key_value::GrantMyMetadataAccessSet.into_validator())
+            .with_validator(key_value::GrantMyMetadataAccessRemove.into_validator())
+            .with_validator(key_value::GrantMyAssetDefinitionSet.into_validator())
+            .with_validator(key_value::GrantMyAssetDefinitionRemove.into_validator())
+            .no_denies()
             .build();
-    ValidatorBuilder::with_recursive_validator(grant_instruction_validator)
-        .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner))
-        .with_recursive_validator(
-            unregister::OnlyAssetsCreatedByThisAccount.or(unregister::GrantedByAssetCreator),
-        )
-        .with_recursive_validator(
-            mint::OnlyAssetsCreatedByThisAccount.or(mint::GrantedByAssetCreator),
-        )
-        .with_recursive_validator(burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner))
-        .with_recursive_validator(
-            burn::OnlyAssetsCreatedByThisAccount.or(burn::GrantedByAssetCreator),
-        )
-        .with_recursive_validator(
-            key_value::AccountSetOnlyForSignerAccount.or(key_value::SetGrantedByAccountOwner),
-        )
-        .with_recursive_validator(
-            key_value::AccountRemoveOnlyForSignerAccount.or(key_value::RemoveGrantedByAccountOwner),
-        )
-        .with_recursive_validator(
-            key_value::AssetSetOnlyForSignerAccount.or(key_value::SetGrantedByAssetOwner),
-        )
-        .with_recursive_validator(
-            key_value::AssetRemoveOnlyForSignerAccount.or(key_value::RemoveGrantedByAssetOwner),
-        )
-        .with_recursive_validator(
-            key_value::AssetDefinitionSetOnlyForSignerAccount
-                .or(key_value::SetGrantedByAssetDefinitionOwner),
-        )
-        .with_recursive_validator(
-            key_value::AssetDefinitionRemoveOnlyForSignerAccount
-                .or(key_value::RemoveGrantedByAssetDefinitionOwner),
-        )
-        .all_should_succeed()
-        .build()
+    Box::new(
+        JudgeBuilder::with_recursive_validator(grant_instruction_judge.into_validator())
+            .with_recursive_validator(
+                transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                unregister::OnlyAssetsCreatedByThisAccount
+                    .or(unregister::GrantedByAssetCreator.into_validator()),
+            )
+            .with_recursive_validator(
+                mint::OnlyAssetsCreatedByThisAccount
+                    .or(mint::GrantedByAssetCreator.into_validator()),
+            )
+            .with_recursive_validator(
+                burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                burn::OnlyAssetsCreatedByThisAccount
+                    .or(burn::GrantedByAssetCreator.into_validator()),
+            )
+            .with_recursive_validator(
+                key_value::AccountSetOnlyForSignerAccount
+                    .or(key_value::SetGrantedByAccountOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                key_value::AccountRemoveOnlyForSignerAccount
+                    .or(key_value::RemoveGrantedByAccountOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                key_value::AssetSetOnlyForSignerAccount
+                    .or(key_value::SetGrantedByAssetOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                key_value::AssetRemoveOnlyForSignerAccount
+                    .or(key_value::RemoveGrantedByAssetOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                key_value::AssetDefinitionSetOnlyForSignerAccount
+                    .or(key_value::SetGrantedByAssetDefinitionOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                key_value::AssetDefinitionRemoveOnlyForSignerAccount
+                    .or(key_value::RemoveGrantedByAssetDefinitionOwner.into_validator()),
+            )
+            .no_denies()
+            .at_least_one_allow()
+            .build(),
+    )
 }
 
 /// Extracts specialized token from [`GrantBox`]
@@ -159,11 +173,7 @@ where
 
             Ok(specialized_token)
         }
-        _ => Err(
-            "Provided `Grant` instruction contains unsupported object type"
-                .to_owned()
-                .into(),
-        ),
+        _ => Err("Provided `Grant` instruction contains unsupported object type".to_owned()),
     }
 }
 
@@ -175,19 +185,15 @@ pub fn check_asset_creator_for_asset_definition(
     definition_id: &AssetDefinitionId,
     authority: &AccountId,
     wsv: &WorldStateView,
-) -> Result<()> {
+) -> ValidatorVerdict {
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
         .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
         .unwrap_or(false);
     if !registered_by_signer_account {
-        return Err(
-            "Cannot grant access for assets, registered by another account."
-                .to_owned()
-                .into(),
-        );
+        return Deny("Cannot grant access for assets registered by another account.".to_owned());
     }
-    Ok(())
+    Allow
 }
 
 #[cfg(test)]
@@ -224,10 +230,10 @@ mod tests {
         });
         assert!(transfer::OnlyOwnedAssets
             .check(&alice_id, &transfer, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(transfer::OnlyOwnedAssets
             .check(&bob_id, &transfer, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -253,11 +259,10 @@ mod tests {
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(bob_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed = transfer::OnlyOwnedAssets
-            .or(transfer::GrantedByAssetOwner)
-            .into();
-        assert!(validator.check(&alice_id, &transfer, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &transfer, &wsv).is_ok());
+        let validator =
+            transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner.into_validator());
+        assert!(validator.check(&alice_id, &transfer, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &transfer, &wsv).is_allow());
     }
 
     #[test]
@@ -275,9 +280,9 @@ mod tests {
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
         ));
-        let validator: IsInstructionAllowedBoxed = transfer::GrantMyAssetAccess.into();
-        assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &grant, &wsv).is_err());
+        let validator = transfer::GrantMyAssetAccess.into_validator();
+        assert!(validator.check(&alice_id, &grant, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &grant, &wsv).is_deny());
     }
 
     #[test]
@@ -296,10 +301,10 @@ mod tests {
             Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
         assert!(unregister::OnlyAssetsCreatedByThisAccount
             .check(&alice_id, &unregister, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(unregister::OnlyAssetsCreatedByThisAccount
             .check(&bob_id, &unregister, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -319,11 +324,10 @@ mod tests {
             .is_none());
         let wsv = WorldStateView::new(World::with([domain], []));
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
-        let validator: IsInstructionAllowedBoxed = unregister::OnlyAssetsCreatedByThisAccount
-            .or(unregister::GrantedByAssetCreator)
-            .into();
-        assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
+        let validator = unregister::OnlyAssetsCreatedByThisAccount
+            .or(unregister::GrantedByAssetCreator.into_validator());
+        assert!(validator.check(&alice_id, &instruction, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &instruction, &wsv).is_allow());
     }
 
     #[test]
@@ -344,9 +348,9 @@ mod tests {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
-        let validator: IsInstructionAllowedBoxed = unregister::GrantRegisteredByMeAccess.into();
-        assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &grant, &wsv).is_err());
+        let validator = unregister::GrantRegisteredByMeAccess.into_validator();
+        assert!(validator.check(&alice_id, &grant, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &grant, &wsv).is_deny());
     }
 
     #[test]
@@ -371,10 +375,10 @@ mod tests {
         });
         assert!(mint::OnlyAssetsCreatedByThisAccount
             .check(&alice_id, &mint, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(mint::OnlyAssetsCreatedByThisAccount
             .check(&bob_id, &mint, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -399,11 +403,10 @@ mod tests {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed = mint::OnlyAssetsCreatedByThisAccount
-            .or(mint::GrantedByAssetCreator)
-            .into();
-        assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
+        let validator =
+            mint::OnlyAssetsCreatedByThisAccount.or(mint::GrantedByAssetCreator.into_validator());
+        assert!(validator.check(&alice_id, &instruction, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &instruction, &wsv).is_allow());
     }
 
     #[test]
@@ -423,9 +426,9 @@ mod tests {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
-        let validator: IsInstructionAllowedBoxed = mint::GrantRegisteredByMeAccess.into();
-        assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &grant, &wsv).is_err());
+        let validator = mint::GrantRegisteredByMeAccess.into_validator();
+        assert!(validator.check(&alice_id, &grant, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &grant, &wsv).is_deny());
     }
 
     #[test]
@@ -450,10 +453,10 @@ mod tests {
         });
         assert!(burn::OnlyAssetsCreatedByThisAccount
             .check(&alice_id, &burn, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(burn::OnlyAssetsCreatedByThisAccount
             .check(&bob_id, &burn, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -478,11 +481,10 @@ mod tests {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed = burn::OnlyAssetsCreatedByThisAccount
-            .or(burn::GrantedByAssetCreator)
-            .into();
-        assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
+        let validator =
+            burn::OnlyAssetsCreatedByThisAccount.or(burn::GrantedByAssetCreator.into_validator());
+        assert!(validator.check(&alice_id, &instruction, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &instruction, &wsv).is_allow());
     }
 
     #[test]
@@ -502,9 +504,9 @@ mod tests {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
-        let validator: IsInstructionAllowedBoxed = burn::GrantRegisteredByMeAccess.into();
-        assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &grant, &wsv).is_err());
+        let validator = burn::GrantRegisteredByMeAccess.into_validator();
+        assert!(validator.check(&alice_id, &grant, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &grant, &wsv).is_deny());
     }
 
     #[test]
@@ -520,12 +522,14 @@ mod tests {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        assert!(burn::OnlyOwnedAssets.check(&alice_id, &burn, &wsv).is_ok());
-        assert!(burn::OnlyOwnedAssets.check(&bob_id, &burn, &wsv).is_err());
+        assert!(burn::OnlyOwnedAssets
+            .check(&alice_id, &burn, &wsv)
+            .is_allow());
+        assert!(burn::OnlyOwnedAssets.check(&bob_id, &burn, &wsv).is_deny());
     }
 
     #[test]
-    fn burn_granted_assets() -> Result<()> {
+    fn burn_granted_assets() {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let alice_xor_id = <Asset as Identifiable>::Id::new(
@@ -543,11 +547,9 @@ mod tests {
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed =
-            burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner).into();
-        validator.check(&alice_id, &transfer, &wsv)?;
-        assert!(validator.check(&bob_id, &transfer, &wsv).is_ok());
-        Ok(())
+        let validator = burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner.into_validator());
+        assert!(validator.check(&alice_id, &transfer, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &transfer, &wsv).is_allow());
     }
 
     #[test]
@@ -565,9 +567,9 @@ mod tests {
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
         ));
-        let validator: IsInstructionAllowedBoxed = burn::GrantMyAssetAccess.into();
-        assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
-        assert!(validator.check(&bob_id, &grant, &wsv).is_err());
+        let validator = burn::GrantMyAssetAccess.into_validator();
+        assert!(validator.check(&alice_id, &grant, &wsv).is_allow());
+        assert!(validator.check(&bob_id, &grant, &wsv).is_deny());
     }
 
     #[test]
@@ -586,10 +588,10 @@ mod tests {
         ));
         assert!(key_value::AssetSetOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(key_value::AssetSetOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -607,10 +609,10 @@ mod tests {
         ));
         assert!(key_value::AssetRemoveOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(key_value::AssetRemoveOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -625,10 +627,10 @@ mod tests {
         ));
         assert!(key_value::AccountSetOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(key_value::AccountSetOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -642,10 +644,10 @@ mod tests {
         ));
         assert!(key_value::AccountRemoveOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(key_value::AccountRemoveOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -667,10 +669,10 @@ mod tests {
         ));
         assert!(key_value::AssetDefinitionSetOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(key_value::AssetDefinitionSetOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
-            .is_err());
+            .is_deny());
     }
 
     #[test]
@@ -691,9 +693,9 @@ mod tests {
         ));
         assert!(key_value::AssetDefinitionRemoveOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
-            .is_ok());
+            .is_allow());
         assert!(key_value::AssetDefinitionRemoveOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
-            .is_err());
+            .is_deny());
     }
 }

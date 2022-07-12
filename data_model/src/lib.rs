@@ -341,7 +341,8 @@ pub enum Value {
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
-    Block(BlockValue),
+    // Boxed because of M1 issues
+    Block(Box<BlockValue>),
 }
 
 impl fmt::Display for Value {

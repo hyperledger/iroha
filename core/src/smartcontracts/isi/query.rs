@@ -230,8 +230,8 @@ mod tests {
                 max_instruction_number: 0,
                 max_wasm_size_bytes: 0,
             },
-            AllowAll::new(),
-            AllowAll::new(),
+            Arc::new(AllowAll::new()),
+            Arc::new(AllowAll::new()),
             Arc::clone(&wsv),
         );
 
@@ -300,8 +300,8 @@ mod tests {
             .chain_first()
             .validate(&TransactionValidator::new(
                 limits,
-                AllowAll::new(),
-                AllowAll::new(),
+                Arc::new(AllowAll::new()),
+                Arc::new(AllowAll::new()),
                 Arc::clone(&wsv),
             ))
             .sign(ALICE_KEYS.clone())
@@ -324,8 +324,8 @@ mod tests {
                 )
                 .validate(&TransactionValidator::new(
                     limits,
-                    AllowAll::new(),
-                    AllowAll::new(),
+                    Arc::new(AllowAll::new()),
+                    Arc::new(AllowAll::new()),
                     Arc::clone(&wsv),
                 ))
                 .sign(ALICE_KEYS.clone())
@@ -376,8 +376,8 @@ mod tests {
             .chain_first()
             .validate(&TransactionValidator::new(
                 tx_limits,
-                AllowAll::new(),
-                AllowAll::new(),
+                Arc::new(AllowAll::new()),
+                Arc::new(AllowAll::new()),
                 Arc::clone(&wsv),
             ))
             .sign(ALICE_KEYS.clone())
