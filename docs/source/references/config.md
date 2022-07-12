@@ -14,6 +14,7 @@ The following is the default configuration used by Iroha.
     "payload": "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
   },
   "DISABLE_PANIC_TERMINAL_COLORS": false,
+  "ENABLE_SHUTDOWN_ON_PANIC": false,
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./blocks",
@@ -165,6 +166,16 @@ Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PE
 Disable coloring of the backtrace and error report on panic.
 
 Has type `bool`. Can be configured via environment variable `IROHA_DISABLE_PANIC_TERMINAL_COLORS`
+
+```json
+false
+```
+
+## `enable_shutdown_on_panic`
+
+Iroha will shutdown on any panic, if this option is set to `true`.
+
+Has type `bool`. Can be configured via environment variable `IROHA_ENABLE_SHUTDOWN_ON_PANIC`
 
 ```json
 false
