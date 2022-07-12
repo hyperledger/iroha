@@ -63,4 +63,5 @@ tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-mu
 warp = "0.3"
 
 [dev-dependencies]
+serial_test = "0.8.0"
 test_network = { version = "=2.0.0-pre-rc.5", path = "../core/test_network" }
