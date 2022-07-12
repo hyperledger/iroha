@@ -85,6 +85,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v2.21.1
         with:
           workflow: iroha2-dev-pr.yml
+          name: lcov-${{ steps.hash.outputs.hash }}.info
           check_artifacts: false
       # codecov/codecov-action@v3 can't upload report with file name == "lcov-${{ steps.hash.outputs.hash }}.info"
       - name: Rename lcov report file
