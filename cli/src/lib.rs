@@ -369,8 +369,9 @@ fn domains(configuration: &config::Configuration) -> [Domain; 1] {
 mod tests {
     use std::{panic, thread};
 
-    use super::*;
     use serial_test::serial;
+
+    use super::*;
 
     #[allow(clippy::panic)]
     #[tokio::test]
