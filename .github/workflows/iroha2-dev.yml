@@ -69,6 +69,30 @@ jobs:
           workflow_file_name: load-rs-push-from-dev.yaml
           ref: dev
 
+  upload_coverage:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Find hash
+        id: hash
+        uses: theowenyoung/folder-hash@v2.0.1
+        with:
+          path: |
+            .      
+      - name: Download codecov report artifact
+        uses: dawidd6/action-download-artifact@v2.21.1
+        with:
+          workflow: iroha2-dev-pr.yml
+          check_artifacts: false
+      # codecov/codecov-action@v3 can't upload report with file name == "lcov-${{ steps.hash.outputs.hash }}.info"
+      - name: Rename lcov report file
+        run: mv lcov-${{ steps.hash.outputs.hash }}.info lcov.info
+      - name: Upload to codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: lcov.info
 
   archive-and-publish-schema:
     runs-on: ubuntu-latest
