@@ -64,3 +64,13 @@ warp = "0.3"
 
 [dev-dependencies]
 test_network = { version = "=2.0.0-pre-rc.6", path = "../core/test_network" }
+
+[package.metadata.cargo-all-features]
+denylist = [
+"bridge",
+"dex",
+"schema-endpoint",
+"telemetry",
+"test-network"
+] # TODO: remove `dex` and `bridge` once there's code for them.
+skip_optional_dependencies = true

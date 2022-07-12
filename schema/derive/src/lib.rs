@@ -221,7 +221,7 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             }
         })
     })
-        .expect("Failed to parse metadata for enums");
+    .expect("Failed to parse metadata for enums");
 
     (fields_ty, expr)
 }
@@ -291,7 +291,8 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
         .map(|int| quote! { #int })
         .or_else(|| {
             v.discriminant.as_ref().map(|&(_, ref expr)| {
-                let n: Lit = syn::parse2(quote! { #expr }).expect("Fallback in variant_index failed to parse");
+                let n: Lit = syn::parse2(quote! { #expr })
+                    .expect("Fallback in variant_index failed to parse");
                 quote! { #n }
             })
         })
@@ -322,7 +323,8 @@ fn filter_map_fields_types(field: &Field) -> Option<Field> {
     if is_compact(field) {
         let ty = &field.ty;
         let mut field = field.clone();
-        field.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> }).expect("Failed to parse compact schema variant");
+        field.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> })
+            .expect("Failed to parse compact schema variant");
         Some(field)
     } else {
         Some(field.clone())
