@@ -1,6 +1,6 @@
 [package]
 name = "iroha"
-version = "2.0.0-pre-rc.5"
+version = "2.0.0-pre-rc.6"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri). Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs."
@@ -36,20 +36,20 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.5", path = "../core" }
-iroha_macro = { version = "=2.0.0-pre-rc.5", path = "../macro" }
-iroha_permissions_validators = { version = "=2.0.0-pre-rc.5", path = "../permissions_validators" }
-iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger" }
-iroha_futures = { version = "=2.0.0-pre-rc.5", path = "../futures" }
-iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../actor" }
-iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model" }
-iroha_telemetry = { version = "=2.0.0-pre-rc.5", path = "../telemetry", optional = true }
-iroha_version = { version = "=2.0.0-pre-rc.5", path = "../version", features = ["warp"] }
-iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config" }
-iroha_crypto = { version = "=2.0.0-pre-rc.5", path = "../crypto" }
-iroha_p2p = { version = "=2.0.0-pre-rc.5", path = "../p2p" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.5", path = "../schema/gen", optional = true }
-iroha_cli_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }
+iroha_core = { version = "=2.0.0-pre-rc.6", path = "../core" }
+iroha_macro = { version = "=2.0.0-pre-rc.6", path = "../macro" }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.6", path = "../permissions_validators" }
+iroha_logger = { version = "=2.0.0-pre-rc.6", path = "../logger" }
+iroha_futures = { version = "=2.0.0-pre-rc.6", path = "../futures" }
+iroha_actor = { version = "=2.0.0-pre-rc.6", path = "../actor" }
+iroha_data_model = { version = "=2.0.0-pre-rc.6", path = "../data_model" }
+iroha_telemetry = { version = "=2.0.0-pre-rc.6", path = "../telemetry", optional = true }
+iroha_version = { version = "=2.0.0-pre-rc.6", path = "../version", features = ["warp"] }
+iroha_config = { version = "=2.0.0-pre-rc.6", path = "../config" }
+iroha_crypto = { version = "=2.0.0-pre-rc.6", path = "../crypto" }
+iroha_p2p = { version = "=2.0.0-pre-rc.6", path = "../p2p" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.6", path = "../schema/gen", optional = true }
+iroha_cli_derive = { version = "=2.0.0-pre-rc.6", path = "derive" }
 
 async-trait = "0.1"
 color-eyre = "0.5.11"
@@ -63,5 +63,4 @@ tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-mu
 warp = "0.3"
 
 [dev-dependencies]
-serial_test = "0.8.0"
-test_network = { version = "=2.0.0-pre-rc.5", path = "../core/test_network" }
+test_network = { version = "=2.0.0-pre-rc.6", path = "../core/test_network" }
