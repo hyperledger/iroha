@@ -136,20 +136,38 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let mouse_id = <Account as Identifiable>::Id::from_str("mouse@wonderland")?;
 
-    let register_mouse = RegisterBox::new(Account::new(mouse_id.clone(), []));
+    // Registering Mouse
+    let mouse_key_pair = KeyPair::generate()?;
+    let register_mouse = RegisterBox::new(Account::new(
+        mouse_id.clone(),
+        [mouse_key_pair.public_key().clone()],
+    ));
     test_client.submit_blocking(register_mouse)?;
 
-    let role_id = <Role as Identifiable>::Id::from_str("USER_METADATA_ACCESS")?;
+    // Registering role
+    let role_id = <Role as Identifiable>::Id::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = iroha_data_model::role::Role::new(role_id.clone())
-        .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone()))
-        .add_permission(CanRemoveKeyValueInUserMetadata::new(alice_id));
+        .add_permission(CanSetKeyValueInUserMetadata::new(mouse_id.clone()))
+        .add_permission(CanRemoveKeyValueInUserMetadata::new(mouse_id.clone()));
     let register_role = RegisterBox::new(role);
     test_client.submit_blocking(register_role)?;
 
-    let grant_role = GrantBox::new(role_id.clone(), mouse_id.clone());
-    test_client.submit_blocking(grant_role)?;
+    // Mouse grants role to Alice
+    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    let grant_role_tx = Transaction::new(mouse_id.clone(), vec![grant_role.into()].into(), 100_000)
+        .sign(mouse_key_pair)?;
+    test_client.submit_transaction_blocking(grant_role_tx)?;
 
-    let found_role_ids = test_client.request(client::role::by_account_id(mouse_id))?;
+    // Alice modifies Mouse's metadata
+    let set_key_value = SetKeyValueBox::new(
+        mouse_id,
+        Name::from_str("key").expect("Valid"),
+        Value::String("value".to_owned()),
+    );
+    test_client.submit_blocking(set_key_value)?;
+
+    // Making request to find Alice's roles
+    let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
     assert!(found_role_ids.contains(&role_id));
 
     Ok(())
