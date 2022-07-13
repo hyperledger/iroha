@@ -9,6 +9,60 @@ pub mod derive {
     use std::{error::Error as StdError, fmt};
 
     use derive_more::Display;
+    /// Generate view for the type and implements conversion `Type -> View`.
+    /// View contains a subset of the fields that the type has.
+    ///
+    /// Works only with structs.
+    /// Type must implement `Default`.
+    ///
+    /// ## Container attributes
+    ///
+    /// ## Field attributes
+    /// ### `#[view(ignore)]`
+    /// Marks fields to ignore when converting to view type.
+    ///
+    /// ### `#[view(into = Ty)]`
+    /// Sets view's field type to Ty.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use iroha_config_base::derive::view;
+    ///
+    /// view! {
+    ///     #[derive(Default)]
+    ///     struct Structure {
+    ///         #[view(type = u64)]
+    ///         a: u32,
+    ///         // `View` doesn't have field `b` so we must exclude it.
+    ///         #[view(ignore)]
+    ///         b: u32,
+    ///     }
+    /// }
+    ///
+    /// // Will generate something like
+    /// // --//-- original struct
+    /// //  struct StructureView {
+    /// //      a: u64,
+    /// //  }
+    /// //
+    /// //  impl From<Structure> for StructureView {
+    /// //      fn from(value: Structure) -> Self {
+    /// //          let Structure {
+    /// //              a,
+    /// //              ..
+    /// //          } = value;
+    /// //          Self {
+    /// //              a: From::<_>::from(a),
+    /// //          }
+    /// //      }
+    /// // }
+    ///
+    /// let structure = Structure { a: 13, b: 37 };
+    /// let view: StructureView = structure.into();
+    /// assert_eq!(view.a, 13);
+    /// ```
+    pub use iroha_config_derive::view;
     /// Derive macro for implementing [`iroha_config::Configurable`](`crate::Configurable`) for config structures.
     ///
     /// Has several attributes:
@@ -16,7 +70,7 @@ pub mod derive {
     /// ## `env_prefix`
     /// Sets prefix for env variable
     /// ``` rust
-    /// use iroha_config::{Configurable, derive::Configurable};
+    /// use iroha_config_base::{Configurable, derive::Configurable};
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
     /// #[config(env_prefix = "PREFIXED_")]
@@ -31,7 +85,7 @@ pub mod derive {
     /// ## `inner`
     /// Tells macro that structure stores another config inside
     /// ```rust
-    /// use iroha_config::{Configurable, derive::Configurable};
+    /// use iroha_config_base::{Configurable, derive::Configurable};
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
     /// struct Outer { #[config(inner)] inner: Inner }
@@ -46,7 +100,7 @@ pub mod derive {
     /// ## `serde_as_str`
     /// Tells macro to deserialize from env variable as bare string:
     /// ```
-    /// use iroha_config::{Configurable, derive::Configurable};
+    /// use iroha_config_base::{Configurable, derive::Configurable};
     /// use std::net::Ipv4Addr;
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
@@ -58,51 +112,6 @@ pub mod derive {
     /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
     /// ```
     pub use iroha_config_derive::Configurable;
-    /// Derive macro for conversation between a type and its view. which contains a subset of the fields that the type has.
-    ///
-    /// Works only with structs.
-    ///
-    /// Assumptions:
-    /// - The fields in `View` are a subset of the fields in the corresponding type.
-    /// - Type implements `Default`.
-    ///
-    /// ## Container attributes
-    ///
-    /// ### `#[view(ViewType)]`
-    /// Sets container view type.
-    ///
-    /// ## Field attributes
-    /// ### `#[view(ignore)]`
-    /// Marks fields to ignore when converting to view type.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// use iroha_config::derive::View;
-    ///
-    /// struct View {
-    ///     a: u32,
-    /// }
-    ///
-    /// #[derive(Default, View)]
-    /// #[view(View)]
-    /// struct Structure {
-    ///     a: u32,
-    ///     // `View` doesn't have field `b` so we must exclude it.
-    ///     #[view(ignore)]
-    ///     b: u32,
-    /// }
-    ///
-    /// let view = View { a: 32 };
-    /// let structure: Structure = view.into();
-    /// assert_eq!(structure.a, 32);
-    /// assert_eq!(structure.b, u32::default());
-    ///
-    /// let structure = Structure { a: 13, b: 37 };
-    /// let view: View = structure.into();
-    /// assert_eq!(view.a, 13);
-    /// ```
-    pub use iroha_config_derive::View;
 
     /// Error related to deserializing specific field
     #[derive(Debug, Display)]

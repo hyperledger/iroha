@@ -3,11 +3,11 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_error::{abort, abort_call_site};
-use quote::quote;
+use quote::{format_ident, quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
-    Data, DataStruct, DeriveInput, Fields, GenericArgument, Ident, Lit, LitStr, Meta,
-    PathArguments, Token, Type, TypePath,
+    Attribute, Data, DataStruct, DeriveInput, Field, Fields, GenericArgument, Ident, Lit, LitStr,
+    Meta, NestedMeta, PathArguments, Token, Type, TypePath,
 };
 
 struct EnvPrefix {
@@ -501,15 +501,54 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     out.into()
 }
 
-struct ViewType {
+// Take struct with named fields as input
+#[derive(Debug, Clone)]
+struct ViewInput {
+    attrs: Vec<Attribute>,
+    vis: syn::Visibility,
+    _struct_token: Token![struct],
     ident: Ident,
+    generics: syn::Generics,
+    fields: Vec<Field>,
+    _semi_token: Option<Token![;]>,
 }
 
-impl Parse for ViewType {
+impl Parse for ViewInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
+            attrs: input.call(Attribute::parse_outer)?,
+            vis: input.parse()?,
+            _struct_token: input.parse()?,
             ident: input.parse()?,
+            generics: input.parse()?,
+            fields: input
+                .parse::<syn::FieldsNamed>()?
+                .named
+                .into_iter()
+                .collect(),
+            _semi_token: input.parse()?,
         })
+    }
+}
+
+// Recreate struct
+impl ToTokens for ViewInput {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let ViewInput {
+            attrs,
+            vis,
+            ident,
+            generics,
+            fields,
+            ..
+        } = self;
+        let stream = quote! {
+            #(#attrs)*
+            #vis struct #ident #generics {
+                #(#fields),*
+            }
+        };
+        tokens.extend(stream);
     }
 }
 
@@ -517,102 +556,121 @@ struct ViewIgnore {
     _ident: Ident,
 }
 
-impl ViewIgnore {
-    const IGNORE: &'static str = "ignore";
-}
-
 impl Parse for ViewIgnore {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
-            _ident: parse_const_ident(input, Self::IGNORE)?,
+            _ident: parse_const_ident(input, "ignore")?,
         })
     }
 }
 
-/// Derive conversation between type and it's view. Check other doc in `iroha_config_base` reexport.
-#[proc_macro_derive(View, attributes(view))]
-pub fn into_view_derive(input: TokenStream) -> TokenStream {
-    let ast = match syn::parse(input) {
-        Ok(ast) => ast,
-        Err(err) => {
-            abort_call_site!("Failed to parse input Token Stream: {}", err)
-        }
-    };
-    impl_into_view(&ast)
+struct ViewFieldType {
+    _ident: Ident,
+    _eq: Token![=],
+    ty: Type,
 }
 
-#[allow(clippy::str_to_string)]
-fn impl_into_view(ast: &DeriveInput) -> TokenStream {
-    let ty = &ast.ident;
-    #[allow(clippy::expect_used)]
-    let view = ast
-        .attrs
-        .iter()
-        .find_map(|attr| {
-            if !attr.path.is_ident("view") {
-                return None;
-            }
-            attr.parse_args::<ViewType>().ok()
+impl Parse for ViewFieldType {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _ident: parse_const_ident(input, "into")?,
+            _eq: input.parse()?,
+            ty: input.parse()?,
         })
-        .map(|view| view.ident)
-        .expect("Required to provide view type.");
-    let fields = if let Data::Struct(DataStruct {
-        fields: Fields::Named(fields),
-        ..
-    }) = &ast.data
-    {
-        &fields.named
-    } else {
-        abort!(ast, "Only structs are supported");
-    };
-    // Filter-out fields with `#[view(ignore)]`
-    let fields = fields
-        .iter()
-        .filter(|field| {
-            field
-                .attrs
-                .iter()
-                .find_map(|attr| {
-                    if !attr.path.is_ident("view") {
-                        return None;
-                    }
-                    attr.parse_args::<ViewIgnore>().ok()
-                })
-                .is_none()
-        })
-        .collect::<Vec<_>>();
-    let field_idents = fields
-        .iter()
-        .map(|field| {
-            #[allow(clippy::expect_used)]
-            field
-                .ident
-                .as_ref()
-                .expect("Should always be set for named structures")
-        })
-        .collect::<Vec<_>>();
+    }
+}
+
+/// Generate view for given struct and convertion from type to it's view.
+/// Check other doc in `iroha_config_base` reexport.
+#[proc_macro]
+pub fn view(input: TokenStream) -> TokenStream {
+    let ast = syn::parse_macro_input!(input as ViewInput);
+    let original = gen_original_struct(ast.clone());
+    let view = gen_view_struct(ast);
+    let impl_from = gen_impl_from(&original, &view);
+    let impl_default = gen_impl_default(&original, &view);
     let out = quote! {
-        impl From<#view> for #ty {
-            fn from(config: #view) -> Self {
-                let #view {
-                    #(
-                        #field_idents,
-                    )*
-                } =  config;
-                //  Important to write macro in uniform way.
-                #[allow(clippy::needless_update)]
-                Self {
-                    #(
-                        #field_idents: From::<_>::from(#field_idents),
-                    )*
-                    ..Self::default()
+        #original
+        #view
+        #impl_from
+        #impl_default
+    };
+    out.into()
+}
+
+fn gen_original_struct(mut ast: ViewInput) -> ViewInput {
+    remove_attr_struct(&mut ast, "view");
+    ast
+}
+
+#[allow(clippy::str_to_string, clippy::expect_used)]
+fn gen_view_struct(mut ast: ViewInput) -> ViewInput {
+    // Remove fields with #[view(ignore)]
+    ast.fields.retain(is_view_field_ignored);
+    // Change field type to `Type` if it has attribute #[view(into = Type)]
+    ast.fields.iter_mut().for_each(view_field_change_type);
+    // Replace doc-string for view
+    remove_attr(&mut ast.attrs, "doc");
+    let view_doc = format!("View for {}", ast.ident);
+    ast.attrs.push(syn::parse_quote!(
+        #[doc = #view_doc]
+    ));
+    // Remove `Default` from #[derive(..., Default, ...)] or #[derive(Default)] because we implement `Default` inside macro
+    for attr in &mut ast.attrs {
+        if attr.path.is_ident("derive") {
+            let meta = attr
+                .parse_meta()
+                .expect("derive macro must be in one of the meta forms");
+            match meta {
+                Meta::List(list) => {
+                    let items: Vec<syn::NestedMeta> = list
+                        .nested
+                        .into_iter()
+                        .filter(|nested| {
+                            if let NestedMeta::Meta(Meta::Path(path)) = nested {
+                                if path.is_ident("Default") {
+                                    return false;
+                                }
+                            }
+                            true
+                        })
+                        .collect();
+                    *attr = syn::parse_quote!(
+                        #[derive(#(#items),*)]
+                    )
                 }
+                Meta::Path(path) if path.is_ident("Default") => {
+                    *attr = syn::parse_quote!(
+                        #[derive()]
+                    )
+                }
+                _ => {}
             }
         }
+    }
+    remove_attr_struct(&mut ast, "view");
+    ast.ident = format_ident!("{}View", ast.ident);
+    ast
+}
 
-        impl From<#ty> for #view {
-            fn from(config: #ty) -> Self {
-                let #ty {
+fn gen_impl_from(original: &ViewInput, view: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput {
+        ident: original_ident,
+        ..
+    } = original;
+    let ViewInput {
+        generics,
+        ident: view_ident,
+        fields,
+        ..
+    } = view;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let field_idents = extract_field_idents(fields);
+
+    quote! {
+        impl #impl_generics From<#original_ident> for #view_ident #ty_generics #where_clause {
+            fn from(config: #original_ident) -> Self {
+                let #original_ident {
                     #(
                         #field_idents,
                     )*
@@ -625,6 +683,94 @@ fn impl_into_view(ast: &DeriveInput) -> TokenStream {
                 }
             }
         }
-    };
-    out.into()
+    }
+}
+
+fn gen_impl_default(original: &ViewInput, view: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput {
+        ident: original_ident,
+        ..
+    } = original;
+    let ViewInput {
+        generics,
+        ident: view_ident,
+        fields,
+        ..
+    } = view;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let field_idents = extract_field_idents(fields);
+
+    quote! {
+        impl #impl_generics Default for #view_ident #ty_generics #where_clause {
+            fn default() -> Self {
+                let #original_ident {
+                    #(
+                        #field_idents,
+                    )*
+                    ..
+                } =  #original_ident::default();
+                Self {
+                    #(
+                        #field_idents: From::<_>::from(#field_idents),
+                    )*
+                }
+            }
+        }
+    }
+}
+
+/// Change [`Field`] type to `Type` if `#[view(type = Type)]` is present
+fn view_field_change_type(field: &mut Field) {
+    if let Some(ty) = field.attrs.iter().find_map(|attr| {
+        if !attr.path.is_ident("view") {
+            return None;
+        }
+        attr.parse_args::<ViewFieldType>()
+            .map(|field_type| field_type.ty)
+            .ok()
+    }) {
+        field.ty = ty;
+    }
+}
+
+/// Check if [`Field`] has `#[view(ignore)]`
+fn is_view_field_ignored(field: &Field) -> bool {
+    field
+        .attrs
+        .iter()
+        .find_map(|attr| {
+            if !attr.path.is_ident("view") {
+                return None;
+            }
+            attr.parse_args::<ViewIgnore>().ok()
+        })
+        .is_none()
+}
+
+/// Remove attribute with ident [`attr_ident`] from struct attributes and field attributes
+fn remove_attr_struct(ast: &mut ViewInput, attr_ident: &str) {
+    let ViewInput { attrs, fields, .. } = ast;
+    for field in fields {
+        remove_attr(&mut field.attrs, attr_ident)
+    }
+    remove_attr(attrs, attr_ident);
+}
+
+/// Remove attribute with ident [`attr_ident`] from field attributes
+fn remove_attr(attrs: &mut Vec<Attribute>, attr_ident: &str) {
+    attrs.retain(|attr| !attr.path.is_ident(attr_ident));
+}
+
+/// Return [`Vec`] of fields idents
+fn extract_field_idents(fields: &[Field]) -> Vec<&Ident> {
+    fields
+        .iter()
+        .map(|field| {
+            #[allow(clippy::expect_used)]
+            field
+                .ident
+                .as_ref()
+                .expect("Should always be set for named structures")
+        })
+        .collect::<Vec<_>>()
 }
