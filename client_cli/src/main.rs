@@ -99,7 +99,7 @@ pub trait RunArgs {
 }
 
 macro_rules! match_run_all {
-    (($self:ident, $cfg:ident), { $($variants:path),* }) => {
+    (($self:ident, $cfg:ident), { $($variants:path),* $(,)?}) => {
         match $self {
             $($variants(variant) => RunArgs::run(variant, $cfg),)*
         }
@@ -315,11 +315,19 @@ mod account {
         List(List),
         /// Grant a permission to the account
         Grant(Grant),
+        /// List all account permissions
+        ListPermissions(ListPermissions),
     }
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            match_run_all!((self, cfg), { Args::Register, Args::Set, Args::List, Args::Grant })
+            match_run_all!((self, cfg), {
+                Args::Register,
+                Args::Set,
+                Args::List,
+                Args::Grant,
+                Args::ListPermissions,
+            })
         }
     }
 
@@ -462,6 +470,26 @@ mod account {
             } = self;
             let grant = GrantBox::new(permission.0, id);
             submit(grant, cfg, metadata).wrap_err("Failed to grant the permission to the account")
+        }
+    }
+
+    /// List all account permissions
+    #[derive(StructOpt, Debug)]
+    pub struct ListPermissions {
+        /// Account id
+        #[structopt(short, long)]
+        id: <Account as Identifiable>::Id,
+    }
+
+    impl RunArgs for ListPermissions {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let client = Client::new(cfg)?;
+            let find_all_permissions = FindPermissionTokensByAccountId { id: self.id.into() };
+            let permissions = client
+                .request(find_all_permissions)
+                .wrap_err("Failed to get all account permissions")?;
+            println!("{:#?}", permissions);
+            Ok(())
         }
     }
 }
