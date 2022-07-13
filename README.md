@@ -4,7 +4,6 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/960/badge)](https://bestpractices.coreinfrastructure.org/projects/960)
-[![Build Status](https://jenkins.soramitsu.co.jp/buildStatus/icon?job=iroha/iroha-hyperledger/main)](https://jenkins.soramitsu.co.jp/job/iroha/job/iroha-hyperledger/job/main/)
 
 Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri).
 Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs.
@@ -58,6 +57,7 @@ It is based on JS Wallet but is up-to-date.
 
 [Iroha Explorer](https://codeberg.org/diva.exchange/iroha-explorer)
 [Iroha Docker container with Postgres 10](https://hub.docker.com/r/divax/iroha) and it's [source code](https://codeberg.org/diva.exchange/iroha)
+[Tool to deploy Iroha instances](https://github.com/kuvaldini/iroha-swarm)
 
 ### Want to help us develop Iroha?
 

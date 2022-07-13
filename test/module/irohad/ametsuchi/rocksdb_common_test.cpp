@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <boost/filesystem.hpp>
 #include <iostream>
+#include <set>
 
 #include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -53,13 +54,13 @@ class RocksDBTest : public ::testing::Test {
   void insertDb(std::string_view key, std::string_view value) {
     RocksDbCommon common(tx_context_);
     common.valueBuffer() = value;
-    common.put(key);
+    common.put(RocksDBPort::ColumnFamilyType::kWsv, key);
     common.commit();
   }
 
   std::string_view readDb(std::string_view key) {
     RocksDbCommon common(tx_context_);
-    common.get(key);
+    common.get(RocksDBPort::ColumnFamilyType::kWsv, key);
     return common.valueBuffer();
   }
 
@@ -79,6 +80,197 @@ class RocksDBTest : public ::testing::Test {
   std::string const value4_ = "vaLUe4";
   std::string const value5_ = "vaLUe5";
 };
+
+#define KEY_EXIST_WITH_VALUE(K, V)               \
+  ASSERT_TRUE(dbc.get(K, [](auto const &value) { \
+    assert(value == V);                          \
+    return true;                                 \
+  }))
+
+#define KEY_NOT_EXIST(K) \
+  ASSERT_FALSE(dbc.get(K, [](auto const &) { return true; }))
+
+TEST_F(RocksDBTest, DatabaseCacheSimpleTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheSimpleDeleteTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.erase("ww");
+  KEY_NOT_EXIST("ww");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheFilterDeletePosTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.filterDelete("w");
+  KEY_NOT_EXIST("ww");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheFilterDeleteNegTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.filterDelete("q");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheCommitTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.commit();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.rollback();
+  KEY_NOT_EXIST("ww");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.commit();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackToSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.rollbackToSavepoint();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheReleaseSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.releaseSavepoint();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackSavepointAfetrReleaseSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.releaseSavepoint();
+  dbc.rollbackToSavepoint();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackAfterReleaseSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  /// Twice! Second one should do nothing.
+  dbc.releaseSavepoint();
+  dbc.releaseSavepoint();
+
+  dbc.rollback();
+  KEY_NOT_EXIST("ww");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheMultipleRollbacksToSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  /// Twice! Second one should do nothing.
+  dbc.rollbackToSavepoint();
+  dbc.rollbackToSavepoint();
+
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheCommitAfterRollbackToSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.rollbackToSavepoint();
+  dbc.commit();
+
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheDropTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+
+  dbc.commit();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+
+  dbc.drop();
+  KEY_NOT_EXIST("ww");
+}
 
 TEST_F(RocksDBTest, DatabaseCacheTest) {
   iroha::ametsuchi::DatabaseCache<std::string> dbc;
@@ -119,8 +311,89 @@ TEST_F(RocksDBTest, DatabaseCacheTest) {
   ASSERT_EQ(counter, 2ull);
 }
 
+TEST_F(RocksDBTest, RadixTreeFilterEnum2) {
+  iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
+  std::set<std::string> expect;
+  auto insert = [&](std::string_view data, bool do_expected_insert) {
+    rt.insert(data.data(), data.size(), data.data());
+    if (do_expected_insert)
+      expect.insert(std::string{data});
+  };
+
+  insert("1", true);
+  insert("12578", true);
+  insert("125789", true);
+  insert("1257890000", true);
+  insert("123", true);
+  insert("124", true);
+
+  auto filter = [&](std::string_view key, QQQ *data) {
+    ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(data->s.empty());
+    ASSERT_TRUE(key == data->s);
+
+    auto it = expect.find(data->s);
+    ASSERT_NE(it, expect.end());
+
+    expect.erase(it);
+  };
+
+  rt.filterEnumerate(nullptr, 0ul, filter);
+  ASSERT_TRUE(expect.empty());
+}
+
+TEST_F(RocksDBTest, RadixTreeFilterEnum) {
+  iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
+  std::set<std::string> expect;
+  auto insert = [&](std::string_view data, bool do_expected_insert) {
+    rt.insert(data.data(), data.size(), data.data());
+    if (do_expected_insert)
+      expect.insert(std::string{data});
+  };
+
+  auto filter = [&](std::string_view key, QQQ *data) {
+    ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(data->s.empty());
+    ASSERT_TRUE(key == data->s);
+
+    auto it = expect.find(data->s);
+    ASSERT_NE(it, expect.end());
+
+    expect.erase(it);
+  };
+
+  insert("1", true);
+  rt.filterEnumerate("1", 1, filter);
+  ASSERT_TRUE(expect.empty());
+
+  insert("12", true);
+  insert("123", true);
+  insert("124", true);
+  rt.filterEnumerate("12", 2, filter);
+  ASSERT_TRUE(expect.empty());
+
+  insert("1256", true);
+  insert("1257", true);
+  rt.filterEnumerate("125", 3, filter);
+  ASSERT_TRUE(expect.empty());
+
+  insert("12578", true);
+  insert("125789", true);
+  insert("1257890000", true);
+  expect.insert("1257");
+  rt.filterEnumerate("1257", 4, filter);
+  ASSERT_TRUE(expect.empty());
+}
+
 TEST_F(RocksDBTest, RadixTreeTest) {
   iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
+
+  rt.insert("1234", 4, "9");
+  rt.filterDelete("123", 3);
+  ASSERT_TRUE(rt.find("1", 1) == nullptr);
+  ASSERT_TRUE(rt.find("12", 2) == nullptr);
+  ASSERT_TRUE(rt.find("123", 3) == nullptr);
+  ASSERT_TRUE(rt.find("1234", 4) == nullptr);
 
   rt.insert("123", 3, "d");
   rt.filterDelete("12", 2);
@@ -293,21 +566,84 @@ TEST_F(RocksDBTest, SimpleOperation) {
 
 TEST_F(RocksDBTest, SimpleDelete) {
   RocksDbCommon common(tx_context_);
-  ASSERT_TRUE(common.del(key3_).ok());
+  ASSERT_TRUE(common.del(RocksDBPort::ColumnFamilyType::kWsv, key3_).ok());
 
-  auto status = common.get(key3_);
+  auto status = common.get(RocksDBPort::ColumnFamilyType::kWsv, key3_);
   ASSERT_TRUE(status.IsNotFound());
+}
+
+TEST_F(RocksDBTest, RemoveTableTest) {
+  {
+    RocksDbCommon common(tx_context_);
+    common.valueBuffer() = "aaa";
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.commit().ok());
+
+    common.valueBuffer().clear();
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+    ASSERT_TRUE(common.commit().ok());
+
+    common.dropTable(RocksDBPort::ColumnFamilyType::kWsv);
+    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key")
+                    .IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+
+    common.valueBuffer() = "bbb";
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.commit().ok());
+
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "bbb");
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    common.valueBuffer().clear();
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "bbb");
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+    ASSERT_TRUE(common.commit().ok());
+  }
+}
+
+TEST_F(RocksDBTest, SimpleInsert) {
+  RocksDbCommon common(tx_context_);
+
+  common.valueBuffer() = "k777";
+  common.put(RocksDBPort::ColumnFamilyType::kWsv, "k777");
+
+  common.valueBuffer().clear();
+  auto status = common.get(RocksDBPort::ColumnFamilyType::kWsv, "k777");
+  ASSERT_TRUE(status.ok());
+  ASSERT_TRUE(common.valueBuffer() == "k777");
 }
 
 TEST_F(RocksDBTest, SimpleSeek) {
   RocksDbCommon common(tx_context_);
-  auto it = common.seek("key");
+  auto it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "key");
   ASSERT_TRUE(it->status().ok());
 
   ASSERT_TRUE(it->key().ToStringView() == key4_);
   ASSERT_TRUE(it->value().ToStringView() == value4_);
 
-  it = common.seek("ke1");
+  it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "ke1");
   ASSERT_TRUE(it->status().ok());
 
   ASSERT_TRUE(it->key().ToStringView() == key3_);
@@ -325,6 +661,7 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys) {
           throw;
         return true;
       },
+      RocksDBPort::ColumnFamilyType::kWsv,
       "keY");
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(counter, 2);
@@ -333,13 +670,62 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys) {
 TEST_F(RocksDBTest, FilterDelete) {
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.filterDelete("keY").ok());
+    insertDb("ab", "ab");
+    insertDb("k", "121");
+    ASSERT_TRUE(
+        common.filterDelete(2ull, RocksDBPort::ColumnFamilyType::kWsv, "keY")
+            .second.ok());
     ASSERT_TRUE(common.commit().ok());
   }
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.get(key1_).IsNotFound());
-    ASSERT_TRUE(common.get(key2_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key2_).IsNotFound());
+  }
+  {
+    ASSERT_TRUE(readDb(key3_) == value3_);
+    ASSERT_TRUE(readDb(key4_) == value4_);
+    ASSERT_TRUE(readDb(key5_) == value5_);
+  }
+}
+
+TEST_F(RocksDBTest, FilterDelete2) {
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(
+        common.filterDelete(1ull, RocksDBPort::ColumnFamilyType::kWsv, "keY")
+            .second.ok());
+    ASSERT_TRUE(common.commit().ok());
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
+  }
+  {
+    ASSERT_TRUE(readDb(key2_) == value2_);
+    ASSERT_TRUE(readDb(key3_) == value3_);
+    ASSERT_TRUE(readDb(key4_) == value4_);
+    ASSERT_TRUE(readDb(key5_) == value5_);
+  }
+}
+
+TEST_F(RocksDBTest, FilterDelete3) {
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(
+        common.filterDelete(1000ull, RocksDBPort::ColumnFamilyType::kWsv, "keY")
+            .second.ok());
+    ASSERT_TRUE(common.commit().ok());
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key2_).IsNotFound());
   }
   {
     ASSERT_TRUE(readDb(key3_) == value3_);
@@ -358,6 +744,7 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys2) {
           throw;
         return true;
       },
+      RocksDBPort::ColumnFamilyType::kWsv,
       "key");
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(counter, 1);
@@ -371,6 +758,7 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys3) {
                         throw;
                         return false;
                       },
+                      RocksDBPort::ColumnFamilyType::kWsv,
                       "keyT")
                   .ok());
   ASSERT_TRUE(common
@@ -379,6 +767,7 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys3) {
                         throw;
                         return false;
                       },
+                      RocksDBPort::ColumnFamilyType::kWsv,
                       "ko")
                   .ok());
 }
@@ -392,13 +781,15 @@ TEST_F(RocksDBTest, NumberRewrite) {
   {
     RocksDbCommon common(tx_context_);
     common.encode(55ull);
-    ASSERT_TRUE(common.put("{}", "123").ok());
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kWsv, "{}", "123").ok());
     ASSERT_TRUE(common.commit().ok());
   }
   uint64_t value;
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.get("{}", "123").ok());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "{}", "123").ok());
     common.decode(value);
   }
   ASSERT_TRUE(value == 55ull);
@@ -408,13 +799,14 @@ TEST_F(RocksDBTest, Skip) {
   {
     RocksDbCommon common(tx_context_);
     common.encode(55ull);
-    ASSERT_TRUE(common.put("123").ok());
+    ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "123").ok());
     common.skip();
   }
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_FALSE(common.get("123").ok());
-    ASSERT_TRUE(common.get("123").IsNotFound());
+    ASSERT_FALSE(common.get(RocksDBPort::ColumnFamilyType::kWsv, "123").ok());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "123").IsNotFound());
   }
 }
 
@@ -452,17 +844,17 @@ TEST_F(RocksDBTest, Quorum) {
 
 TEST_F(RocksDBTest, SortingOrder) {
   RocksDbCommon common(tx_context_);
-  common.filterDelete("");
+  common.filterDelete(1ull, RocksDBPort::ColumnFamilyType::kWsv, "");
 
   common.valueBuffer().clear();
-  ASSERT_TRUE(common.put("5").ok());
-  ASSERT_TRUE(common.put("3").ok());
-  ASSERT_TRUE(common.put("11").ok());
-  ASSERT_TRUE(common.put("6").ok());
-  ASSERT_TRUE(common.put("27").ok());
-  ASSERT_TRUE(common.put("1").ok());
-  ASSERT_TRUE(common.put("144").ok());
-  ASSERT_TRUE(common.put("2").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "5").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "3").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "11").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "6").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "27").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "1").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "144").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "2").ok());
 
   std::vector<std::string> s;
   common.enumerate(
@@ -472,6 +864,7 @@ TEST_F(RocksDBTest, SortingOrder) {
         s.push_back(std::string(key.ToStringView()));
         return true;
       },
+      RocksDBPort::ColumnFamilyType::kWsv,
       "");
 
   ASSERT_EQ(s[0], "1");
@@ -486,37 +879,123 @@ TEST_F(RocksDBTest, SortingOrder) {
 
 TEST_F(RocksDBTest, LowerBoundSearch) {
   RocksDbCommon common(tx_context_);
-  common.filterDelete("");
+  common.filterDelete(1ull, RocksDBPort::ColumnFamilyType::kWsv, "");
 
   char const *target = "wta1234569#1#2";
   char const *target2 = "wta1234367#1#1";
 
   common.valueBuffer().clear();
-  ASSERT_TRUE(common.put(target2).ok());
-  ASSERT_TRUE(common.put(target).ok());
-  ASSERT_TRUE(common.put("wta1234570#2#1").ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, target2).ok());
+  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, target).ok());
+  ASSERT_TRUE(
+      common.put(RocksDBPort::ColumnFamilyType::kWsv, "wta1234570#2#1").ok());
 
   {
-    auto it = common.seek("wta0");
+    auto it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta0");
     ASSERT_TRUE(it->Valid());
     ASSERT_TRUE(it->key().ToStringView() == target2);
   }
 
   {
-    auto it = common.seek("wta1234411#0#0");
+    auto it =
+        common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta1234411#0#0");
     ASSERT_TRUE(it->Valid());
     ASSERT_TRUE(it->key().ToStringView() == target);
   }
 
   {
-    auto it = common.seek("wta1234411");
+    auto it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta1234411");
     ASSERT_TRUE(it->Valid());
     ASSERT_TRUE(it->key().ToStringView() == target);
   }
 
   {
-    auto it = common.seek("wta1239411");
+    auto it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta1239411");
     ASSERT_FALSE(it->Valid());
+  }
+}
+
+TEST_F(RocksDBTest, LogsEnumerator) {
+  {
+    RocksDbCommon common(tx_context_);
+
+    common.valueBuffer() = "aaa";
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineLogs<kDbOperation::kPut>(common, 50, 0)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineLogs<kDbOperation::kPut>(common, 50, 1)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineLogs<kDbOperation::kPut>(common, 50, 2)));
+    ASSERT_TRUE(common.commit().ok());
+  }
+
+  {
+    RocksDbCommon common(tx_context_);
+    bool found[3];
+    memset(found, 0, sizeof(found));
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             throw std::runtime_error("Unexpected");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineLogs,
+                           10);
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             found[atoll(key.data())] =
+                                 (value.ToStringView() == "aaa");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineLogs,
+                           50);
+
+    ASSERT_TRUE(found[0]);
+    ASSERT_TRUE(found[1]);
+    ASSERT_TRUE(found[2]);
+  }
+}
+
+TEST_F(RocksDBTest, TopicsEnumerator) {
+  {
+    RocksDbCommon common(tx_context_);
+
+    common.valueBuffer() = "aaa";
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineTopics<kDbOperation::kPut>(common, 50, 0)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineTopics<kDbOperation::kPut>(common, 50, 1)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineTopics<kDbOperation::kPut>(common, 50, 2)));
+    ASSERT_TRUE(common.commit().ok());
+  }
+
+  {
+    RocksDbCommon common(tx_context_);
+    bool found[3];
+    memset(found, 0, sizeof(found));
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             throw std::runtime_error("Unexpected");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineTopics,
+                           10);
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             found[atoll(key.data())] =
+                                 (value.ToStringView() == "aaa");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineTopics,
+                           50);
+
+    ASSERT_TRUE(found[0]);
+    ASSERT_TRUE(found[1]);
+    ASSERT_TRUE(found[2]);
   }
 }
 
@@ -566,6 +1045,7 @@ TEST_F(RocksDBTest, Signatories) {
         ++counter;
         return true;
       },
+      RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathSignatories,
       "dom",
       "acc");

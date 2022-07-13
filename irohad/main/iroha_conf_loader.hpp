@@ -61,18 +61,23 @@ struct IrohadConfig {
   boost::optional<DbConfig>
       database_config;  // TODO 2019.06.26 mboldyrev IR-556 make required
   uint32_t max_proposal_size;
-  uint32_t proposal_delay;
   uint32_t vote_delay;
-  bool mst_support;
+  [[deprecated]] bool mst_support;
   bool syncing_mode;
   boost::optional<uint32_t> mst_expiration_time;
   boost::optional<uint32_t> max_round_delay_ms;
   boost::optional<uint32_t> proposal_creation_timeout;
   boost::optional<uint32_t> healthcheck_port;
+  boost::optional<uint32_t> max_proposal_pack;
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   std::optional<shared_model::interface::types::PeerList> initial_peers;
   boost::optional<UtilityService> utility_service;
+
+  // getters
+  uint32_t getMaxpProposalPack() const;
+  uint32_t getProposalDelay() const;
+  uint32_t getProposalCreationTimeout() const;
 
   // This is a part of cryto providers feature:
   // https://github.com/MBoldyrev/iroha/tree/feature/hsm-utimaco.

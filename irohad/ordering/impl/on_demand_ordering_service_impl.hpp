@@ -14,10 +14,9 @@
 
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/hash.hpp"
 #include "ordering/impl/batches_cache.hpp"
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
-#include "multi_sig_transactions/state/mst_state.hpp"
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 
 namespace iroha {
@@ -27,9 +26,7 @@ namespace iroha {
   namespace ordering {
     namespace detail {
       using ProposalMapType =
-          std::map<consensus::Round,
-                   std::optional<std::shared_ptr<
-                       const OnDemandOrderingService::ProposalType>>>;
+          std::map<consensus::BlockRoundType, PackedProposalData>;
     }  // namespace detail
 
     class OnDemandOrderingServiceImpl : public OnDemandOrderingService {
@@ -46,18 +43,20 @@ namespace iroha {
        */
       OnDemandOrderingServiceImpl(
           size_t transaction_limit,
+          uint32_t max_proposal_pack,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           logger::LoggerPtr log,
           size_t number_of_proposals = 3);
 
+      ~OnDemandOrderingServiceImpl() override;
+
       // --------------------- | OnDemandOrderingService |_---------------------
 
       void onBatches(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-          consensus::Round round) override;
+      PackedProposalData onRequestProposal(consensus::Round round) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
 
@@ -71,13 +70,16 @@ namespace iroha {
 
       void processReceivedProposal(CollectionType batches) override;
 
+      PackedProposalData waitForLocalProposal(
+          consensus::Round const &round,
+          std::chrono::milliseconds const &delay) override;
+
      private:
       /**
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      std::optional<std::shared_ptr<shared_model::interface::Proposal>>
-      packNextProposals(const consensus::Round &round);
+      PackedProposalData packNextProposals(const consensus::Round &round);
 
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
@@ -108,12 +110,14 @@ namespace iroha {
       void removeFromBatchesCache(
           const OnDemandOrderingService::HashesSetType &hashes);
 
-      bool isEmptyBatchesCache() const override;
+      bool isEmptyBatchesCache() override;
+
+      uint32_t availableTxsCountBatchesCache() override;
 
       bool hasEnoughBatchesInCache() const override;
 
       void forCachedBatches(
-          std::function<void(const BatchesSetType &)> const &f) const override;
+          std::function<void(BatchesSetType &)> const &f) override;
 
       bool hasProposal(consensus::Round round) const override;
 
@@ -126,6 +130,11 @@ namespace iroha {
        * Max number of available proposals in one OS
        */
       size_t number_of_proposals_;
+
+      /**
+       * Maximum proposals count in a pack.
+       */
+      uint32_t const max_proposal_pack_;
 
       /**
        * Map of available proposals
@@ -156,6 +165,10 @@ namespace iroha {
        * Current round
        */
       consensus::Round current_round_;
+
+      std::shared_ptr<
+          iroha::BaseSubscriber<bool, RemoteProposalDownloadedEvent>>
+          remote_proposal_observer_;
     };
   }  // namespace ordering
 }  // namespace iroha

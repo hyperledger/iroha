@@ -35,6 +35,8 @@ namespace shared_model {
 
       const interface::types::HashType &hash() const override;
 
+      interface::types::TransactionsCollectionType mut_transactions() override;
+
       ~Proposal() override;
 
      private:

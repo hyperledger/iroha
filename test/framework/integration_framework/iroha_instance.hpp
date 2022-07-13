@@ -18,7 +18,6 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/startup_params.hpp"
-#include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
 namespace shared_model {
@@ -59,10 +58,6 @@ namespace integration_framework {
     void rawInsertBlock(
         std::shared_ptr<const shared_model::interface::Block> block);
 
-    void setMstGossipParams(
-        std::chrono::milliseconds mst_gossip_emitting_period,
-        uint32_t mst_gossip_amount_per_once);
-
     void initPipeline(const shared_model::crypto::Keypair &key_pair,
                       size_t max_proposal_size = 10);
 
@@ -80,8 +75,6 @@ namespace integration_framework {
     const std::string working_dbname_;
     const std::string rocksdb_filepath_;
     const std::string listen_ip_;
-    boost::optional<iroha::GossipPropagationStrategyParams>
-        opt_mst_gossip_params_;
 
    private:
     std::shared_ptr<TestIrohad> test_irohad_;

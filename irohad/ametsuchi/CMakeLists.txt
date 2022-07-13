@@ -185,15 +185,31 @@ target_link_libraries(rocksdb_indexer
     RocksDB::rocksdb
     )
 
+add_library(common_burrow_storage
+    impl/burrow_storage.cpp
+    )
+target_link_libraries(common_burrow_storage 
+    common
+    )
+
+add_library(rocksdb_burrow_storage
+    impl/rocksdb_burrow_storage.cpp
+    )
+target_link_libraries(rocksdb_burrow_storage
+    common_burrow_storage
+    RocksDB::rocksdb
+    )
+
 target_compile_definitions(postgres_indexer
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
 
 add_library(postgres_burrow_storage
-    impl/burrow_storage.cpp
     impl/postgres_burrow_storage.cpp
     )
-target_link_libraries(postgres_burrow_storage common)
+target_link_libraries(postgres_burrow_storage 
+    common_burrow_storage
+    )
 
 add_library(default_vm_call INTERFACE)
 if(USE_BURROW)
@@ -222,6 +238,7 @@ target_link_libraries(ametsuchi
     libs_files
     common
     postgres_burrow_storage
+    rocksdb_burrow_storage
     postgres_options
     shared_model_interfaces
     shared_model_plain_backend

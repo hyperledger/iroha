@@ -6,19 +6,24 @@
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 
 #include <iterator>
+#include <tuple>
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/empty.hpp>
+
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "common/visitor.hpp"
+#include "datetime/time.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "validators/field_validator.hpp"
 
 using iroha::ordering::OnDemandOrderingGate;
 
@@ -38,7 +43,32 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       tx_cache_(std::move(tx_cache)),
       syncing_mode_(syncing_mode) {}
 
+void OnDemandOrderingGate::initialize() {
+  failed_proposal_response_ =
+      SubscriberCreator<bool, ProposalEvent>::template create<
+          EventTypes::kOnProposalResponseFailed>(
+          SubscriptionEngineHandlers::kYac,
+          [_w_this{weak_from_this()}](auto, auto ev) {
+            if (auto _this = _w_this.lock()) {
+              std::shared_lock<std::shared_timed_mutex> stop_lock(
+                  _this->stop_mutex_);
+              if (_this->stop_requested_) {
+                _this->log_->warn(
+                    "Not doing anything because stop was requested.");
+                return;
+              }
+
+              if (!_this->syncing_mode_) {
+                assert(_this->network_client_);
+                _this->network_client_->onRequestProposal(ev.round,
+                                                          std::nullopt);
+              }
+            }
+          });
+}
+
 OnDemandOrderingGate::~OnDemandOrderingGate() {
+  failed_proposal_response_->unsubscribe();
   stop();
 }
 
@@ -50,10 +80,8 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
-  // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
-  forLocalOS(&OnDemandOrderingService::onBatches,
-             transport::OdOsNotification::CollectionType{batch});
-  network_client_->onBatches(
+  log_->info("Propagated for network batch: {}", *batch);
+  network_client_->onBatchesToWholeNetwork(
       transport::OdOsNotification::CollectionType{batch});
 }
 
@@ -72,11 +100,25 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   forLocalOS(&OnDemandOrderingService::onCollaborationOutcome,
              event.next_round);
 
-  this->sendCachedTransactions();
+  if (!syncing_mode_) {
+    assert(ordering_service_);
+    assert(network_client_);
 
-  // request proposal for the current round
-  if (!syncing_mode_)
-    network_client_->onRequestProposal(event.next_round);
+    if (auto proposal = proposal_cache_.get(event.next_round))
+      return iroha::getSubscription()->notify(
+          iroha::EventTypes::kOnProposalSingleEvent,
+          std::make_tuple(event.next_round, std::move(proposal)));
+
+    network_client_->onRequestProposal(
+        event.next_round,
+#if USE_BLOOM_FILTER
+        ordering_service_->waitForLocalProposal(
+            event.next_round, network_client_->getRequestDelay())
+#else   // USE_BLOOM_FILTER
+        std::nullopt
+#endif  // USE_BLOOM_FILTER
+    );
+  }
 }
 
 void OnDemandOrderingGate::stop() {
@@ -88,63 +130,94 @@ void OnDemandOrderingGate::stop() {
   }
 }
 
+void OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
+  if (not current_ledger_state_ || event.round != current_round_)
+    return;
+
+  iroha::ordering::SingleProposalEvent e;
+  if (!event.proposal_pack.empty()) {
+    proposal_cache_.insert(std::move(event.proposal_pack));
+    e = std::make_tuple(event.round, proposal_cache_.get(event.round));
+  } else {
+    e = std::make_tuple(
+        event.round,
+        std::shared_ptr<const shared_model::interface::Proposal>{});
+  }
+  iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalSingleEvent,
+                                   std::move(e));
+}
+
 std::optional<iroha::network::OrderingEvent>
-OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
-  if (not current_ledger_state_ || event.round != current_round_) {
+OnDemandOrderingGate::processProposalEvent(
+    iroha::ordering::SingleProposalEvent &&event) {
+  auto const &round = std::get<0>(event);
+  auto const &proposal = std::get<1>(event);
+
+  if (!current_ledger_state_ || round != current_round_)
     return std::nullopt;
-  }
-  if (not event.proposal) {
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
-  }
-  auto result = removeReplaysAndDuplicates(*event.proposal);
-  // no need to check empty proposal
-  if (boost::empty(result->transactions())) {
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
-  }
+
+  if (!proposal)
+    return network::OrderingEvent{std::nullopt, round, current_ledger_state_};
+
+  auto result = removeReplaysAndDuplicates(std::move(proposal));
+  if (boost::empty(result->transactions()))
+    return network::OrderingEvent{std::nullopt, round, current_ledger_state_};
+
   shared_model::interface::types::SharedTxsCollectionType transactions;
-  for (auto &transaction : result->transactions()) {
+  for (auto &transaction : result->transactions())
     transactions.push_back(clone(transaction));
-  }
+
   auto batch_txs =
       shared_model::interface::TransactionBatchParserImpl().parseBatches(
           transactions);
   shared_model::interface::types::BatchesCollectionType batches;
-  for (auto &txs : batch_txs) {
+  for (auto &txs : batch_txs)
     batches.push_back(
         std::make_shared<shared_model::interface::TransactionBatchImpl>(
             std::move(txs)));
-  }
+
   forLocalOS(&OnDemandOrderingService::processReceivedProposal,
              std::move(batches));
   return network::OrderingEvent{
-      std::move(result), event.round, current_ledger_state_};
+      std::move(result), round, current_ledger_state_};
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO iceseer 14.01.21 IR-958 Check that OS is remote
-  forLocalOS(&OnDemandOrderingService::forCachedBatches,
-             [this](auto const &batches) {
-               auto end_iterator = batches.begin();
-               auto current_number_of_transactions = 0u;
-               for (; end_iterator != batches.end(); ++end_iterator) {
-                 auto batch_size = (*end_iterator)->transactions().size();
-                 if (current_number_of_transactions + batch_size
-                     <= transaction_limit_) {
-                   current_number_of_transactions += batch_size;
-                 } else {
-                   break;
-                 }
-               }
+  forLocalOS(&OnDemandOrderingService::forCachedBatches, [this](auto &batches) {
+    auto end_iterator = batches.begin();
+    auto current_number_of_transactions = 0u;
+    auto const now = iroha::time::now();
 
-               if (not batches.empty()) {
-                 network_client_->onBatches(
-                     transport::OdOsNotification::CollectionType{
-                         batches.begin(), end_iterator});
-               }
-             });
+    for (; end_iterator != batches.end();) {
+      if (std::any_of(
+              end_iterator->get()->transactions().begin(),
+              end_iterator->get()->transactions().end(),
+              [&](const auto &tx) {
+                return (uint64_t)now
+                    > shared_model::validation::FieldValidator::kMaxDelay
+                    + tx->createdTime();
+              })) {
+        end_iterator = batches.erase(end_iterator);
+        continue;
+      }
+
+      auto batch_size = (*end_iterator)->transactions().size();
+      if (current_number_of_transactions + batch_size <= transaction_limit_) {
+        current_number_of_transactions += batch_size;
+      } else {
+        break;
+      }
+
+      ++end_iterator;
+    }
+
+    if (not batches.empty()) {
+      network_client_->onBatches(transport::OdOsNotification::CollectionType{
+          batches.begin(), end_iterator});
+    }
+  });
 }
 
 std::shared_ptr<const shared_model::interface::Proposal>

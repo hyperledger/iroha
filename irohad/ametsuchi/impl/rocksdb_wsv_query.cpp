@@ -61,6 +61,7 @@ namespace iroha::ametsuchi {
                 signatories.emplace_back(signatory.ToStringView());
                 return true;
               },
+              RocksDBPort::ColumnFamilyType::kWsv,
               fmtstrings::kPathSignatories,
               domain_id,
               account_name);
@@ -99,11 +100,15 @@ namespace iroha::ametsuchi {
 
           rocksdb::Status status;
           if (syncing_peers)
-            status = enumerateKeysAndValues(
-                common, std::move(callback), fmtstrings::kPathSPeers);
+            status = enumerateKeysAndValues(common,
+                                            std::move(callback),
+                                            RocksDBPort::ColumnFamilyType::kWsv,
+                                            fmtstrings::kPathSPeers);
           else
-            status = enumerateKeysAndValues(
-                common, std::move(callback), fmtstrings::kPathPeers);
+            status = enumerateKeysAndValues(common,
+                                            std::move(callback),
+                                            RocksDBPort::ColumnFamilyType::kWsv,
+                                            fmtstrings::kPathPeers);
 
           RDB_ERROR_CHECK(canExist(
               status, [&]() { return fmt::format("Enumerate peers"); }));
@@ -194,12 +199,17 @@ namespace iroha::ametsuchi {
       assert(!hash_str.empty());
 
       uint64_t number;
-      std::from_chars(
-          height_str.data(), height_str.data() + height_str.size(), number);
-      return iroha::TopBlockInfo(
-          number,
-          shared_model::crypto::Hash(shared_model::crypto::Blob::fromHexString(
-              std::string{hash_str})));
+      auto [ptr, ec]{std::from_chars(
+          height_str.data(), height_str.data() + height_str.size(), number)};
+      if (ec == std::errc())
+        return iroha::TopBlockInfo(
+            number,
+            shared_model::crypto::Hash(
+                shared_model::crypto::Blob::fromHexString(
+                    std::string{hash_str})));
+      else
+        return expected::makeError(
+            "Height in top block info is not a valid number.");
     }
   }
 

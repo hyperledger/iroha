@@ -15,4 +15,5 @@ Hardware requirements, deployment process in details, aspects related to securit
     troubleshooting.rst
     metrics.rst
     migration-rocksdb.rst
+    migration-practice.rst
     

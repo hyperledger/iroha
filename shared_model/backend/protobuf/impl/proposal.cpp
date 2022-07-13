@@ -41,6 +41,10 @@ namespace shared_model {
       impl_ = std::make_unique<Proposal::Impl>(std::move(ref));
     }
 
+    interface::types::TransactionsCollectionType Proposal::mut_transactions() {
+      return impl_->transactions_;
+    }
+
     TransactionsCollectionType Proposal::transactions() const {
       return impl_->transactions_;
     }

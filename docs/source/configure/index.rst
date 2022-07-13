@@ -8,6 +8,7 @@ Configure
       :maxdepth: 1
 
       torii-tls.rst
+      db.rst
 
 In this section we will understand how to configure Iroha.
 Some configuration parameters must be the same in all the nodes (they are marked with \*) and some can differ.
@@ -43,10 +44,11 @@ Deployment-specific parameters
 - ``utility_service`` (optional) endpoint for maintenance tasks.
   If present, must include ``ip`` address and ``port`` to bind to.
   See `shepherd docs <../maintenance/shepherd.html>`_ for an example usage of maintenance endpoint.
-- ``metrics`` (optional) endpoint to monitor iroha's metrics. Prometheus HTTP server listens on this endpoint.
+- ``metrics`` (optional) endpoint to monitor Iroha's metrics. Prometheus HTTP server listens on this endpoint.
   If present, must correspond format "[addr]:<port>" and could be for example "127.0.0.1:8080", "9090", or ":1234".
   Wrong values implicitly disables Prometheus metrics server. There are also cmdline options ```--metrics_port`` and
   ``--metrics_addr`` to override this parameter.
+- ``healthcheck_port`` (optional) endpoint for Iroha healthcheck. Sending a request to this endpoint in the form of ``http://<host>:<healthcheck_port>/healthcheck`` will return you information about the status of the node: current memory consumption (``memory_consumption``), current number of blocks (``last_block_round``), current count of reject rounds (``last_reject_round``), if the node is syncing information with a remote node at the moment (``is_syncing``), if the node is currently up (``status``). 
 
 There is also an optional ``torii_tls_params`` parameter, which could be included
 in the config to enable TLS support for client communication.
@@ -85,13 +87,7 @@ Environment-specific parameters
   ``10``. However, we recommend to increase this number if you have a lot of
   transactions per second.
 
-    **This parameter affects performance.** Increase this parameter, if your network has a big number of transactions going. If you increase ``max_proposal_size`` due to an inreased throughput, you can increase it independently. But if the speed stays approximately the same, you need to also increase ``proposal_delay`` to allow all these transactions to get into this one big proposal. By increasing this parameter you can improve the performance but note that at some point increasing this value can lead to degradation of the performance.
-
-
-- ``proposal_delay`` is a timeout in milliseconds that a peer waits a response
-  from the orderding service with a proposal. **Important: proposal_delay must be bigger than proposal_creation_timeout. Not following this rule will lead to unstable system.**
-
-    **This parameter affects performance.** If you want bigger proposal size, you will need to give the system time to collect this increased number of transactions into one proposal.
+    **This parameter affects performance.** Increase this parameter, if your network has a big number of transactions going. If you increase ``max_proposal_size`` due to an inreased throughput, you can increase it independently. By increasing this parameter you can improve the performance but note that at some point increasing this value can lead to degradation of the performance.
 
 - ``vote_delay`` \* is a waiting time in milliseconds before sending vote to the
   next peer. Optimal value depends heavily on the amount of Iroha peers in the
@@ -121,7 +117,6 @@ Environment-specific parameters
   long idle time.
   This parameter allows users to find an optimal value in a tradeoff between
   resource consumption and the delay of getting back to work after an idle
-  period. **Important: proposal_delay must be bigger than proposal_creation_timeout. Not following this rule will lead to unstable system.**
 
     **This parameter affects resource consumption.** When you can expect Iroha to stay idle for longer periods of time and would like to save some resources, increase this value - it will make Iroha check for new transactions more rarely. NB: the first transaction after idle period might be a little delayed due to that. Second and further blocks will be processed quicker.
 
@@ -163,7 +158,6 @@ Here is the configuration we used:
 .. code-block:: javascript
 
   "max_proposal_size" : 10000,
-  "proposal_delay" : 1000,
   "vote_delay" : 1000,
   "mst_enable" : true,
   "mst_expiration_time": 1440,
@@ -190,7 +184,6 @@ Unix
   export IROHA_INTERNAL_PORT=10001
   export IROHA_PG_OPT="host=172.19.0.2 port=5432 user=iroha password=helloworld"
   export IROHA_MAX_PROPOSAL_SIZE=10
-  export IROHA_PROPOSAL_DELAY=5000
   export IROHA_VOTE_DELAY=5000
   export IROHA_MST_ENABLE=false
   export IROHA_MST_EXPIRATION_TIME=1440

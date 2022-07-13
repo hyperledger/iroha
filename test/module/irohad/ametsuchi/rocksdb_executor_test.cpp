@@ -8,6 +8,7 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_command_executor.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
+#include "ametsuchi/impl/rocksdb_specific_query_executor.hpp"
 #include "ametsuchi/impl/rocksdb_wsv_query.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
@@ -65,8 +66,15 @@ namespace iroha::ametsuchi {
                                                     getTestLogger("WsvQuery"));
 
       pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
+
+      auto query_executor =
+          std::make_shared<RocksDbSpecificQueryExecutor>(tx_context_,
+                                                         *block_storage_,
+                                                         pending_txs_storage,
+                                                         query_response_factory,
+                                                         perm_converter);
       executor = std::make_unique<RocksDbCommandExecutor>(
-          tx_context_, perm_converter, std::nullopt);
+          tx_context_, perm_converter, query_executor, std::nullopt);
     }
 
     void SetUp() override {
@@ -101,6 +109,7 @@ namespace iroha::ametsuchi {
                                      roles.emplace_back(r.ToStringView());
                                      return true;
                                    },
+                                   RocksDBPort::ColumnFamilyType::kWsv,
                                    fmtstrings::kPathAccountRoles,
                                    domain,
                                    account);
@@ -234,6 +243,7 @@ namespace iroha::ametsuchi {
 
             return true;
           },
+          RocksDBPort::ColumnFamilyType::kWsv,
           fmtstrings::kPathAccountDetail,
           domain,
           account);

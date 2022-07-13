@@ -28,9 +28,7 @@ message ProposalRequest {
 }
 
 message ProposalResponse {
-  oneof optional_proposal {
-    protocol.Proposal proposal = 1;
- }
+  repeated protocol.Proposal proposal = 1;
 }
 
 service OnDemandOrdering {

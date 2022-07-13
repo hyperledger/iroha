@@ -133,7 +133,8 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   apt-get update; \
   apt-get -y --no-install-recommends install \
   build-essential ninja-build \
-  git ca-certificates tar curl unzip cmake
+  git ca-certificates tar curl unzip cmake \
+  pkg-config zip
 
 .. Important:: If you would like to use `Burrow integration <../integrations/burrow.html>`_ you will also need GO. Install it following the instructions on `the official website <https://golang.org/doc/install>`_ and then use the following command:
 
@@ -262,13 +263,13 @@ The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you 
 
 .. code-block:: shell
 
-  cmake --build . --target irohad
+  cmake --build ./build --target irohad
 
 .. warning:: If you want to use tests later, instead of building `irohad` target, you need to use this:
 
 .. code-block:: shell
 
-  cmake --build . --target all 
+  cmake --build ./build --target all 
 
 
 3. Check the result by running the help: 

@@ -36,9 +36,6 @@ namespace integration_framework {
       /// Disable the behaviour
       void absolve();
 
-      /// This method gets subscribed on Fake Peer's MST messages.
-      virtual void processMstMessage(std::shared_ptr<MstMessage> message) = 0;
-
       /// This method gets subscribed on Fake Peer's YAC messages.
       virtual void processYacMessage(
           std::shared_ptr<const YacMessage> message) = 0;

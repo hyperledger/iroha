@@ -5,10 +5,13 @@
 
 #include "framework/integration_framework/fake_peer/network/on_demand_os_network_notifier.hpp"
 
+#include <chrono>
+
 #include "backend/protobuf/proposal.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
+#include "ordering/ordering_types.hpp"
 
 namespace integration_framework::fake_peer {
 
@@ -22,7 +25,14 @@ namespace integration_framework::fake_peer {
         std::make_shared<BatchesCollection>(std::move(batches)));
   }
 
-  std::optional<std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>>
+  iroha::ordering::PackedProposalData
+  OnDemandOsNetworkNotifier::waitForLocalProposal(
+      iroha::consensus::Round const &round,
+      std::chrono::milliseconds const & /*delay*/) {
+    return onRequestProposal(round);
+  }
+
+  iroha::ordering::PackedProposalData
   OnDemandOsNetworkNotifier::onRequestProposal(iroha::consensus::Round round) {
     {
       std::lock_guard<std::mutex> guard(rounds_subject_mutex_);
@@ -34,9 +44,11 @@ namespace integration_framework::fake_peer {
     if (behaviour) {
       auto opt_proposal = behaviour->processOrderingProposalRequest(round);
       if (opt_proposal) {
-        return std::shared_ptr<const shared_model::interface::Proposal>(
-            std::static_pointer_cast<const shared_model::proto::Proposal>(
-                *opt_proposal));
+        return iroha::ordering::PackedProposalData{{std::make_pair(
+            std::shared_ptr<const shared_model::interface::Proposal>(
+                std::static_pointer_cast<const shared_model::proto::Proposal>(
+                    *opt_proposal)),
+            iroha::ordering::BloomFilter256{})}};
       }
     }
     return {};
@@ -49,15 +61,20 @@ namespace integration_framework::fake_peer {
   void OnDemandOsNetworkNotifier::onDuplicates(const HashesSetType &hashes) {}
 
   void OnDemandOsNetworkNotifier::forCachedBatches(
-      std::function<void(const iroha::ordering::OnDemandOrderingService::
-                             BatchesSetType &)> const &f) const {}
+      std::function<void(
+          iroha::ordering::OnDemandOrderingService::BatchesSetType &)> const
+          &f) {}
 
-  bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() const {
+  bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() {
     return true;
   }
 
   bool OnDemandOsNetworkNotifier::hasEnoughBatchesInCache() const {
     return false;
+  }
+
+  uint32_t OnDemandOsNetworkNotifier::availableTxsCountBatchesCache() {
+    return 0ul;
   }
 
   void OnDemandOsNetworkNotifier::processReceivedProposal(

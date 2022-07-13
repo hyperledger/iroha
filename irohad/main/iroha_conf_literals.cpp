@@ -29,9 +29,9 @@ namespace config_members {
   const char *DbPath = "path";
   const char *DbType = "type";
   const char *MaxProposalSize = "max_proposal_size";
-  const char *ProposalDelay = "proposal_delay";
   const char *ProposalCreationTimeout = "proposal_creation_timeout";
   const char *HealthcheckPort = "healthcheck_port";
+  const char *MaxProposalPack = "max_proposal_pack";
   const char *VoteDelay = "vote_delay";
   const char *MstSupport = "mst_enable";
   const char *MstExpirationTime = "mst_expiration_time";

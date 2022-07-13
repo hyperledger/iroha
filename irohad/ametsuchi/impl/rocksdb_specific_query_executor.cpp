@@ -13,6 +13,7 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
+#include "backend/plain/engine_receipt.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/common.hpp"
@@ -187,6 +188,7 @@ operator()(
                                  roles.emplace_back(role.ToStringView());
                                  return true;
                                },
+                               RocksDBPort::ColumnFamilyType::kWsv,
                                fmtstrings::kPathAccountRoles,
                                domain_id,
                                account_name);
@@ -262,6 +264,7 @@ operator()(
                       signatories.emplace_back(signatory.ToStringView());
                       return true;
                     },
+                    RocksDBPort::ColumnFamilyType::kWsv,
                     fmtstrings::kPathSignatories,
                     domain_id,
                     account_name);
@@ -452,7 +455,8 @@ RocksDbSpecificQueryExecutor::readTxs(
 
       if (ordering_ptr->field
           == shared_model::interface::Ordering::Field::kCreatedTime) {
-        auto it = common.template seek(fmtstrings::kTransactionByTs,
+        auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                       fmtstrings::kTransactionByTs,
                                        query.accountId(),
                                        tx_ts,
                                        tx_height,
@@ -463,7 +467,8 @@ RocksDbSpecificQueryExecutor::readTxs(
                                         fmtstrings::kPathTransactionByTs,
                                         query.accountId());
       } else {
-        auto it = common.template seek(fmtstrings::kTransactionByPosition,
+        auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                       fmtstrings::kTransactionByPosition,
                                        query.accountId(),
                                        tx_height,
                                        tx_index,
@@ -478,7 +483,8 @@ RocksDbSpecificQueryExecutor::readTxs(
   } else {
     if (ordering_ptr->field
         == shared_model::interface::Ordering::Field::kCreatedTime) {
-      auto it = common.template seek(fmtstrings::kTransactionByTsLowerBound,
+      auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                     fmtstrings::kTransactionByTsLowerBound,
                                      query.accountId(),
                                      bounds.tsFrom);
       status = enumerateKeysAndValues(common,
@@ -487,7 +493,8 @@ RocksDbSpecificQueryExecutor::readTxs(
                                       fmtstrings::kPathTransactionByTs,
                                       query.accountId());
     } else {
-      auto it = common.template seek(fmtstrings::kTransactionByHeight,
+      auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                     fmtstrings::kTransactionByHeight,
                                      query.accountId(),
                                      bounds.heightFrom);
       status = enumerateKeysAndValues(common,
@@ -696,6 +703,7 @@ operator()(
           return false;
         }
       },
+      RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathAccountAssets,
       domain_id,
       account_name);
@@ -804,6 +812,7 @@ operator()(
                                 }
                                 return true;
                               },
+                              RocksDBPort::ColumnFamilyType::kWsv,
                               fmtstrings::kPathRoles);
   RDB_ERROR_CHECK(canExist(status, [&] { return "Enumerate roles"; }));
 
@@ -950,6 +959,7 @@ operator()(
               syncing_peer));
           return true;
         },
+        RocksDBPort::ColumnFamilyType::kWsv,
         path);
   };
 
@@ -985,5 +995,123 @@ operator()(
     const shared_model::interface::types::AccountIdType &creator_id,
     const shared_model::interface::types::HashType &query_hash,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  throw std::runtime_error(fmt::format("Not implemented"));
+  auto const &[_, creator_domain_id] = staticSplitId<2ull>(creator_id);
+
+  RDB_ERROR_CHECK(checkPermissions(creator_domain_id,
+                                   creator_domain_id,
+                                   creator_id,
+                                   creator_id,
+                                   creator_permissions,
+                                   Role::kGetAllEngineReceipts,
+                                   Role::kGetDomainEngineReceipts,
+                                   Role::kGetMyEngineReceipts));
+
+  std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>> records;
+
+  std::optional<std::string> error;
+  auto status = enumerateKeysAndValues(
+      common,
+      [&](auto, auto cid) {
+        uint64_t call_id;
+        std::from_chars(cid.data(), cid.data() + cid.size(), call_id);
+
+        std::optional<shared_model::interface::types::EvmDataHexString> callee;
+        std::optional<shared_model::interface::types::EvmDataHexString>
+            cantract_address;
+        std::optional<shared_model::interface::types::EvmDataHexString>
+            engine_response;
+
+        if (auto result =
+                forCallEngineCallResponse<kDbOperation::kGet,
+                                          kDbEntry::kCanExist>(common, call_id);
+            expected::hasError(result)) {
+          error = fmt::format("CallEngineResponse code: {}, failed: {}",
+                              result.template assumeError().code,
+                              result.template assumeError().description);
+          return false;
+        } else if (result.assumeValue()) {
+          auto const &[callee_, response_] =
+              staticSplitId<2ull>(*result.assumeValue(), "|");
+          callee = callee_;
+          engine_response = response_;
+        }
+
+        if (auto result =
+                forCallEngineDeploy<kDbOperation::kGet, kDbEntry::kCanExist>(
+                    common, call_id);
+            expected::hasError(result)) {
+          error = fmt::format("CallEngineDeploy code: {}, failed: {}",
+                              result.template assumeError().code,
+                              result.template assumeError().description);
+          return false;
+        } else if (result.assumeValue()) {
+          cantract_address = *result.assumeValue();
+        }
+
+        auto record = std::make_unique<shared_model::plain::EngineReceipt>(
+            0ull,  //*cmd_index
+            "",    // caller
+            callee,
+            cantract_address,
+            engine_response);
+
+        auto logs_status = enumerateKeysAndValues(
+            common,
+            [&](auto, auto l) {
+              auto const &[log_ix_str, address, data] =
+                  staticSplitId<3ull>(l.ToStringView(), "#");
+              uint64_t log_id = std::stoull(
+                  std::string(log_ix_str.data(), log_ix_str.size()));
+
+              auto log = std::make_unique<shared_model::plain::EngineLog>(
+                  shared_model::interface::types::EvmAddressHexString(
+                      address.data(), address.size()),
+                  shared_model::interface::types::EvmDataHexString(
+                      data.data(), data.size()));
+
+              auto topics_status = enumerateKeysAndValues(
+                  common,
+                  [&](auto, auto t) {
+                    auto tstr = t.ToStringView();
+                    log->addTopic(
+                        shared_model::interface::types::EvmTopicsHexString(
+                            tstr.data(), tstr.size()));
+                    return true;
+                  },
+                  RocksDBPort::ColumnFamilyType::kWsv,
+                  fmtstrings::kPathEngineTopics,
+                  log_id);
+              if (!topics_status.ok()) {
+                error = fmt::format("enumerate CallEngineTopics failed.");
+                return false;
+              }
+
+              record->getMutableLogs().emplace_back(std::move(log));
+              return true;
+            },
+            RocksDBPort::ColumnFamilyType::kWsv,
+            fmtstrings::kPathEngineLogs,
+            call_id);
+        if (!logs_status.ok()) {
+          error = fmt::format("enumerate CallEngineLogs failed.");
+          return false;
+        }
+
+        records.emplace_back(std::move(record));
+        return true;
+      },
+      RocksDBPort::ColumnFamilyType::kWsv,
+      fmtstrings::kPathEngineCallIds,
+      query.txHash());
+  RDB_ERROR_CHECK(canExist(status, [&] {
+    return fmt::format("PathEngineCallsIds enumeration failed: {}",
+                       query.txHash());
+  }));
+
+  if (error)
+    return makeError<QueryExecutorResult>(
+        ErrorCodes::kGetReceipts, "GetEngineReceipts failed: {}", *error);
+
+  return query_response_factory_->createEngineReceiptsResponse(records,
+                                                               query_hash);
 }

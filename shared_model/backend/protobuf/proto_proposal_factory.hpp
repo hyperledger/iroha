@@ -42,8 +42,16 @@ namespace shared_model {
           interface::types::HeightType height,
           interface::types::TimestampType created_time,
           UnsafeTransactionsCollectionType transactions) override {
-        return std::make_unique<Proposal>(
+        auto proposal = std::make_unique<Proposal>(
             createProtoProposal(height, created_time, transactions));
+
+        size_t ix = 0;
+        for (auto &tx : transactions)
+          if (tx.getBatchHash())
+            proposal->transactions()[ix++].storeBatchHash(
+                tx.getBatchHash().value());
+
+        return proposal;
       }
 
       /**

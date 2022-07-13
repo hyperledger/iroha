@@ -7,6 +7,8 @@
 #define IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP
 
 #include <gmock/gmock.h>
+
+#include "datetime/time.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -72,6 +74,12 @@ struct MockTransaction : public shared_model::interface::Transaction {
       batchMeta,
       std::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
   MOCK_METHOD0(moveTo, std::unique_ptr<Transaction>());
+
+  MOCK_METHOD1(storeBatchHash,
+               void(shared_model::interface::types::HashType const &));
+  MOCK_CONST_METHOD0(
+      getBatchHash,
+      std::optional<shared_model::interface::types::HashType> const &());
 };
 
 /**
@@ -86,7 +94,9 @@ inline auto createMockTransactionWithHash(
 
   auto res = std::make_shared<NiceMock<MockTransaction>>();
 
+  auto now = iroha::time::now();
   ON_CALL(*res, hash()).WillByDefault(ReturnRefOfCopy(hash));
+  ON_CALL(*res, createdTime()).WillByDefault(testing::Return(now));
 
   return res;
 }
@@ -177,6 +187,9 @@ struct MockProposal : public shared_model::interface::Proposal {
   MOCK_CONST_METHOD0(blob, const shared_model::interface::types::BlobType &());
   MOCK_CONST_METHOD0(hash, const shared_model::interface::types::HashType &());
   MOCK_CONST_METHOD0(clone, MockProposal *());
+  MOCK_CONST_METHOD0(toString, std::string());
+  MOCK_METHOD0(mut_transactions,
+               shared_model::interface::types::TransactionsCollectionType());
 };
 
 struct MockPeer : public shared_model::interface::Peer {
