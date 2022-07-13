@@ -7,6 +7,7 @@ use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
+use iroha_data_model_derive::OrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
@@ -50,19 +51,20 @@ pub struct Id {
     Debug,
     Display,
     Clone,
-    PartialEq,
-    Eq,
+    OrdEqHash,
     Getters,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     IntoSchema,
+    Identifiable,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[cfg_attr(feature = "ffi", ffi_export)]
 #[display(fmt = "{id}")]
 #[getset(get = "pub")]
+#[id(type = "Id")]
 pub struct Role {
     /// Unique name of the role.
     #[getset(skip)]
@@ -70,20 +72,6 @@ pub struct Role {
     /// Permission tokens.
     #[getset(skip)]
     permissions: Permissions,
-}
-
-impl PartialOrd for Role {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Role {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id().cmp(other.id())
-    }
 }
 
 #[cfg_attr(feature = "ffi", ffi_export)]
@@ -101,31 +89,13 @@ impl Role {
     }
 }
 
-impl Identifiable for Role {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
-}
-
 impl Registered for Role {
     type With = NewRole;
 }
 
 /// Builder for [`Role`]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Display, Clone, OrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
@@ -141,20 +111,6 @@ impl crate::Registrable for NewRole {
     #[inline]
     fn build(self) -> Self::Target {
         self.inner
-    }
-}
-
-impl PartialOrd for NewRole {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NewRole {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.inner.cmp(&other.inner)
     }
 }
 

@@ -165,6 +165,7 @@ pub enum Parameter {
     Debug,
     Display,
     Clone,
+    Identifiable,
     PartialEq,
     Eq,
     PartialOrd,
@@ -177,6 +178,7 @@ pub enum Parameter {
     IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
+#[id(type = "Self")]
 pub enum IdBox {
     /// [`DomainId`](`domain::Id`) variant.
     DomainId(<domain::Domain as Identifiable>::Id),

@@ -13,8 +13,9 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_data_model_derive::OrdEqHash;
+#[cfg(feature = "ffi_api")]
+use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -127,10 +128,20 @@ impl Default for SignatureCheckCondition {
 /// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    OrdEqHash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Identifiable,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "[{id}]")]
+#[id(type = "<Account as Identifiable>::Id")]
 pub struct NewAccount {
     /// Identification
     id: <Account as Identifiable>::Id,
@@ -212,8 +223,7 @@ impl NewAccount {
     Debug,
     Display,
     Clone,
-    PartialEq,
-    Eq,
+    OrdEqHash,
     Getters,
     MutGetters,
     Setters,
@@ -222,10 +232,11 @@ impl NewAccount {
     Deserialize,
     Serialize,
     IntoSchema,
+    Identifiable,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "({id})")] // TODO: Add more?
-#[allow(clippy::multiple_inherent_impl)]
+#[id(type = "Id")]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
@@ -246,14 +257,6 @@ pub struct Account {
     roles: RoleIds,
 }
 
-impl Identifiable for Account {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
-}
-
 impl HasMetadata for Account {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -264,21 +267,7 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-impl PartialOrd for Account {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Account {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id().cmp(other.id())
-    }
-}
-
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]

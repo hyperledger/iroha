@@ -27,6 +27,7 @@ mod asset {
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[id(type = "AssetId")]
     pub enum AssetEvent {
         Created(AssetId),
         Deleted(AssetId),
@@ -68,6 +69,7 @@ mod asset {
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[id(type = "AssetDefinitionId")]
     pub enum AssetDefinitionEvent {
         Created(AssetDefinitionId),
         MintabilityChanged(AssetDefinitionId),
@@ -116,6 +118,7 @@ mod peer {
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[id(type = "PeerId")]
     pub enum PeerEvent {
         Added(PeerId),
         Removed(PeerId),
@@ -154,6 +157,7 @@ mod role {
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[id(type = "RoleId")]
     pub enum RoleEvent {
         Created(RoleId),
         Deleted(RoleId),
@@ -193,6 +197,7 @@ mod account {
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[id(type = "AccountId")]
     pub enum AccountEvent {
         Asset(AssetEvent),
         Created(AccountId),
@@ -249,6 +254,7 @@ mod domain {
         IntoSchema,
         Filter,
     )]
+    #[id(type = "DomainId")]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum DomainEvent {
@@ -297,6 +303,7 @@ mod trigger {
         IntoSchema,
         Filter,
     )]
+    #[id(type = "TriggerId")]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum TriggerEvent {
