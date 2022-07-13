@@ -12,8 +12,13 @@ fn main() {
     // invoked with the nightly toolchain. We should not force our
     // users to have the `nightly` if we don't use any `nightly`
     // features in the actual binary.
-    if env::var("RUSTUP_TOOLCHAIN")
-        .expect("Should be defined")
+    let rustc_version_output = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .expect("Failed to run `rustc --version`");
+
+    if std::str::from_utf8(&rustc_version_output.stdout)
+        .expect("Garbage in `rustc --version` output")
         .contains("nightly")
     {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR")
