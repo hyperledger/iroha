@@ -15,9 +15,8 @@ use std::{
 };
 
 use eyre::{eyre, Result};
-use iroha_config::sumeragi::Configuration;
-use iroha_actor::broker::Broker;
-use iroha_crypto::{HashOf, KeyPair};
+use iroha_actor::{broker::Broker, Addr};
+use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
@@ -25,12 +24,16 @@ use network_topology::{Role, Topology};
 use rand::prelude::SliceRandom;
 
 use crate::{genesis::GenesisNetwork};
-use iroha_config::sumeragi::Configuration as SumeragiConfiguration;
+use iroha_config::sumeragi::Configuration;
 
 pub mod fault;
 pub mod message;
 pub mod network_topology;
 pub mod view_change;
+
+use std::sync::Mutex;
+
+use fault::SumeragiStateMachineData;
 
 use self::{
     fault::{NoFault, SumeragiWithFault},
@@ -77,19 +80,26 @@ impl Sumeragi {
         queue: Arc<Queue>,
         broker: Broker,
         kura: Arc<Kura>,
-        // network: Addr<IrohaNetwork>,
+        network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
 
+        let sumeragi_state_machine_data = SumeragiStateMachineData {
+            genesis_network,
+            latest_block_hash: Hash::zeroed().typed(),
+            latest_block_height: 0,
+            current_topology: network_topology,
+        };
+
+        let (incoming_message_sender, incoming_message_receiver) = std::sync::mpsc::channel();
+
         Ok(Self {
             internal: SumeragiWithFault::<NoFault> {
                 key_pair: configuration.key_pair.clone(),
-                topology: network_topology,
                 peer_id: configuration.peer_id.clone(),
-                voting_block: None,
                 votes_for_blocks: BTreeMap::new(),
                 events_sender,
                 wsv: std::sync::Mutex::new(wsv),
@@ -104,17 +114,57 @@ impl Sumeragi {
                 telemetry_started,
                 transaction_limits: configuration.transaction_limits,
                 transaction_validator,
-                genesis_network,
                 queue,
                 broker,
                 kura,
-                // network,
+                network,
                 actor_channel_capacity: configuration.actor_channel_capacity,
                 fault_injection: PhantomData,
                 gossip_batch_size: configuration.gossip_batch_size,
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
+
+                sumeragi_state_machine_data: Mutex::new(sumeragi_state_machine_data),
+                current_online_peers_by_public_key: Mutex::new(Vec::new()),
+                incoming_message_sender: Mutex::new(incoming_message_sender),
+                incoming_message_receiver: Mutex::new(incoming_message_receiver),
             },
         })
+    }
+
+    pub fn update_metrics(&self, network: Addr<IrohaNetwork>) -> Result<()> {
+        use eyre::WrapErr;
+        use thiserror::Error;
+        let online_peers_count: u64 = self
+            .internal
+            .current_online_peers_by_public_key
+            .lock()
+            .unwrap()
+            .len()
+            .try_into()
+            .expect("casting usize to u64");
+
+        let mut wsv_guard = self.internal.wsv.lock().unwrap();
+
+        #[allow(clippy::cast_possible_truncation)]
+        if let Some(timestamp) = wsv_guard.genesis_timestamp() {
+            // this will overflow in 584942417years.
+            wsv_guard
+                .metrics
+                .uptime_since_genesis_ms
+                .set((current_time().as_millis() - timestamp) as u64)
+        };
+        let domains = wsv_guard.domains();
+        wsv_guard.metrics.domains.set(domains.len() as u64);
+        wsv_guard.metrics.connected_peers.set(online_peers_count);
+        for domain in domains {
+            wsv_guard
+                .metrics
+                .accounts
+                .get_metric_with_label_values(&[domain.id().name.as_ref()])
+                .wrap_err("Failed to compose domains")?
+                .set(domain.accounts().len() as u64);
+        }
+        Ok(())
     }
 
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
@@ -122,7 +172,13 @@ impl Sumeragi {
     }
 
     pub fn get_network_topology(&self, header: &BlockHeader) -> Topology {
-        self.internal.get_network_topology(header)
+        // TODO: make use of block header
+        self.internal
+            .sumeragi_state_machine_data
+            .lock()
+            .expect("Get network topology lock.")
+            .current_topology
+            .clone()
     }
 
     pub fn blocks_after_hash(
@@ -150,7 +206,7 @@ impl Sumeragi {
             .cloned()
     }
 
-    pub fn get_clone_of_world_state_view(&self) -> WorldStateView {
+    pub fn wsv_clone(&self) -> WorldStateView {
         self.internal.wsv.lock().unwrap().clone()
     }
 
@@ -166,6 +222,22 @@ impl Sumeragi {
                 latest_block_height,
             )
         });
+    }
+
+    pub fn update_online_peers(&self, online_peers: Vec<PublicKey>) {
+        *self
+            .internal
+            .current_online_peers_by_public_key
+            .lock()
+            .expect("Lock on update online peers.") = online_peers;
+    }
+
+    pub fn incoming_message(&self, msg: Message) {
+        self.internal
+            .incoming_message_sender
+            .lock()
+            .expect("Lock on sender")
+            .send(msg);
     }
 }
 
