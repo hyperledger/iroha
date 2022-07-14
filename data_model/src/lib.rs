@@ -26,7 +26,7 @@ use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
 pub use iroha_data_primitives::{self as primitives, fixed, small};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_schema::IntoSchema;
+use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
@@ -359,7 +359,6 @@ pub enum Value {
     Eq,
     From,
     Into,
-    IntoSchema,
     Ord,
     PartialEq,
     PartialOrd,
@@ -380,7 +379,6 @@ pub struct BlockValueWrapper(BlockValue);
     Encode,
     Eq,
     From,
-    IntoSchema,
     Ord,
     PartialEq,
     PartialOrd,
@@ -396,6 +394,16 @@ pub struct BlockValueWrapper(Box<BlockValue>);
 impl From<BlockValueWrapper> for BlockValue {
     fn from(block_value: BlockValueWrapper) -> Self {
         *block_value.0
+    }
+}
+
+impl IntoSchema for BlockValueWrapper {
+    fn type_name() -> String {
+        BlockValue::type_name()
+    }
+
+    fn schema(map: &mut MetaMap) {
+        BlockValue::schema(map);
     }
 }
 
