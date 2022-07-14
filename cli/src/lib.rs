@@ -82,12 +82,54 @@ pub struct Iroha {
     pub torii: Option<Torii>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
+    sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>,
 }
 
 impl Drop for Iroha {
     fn drop(&mut self) {
         // Drop thread handles first
         let _thread_handles = core::mem::take(&mut self.thread_handlers);
+    }
+}
+
+use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
+struct FromNetworkBaseRelay {
+    sumeragi: Arc<Sumeragi>,
+    broker: Broker,
+}
+
+#[async_trait::async_trait]
+impl Actor for FromNetworkBaseRelay {
+    async fn on_start(&mut self, ctx: &mut iroha_actor::prelude::Context<Self>) {
+        // to start connections
+        self.broker.subscribe::<NetworkBaseRelayOnlinePeers, _>(ctx);
+        self.broker.subscribe::<iroha_core::NetworkMessage, _>(ctx);
+    }
+}
+
+#[async_trait::async_trait]
+impl Handler<NetworkBaseRelayOnlinePeers> for FromNetworkBaseRelay {
+    type Result = ();
+
+    async fn handle(&mut self, msg: NetworkBaseRelayOnlinePeers) {
+        self.sumeragi.update_online_peers(msg.online_peers);
+    }
+}
+
+#[async_trait::async_trait]
+impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
+    type Result = ();
+
+    async fn handle(&mut self, msg: iroha_core::NetworkMessage) -> Self::Result {
+        use iroha_core::NetworkMessage::*;
+
+        match msg {
+            SumeragiMessage(data) => {
+                self.sumeragi.incoming_message(data.into_v1());
+            }
+            BlockSync(data) => self.broker.issue_send(data.into_v1()).await,
+            Health => {}
+        }
     }
 }
 
@@ -249,9 +291,18 @@ impl Iroha {
                 Arc::clone(&queue),
                 broker.clone(),
                 Arc::clone(&kura),
+                network_addr.clone(),
             )
             .wrap_err("Failed to initialize Sumeragi.")?,
         );
+
+        let sumeragi_relay = FromNetworkBaseRelay {
+            sumeragi: sumeragi.clone(),
+            broker: broker.clone(),
+        }
+        .start()
+        .await
+        .expect_running();
 
         Sumeragi::initialize_and_start_thread(
             sumeragi.clone(),
@@ -291,6 +342,7 @@ impl Iroha {
             block_sync,
             torii,
             thread_handlers: vec![kura_thread_handler],
+            sumeragi_relay,
         })
     }
 

@@ -75,7 +75,7 @@ async fn network_create() {
     };
     broker
         .issue_send(ConnectPeer {
-            address: peer1.address.clone(),
+            peer: peer1.clone(),
         })
         .await;
     tokio::time::sleep(delay).await;
@@ -166,7 +166,7 @@ async fn two_networks() {
     // Connecting to second peer from network1
     broker1
         .issue_send(ConnectPeer {
-            address: peer2.address.clone(),
+            peer: peer2.clone(),
         })
         .await;
     tokio::time::sleep(delay).await;
@@ -191,7 +191,7 @@ async fn two_networks() {
     // Connecting to the same peer from network1
     broker1
         .issue_send(ConnectPeer {
-            address: peer2.address.clone(),
+            peer: peer2.clone(),
         })
         .await;
     tokio::time::sleep(delay).await;
@@ -301,11 +301,7 @@ async fn start_network(
                 public_key: keypair.public_key().clone(),
             };
 
-            broker
-                .issue_send(ConnectPeer {
-                    address: peer.address,
-                })
-                .await;
+            broker.issue_send(ConnectPeer { peer }).await;
             conn_count += 1_usize;
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
