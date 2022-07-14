@@ -78,19 +78,10 @@ jobs:
         uses: dawidd6/action-download-artifact@v2.21.1
         with:
           workflow: iroha2-dev-pr.yml
-          name: lcov-${{ github.event.pull_request.head.sha }}.info
-      #    check_artifacts: false
-      # codecov/codecov-action@v3 can't upload report with file name == "lcov-${{ steps.hash.outputs.hash }}.info"
-      # - name: Rename lcov report file
-      #   run: mv lcov-${{ github.event.pull_request.head.sha }}.info lcov.info
-      - name: Upload to codecov 0
+      - name: Upload to codecov
         uses: codecov/codecov-action@v3
         with:
           file: lcov.info
-      - name: Upload to codecov 1
-        uses: codecov/codecov-action@v3
-        with:
-          file: lcov-${{ github.event.pull_request.head.sha }}.info    
 
   archive-and-publish-schema:
     runs-on: ubuntu-latest
