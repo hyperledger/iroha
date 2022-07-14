@@ -233,13 +233,16 @@ impl Topology {
     /// Apply new committed block hash.
     #[allow(clippy::expect_used)]
     pub fn apply_block(&mut self, block: HashOf<VersionedCommittedBlock>) {
+        /*
+        /// TODO: reimplement view changes before merging into dev (https://github.com/hyperledger/iroha/issues/2561)
         *self = self
             .clone()
             .into_builder()
             .at_block(block)
             .with_view_changes(ViewChangeProofs::empty())
             .build()
-            .expect("Given a valid Topology, it is impossible to have error here.")
+        .expect("Given a valid Topology, it is impossible to have error here.")
+        */
     }
 
     /// Apply a view change - change topology in case there were faults in the consensus round.
