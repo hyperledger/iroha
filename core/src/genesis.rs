@@ -64,28 +64,6 @@ pub trait GenesisNetworkTrait:
         network: Addr<IrohaNetwork>,
     ) -> Result<Topology>;
 
-    // FIXME: Having `ctx` reference and `sumaregi` reference here is
-    // not ideal.  The way it is currently designed, this function is
-    // called from sumeragi and then calls sumeragi, while being in an
-    // unrelated module.  This needs to be restructured.
-
-    /// Submits genesis transactions.
-    ///
-    /// # Errors
-    /// Returns error if waiting for peers or genesis round itself fails
-    async fn submit_transactions<F: FaultInjection>(
-        &self,
-        sumeragi: &mut SumeragiWithFault<F>,
-        network: Addr<IrohaNetwork>,
-    ) -> Result<()> {
-        iroha_logger::debug!("Starting submit genesis");
-        let genesis_topology = self
-            .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
-            .await?;
-        time::sleep(Duration::from_millis(self.genesis_submission_delay_ms())).await;
-        iroha_logger::info!("Initializing iroha using the genesis block.");
-        sumeragi.start_genesis_round(self.deref().clone(), genesis_topology)
-    }
 
     /// See [`Configuration`] docs.
     fn genesis_submission_delay_ms(&self) -> u64;

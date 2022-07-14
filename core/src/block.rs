@@ -492,7 +492,7 @@ impl VersionedValidBlock {
         if block_height + 1 != self.header().height {
             return Err(eyre!(
                 "Block heights are in an inconsistent state. Expected: {}, actual: {}",
-                block_height,
+                block_height + 1,
                 self.header().height
             ));
         }
