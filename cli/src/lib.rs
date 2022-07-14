@@ -252,7 +252,9 @@ where
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
-        Self::prepare_panic_hook(notify_shutdown);
+        if config.shutdown_on_panic {
+            Self::prepare_panic_hook(notify_shutdown);
+        }
 
         let torii = Some(torii);
         Ok(Self {
@@ -367,10 +369,13 @@ fn domains(configuration: &config::Configuration) -> [Domain; 1] {
 mod tests {
     use std::{panic, thread};
 
+    use serial_test::serial;
+
     use super::*;
 
-    #[tokio::test]
     #[allow(clippy::panic)]
+    #[tokio::test]
+    #[serial]
     async fn iroha_should_notify_on_panic() {
         let notify = Arc::new(Notify::new());
         let hook = panic::take_hook();
