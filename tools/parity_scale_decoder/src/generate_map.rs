@@ -95,7 +95,6 @@ pub fn generate_map() -> DumpDecodedMap {
         BlockHeaderValue,
         BlockRejectionReason,
         BlockValue,
-        BlockValueWrapper,
         BurnBox,
         Contains,
         ContainsAll,
