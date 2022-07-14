@@ -15,16 +15,18 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::{fmt, fmt::Debug, ops::RangeInclusive};
+use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 
 use block_value::BlockValue;
-use derive_more::Display;
+#[cfg(not(target_arch = "aarch64"))]
+use derive_more::Into;
+use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
 pub use iroha_data_primitives::{self as primitives, fixed, small};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_schema::IntoSchema;
+use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
@@ -341,8 +343,68 @@ pub enum Value {
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
-    // Boxed because of M1 issues
-    Block(Box<BlockValue>),
+    Block(BlockValueWrapper),
+}
+
+/// Cross-platform wrapper for `BlockValue`.
+#[cfg(not(target_arch = "aarch64"))]
+#[derive(
+    AsRef,
+    Clone,
+    Debug,
+    Decode,
+    Deref,
+    Deserialize,
+    Encode,
+    Eq,
+    From,
+    Into,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+)]
+#[serde(transparent)]
+pub struct BlockValueWrapper(BlockValue);
+
+/// Cross-platform wrapper for `BlockValue`.
+#[cfg(target_arch = "aarch64")]
+#[derive(
+    AsRef,
+    Clone,
+    Debug,
+    Decode,
+    Deref,
+    Deserialize,
+    Encode,
+    Eq,
+    From,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+)]
+#[as_ref(forward)]
+#[deref(forward)]
+#[from(forward)]
+#[serde(transparent)]
+pub struct BlockValueWrapper(Box<BlockValue>);
+
+#[cfg(target_arch = "aarch64")]
+impl From<BlockValueWrapper> for BlockValue {
+    fn from(block_value: BlockValueWrapper) -> Self {
+        *block_value.0
+    }
+}
+
+impl IntoSchema for BlockValueWrapper {
+    fn type_name() -> String {
+        BlockValue::type_name()
+    }
+
+    fn schema(map: &mut MetaMap) {
+        BlockValue::schema(map);
+    }
 }
 
 impl fmt::Display for Value {
@@ -374,7 +436,7 @@ impl fmt::Display for Value {
             Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
-            Value::Block(v) => fmt::Display::fmt(&v, f),
+            Value::Block(v) => fmt::Display::fmt(&**v, f),
         }
     }
 }
@@ -405,6 +467,12 @@ impl Value {
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
         }
+    }
+}
+
+impl From<BlockValue> for Value {
+    fn from(block_value: BlockValue) -> Self {
+        Value::Block(block_value.into())
     }
 }
 
@@ -611,6 +679,18 @@ where
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_e| Self::Error::default());
+        }
+
+        Err(Self::Error::default())
+    }
+}
+
+impl TryFrom<Value> for BlockValue {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Block(block_value) = value {
+            return Ok(block_value.into());
         }
 
         Err(Self::Error::default())
