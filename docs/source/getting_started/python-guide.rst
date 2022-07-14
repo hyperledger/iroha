@@ -79,4 +79,4 @@ Here is the `tx-example.py` file with comments to clarify each step:
 Now, if you have `irohad` running, you can run the example or
 your own file by simply opening the .py file in another tab.
 
-.. note:: There are more samples in `iroha-python example directory <https://github.com/hyperledger/iroha-python/tree/main/examples>`_.
+.. note:: There are more samples in the `iroha-python examples directory <https://github.com/hyperledger/iroha-python/tree/main/examples>`_.
