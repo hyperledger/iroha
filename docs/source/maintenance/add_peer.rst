@@ -55,6 +55,7 @@ In this example we used `Root permission <../develop/api/permissions.html#root>`
         ], creator_account=ADMIN_ACCOUNT_ID, quorum=1)
 
         IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+
     add_peer()
 
 Remove Peer
