@@ -252,7 +252,7 @@ where
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
-        if config.enable_shutdown_on_panic {
+        if config.shutdown_on_panic {
             Self::prepare_panic_hook(notify_shutdown);
         }
 

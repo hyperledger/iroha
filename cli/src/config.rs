@@ -30,7 +30,7 @@ pub struct Configuration {
     /// Disable coloring of the backtrace and error report on panic.
     pub disable_panic_terminal_colors: bool,
     /// Iroha will shutdown on any panic if this option is set to `true`.
-    pub enable_shutdown_on_panic: bool,
+    pub shutdown_on_panic: bool,
     /// `Kura` related configuration.
     #[config(inner)]
     pub kura: KuraConfiguration,
@@ -73,7 +73,7 @@ impl Default for Configuration {
             public_key,
             private_key,
             disable_panic_terminal_colors: bool::default(),
-            enable_shutdown_on_panic: Default::default(),
+            shutdown_on_panic: false,
             kura: KuraConfiguration::default(),
             sumeragi: sumeragi_configuration,
             torii: ToriiConfiguration::default(),
