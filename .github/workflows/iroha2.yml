@@ -4,10 +4,6 @@ on:
   push:
     branches: [iroha2]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true    
-
 env:
   CARGO_TERM_COLOR: always
 

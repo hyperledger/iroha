@@ -1,15 +1,13 @@
 name: I2::Dev::Deploy
 
 on:
-  push:
+  pull_request:
     branches: [iroha2-dev]
+    types:
+      - closed
 
 env:
   CARGO_TERM_COLOR: always
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 # Note jobs in this workflow are run on `push` meaning that there's
 # no point in burning our AWS self-hosted runners' time. Hence
@@ -70,30 +68,29 @@ jobs:
           ref: dev
 
   upload_coverage:
+    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - name: Find hash
-        id: hash
-        uses: theowenyoung/folder-hash@v2.0.1
-        with:
-          path: |
-            .      
       - name: Download codecov report artifact
         uses: dawidd6/action-download-artifact@v2.21.1
         with:
           workflow: iroha2-dev-pr.yml
-          name: lcov-${{ steps.hash.outputs.hash }}.info
-          check_artifacts: false
+          name: lcov-${{ github.event.pull_request.head.sha }}.info
+      #    check_artifacts: false
       # codecov/codecov-action@v3 can't upload report with file name == "lcov-${{ steps.hash.outputs.hash }}.info"
-      - name: Rename lcov report file
-        run: mv lcov-${{ steps.hash.outputs.hash }}.info lcov.info
-      - name: Upload to codecov
+      # - name: Rename lcov report file
+      #   run: mv lcov-${{ github.event.pull_request.head.sha }}.info lcov.info
+      - name: Upload to codecov 0
         uses: codecov/codecov-action@v3
         with:
           file: lcov.info
+      - name: Upload to codecov 1
+        uses: codecov/codecov-action@v3
+        with:
+          file: lcov-${{ github.event.pull_request.head.sha }}.info    
 
   archive-and-publish-schema:
     runs-on: ubuntu-latest

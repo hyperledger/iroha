@@ -49,47 +49,26 @@ jobs:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - name: Find hash
-        id: hash
-        uses: theowenyoung/folder-hash@v2.0.1
-        with:
-          path: |
-            .
-      - name: Download codecov report artifact
-        uses: dawidd6/action-download-artifact@v2.21.1
-        with:
-          workflow: iroha2-dev-pr.yml
-          check_artifacts:  true
-        continue-on-error: true
-      - name: Check if coverage file exists
-        id: check_files
-        uses: andstor/file-existence-action@v1
-        with:
-          files: "lcov-${{ steps.hash.outputs.hash }}.info"
+
       # TODO Remove these steps #2165
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: llvm-tools-preview
-        if: steps.check_files.outputs.files_exists == 'false'
       - uses: taiki-e/install-action@cargo-llvm-cov
-        if: steps.check_files.outputs.files_exists == 'false'
       - uses: Swatinem/rust-cache@v1
-        if: steps.check_files.outputs.files_exists == 'false'
       - name: Run tests and generate lcov coverage report
-        if: steps.check_files.outputs.files_exists == 'false'
         run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - name: Upload to codecov
         uses: codecov/codecov-action@v3
-        if: steps.check_files.outputs.files_exists == 'false'
         with:
           file: lcov.info
           fail_ci_if_error: true
       - name: Upload codecov report artifact
         uses: actions/upload-artifact@v3
         with:
-          name: lcov-${{ steps.hash.outputs.hash }}.info
+          name: lcov-${{ github.sha }}.info
           path: lcov.info
 
   integration_tests:
