@@ -200,13 +200,17 @@ where
     type Result = ();
 
     async fn handle(&mut self, msg: ConnectPeer) {
+        if self.peers.contains_key(&msg.peer.public_key) {
+            return;
+        }
+
         debug!(
-            listen_addr = %self.listen_addr, peer.id.address = %msg.address,
+            listen_addr = %self.listen_addr, peer.id.address = %msg.peer.address,
             "Creating new peer actor",
         );
-        self.untrusted_peers.remove(&ip(&msg.address));
+        self.untrusted_peers.remove(&ip(&msg.peer.address));
         let peer_to_key_exchange = match Peer::new_to(
-            PeerId::new(&msg.address, &self.public_key),
+            PeerId::new(&msg.peer.address, &self.public_key),
             self.broker.clone(),
         )
         .await
@@ -271,6 +275,11 @@ where
     }
 }
 
+#[derive(Clone, iroha_actor::Message)]
+pub struct NetworkBaseRelayOnlinePeers {
+    pub online_peers: Vec<PublicKey>,
+}
+
 #[async_trait::async_trait]
 impl<T, K, E> Handler<PeerMessage<T>> for NetworkBase<T, K, E>
 where
@@ -319,6 +328,13 @@ where
                 self.broker.issue_send(*msg).await;
             }
         };
+        let mut online_peer_keys = self.peers.keys().cloned().collect();
+
+        self.broker
+            .issue_send(NetworkBaseRelayOnlinePeers {
+                online_peers: online_peer_keys,
+            })
+            .await;
     }
 }
 
@@ -407,7 +423,7 @@ where
 #[derive(Clone, Debug, iroha_actor::Message)]
 pub struct ConnectPeer {
     /// Socket address of the outgoing peer
-    pub address: String,
+    pub peer: PeerId,
 }
 
 /// The message that is sent to [`NetworkBase`] to stop connection to some other peer.
