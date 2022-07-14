@@ -6,7 +6,9 @@ use std::num::TryFromIntError;
 
 use eyre::WrapErr;
 use iroha_actor::Addr;
-use iroha_config::{base::Configurable, torii::uri, GetConfiguration, PostConfiguration};
+use iroha_config::{
+    base::Configurable, iroha::ConfigurationView, torii::uri, GetConfiguration, PostConfiguration,
+};
 use iroha_core::{
     block::stream::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
@@ -189,8 +191,9 @@ async fn handle_get_configuration(
                 .wrap_err("Failed to get docs {:?field}")
                 .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs"))
         }
-        // Cast to public configuration to hide private keys.
-        Value => serde_json::to_value(iroha_cfg).wrap_err("Failed to serialize value"),
+        // Cast to configuration view to hide private keys.
+        Value => serde_json::to_value(ConfigurationView::from(iroha_cfg))
+            .wrap_err("Failed to serialize value"),
     }
     .map(|v| reply::json(&v))
     .map_err(Error::Config)
