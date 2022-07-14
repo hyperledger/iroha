@@ -103,7 +103,7 @@ pub(crate) async fn handle_instructions(
     sumeragi: Arc<Sumeragi>,
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
-    let wsv = sumeragi.get_clone_of_world_state_view(); // This probably means this function doesn't work
+    let wsv = sumeragi.wsv_clone();
     let transaction: SignedTransaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
@@ -129,7 +129,7 @@ pub(crate) async fn handle_queries(
     sorting: Sorting,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let mut wsv = sumeragi.get_clone_of_world_state_view();
+    let mut wsv = sumeragi.wsv_clone();
     let (valid_request, filter) = request.validate(&mut wsv, query_judge.as_ref())?;
     let original_result = valid_request.execute(&wsv)?;
     let result = filter.filter(original_result);
@@ -208,7 +208,7 @@ async fn handle_pending_transactions(
     sumeragi: Arc<Sumeragi>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
-    let wsv = sumeragi.get_clone_of_world_state_view();
+    let wsv = sumeragi.wsv_clone();
     Ok(Scale(
         queue
             .all_transactions(&wsv)
@@ -425,13 +425,10 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) ->
 
 #[cfg(feature = "telemetry")]
 async fn handle_status(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<Json> {
-    /*
-    update_metrics(&wsv, network).await?;
-    let status = Status::from(&wsv.metrics);
+    sumeragi.update_metrics(network);
+    let status = Status::from(&sumeragi.wsv_clone().metrics);
+    println!("{:?}", status);
     Ok(reply::json(&status))
-     */
-
-    Ok(warp::reply::json(b"Not implemented"))
 }
 
 /*
