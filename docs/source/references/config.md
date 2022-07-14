@@ -173,7 +173,7 @@ false
 
 ## `enable_shutdown_on_panic`
 
-Iroha will shutdown on any panic, if this option is set to `true`.
+Iroha will shutdown on any panic if this option is set to `true`.
 
 Has type `bool`. Can be configured via environment variable `IROHA_ENABLE_SHUTDOWN_ON_PANIC`
 

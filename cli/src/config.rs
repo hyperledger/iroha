@@ -29,7 +29,7 @@ pub struct Configuration {
     pub private_key: PrivateKey,
     /// Disable coloring of the backtrace and error report on panic.
     pub disable_panic_terminal_colors: bool,
-    /// Iroha will shutdown on any panic, if this option is set to `true`.
+    /// Iroha will shutdown on any panic if this option is set to `true`.
     pub enable_shutdown_on_panic: bool,
     /// `Kura` related configuration.
     #[config(inner)]
