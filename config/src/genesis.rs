@@ -1,5 +1,5 @@
 //! Module with genesis configuration logic.
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{view, Configurable};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
@@ -7,27 +7,31 @@ const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT: u64 = 100;
 const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
 const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 
-/// Configuration of the genesis block and the process of its submission.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
-#[serde(default)]
-#[serde(rename_all = "UPPERCASE")]
-#[config(env_prefix = "IROHA_GENESIS_")]
-pub struct Configuration {
-    /// The genesis account public key, should be supplied to all peers.
-    #[config(serde_as_str)]
-    pub account_public_key: PublicKey,
-    /// Genesis account private key, only needed on the peer that submits the genesis block.
-    pub account_private_key: Option<PrivateKey>,
-    /// The number of attempts to connect to peers while waiting for them to submit genesis.
-    #[serde(default = "default_wait_for_peers_retry_count_limit")]
-    pub wait_for_peers_retry_count_limit: u64,
-    /// The period in milliseconds in which to retry connecting to peers while waiting for them to submit genesis.
-    #[serde(default = "default_wait_for_peers_retry_period_ms")]
-    pub wait_for_peers_retry_period_ms: u64,
-    /// The delay before genesis block submission after minimum number of peers were discovered to be online.
-    /// The delay between submissions, which is used to ensure that other peers had time to connect to each other.
-    #[serde(default = "default_genesis_submission_delay_ms")]
-    pub genesis_submission_delay_ms: u64,
+// Generate ConfigurationView without private key
+view! {
+    /// Configuration of the genesis block and the process of its submission.
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[serde(default)]
+    #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "IROHA_GENESIS_")]
+    pub struct Configuration {
+        /// The genesis account public key, should be supplied to all peers.
+        #[config(serde_as_str)]
+        pub account_public_key: PublicKey,
+        /// Genesis account private key, only needed on the peer that submits the genesis block.
+        #[view(ignore)]
+        pub account_private_key: Option<PrivateKey>,
+        /// The number of attempts to connect to peers while waiting for them to submit genesis.
+        #[serde(default = "default_wait_for_peers_retry_count_limit")]
+        pub wait_for_peers_retry_count_limit: u64,
+        /// The period in milliseconds in which to retry connecting to peers while waiting for them to submit genesis.
+        #[serde(default = "default_wait_for_peers_retry_period_ms")]
+        pub wait_for_peers_retry_period_ms: u64,
+        /// The delay before genesis block submission after minimum number of peers were discovered to be online.
+        /// The delay between submissions, which is used to ensure that other peers had time to connect to each other.
+        #[serde(default = "default_genesis_submission_delay_ms")]
+        pub genesis_submission_delay_ms: u64,
+    }
 }
 
 #[allow(clippy::expect_used)]

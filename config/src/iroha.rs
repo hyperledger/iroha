@@ -2,58 +2,117 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{view, Configurable};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::*;
 
-/// Configuration parameters for a peer
-#[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
-#[serde(default)]
-#[serde(rename_all = "UPPERCASE")]
-#[config(env_prefix = "IROHA_")]
-pub struct Configuration {
-    /// Public key of this peer
-    #[config(serde_as_str)]
-    pub public_key: PublicKey,
-    /// Private key of this peer
-    pub private_key: PrivateKey,
-    /// Disable coloring of the backtrace and error report on panic
-    pub disable_panic_terminal_colors: bool,
-    /// Iroha will shutdown on any panic if this option is set to `true`.
-    pub shutdown_on_panic: bool,
-    /// `Kura` configuration
-    #[config(inner)]
-    pub kura: kura::Configuration,
-    /// `Sumeragi` configuration
-    #[config(inner)]
-    pub sumeragi: sumeragi::Configuration,
-    /// `Torii` configuration
-    #[config(inner)]
-    pub torii: torii::Configuration,
-    /// `BlockSynchronizer` configuration
-    #[config(inner)]
-    pub block_sync: block_sync::Configuration,
-    /// `Queue` configuration
-    #[config(inner)]
-    pub queue: queue::Configuration,
-    /// `Logger` configuration
-    #[config(inner)]
-    pub logger: logger::Configuration,
-    /// `GenesisBlock` configuration
-    #[config(inner)]
-    pub genesis: genesis::Configuration,
-    /// `WorldStateView` configuration
-    #[config(inner)]
-    pub wsv: wsv::Configuration,
-    /// Network configuration
-    #[config(inner)]
-    pub network: network::Configuration,
-    /// Telemetry configuration
-    #[config(inner)]
-    #[cfg(feature = "telemetry")]
-    pub telemetry: telemetry::Configuration,
+// Cfg on top because of the macros expansion order
+// If the cfg is placed directly on the field,
+// then the field will not yet be removed during the expansion of `view!`
+#[cfg(feature = "telemetry")]
+// Generate ConfigurationView without private key
+view! {
+    /// Configuration parameters for a peer
+    #[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
+    #[serde(default)]
+    #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "IROHA_")]
+    pub struct Configuration {
+        /// Public key of this peer
+        #[config(serde_as_str)]
+        pub public_key: PublicKey,
+        /// Private key of this peer
+        #[view(ignore)]
+        pub private_key: PrivateKey,
+        /// Disable coloring of the backtrace and error report on panic
+        pub disable_panic_terminal_colors: bool,
+        /// Iroha will shutdown on any panic if this option is set to `true`.
+        pub shutdown_on_panic: bool,
+        /// `Kura` configuration
+        #[config(inner)]
+        pub kura: kura::Configuration,
+        /// `Sumeragi` configuration
+        #[config(inner)]
+        #[view(into = sumeragi::ConfigurationView)]
+        pub sumeragi: sumeragi::Configuration,
+        /// `Torii` configuration
+        #[config(inner)]
+        pub torii: torii::Configuration,
+        /// `BlockSynchronizer` configuration
+        #[config(inner)]
+        pub block_sync: block_sync::Configuration,
+        /// `Queue` configuration
+        #[config(inner)]
+        pub queue: queue::Configuration,
+        /// `Logger` configuration
+        #[config(inner)]
+        pub logger: logger::Configuration,
+        /// `GenesisBlock` configuration
+        #[config(inner)]
+        #[view(into = genesis::ConfigurationView)]
+        pub genesis: genesis::Configuration,
+        /// `WorldStateView` configuration
+        #[config(inner)]
+        pub wsv: wsv::Configuration,
+        /// Network configuration
+        #[config(inner)]
+        pub network: network::Configuration,
+        /// Telemetry configuration
+        #[config(inner)]
+        pub telemetry: telemetry::Configuration,
+    }
+}
+#[cfg(not(feature = "telemetry"))]
+// Generate ConfigurationView without private key
+view! {
+    /// Configuration parameters for a peer
+    #[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
+    #[serde(default)]
+    #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "IROHA_")]
+    pub struct Configuration {
+        /// Public key of this peer
+        #[config(serde_as_str)]
+        pub public_key: PublicKey,
+        /// Private key of this peer
+        #[view(ignore)]
+        pub private_key: PrivateKey,
+        /// Disable coloring of the backtrace and error report on panic
+        pub disable_panic_terminal_colors: bool,
+        /// Iroha will shutdown on any panic if this option is set to `true`.
+        pub shutdown_on_panic: bool,
+        /// `Kura` configuration
+        #[config(inner)]
+        pub kura: kura::Configuration,
+        /// `Sumeragi` configuration
+        #[config(inner)]
+        #[view(into = sumeragi::ConfigurationView)]
+        pub sumeragi: sumeragi::Configuration,
+        /// `Torii` configuration
+        #[config(inner)]
+        pub torii: torii::Configuration,
+        /// `BlockSynchronizer` configuration
+        #[config(inner)]
+        pub block_sync: block_sync::Configuration,
+        /// `Queue` configuration
+        #[config(inner)]
+        pub queue: queue::Configuration,
+        /// `Logger` configuration
+        #[config(inner)]
+        pub logger: logger::Configuration,
+        /// `GenesisBlock` configuration
+        #[config(inner)]
+        #[view(into = genesis::ConfigurationView)]
+        pub genesis: genesis::Configuration,
+        /// `WorldStateView` configuration
+        #[config(inner)]
+        pub wsv: wsv::Configuration,
+        /// Network configuration
+        #[config(inner)]
+        pub network: network::Configuration,
+    }
 }
 
 impl Default for Configuration {
