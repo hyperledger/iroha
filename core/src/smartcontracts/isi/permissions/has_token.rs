@@ -36,7 +36,8 @@ impl IsAllowed<Instruction> for HasTokenBoxed {
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
         let contain = wsv
             .map_account(authority, |account| {
-                account.contains_permission(&permission_token)
+                wsv.account_permission_tokens(account)
+                    .contains(&permission_token)
             })
             .map_err(|e| e.to_string())?;
         if contain {
