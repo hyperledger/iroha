@@ -3,8 +3,7 @@ name: I2::Dev::Deploy
 on:
   pull_request:
     branches: [iroha2-dev]
-    types:
-      - closed
+    types: [closed]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,7 +13,7 @@ env:
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
   deploy:
-    if: github.event.pull_request.merged == 'true'
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -69,7 +68,7 @@ jobs:
           ref: dev
 
   upload_coverage:
-    if: github.event.pull_request.merged == 'true'
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -85,7 +84,7 @@ jobs:
           file: lcov.info
 
   archive-and-publish-schema:
-    if: github.event.pull_request.merged == 'true'
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -120,7 +119,7 @@ jobs:
           path: target/schema
 
   print-telemetry:
-    if: github.event.pull_request.merged == 'true'
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
