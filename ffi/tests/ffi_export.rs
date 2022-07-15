@@ -203,7 +203,9 @@ fn return_option() {
     });
     let param1 = unsafe { param1.assume_init() };
     assert!(param1.is_null());
-    let param1: Option<&Value> = unsafe { TryFromReprC::try_from_repr_c(param1, &mut ()).unwrap() };
+    let mut store = ();
+    let param1: Option<&Value> =
+        unsafe { TryFromReprC::try_from_repr_c(param1, &mut store).unwrap() };
     assert!(param1.is_none());
 
     let name2 = Name(String::from("Nomen"));
@@ -214,7 +216,8 @@ fn return_option() {
     unsafe {
         let param2 = param2.assume_init();
         assert!(!param2.is_null());
-        let param2: Option<&Value> = TryFromReprC::try_from_repr_c(param2, &mut ()).unwrap();
+        let mut store = ();
+        let param2: Option<&Value> = TryFromReprC::try_from_repr_c(param2, &mut store).unwrap();
         assert_eq!(Some(&Value(String::from("Omen"))), param2);
         assert_eq!(
             FfiResult::Ok,
@@ -262,20 +265,15 @@ fn return_iterator() {
         );
 
         let params_len = params_len.assume_init();
-        assert!(params_len == 2);
+        assert_eq!(params_len, 2);
         params.set_len(core::cmp::min(params_len as usize, params.capacity()));
+        assert_eq!(params.len(), 1);
 
-        let mut store = [Default::default()];
-        assert!(params
-            .into_iter()
-            .enumerate()
-            .map(
-                |(i, item)| <(_, _) as TryFromReprC>::try_from_repr_c(item, &mut store[i]).unwrap()
-            )
-            .eq(get_default_params()
-                .iter()
-                .take(1)
-                .map(|pair| (&pair.0, &pair.1))));
+        let mut store = Default::default();
+        let item: (&Name, &Value) =
+            <(_, _) as TryFromReprC>::try_from_repr_c(params[0], &mut store).unwrap();
+        let expected = get_default_params();
+        assert_eq!((&expected[0].0, &expected[0].1), item);
 
         assert_eq!(
             FfiResult::Ok,

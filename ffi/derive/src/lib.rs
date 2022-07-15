@@ -216,7 +216,7 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
             }
         }
 
-        impl iroha_ffi::slice::IntoFfiSliceRef for #name {
+        impl iroha_ffi::slice::IntoFfiSliceRef<'_> for #name {
             type Target = iroha_ffi::owned::LocalSlice<*const #name>;
 
             fn into_ffi(source: &[Self]) -> Self::Target {
@@ -240,7 +240,7 @@ fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
                 Ok(*Box::from_raw(source))
             }
         }
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &#name {
+        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #name {
             type Source = *const #name;
             type Store = ();
 
@@ -248,7 +248,7 @@ fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
                 source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)
             }
         }
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &mut #name {
+        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #name {
             type Source = *mut #name;
             type Store = ();
 
@@ -258,7 +258,7 @@ fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
         }
 
         impl<'itm> iroha_ffi::slice::TryFromReprCSliceRef<'itm> for #name {
-            type Source = iroha_ffi::slice::SliceRef<<&'itm Self as iroha_ffi::TryFromReprC<'itm>>::Source>;
+            type Source = iroha_ffi::slice::SliceRef<'itm, <&'itm Self as iroha_ffi::TryFromReprC<'itm>>::Source>;
             type Store = Vec<Self>;
 
             unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'itm>>::Store) -> Result<&'itm [Self], iroha_ffi::FfiResult> {
@@ -373,7 +373,7 @@ fn gen_fieldless_enum_try_from_ffi(
                 }
             }
         }
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &#enum_name {
+        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #enum_name {
             type Source = *const #ffi_type;
             type Store = ();
 
@@ -386,7 +386,7 @@ fn gen_fieldless_enum_try_from_ffi(
                 }}
             }
         }
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &mut #enum_name {
+        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #enum_name {
             type Source = *mut #ffi_type;
             type Store = ();
 
@@ -401,18 +401,18 @@ fn gen_fieldless_enum_try_from_ffi(
         }
 
         impl<'itm> iroha_ffi::slice::TryFromReprCSliceRef<'itm> for #enum_name {
-            type Source = iroha_ffi::slice::SliceRef<Self>;
+            type Source = iroha_ffi::slice::SliceRef<'itm, Self>;
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'itm>>::Store) -> Result<&'itm [Self], iroha_ffi::FfiResult> {
                 source.into_slice().ok_or(iroha_ffi::FfiResult::ArgIsNull)
             }
         }
-        impl iroha_ffi::slice::TryFromReprCSliceMut for #enum_name {
-            type Source = iroha_ffi::slice::SliceMut<#enum_name>;
+        impl<'slice> iroha_ffi::slice::TryFromReprCSliceMut<'slice> for #enum_name {
+            type Source = iroha_ffi::slice::SliceMut<'slice, #enum_name>;
             type Store = ();
 
-            unsafe fn try_from_repr_c(source: Self::Source, _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceMut>::Store) -> Result<&mut [Self], iroha_ffi::FfiResult> {
+            unsafe fn try_from_repr_c(source: Self::Source, _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceMut>::Store) -> Result<&'slice mut [Self], iroha_ffi::FfiResult> {
                 source.into_slice().ok_or(iroha_ffi::FfiResult::ArgIsNull)
             }
         }

@@ -47,10 +47,13 @@ macro_rules! gen_ffi_impl {
             gen_ffi_impl!(@catch_unwind {
                 use core::borrow::Borrow;
 
+                // False positive - doesn't compile otherwise
+                #[allow(clippy::let_unit_value)]
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
-                        let handle_ref: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(handle_ptr, &mut ())?;
+                        let mut store = Default::default();
+                        let handle_ref: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(handle_ptr, &mut store)?;
 
                         let new_handle = Clone::clone(handle_ref);
                         let new_handle_ptr = iroha_ffi::IntoFfi::into_ffi(new_handle).into();
@@ -81,12 +84,17 @@ macro_rules! gen_ffi_impl {
             gen_ffi_impl!(@catch_unwind {
                 use core::borrow::Borrow;
 
+                // False positive - doesn't compile otherwise
+                #[allow(clippy::let_unit_value)]
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
 
-                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut ())?;
-                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut ())?;
+                        let mut lhandle_store = Default::default();
+                        let mut rhandle_store = Default::default();
+
+                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut lhandle_store)?;
+                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut rhandle_store)?;
 
                         output_ptr.write(iroha_ffi::IntoFfi::into_ffi(lhandle == rhandle).into());
                     } )+
@@ -115,12 +123,17 @@ macro_rules! gen_ffi_impl {
             gen_ffi_impl!(@catch_unwind {
                 use core::borrow::Borrow;
 
+                // False positive - doesn't compile otherwise
+                #[allow(clippy::let_unit_value)]
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
 
-                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut ())?;
-                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut ())?;
+                        let mut lhandle_store = Default::default();
+                        let mut rhandle_store = Default::default();
+
+                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut lhandle_store)?;
+                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut rhandle_store)?;
 
                         output_ptr.write(iroha_ffi::IntoFfi::into_ffi(lhandle.cmp(rhandle)).into());
                     } )+

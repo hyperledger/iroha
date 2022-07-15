@@ -15,7 +15,7 @@ pub struct Local<T>(T);
 
 unsafe impl<T: ReprC> ReprC for Local<T> {}
 
-impl<T: ReprC> AsReprCRef for Local<T> {
+impl<'itm, T: ReprC + 'itm> AsReprCRef<'itm> for Local<T> {
     type Target = *const T;
 
     fn as_ref(&self) -> Self::Target {
@@ -106,8 +106,8 @@ impl<T> Drop for LocalSlice<T> {
         unsafe { Box::from_raw(core::slice::from_raw_parts_mut(self.0, self.1)) };
     }
 }
-impl<T> AsReprCRef for LocalSlice<T> {
-    type Target = SliceRef<T>;
+impl<'slice, T: 'slice> AsReprCRef<'slice> for LocalSlice<T> {
+    type Target = SliceRef<'slice, T>;
 
     fn as_ref(&self) -> Self::Target {
         if self.is_null() {
@@ -138,7 +138,7 @@ where
 }
 
 impl<'itm, T: TryFromReprC<'itm>> TryFromReprC<'itm> for Vec<T> {
-    type Source = SliceRef<T::Source>;
+    type Source = SliceRef<'itm, T::Source>;
     type Store = Vec<T::Store>;
 
     // There will always be at least one element in the subslice

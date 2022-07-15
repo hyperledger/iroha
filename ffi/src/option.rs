@@ -24,7 +24,7 @@ pub trait IntoFfiOption: Sized {
 }
 
 /// Trait that facilitates the implementation of [`TryFromReprC`] for [`Option<T>`] of foreign types
-pub trait TryFromReprCOption<'itm>: Sized {
+pub trait TryFromReprCOption<'itm>: Sized + 'itm {
     /// Type that can be converted from a [`ReprC`] type that was sent over FFI
     type Source: ReprC + Copy;
 
@@ -66,7 +66,7 @@ impl<T> Nullable for *mut T {
         (*self).is_null()
     }
 }
-impl<T> Nullable for SliceRef<T> {
+impl<T> Nullable for SliceRef<'_, T> {
     fn null() -> Self {
         SliceRef::null()
     }
@@ -74,7 +74,7 @@ impl<T> Nullable for SliceRef<T> {
         self.is_null()
     }
 }
-impl<T> Nullable for SliceMut<T> {
+impl<T> Nullable for SliceMut<'_, T> {
     fn null() -> Self {
         SliceMut::null()
     }

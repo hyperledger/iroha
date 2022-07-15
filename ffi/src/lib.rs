@@ -3,17 +3,6 @@
 //! Structures, macros related to FFI and generation of FFI bindings.
 //! [Non-robust types](https://anssi-fr.github.io/rust-guide/07_ffi.html#non-robust-types-references-function-pointers-enums)
 //! are strictly avoided in the FFI API
-//!
-//! # Conversions:
-//! owned type -> opaque pointer
-//! reference -> raw pointer
-//!
-//! enum -> int
-//! bool -> u8
-//!
-//! # Conversions (WebAssembly):
-//! u8, u16 -> u32
-//! i8, i16 -> i32
 
 pub use iroha_ffi_derive::*;
 use owned::Local;
@@ -45,17 +34,16 @@ pub unsafe trait Handle {
 pub unsafe trait ReprC: Sized {}
 
 /// Used to do a cheap reference-to-[`ReprC`]-reference conversion
-pub trait AsReprCRef {
+pub trait AsReprCRef<'itm> {
     /// Robust C ABI compliant representation of &[`Self`]
-    type Target: ReprC;
+    type Target: ReprC + 'itm;
 
     /// Convert from &[`Self`] into [`Self::Target`].
-    fn as_ref(&self) -> Self::Target;
+    fn as_ref(&'itm self) -> Self::Target;
 }
 
 /// Conversion from a type that implements [`ReprC`].
-// TODO: bind Self or Self::Store with 'itm?
-pub trait TryFromReprC<'itm>: Sized {
+pub trait TryFromReprC<'itm>: Sized + 'itm {
     /// Robust C ABI compliant representation of [`Self`]
     type Source: ReprC + Copy;
 
@@ -138,7 +126,7 @@ pub enum FfiResult {
 unsafe impl<T> ReprC for *const T {}
 unsafe impl<T> ReprC for *mut T {}
 
-impl<T: ReprC + Copy> AsReprCRef for T
+impl<'itm, T: ReprC + Copy + 'itm> AsReprCRef<'itm> for T
 where
     T: IntoFfi<Target = Self>,
 {
@@ -148,7 +136,7 @@ where
         *self
     }
 }
-impl<T> AsReprCRef for *const T {
+impl<'itm, T: 'itm> AsReprCRef<'itm> for *const T {
     type Target = Self;
 
     fn as_ref(&self) -> Self::Target {
@@ -177,7 +165,7 @@ where
     }
 }
 
-impl<T: ReprC> TryFromReprC<'_> for &T {
+impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm T {
     type Source = *const T;
     type Store = ();
 
@@ -185,7 +173,7 @@ impl<T: ReprC> TryFromReprC<'_> for &T {
         source.as_ref().ok_or(FfiResult::ArgIsNull)
     }
 }
-impl<T: ReprC> TryFromReprC<'_> for &mut T {
+impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
     type Source = *mut T;
     type Store = ();
 
@@ -257,7 +245,7 @@ macro_rules! impl_tuple {
 
         unsafe impl<$($ty: ReprC),+> ReprC for $ffi_ty<$($ty),+> {}
 
-        impl<$($ty: ReprC),+> AsReprCRef for $ffi_ty<$($ty),+> {
+        impl<'itm, $($ty: ReprC + 'itm),+> AsReprCRef<'itm> for $ffi_ty<$($ty),+> {
             type Target = *const Self;
 
             fn as_ref(&self) -> Self::Target {
