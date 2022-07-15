@@ -26,8 +26,8 @@ Here is how the "expression" is specified:
 .. code-block:: proto
 
     enum Field {
-      kCreatedTime = 0;
-      kPosition = 1;
+        kCreatedTime = 0;
+        kPosition = 1;
     }
 
 There are 2 bases for ordering – on creation time and depending on the number of block.
@@ -37,8 +37,8 @@ There is an ascending and descending directions for each Field:
 .. code-block:: proto
 
     enum Direction {
-      kAscending = 0;
-      kDescending = 1;
+        kAscending = 0;
+        kDescending = 1;
     }
 
 Now, the ordering itself:
@@ -46,11 +46,11 @@ Now, the ordering itself:
 .. code-block:: proto
 
     message Ordering {
-      message FieldOrdering {
-        Field field = 1;
-        Direction direction = 2;
-      }
-      repeated FieldOrdering sequence = 1;
+        message FieldOrdering {
+          Field field = 1;
+          Direction direction = 2;
+        }
+        repeated FieldOrdering sequence = 1;
     }
 
 After ordering is specified, pagination can be executed:
@@ -766,26 +766,26 @@ Request Schema
 .. code-block:: proto
 
     message AccountDetailRecordId {
-      string writer = 1;
-      string key = 2;
+        string writer = 1;
+        string key = 2;
     }
 
     message AccountDetailPaginationMeta {
-      uint32 page_size = 1;
-      AccountDetailRecordId first_record_id = 2;
+        uint32 page_size = 1;
+        AccountDetailRecordId first_record_id = 2;
     }
 
     message GetAccountDetail {
-      oneof opt_account_id {
-        string account_id = 1;
-      }
-      oneof opt_key {
-        string key = 2;
-      }
-      oneof opt_writer {
-        string writer = 3;
-      }
-      AccountDetailPaginationMeta pagination_meta = 4;
+        oneof opt_account_id {
+          string account_id = 1;
+        }
+        oneof opt_key {
+          string key = 2;
+        }
+        oneof opt_writer {
+          string writer = 3;
+        }
+        AccountDetailPaginationMeta pagination_meta = 4;
     }
 
 .. note::
@@ -818,9 +818,9 @@ Response Schema
 .. code-block:: proto
 
     message AccountDetailResponse {
-      string detail = 1;
-      uint64 total_number = 2;
-      AccountDetailRecordId next_record_id = 3;
+        string detail = 1;
+        uint64 total_number = 2;
+        AccountDetailRecordId next_record_id = 3;
     }
 
 Response Structure
