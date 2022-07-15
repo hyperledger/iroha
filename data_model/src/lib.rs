@@ -336,6 +336,7 @@ pub enum Value {
     Hash(Hash),
     /// Block
     Block(BlockValueWrapper),
+    /// Block headers
     BlockHeader(BlockHeaderValue),
 }
 

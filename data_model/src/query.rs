@@ -1505,6 +1505,8 @@ pub mod block {
         prelude::EvaluatesTo,
     };
 
+    /// `FindAllBlocks` Iroha Query lists all blocks sorted by
+    /// height in descending order
     #[derive(
         Default,
         Debug,
@@ -1520,8 +1522,6 @@ pub mod block {
         PartialOrd,
         Ord,
     )]
-    /// `FindAllBlocks` Iroha Query lists all blocks sorted by
-    /// height in descending order
     pub struct FindAllBlocks;
 
     impl Query for FindAllBlocks {
@@ -1535,6 +1535,8 @@ pub mod block {
         }
     }
 
+    /// `FindAllBlockHeaders` Iroha Query lists all block headers
+    /// sorted by height in descending order
     #[derive(
         Default,
         Debug,
@@ -1550,8 +1552,6 @@ pub mod block {
         PartialOrd,
         Ord,
     )]
-    /// `FindAllBlockHeaders` Iroha Query lists all block headers
-    /// sorted by height in descending order
     pub struct FindAllBlockHeaders;
 
     impl Query for FindAllBlockHeaders {
@@ -1565,6 +1565,7 @@ pub mod block {
         }
     }
 
+    /// `FindBlockHeaderByHash` Iroha Query finds block header by block hash
     #[derive(
         Debug,
         Clone,
@@ -1578,7 +1579,6 @@ pub mod block {
         PartialOrd,
         Ord,
     )]
-    /// `FindBlockHeaderByHash` Iroha Query finds block header by block hash
     pub struct FindBlockHeaderByHash {
         /// Block hash.
         pub hash: EvaluatesTo<Hash>,
