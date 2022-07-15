@@ -92,9 +92,9 @@ Request Schema
 
 .. code-block:: proto
 
-   message GetEngineReceipts{
-    string tx_hash = 1;     // hex string
-    }
+   message GetEngineReceipts {
+       string tx_hash = 1;     // hex string
+   }
 
 Request Structure
 -----------------
@@ -239,7 +239,7 @@ Request Schema
 .. code-block:: proto
 
     message GetBlock {
-      uint64 height = 1;
+        uint64 height = 1;
     }
 
 
@@ -258,7 +258,7 @@ Response Schema
 .. code-block:: proto
 
     message BlockResponse {
-      Block block = 1;
+        Block block = 1;
     }
 
 Response Structure
@@ -1112,12 +1112,12 @@ Response Schema
 .. code-block:: proto
 
     message Peer {
-      string address = 1;
-      string peer_key = 2; // hex string
+        string address = 1;
+        string peer_key = 2; // hex string
     }
 
     message PeersResponse {
-      repeated Peer peers = 1;
+        repeated Peer peers = 1;
     }
 
 Response Structure
@@ -1166,18 +1166,18 @@ Response Schema
 .. code-block:: proto
 
     message BlockQueryResponse {
-      oneof response {
-        BlockResponse block_response = 1;
-        BlockErrorResponse block_error_response = 2;
-      }
+        oneof response {
+            BlockResponse block_response = 1;
+            BlockErrorResponse block_error_response = 2;
+        }
     }
 
     message BlockResponse {
-      Block block = 1;
+        Block block = 1;
     }
 
     message BlockErrorResponse {
-      string message = 1;
+        string message = 1;
     }
 
 Please note that it returns a stream of `BlockQueryResponse`.
