@@ -16,22 +16,18 @@ declare_token!(
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAssetsCreatedByThisAccount;
 
-impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
+impl IsAllowed for OnlyAssetsCreatedByThisAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         match instruction {
             Instruction::Register(register) => {
-                if let RegistrableBox::Asset(asset) = register
-                    .object
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?
-                {
+                if let RegistrableBox::Asset(asset) = try_evaluate_or_deny!(register.object, wsv) {
                     let registered_by_signer_account = wsv
                         .asset_definition_entry(&asset.id().definition_id)
                         .map(|asset_definition_entry| {
@@ -40,21 +36,17 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
                         .unwrap_or(false);
 
                     if !registered_by_signer_account {
-                        return Err(
+                        return Deny(
                             "Can't register assets with definitions registered by other accounts."
-                                .to_owned()
-                                .into(),
+                                .to_owned(),
                         );
                     }
                 }
-                Ok(())
+                Allow
             }
             Instruction::Mint(mint_box) => {
-                let destination_id = mint_box
-                    .destination_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                let destination_id = try_evaluate_or_deny!(mint_box.destination_id, wsv);
+                let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&asset_id.definition_id)
                     .map(|asset_definition_entry| {
@@ -62,15 +54,14 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return Err(
+                    return Deny(
                         "Can't mint assets with definitions registered by other accounts."
-                            .to_owned()
-                            .into(),
+                            .to_owned(),
                     );
                 }
-                Ok(())
+                Allow
             }
-            _ => Ok(()),
+            _ => Skip,
         }
     }
 }
@@ -79,8 +70,6 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
 /// for a specific asset.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetCreator;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
 impl HasToken for GrantedByAssetCreator {
     fn token(
@@ -123,16 +112,15 @@ impl HasToken for GrantedByAssetCreator {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantRegisteredByMeAccess;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
-
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanMintUserAssetDefinitions = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanMintUserAssetDefinitions =
+            ok_or_skip!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }

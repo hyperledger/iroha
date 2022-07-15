@@ -284,7 +284,7 @@ pub trait BlockStoreTrait {
         dest_buffer: &mut [(u64, u64)],
     ) -> Result<()>;
 
-    /// Write the index of a single block at the specified `block_height`.    
+    /// Write the index of a single block at the specified `block_height`.
     /// If `block_height` is beyond the end of the index file, attempt to
     /// extend the index file.
     ///
