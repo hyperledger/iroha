@@ -245,7 +245,7 @@ impl Set {
                 count = min(atomic.get(), count);
             }
             if count == 0 {
-                return;
+                continue;
             }
 
             let ids = vec![
@@ -278,12 +278,12 @@ impl Set {
         for entry in triggers {
             let action = entry.value();
             if !action.filter.matches(event) {
-                return;
+                continue;
             }
 
             if let Repeats::Exactly(atomic) = &action.repeats {
                 if atomic.get() == 0 {
-                    return;
+                    continue;
                 }
             }
 
