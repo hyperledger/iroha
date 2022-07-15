@@ -46,16 +46,17 @@ In this example we used `Root permission <../develop/api/permissions.html#root>`
 
 .. code-block:: python
 
-	def add_peer():
-    	peer1 = primitive_pb2.Peer()
-    	peer1.address = '192.168.1.1:50541'
-    	peer1.peer_key = '716fe505f69f18511a1b083915aa9ff73ef36e6688199f3959750db38b8f4bfc'
-    	tx = iroha.transaction([
-        	iroha.command('AddPeer', peer=peer1)
-    	], creator_account=ADMIN_ACCOUNT_ID, quorum=1)
+    def add_peer():
+        peer1 = primitive_pb2.Peer()
+        peer1.address = '192.168.1.1:50541'
+        peer1.peer_key = '716fe505f69f18511a1b083915aa9ff73ef36e6688199f3959750db38b8f4bfc'
+        tx = iroha.transaction([
+            iroha.command('AddPeer', peer=peer1)
+        ], creator_account=ADMIN_ACCOUNT_ID, quorum=1)
 
-    	IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
-	add_peer()
+        IrohaCrypto.sign_transaction(tx, ADMIN_PRIVATE_KEY)
+
+    add_peer()
 
 Remove Peer
 ===========
