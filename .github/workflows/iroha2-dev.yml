@@ -78,10 +78,12 @@ jobs:
         uses: dawidd6/action-download-artifact@v2.21.1
         with:
           workflow: iroha2-dev-pr.yml
+          name: lcov-${{ github.event.pull_request.head.sha }}.info
+          search_artifacts: true
       - name: Upload to codecov
         uses: codecov/codecov-action@v3
         with:
-          file: lcov.info
+          file: lcov-${{ github.event.pull_request.head.sha }}.info
 
   archive-and-publish-schema:
     if: github.event.pull_request.merged == true
