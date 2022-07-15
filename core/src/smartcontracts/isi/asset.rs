@@ -268,7 +268,7 @@ pub mod isi {
         }
     }
 
-    /// Trait for collecting fields associated with asset isi instructions:
+    /// Trait for collecting fields associated with Iroha Special Instructions for assets:
     /// - asset value type
     /// - default asset value
     trait AssetInstructionInfo {

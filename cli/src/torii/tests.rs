@@ -13,7 +13,7 @@ use iroha_core::{
         BlockHeader, EmptyChainHash,
     },
     queue::Queue,
-    smartcontracts::{isi::error::FindError, permissions::combinators::DenyAll},
+    smartcontracts::isi::error::FindError,
     sumeragi::view_change::ProofChain,
     tx::TransactionValidator,
     wsv::World,
@@ -73,7 +73,7 @@ async fn create_torii() -> (Torii, KeyPair) {
             config,
             wsv,
             queue,
-            AllowAll::new(),
+            Arc::new(AllowAll::new()),
             events,
             network,
             Arc::new(Notify::new()),
@@ -111,7 +111,7 @@ async fn torii_pagination() {
         let pagination = Pagination { start, limit };
         handle_queries(
             Arc::clone(&torii.wsv),
-            Arc::clone(&torii.query_validator),
+            Arc::clone(&torii.query_judge),
             pagination,
             query,
         )
@@ -176,7 +176,7 @@ impl QuerySet {
 
         let (mut torii, keys) = create_torii().await;
         if self.deny_all {
-            torii.query_validator = Arc::new(DenyAll.into());
+            torii.query_judge = Arc::new(DenyAll::new());
         }
 
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -789,10 +789,15 @@ fn hash_should_be_the_same() {
         domains(&config).unwrap(),
         BTreeSet::new(),
     )));
-    let valid_tx_hash = TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
-        .validate(accepted_tx, true)
-        .expect("Failed to validate.")
-        .hash();
+    let valid_tx_hash = TransactionValidator::new(
+        tx_limits,
+        Arc::new(AllowAll::new()),
+        Arc::new(AllowAll::new()),
+        wsv,
+    )
+    .validate(accepted_tx, true)
+    .expect("Failed to validate.")
+    .hash();
     assert_eq!(tx_hash, signed_tx_hash);
     assert_eq!(tx_hash, accepted_tx_hash);
     assert_eq!(tx_hash, valid_tx_hash.transmute());

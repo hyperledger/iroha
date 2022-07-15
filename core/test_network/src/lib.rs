@@ -14,7 +14,7 @@ use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
-    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
+    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
@@ -447,8 +447,8 @@ where
         &mut self,
         configuration: Configuration,
         genesis: Option<G>,
-        instruction_validator: IsInstructionAllowedBoxed,
-        query_validator: IsQueryAllowedBoxed,
+        instruction_judge: InstructionJudgeBoxed,
+        query_judge: QueryJudgeBoxed,
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
@@ -474,8 +474,8 @@ where
                 let mut iroha = <Iroha<G, S, B>>::with_genesis(
                     genesis,
                     configuration,
-                    instruction_validator,
-                    query_validator,
+                    instruction_judge,
+                    query_judge,
                     broker,
                     telemetry,
                 )
@@ -557,8 +557,8 @@ where
 {
     configuration: Option<Configuration>,
     genesis: WithGenesis<G>,
-    instruction_validator: Option<IsInstructionAllowedBoxed>,
-    query_validator: Option<IsQueryAllowedBoxed>,
+    instruction_judge: Option<InstructionJudgeBoxed>,
+    query_judge: Option<QueryJudgeBoxed>,
     temp_dir: Option<Arc<TempDir>>,
 }
 
@@ -600,22 +600,15 @@ where
 
     /// Sets permissions for instructions.
     #[must_use]
-    pub fn with_instruction_validator(
-        mut self,
-        instruction_validator: impl Into<IsInstructionAllowedBoxed> + Send + 'static,
-    ) -> Self {
-        self.instruction_validator
-            .replace(instruction_validator.into());
+    pub fn with_instruction_judge(mut self, instruction_judge: InstructionJudgeBoxed) -> Self {
+        self.instruction_judge.replace(instruction_judge);
         self
     }
 
     /// Sets permissions for queries.
     #[must_use]
-    pub fn with_query_validator(
-        mut self,
-        query_validator: impl Into<IsQueryAllowedBoxed> + Send + 'static,
-    ) -> Self {
-        self.query_validator.replace(query_validator.into());
+    pub fn with_query_judge(mut self, query_judge: QueryJudgeBoxed) -> Self {
+        self.query_judge.replace(query_judge);
         self
     }
 
@@ -642,10 +635,12 @@ where
             WithGenesis::<G>::None => None,
             WithGenesis::<G>::Has(genesis) => Some(genesis),
         };
-        let instruction_validator = self.instruction_validator.unwrap_or_else(|| {
+        let instruction_validator = self.instruction_judge.unwrap_or_else(|| {
             iroha_permissions_validators::public_blockchain::default_permissions()
         });
-        let query_validator = self.query_validator.unwrap_or_else(|| AllowAll.into());
+        let query_validator = self
+            .query_judge
+            .unwrap_or_else(|| Box::new(AllowAll::new()));
         let temp_dir = self
             .temp_dir
             .unwrap_or_else(|| Arc::new(TempDir::new().expect("Failed to create temp dir.")));
@@ -710,8 +705,8 @@ where
         Self {
             genesis: WithGenesis::<G>::default(),
             configuration: None,
-            instruction_validator: None,
-            query_validator: None,
+            instruction_judge: None,
+            query_judge: None,
             temp_dir: None,
         }
     }

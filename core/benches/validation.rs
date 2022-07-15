@@ -123,8 +123,8 @@ fn validate_transaction(criterion: &mut Criterion) {
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_validator = TransactionValidator::new(
             TRANSACTION_LIMITS,
-            AllowAll::new(),
-            AllowAll::new(),
+            Arc::new(AllowAll::new()),
+            Arc::new(AllowAll::new()),
             Arc::new(build_test_wsv(keys.clone())),
         );
         b.iter(
@@ -172,8 +172,8 @@ fn sign_blocks(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let transaction_validator = TransactionValidator::new(
         TRANSACTION_LIMITS,
-        AllowAll::new(),
-        AllowAll::new(),
+        Arc::new(AllowAll::new()),
+        Arc::new(AllowAll::new()),
         Arc::new(build_test_wsv(keys)),
     );
     let block = PendingBlock::new(vec![transaction.into()], Vec::new())
@@ -215,8 +215,8 @@ fn validate_blocks(criterion: &mut Criterion) {
     let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
     let transaction_validator = TransactionValidator::new(
         TRANSACTION_LIMITS,
-        AllowAll::new(),
-        AllowAll::new(),
+        Arc::new(AllowAll::new()),
+        Arc::new(AllowAll::new()),
         Arc::new(WorldStateView::new(World::with([domain], BTreeSet::new()))),
     );
     let _ = criterion.bench_function("validate_block", |b| {

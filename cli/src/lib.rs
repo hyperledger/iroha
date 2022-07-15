@@ -15,7 +15,7 @@ use iroha_core::{
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
-    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
+    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::{Sumeragi, SumeragiTrait},
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
@@ -101,8 +101,8 @@ where
     #[allow(clippy::non_ascii_literal)]
     pub async fn new(
         args: &Arguments,
-        instruction_validator: IsInstructionAllowedBoxed,
-        query_validator: IsQueryAllowedBoxed,
+        instruction_judge: InstructionJudgeBoxed,
+        query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
         let mut config = match Configuration::from_path(&args.config_path) {
@@ -130,8 +130,8 @@ where
         Self::with_genesis(
             genesis,
             config,
-            instruction_validator,
-            query_validator,
+            instruction_judge,
+            query_judge,
             broker,
             telemetry,
         )
@@ -155,8 +155,8 @@ where
     pub async fn with_genesis(
         genesis: Option<G>,
         config: Configuration,
-        instruction_validator: IsInstructionAllowedBoxed,
-        query_validator: IsQueryAllowedBoxed,
+        instruction_judge: InstructionJudgeBoxed,
+        query_judge: QueryJudgeBoxed,
         broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
@@ -189,12 +189,12 @@ where
             events_sender.clone(),
         ));
 
-        let query_validator = Arc::new(query_validator);
+        let query_judge = Arc::from(query_judge);
 
         let transaction_validator = TransactionValidator::new(
             config.sumeragi.transaction_limits,
-            Arc::new(instruction_validator),
-            Arc::clone(&query_validator),
+            Arc::from(instruction_judge),
+            Arc::clone(&query_judge),
             Arc::clone(&wsv),
         );
 
@@ -244,7 +244,7 @@ where
             config.clone(),
             Arc::clone(&wsv),
             Arc::clone(&queue),
-            query_validator,
+            query_judge,
             events_sender,
             network_addr.clone(),
             Arc::clone(&notify_shutdown),
@@ -252,7 +252,9 @@ where
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
-        Self::prepare_panic_hook(notify_shutdown);
+        if config.shutdown_on_panic {
+            Self::prepare_panic_hook(notify_shutdown);
+        }
 
         let torii = Some(torii);
         Ok(Self {
@@ -367,10 +369,13 @@ fn domains(configuration: &config::Configuration) -> [Domain; 1] {
 mod tests {
     use std::{panic, thread};
 
+    use serial_test::serial;
+
     use super::*;
 
-    #[tokio::test]
     #[allow(clippy::panic)]
+    #[tokio::test]
+    #[serial]
     async fn iroha_should_notify_on_panic() {
         let notify = Arc::new(Notify::new());
         let hook = panic::take_hook();

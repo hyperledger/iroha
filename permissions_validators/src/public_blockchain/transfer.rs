@@ -29,32 +29,27 @@ declare_token!(
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyOwnedAssets;
 
-impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
+impl IsAllowed for OnlyOwnedAssets {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let transfer_box = if let Instruction::Transfer(transfer) = instruction {
             transfer
         } else {
-            return Ok(());
+            return Skip;
         };
-        let source_id = transfer_box
-            .source_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let source_id: AssetId = try_into_or_exit!(source_id);
+        let source_id: AssetId =
+            ok_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv).try_into());
 
         if &source_id.account_id != authority {
-            return Err("Can't transfer assets of the other account."
-                .to_owned()
-                .into());
+            return Deny("Cannot transfer assets of another account.".to_owned());
         }
-        Ok(())
+        Allow
     }
 }
 
@@ -62,8 +57,6 @@ impl IsAllowed<Instruction> for OnlyOwnedAssets {
 /// corresponding user granted this permission token.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetOwner;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
 impl HasToken for GrantedByAssetOwner {
     fn token(
@@ -95,26 +88,22 @@ impl HasToken for GrantedByAssetOwner {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantMyAssetAccess;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
-
 impl IsGrantAllowed for GrantMyAssetAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanTransferUserAssets = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanTransferUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return Err(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "The signer does not own the asset specified in the permission token".to_owned(),
             );
         }
 
-        Ok(())
+        Allow
     }
 }
 
@@ -123,36 +112,39 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct ExecutionCountFitsInLimit;
 
-impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
+impl IsAllowed for ExecutionCountFitsInLimit {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for ExecutionCountFitsInLimit {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         if !matches!(instruction, Instruction::Transfer(_)) {
-            return Ok(());
+            return Skip;
         };
 
-        let params = retrieve_permission_params(wsv, authority)?;
+        let params = match retrieve_permission_params(wsv, authority) {
+            Ok(params) => params,
+            Err(err) => {
+                return Deny(err);
+            }
+        };
         if params.is_empty() {
-            return Ok(());
+            return Allow;
         }
 
-        let period = retrieve_period(&params)?;
-        let count = retrieve_count(&params)?;
+        let period = ok_or_deny!(retrieve_period(&params));
+        let count = ok_or_deny!(retrieve_count(&params));
         let executions_count: u32 = count_executions(wsv, authority, period)
             .try_into()
             .expect("`usize` should always fit in `u32`");
         if executions_count >= count {
-            return Err("Transfer transaction limit for current period is exceed"
-                .to_owned()
-                .into());
+            return Deny("Transfer transaction limit for current period is exceeded".to_owned());
         }
-        Ok(())
+        Allow
     }
 }
 
@@ -173,7 +165,7 @@ fn retrieve_permission_params(
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect()
     })
-    .map_err(|e| e.to_string().into())
+    .map_err(|e| e.to_string())
 }
 
 /// Retrieve period from `params`
@@ -191,10 +183,9 @@ fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration> {
         Value::U128(period) => Ok(Duration::from_millis(
             u64::try_from(*period).map_err(|e| e.to_string())?,
         )),
-        _ => Err(
-            format!("`{period_param_name}` parameter has wrong value type. Expected `u128`",)
-                .into(),
-        ),
+        _ => Err(format!(
+            "`{period_param_name}` parameter has wrong value type. Expected `u128`",
+        )),
     }
 }
 
@@ -210,9 +201,9 @@ fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32> {
         .ok_or_else(|| format!("Expected `{count_param_name}` parameter"))?
     {
         Value::U32(count) => Ok(*count),
-        _ => Err(
-            format!("`{count_param_name}` parameter has wrong value type. Expected `u32`").into(),
-        ),
+        _ => Err(format!(
+            "`{count_param_name}` parameter has wrong value type. Expected `u32`"
+        )),
     }
 }
 
