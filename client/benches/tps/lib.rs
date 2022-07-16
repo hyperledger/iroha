@@ -1,8 +1,11 @@
-use std::{fmt, fs::File, io::BufReader, path::Path, sync::mpsc, thread, time};
+use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr as _, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
 use iroha_client::client::Client;
 use iroha_data_model::prelude::*;
+use iroha_permissions_validators::public_blockchain::{
+    burn::CanBurnUserAssets, transfer::CanTransferUserAssets,
+};
 use serde::Deserialize;
 use test_network::*;
 
@@ -67,6 +70,9 @@ impl Config {
             let handle = unit.spawn_event_counter();
             handles.push(handle)
         }
+        // Sleep to let the blocks produced by units to be committed on all peers
+        thread::sleep(core::time::Duration::from_secs(1));
+
         // START
         let timer = time::Instant::now();
         for unit in &units {
@@ -75,10 +81,12 @@ impl Config {
         for handle in handles {
             handle.join().expect("Event counter panicked")?;
         }
+
         // END
         let elapsed_secs = timer.elapsed().as_secs_f64();
-        thread::sleep(core::time::Duration::from_secs(2));
-        let blocks_out_of_measure = 1 + 2 * self.peers;
+        // Sleep to let the blocks to be committed on all peers
+        thread::sleep(core::time::Duration::from_secs(5));
+        let blocks_out_of_measure = 1 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
         let mut blocks = network
             .genesis
             .iroha
@@ -99,6 +107,9 @@ impl Config {
         #[allow(clippy::float_arithmetic, clippy::cast_precision_loss)]
         let tps = txs_accepted as f64 / elapsed_secs;
         iroha_logger::info!(%tps, %txs_accepted, %elapsed_secs, %txs_rejected);
+        if txs_rejected > 0 {
+            return Err(eyre::eyre!("{txs_rejected} transactions were rejected"));
+        }
 
         Ok(tps)
     }
@@ -114,18 +125,45 @@ struct MeasurerUnit {
 type UnitName = u32;
 
 impl MeasurerUnit {
+    /// Number of blocks that will be committed by [`Self::ready()`] call
+    const PREPARATION_BLOCKS_NUMBER: u32 = 3;
+
     /// Submit initial transactions for measurement
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn ready(self) -> Result<Self> {
-        let (public_key, _) = iroha_core::prelude::KeyPair::generate()
-            .expect("Failed to generate KeyPair.")
-            .into();
+        let keypair =
+            iroha_core::prelude::KeyPair::generate().expect("Failed to generate KeyPair.");
 
-        let register_me = RegisterBox::new(Account::new(account_id(self.name), [public_key]));
-        let mint_a_rose = MintBox::new(1_u32, asset_id(self.name));
+        let account_id = account_id(self.name);
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+        let asset_id = asset_id(self.name);
 
-        let _ = self.client.submit_blocking(register_me)?;
-        let _ = self.client.submit_blocking(mint_a_rose)?;
+        let register_me = RegisterBox::new(Account::new(
+            account_id.clone(),
+            [keypair.public_key().clone()],
+        ));
+        self.client.submit_blocking(register_me)?;
+
+        let can_burn_my_asset: PermissionToken = CanBurnUserAssets::new(asset_id.clone()).into();
+        let allow_alice_to_burn_my_asset =
+            GrantBox::new(can_burn_my_asset, alice_id.clone()).into();
+        let can_transfer_my_asset: PermissionToken =
+            CanTransferUserAssets::new(asset_id.clone()).into();
+        let allow_alice_to_transfer_my_asset =
+            GrantBox::new(can_transfer_my_asset, alice_id).into();
+        let grant_tx = Transaction::new(
+            account_id,
+            Executable::Instructions(vec![
+                allow_alice_to_burn_my_asset,
+                allow_alice_to_transfer_my_asset,
+            ]),
+            100_000,
+        )
+        .sign(keypair)?;
+        self.client.submit_transaction_blocking(grant_tx)?;
+
+        let mint_a_rose = MintBox::new(1_u32, asset_id);
+        self.client.submit_blocking(mint_a_rose)?;
 
         Ok(self)
     }
