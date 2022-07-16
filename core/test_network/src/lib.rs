@@ -20,6 +20,9 @@ use iroha_core::{
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
+use iroha_permissions_validators::public_blockchain::{
+    burn::CanBurnAssetWithDefinition, mint::CanMintUserAssetDefinitions,
+};
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{
@@ -90,12 +93,27 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             "wonderland".parse().expect("Valid"),
             get_key_pair().public_key().clone(),
         );
+        let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
+            .expect("valid names");
+        let alice_id =
+            <Account as Identifiable>::Id::from_str("alice@wonderland").expect("valid names");
+        let mint_rose_permission: PermissionToken =
+            CanMintUserAssetDefinitions::new(rose_definition_id.clone()).into();
+        let burn_rose_permission: PermissionToken =
+            CanBurnAssetWithDefinition::new(rose_definition_id.clone()).into();
+
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::quantity(
                 AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
             ))
             .into(),
         );
+        genesis.transactions[0]
+            .isi
+            .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
+        genesis.transactions[0]
+            .isi
+            .push(GrantBox::new(burn_rose_permission, alice_id.clone()).into());
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::quantity(
                 AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
@@ -105,10 +123,7 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         genesis.transactions[0].isi.push(
             MintBox::new(
                 Value::U32(13),
-                IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
-                    AccountId::from_str("alice@wonderland").expect("valid names"),
-                )),
+                IdBox::AssetId(AssetId::new(rose_definition_id, alice_id)),
             )
             .into(),
         );
