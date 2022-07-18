@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-// Generate ConfigurationView without private key
+// Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
     #[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
@@ -91,8 +91,8 @@ impl Configuration {
     /// # Errors
     /// - File not found.
     /// - File found, but peer configuration parsing failed.
-    /// - Length of the array in raw json representation is different
-    /// to the lenght of the array in
+    /// - The length of the array in raw JSON representation is different
+    /// from the length of the array in
     /// [`self.sumeragi.trusted_peers.peers`], most likely due to two
     /// (or more) peers having the same public key.
     pub fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> Result<Configuration> {
@@ -114,11 +114,10 @@ impl Configuration {
         Ok(())
     }
 
-    /// Loads configuration from environment
+    /// Load configuration from the environment
     ///
     /// # Errors
-    /// If Configuration deserialize fails:
-    /// - Configuration `TrustedPeers` contains entries with duplicate public keys
+    /// Fails if Configuration deserialization fails (e.g. if `TrustedPeers` contains entries with duplicate public keys)
     pub fn load_environment(&mut self) -> Result<()> {
         iroha_config_base::Configurable::load_environment(self)?;
         self.finalize()?;

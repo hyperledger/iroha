@@ -99,7 +99,7 @@ impl Parse for SerdeAsStr {
     }
 }
 
-/// Derive for config. Check other doc in `iroha_config_base` reexport
+/// Derive for config. More details in `iroha_config_base` reexport
 #[proc_macro_derive(Configurable, attributes(config))]
 pub fn configurable_derive(input: TokenStream) -> TokenStream {
     let ast = match syn::parse(input) {
@@ -580,8 +580,8 @@ impl Parse for ViewFieldType {
     }
 }
 
-/// Generate view for given struct and convertion from type to it's view.
-/// Check other doc in `iroha_config_base` reexport.
+/// Generate view for given struct and conversion from type to its view.
+/// More details in `iroha_config_base` reexport.
 #[proc_macro]
 pub fn view(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as ViewInput);
@@ -747,7 +747,7 @@ fn is_view_field_ignored(field: &Field) -> bool {
         .is_none()
 }
 
-/// Remove attribute with ident [`attr_ident`] from struct attributes and field attributes
+/// Remove attributes with ident [`attr_ident`] from struct attributes and field attributes
 fn remove_attr_struct(ast: &mut ViewInput, attr_ident: &str) {
     let ViewInput { attrs, fields, .. } = ast;
     for field in fields {
@@ -756,7 +756,7 @@ fn remove_attr_struct(ast: &mut ViewInput, attr_ident: &str) {
     remove_attr(attrs, attr_ident);
 }
 
-/// Remove attribute with ident [`attr_ident`] from field attributes
+/// Remove attributes with ident [`attr_ident`] from attributes
 fn remove_attr(attrs: &mut Vec<Attribute>, attr_ident: &str) {
     attrs.retain(|attr| !attr.path.is_ident(attr_ident));
 }

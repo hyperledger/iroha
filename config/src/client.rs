@@ -1,4 +1,4 @@
-//! This module contains all configuration related logic.
+//! Module for client-related configuration and structs
 use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use derive_more::Display;
@@ -84,7 +84,7 @@ pub struct Configuration {
     pub transaction_time_to_live_ms: u64,
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
-    /// Limits to which transactions must adhere to
+    /// The limits to which transactions must adhere to
     pub transaction_limits: TransactionLimits,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,

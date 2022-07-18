@@ -40,10 +40,10 @@ impl Default for Configuration {
 }
 
 impl Configuration {
-    /// Set `block_store_path` configuration parameter - will overwrite the existing one.
+    /// Set `block_store_path` configuration parameter. Will overwrite the existing one.
     ///
     /// # Errors
-    /// If path is not valid this method will fail.
+    /// Fails if the path is not valid
     pub fn block_store_path(&mut self, path: &Path) -> Result<()> {
         self.block_store_path = path
             .to_str()
@@ -59,9 +59,8 @@ fn default_block_store_path() -> String {
 
 fn default_blocks_per_storage_file() -> NonZeroU64 {
     #![allow(clippy::expect_used)]
-    NonZeroU64::new(DEFAULT_BLOCKS_PER_STORAGE_FILE).expect(
-        "Default BLOCKS_PER_STORAGE value is set to non-positive value. This must not happen",
-    )
+    NonZeroU64::new(DEFAULT_BLOCKS_PER_STORAGE_FILE)
+        .expect("BLOCKS_PER_STORAGE cannot be set to a non-positive value.")
 }
 
 const fn default_actor_channel_capacity() -> u32 {

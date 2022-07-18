@@ -192,7 +192,7 @@ Has type `genesis::Configuration`. Can be configured via environment variable `I
 
 ### `genesis.account_private_key`
 
-Genesis account private key, only needed on the peer that submits the genesis block.
+The private key of the genesis account, only needed for the peer that submits the genesis block.
 
 Has type `Option<PrivateKey>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PRIVATE_KEY`
 
@@ -205,7 +205,7 @@ Has type `Option<PrivateKey>`. Can be configured via environment variable `IROHA
 
 ### `genesis.account_public_key`
 
-The genesis account public key, should be supplied to all peers.
+The public key of the genesis account, should be supplied to all peers.
 
 Has type `PublicKey`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
 
@@ -517,7 +517,7 @@ Has type `u32`. Can be configured via environment variable `SUMERAGI_ACTOR_CHANN
 
 ### `sumeragi.block_time_ms`
 
-The amount of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_MS`
 
@@ -527,7 +527,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_
 
 ### `sumeragi.commit_time_limit_ms`
 
-The amount of time a peer waits for `CommitMessage` from the proxy tail.
+The period of time a peer waits for `CommitMessage` from the proxy tail.
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_LIMIT_MS`
 
@@ -537,7 +537,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME
 
 ### `sumeragi.gossip_batch_size`
 
-Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
+Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
 
 Has type `u32`. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
 
@@ -557,7 +557,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_GOSSIP_PERI
 
 ### `sumeragi.key_pair`
 
-Key pair of private and public keys.
+The key pair consisting of a private and a public key.
 
 Has type `KeyPair`. Can be configured via environment variable `SUMERAGI_KEY_PAIR`
 
@@ -586,7 +586,7 @@ Has type `PeerId`. Can be configured via environment variable `SUMERAGI_PEER_ID`
 
 ### `sumeragi.transaction_limits`
 
-Limits to which transactions must adhere
+The limits to which transactions must adhere
 
 Has type `TransactionLimits`. Can be configured via environment variable `SUMERAGI_TRANSACTION_LIMITS`
 
@@ -614,7 +614,7 @@ Has type `TrustedPeers`. Can be configured via environment variable `SUMERAGI_TR
 
 ### `sumeragi.tx_receipt_time_limit_ms`
 
-The amount of time a peer waits for `TxReceipt` from the leader.
+The period of time a peer waits for `TxReceipt` from the leader.
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_TIME_LIMIT_MS`
 
@@ -791,7 +791,7 @@ Has type `wsv::Configuration`. Can be configured via environment variable `IROHA
 
 ### `wsv.account_metadata_limits`
 
-[`MetadataLimits`] of any account's metadata.
+[`MetadataLimits`] of any account metadata.
 
 Has type `MetadataLimits`. Can be configured via environment variable `WSV_ACCOUNT_METADATA_LIMITS`
 
@@ -804,7 +804,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ACCOU
 
 ### `wsv.asset_definition_metadata_limits`
 
-[`MetadataLimits`] of any asset definition's metadata.
+[`MetadataLimits`] of any asset definition metadata.
 
 Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET_DEFINITION_METADATA_LIMITS`
 
@@ -830,7 +830,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET
 
 ### `wsv.domain_metadata_limits`
 
-[`MetadataLimits`] of any domain's metadata.
+[`MetadataLimits`] of any domain metadata.
 
 Has type `MetadataLimits`. Can be configured via environment variable `WSV_DOMAIN_METADATA_LIMITS`
 

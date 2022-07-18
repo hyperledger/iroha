@@ -16,11 +16,11 @@ const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow
 pub struct Configuration {
     /// [`MetadataLimits`] for every asset with store.
     pub asset_metadata_limits: MetadataLimits,
-    /// [`MetadataLimits`] of any asset definition's metadata.
+    /// [`MetadataLimits`] of any asset definition metadata.
     pub asset_definition_metadata_limits: MetadataLimits,
-    /// [`MetadataLimits`] of any account's metadata.
+    /// [`MetadataLimits`] of any account metadata.
     pub account_metadata_limits: MetadataLimits,
-    /// [`MetadataLimits`] of any domain's metadata.
+    /// [`MetadataLimits`] of any domain metadata.
     pub domain_metadata_limits: MetadataLimits,
     /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
     pub ident_length_limits: LengthLimits,

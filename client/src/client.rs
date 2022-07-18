@@ -247,7 +247,7 @@ pub struct Client {
     torii_url: SmallStr,
     /// Url to report status for administration
     telemetry_url: SmallStr,
-    /// Limits to which transactions must adhere to
+    /// The limits to which transactions must adhere to
     transaction_limits: TransactionLimits,
     /// Accounts keypair
     key_pair: KeyPair,

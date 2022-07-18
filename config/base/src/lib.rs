@@ -4,12 +4,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 pub mod derive {
-    //! Modules with things related with deriving `Configurable`
+    //! Modules for `Configurable` entities
 
     use std::{error::Error as StdError, fmt};
 
     use derive_more::Display;
-    /// Generate view for the type and implements conversion `Type -> View`.
+    /// Generate view for the type and implement conversion `Type -> View`.
     /// View contains a subset of the fields that the type has.
     ///
     /// Works only with structs.
@@ -83,7 +83,7 @@ pub mod derive {
     /// ```
     ///
     /// ## `inner`
-    /// Tells macro that structure stores another config inside
+    /// Tells macro that the structure stores another config inside
     /// ```rust
     /// use iroha_config_base::{Configurable, derive::Configurable};
     ///
@@ -98,7 +98,7 @@ pub mod derive {
     /// ```
     ///
     /// ## `serde_as_str`
-    /// Tells macro to deserialize from env variable as bare string:
+    /// Tells macro to deserialize from env variable as a bare string:
     /// ```
     /// use iroha_config_base::{Configurable, derive::Configurable};
     /// use std::net::Ipv4Addr;
@@ -134,7 +134,7 @@ pub mod derive {
     pub enum Error {
         /// Got unknown field
         UnknownField(Vec<String>),
-        /// Failed to deserialize or serialize field
+        /// Failed to deserialize or serialize a field
         FieldError(FieldError),
     }
 
@@ -168,7 +168,7 @@ pub mod derive {
     }
 
     impl Error {
-        /// Constructs field error
+        /// Construct a field error
         pub const fn field_error(field: &'static str, error: serde_json::Error) -> Self {
             Self::FieldError(FieldError { field, error })
         }
@@ -177,48 +177,48 @@ pub mod derive {
 
 pub mod runtime_upgrades;
 
-/// Trait for dynamic and asynchronous configuration via maintenance endpoint for rust structures
+/// Trait for dynamic and asynchronous configuration via maintenance endpoint for Rust structures
 pub trait Configurable: Serialize + DeserializeOwned {
-    /// Error type returned by methods of trait
+    /// Error type returned by methods of this trait
     type Error;
 
-    /// Gets field of structure and returns as json-value
+    /// Return the JSON value of a given field
     /// # Errors
     /// Fails if field was unknown
     fn get(&self, field: &'_ str) -> Result<Value, Self::Error> {
         self.get_recursive([field])
     }
 
-    /// Gets inner field of arbitrary inner depth and returns as json-value
+    /// Return the JSON value of a given inner field of arbitrary inner depth
     /// # Errors
     /// Fails if field was unknown
     fn get_recursive<'tl, T>(&self, inner_field: T) -> Result<Value, Self::Error>
     where
         T: AsRef<[&'tl str]> + Send + 'tl;
 
-    /// Fails if fails to deserialize from environment
+    /// Load configuration from the environment
     ///
     /// # Errors
     /// Fails if fails to deserialize from environment
     fn load_environment(&mut self) -> Result<(), Self::Error>;
 
-    /// Gets docs of inner field of arbitrary depth
+    /// Get documentation of a given inner field of arbitrary depth
     ///
     /// # Errors
     /// Fails if field was unknown
     fn get_doc_recursive<'tl>(field: impl AsRef<[&'tl str]>)
         -> Result<Option<String>, Self::Error>;
 
-    /// Gets docs of field
+    /// Get documentation of a given field
     /// # Errors
     /// Fails if field was unknown
     fn get_doc(field: &str) -> Result<Option<String>, Self::Error> {
         Self::get_doc_recursive([field])
     }
 
-    /// Returns documentation for all fields in form of json object
+    /// Return documentation for all fields in a form of a JSON object
     fn get_docs() -> Value;
 
-    /// Gets inner docs for non-leaf fields
+    /// Get inner documentation for non-leaf fields
     fn get_inner_docs() -> String;
 }

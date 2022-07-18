@@ -18,35 +18,35 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
-// Generate ConfigurationView without keys
+// Generate `ConfigurationView` without keys
 view! {
     /// `Sumeragi` configuration.
     /// [`Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
-    /// and list of `TRUSTED_PEERS`.
+    /// and a list of `TRUSTED_PEERS`.
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]
     pub struct Configuration {
-        /// Key pair of private and public keys.
+        /// The key pair consisting of a private and a public key.
         #[serde(skip)]
         #[view(ignore)]
         pub key_pair: KeyPair,
         /// Current Peer Identification.
         pub peer_id: PeerId,
-        /// The amount of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+        /// The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
         pub trusted_peers: TrustedPeers,
-        /// The amount of time a peer waits for `CommitMessage` from the proxy tail.
+        /// The period of time a peer waits for `CommitMessage` from the proxy tail.
         pub commit_time_limit_ms: u64,
-        /// The amount of time a peer waits for `TxReceipt` from the leader.
+        /// The period of time a peer waits for `TxReceipt` from the leader.
         pub tx_receipt_time_limit_ms: u64,
-        /// Limits to which transactions must adhere
+        /// The limits to which transactions must adhere
         pub transaction_limits: TransactionLimits,
         /// Buffer capacity of actor's MPSC channel
         pub actor_channel_capacity: u32,
-        /// Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
+        /// Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
         pub gossip_batch_size: u32,
         /// Period in milliseconds for pending transaction gossiping between peers.
         pub gossip_period_ms: u64,
@@ -120,7 +120,7 @@ impl Configuration {
 }
 
 /// `SumeragiConfiguration` provides an ability to define parameters
-/// such as `BLOCK_TIME_MS` and list of `TRUSTED_PEERS`.
+/// such as `BLOCK_TIME_MS` and a list of `TRUSTED_PEERS`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(transparent)]

@@ -51,6 +51,6 @@ const fn default_max_retry_delay_exponent() -> u8 {
 pub mod retry_period {
     /// Default minimal retry period
     pub const DEFAULT_MIN_RETRY_PERIOD: u64 = 1;
-    /// Default maximum retry delat exponent
+    /// Default maximum exponent for the retry delay
     pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = 4;
 }
