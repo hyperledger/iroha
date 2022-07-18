@@ -22,7 +22,7 @@ use crate::{ParseError, ValidationError};
 pub struct Name(ConstString);
 
 impl Name {
-    /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
+    /// Check if `range` contains the number of chars in the inner `ConstString` of this [`Name`].
     ///
     /// # Errors
     /// Fails if `range` does not
