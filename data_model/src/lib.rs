@@ -716,16 +716,12 @@ pub trait Identifiable: Debug {
         + fmt::Display
         + fmt::Debug
         + Clone
-        + PartialEq
         + Eq
-        + PartialOrd
         + Ord
         + core::hash::Hash
         + Decode
         + Encode
-        // + Deserialize<'a>
-        + Serialize
-        + IntoSchema;
+        + Serialize;
 
     /// Get reference to the type's `Id`. There should be no other
     /// inherent `impl` with the same name (e.g. `getset`).

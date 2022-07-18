@@ -95,10 +95,15 @@ impl Filter for EntityFilter {
 }
 
 #[derive(Clone, PartialOrd, Ord, Eq, Debug, Decode, Encode, Serialize, IntoSchema)]
-/// Filter that accepts an data event whose origin matches what this filter specifies.
-pub struct OriginFilter<T: Origin>(<T::Origin as Identifiable>::Id);
+/// Filter that accepts a data event with the matching origin.
+pub struct OriginFilter<T: HasOrigin>(<T::Origin as Identifiable>::Id)
+where
+    <T::Origin as Identifiable>::Id: IntoSchema;
 
-impl<T: Origin> OriginFilter<T> {
+impl<T: HasOrigin> OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id: IntoSchema,
+{
     /// Construct [`OriginFilter`].
     pub fn new(origin_id: <T::Origin as Identifiable>::Id) -> Self {
         Self(origin_id)
@@ -110,7 +115,10 @@ impl<T: Origin> OriginFilter<T> {
     }
 }
 
-impl<T: Origin> Filter for OriginFilter<T> {
+impl<T: HasOrigin> Filter for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id: IntoSchema,
+{
     type EventType = T;
 
     fn matches(&self, event: &T) -> bool {
@@ -118,21 +126,28 @@ impl<T: Origin> Filter for OriginFilter<T> {
     }
 }
 
-impl<T: Origin> PartialEq for OriginFilter<T> {
+impl<T: HasOrigin> PartialEq for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id: IntoSchema,
+{
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
 }
 
-impl<T: Origin> core::hash::Hash for OriginFilter<T> {
+impl<T: HasOrigin> core::hash::Hash for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id: IntoSchema,
+{
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
 }
 
-impl<'de, T: Origin> Deserialize<'de> for OriginFilter<T>
+impl<'de, T: HasOrigin> Deserialize<'de> for OriginFilter<T>
 where
-    <<T as Origin>::Origin as Identifiable>::Id: Deserialize<'de>,
+    <T::Origin as Identifiable>::Id: IntoSchema,
+    <<T as HasOrigin>::Origin as Identifiable>::Id: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

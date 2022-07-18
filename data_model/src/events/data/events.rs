@@ -36,7 +36,7 @@ mod asset {
         MetadataRemoved(AssetId),
     }
 
-    impl Origin for AssetEvent {
+    impl HasOrigin for AssetEvent {
         type Origin = Asset;
 
         fn origin_id(&self) -> &<Asset as Identifiable>::Id {
@@ -79,7 +79,7 @@ mod asset {
     // AssetDefinitionEventFilter enum and its `impl Filter for
     // AssetDefinitionEventFilter`.
 
-    impl Origin for AssetDefinitionEvent {
+    impl HasOrigin for AssetDefinitionEvent {
         type Origin = AssetDefinition;
 
         fn origin_id(&self) -> &<AssetDefinition as Identifiable>::Id {
@@ -121,7 +121,7 @@ mod peer {
         Removed(PeerId),
     }
 
-    impl Origin for PeerEvent {
+    impl HasOrigin for PeerEvent {
         type Origin = Peer;
 
         fn origin_id(&self) -> &<Peer as Identifiable>::Id {
@@ -159,7 +159,7 @@ mod role {
         Deleted(RoleId),
     }
 
-    impl Origin for RoleEvent {
+    impl HasOrigin for RoleEvent {
         type Origin = Role;
 
         fn origin_id(&self) -> &<Role as Identifiable>::Id {
@@ -207,7 +207,7 @@ mod account {
         MetadataRemoved(AccountId),
     }
 
-    impl Origin for AccountEvent {
+    impl HasOrigin for AccountEvent {
         type Origin = Account;
 
         fn origin_id(&self) -> &<Account as Identifiable>::Id {
@@ -260,7 +260,7 @@ mod domain {
         MetadataRemoved(DomainId),
     }
 
-    impl Origin for DomainEvent {
+    impl HasOrigin for DomainEvent {
         type Origin = Domain;
 
         fn origin_id(&self) -> &<Domain as Identifiable>::Id {
@@ -306,7 +306,7 @@ mod trigger {
         Shortened(TriggerId),
     }
 
-    impl Origin for TriggerEvent {
+    impl HasOrigin for TriggerEvent {
         type Origin = Trigger<FilterBox>;
 
         fn origin_id(&self) -> &<Trigger<FilterBox> as Identifiable>::Id {
@@ -320,11 +320,11 @@ mod trigger {
     }
 }
 
-/// Has an origin whose change caused this event.
-pub trait Origin {
-    /// Type of the origin whose change caused this event.
+/// Trait for events originating from [`HasOrigin::Origin`].
+pub trait HasOrigin {
+    /// Type of the origin.
     type Origin: Identifiable;
-    /// Identification of the origin whose change caused this event.
+    /// Identification of the origin.
     fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id;
 }
 
@@ -433,6 +433,6 @@ pub mod prelude {
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         role::{RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{TriggerEvent, TriggerEventFilter, TriggerFilter},
-        Event as DataEvent, Origin, WorldEvent,
+        Event as DataEvent, HasOrigin, WorldEvent,
     };
 }
