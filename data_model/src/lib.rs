@@ -741,6 +741,16 @@ pub trait Registered: Identifiable {
     type With: Into<RegistrableBox>;
 }
 
+/// Trait for proxy objects used for registration.
+#[cfg(feature = "mutable_api")]
+pub trait Registrable {
+    /// Constructed type
+    type Target;
+
+    /// Construct [`Self::Target`]
+    fn build(self) -> Self::Target;
+}
+
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
 pub struct LengthLimits {
@@ -856,6 +866,8 @@ pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "std")]
     pub use super::current_time;
+    #[cfg(feature = "mutable_api")]
+    pub use super::Registrable;
     pub use super::{
         account::prelude::*,
         asset::prelude::*,

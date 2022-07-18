@@ -129,12 +129,14 @@ pub struct NewRole {
     inner: Role,
 }
 
-impl Identifiable for NewRole {
-    type Id = <Role as Identifiable>::Id;
+#[cfg(feature = "mutable_api")]
+impl crate::Registrable for NewRole {
+    type Target = Role;
 
+    #[must_use]
     #[inline]
-    fn id(&self) -> &Self::Id {
-        &self.inner.id
+    fn build(self) -> Self::Target {
+        self.inner
     }
 }
 
@@ -166,20 +168,18 @@ impl NewRole {
         }
     }
 
+    /// Identification
+    #[inline]
+    pub fn id(&self) -> &<Role as Identifiable>::Id {
+        &self.inner.id
+    }
+
     /// Add permission to the [`Role`]
     #[must_use]
     #[inline]
     pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
         self.inner.permissions.insert(perm.into());
         self
-    }
-
-    /// Construct [`Role`]
-    #[must_use]
-    #[inline]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Role {
-        self.inner
     }
 }
 

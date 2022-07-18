@@ -84,6 +84,23 @@ pub struct NewDomain {
     metadata: Metadata,
 }
 
+#[cfg(feature = "mutable_api")]
+impl crate::Registrable for NewDomain {
+    type Target = Domain;
+
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        Self::Target {
+            id: self.id,
+            accounts: AccountsMap::default(),
+            asset_definitions: AssetDefinitionsMap::default(),
+            metadata: self.metadata,
+            logo: self.logo,
+        }
+    }
+}
+
 impl HasMetadata for NewDomain {
     #[inline]
     fn metadata(&self) -> &crate::metadata::Metadata {
@@ -116,17 +133,9 @@ impl NewDomain {
         }
     }
 
-    /// Construct [`Domain`]
-    #[must_use]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Domain {
-        Domain {
-            id: self.id,
-            accounts: AccountsMap::default(),
-            asset_definitions: AssetDefinitionsMap::default(),
-            metadata: self.metadata,
-            logo: self.logo,
-        }
+    /// Identification
+    pub fn id(&self) -> &<Domain as Identifiable>::Id {
+        &self.id
     }
 }
 
@@ -144,14 +153,6 @@ impl NewDomain {
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = metadata;
         self
-    }
-}
-
-impl Identifiable for NewDomain {
-    type Id = <Domain as Identifiable>::Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
     }
 }
 

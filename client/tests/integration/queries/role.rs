@@ -91,7 +91,7 @@ fn find_role_by_id() -> Result<()> {
 
     let found_role = test_client.request(client::role::by_id(role_id))?;
 
-    assert_eq!(found_role.id(), new_role.id());
+    assert_eq!(found_role.id(), new_role.build().id());
     assert!(found_role.permissions().next().is_none());
 
     Ok(())

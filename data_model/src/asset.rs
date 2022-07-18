@@ -416,11 +416,19 @@ pub struct NewAssetDefinition {
     metadata: Metadata,
 }
 
-impl Identifiable for NewAssetDefinition {
-    type Id = <AssetDefinition as Identifiable>::Id;
+#[cfg(feature = "mutable_api")]
+impl crate::Registrable for NewAssetDefinition {
+    type Target = AssetDefinition;
 
-    fn id(&self) -> &Self::Id {
-        &self.id
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        Self::Target {
+            id: self.id,
+            value_type: self.value_type,
+            mintable: self.mintable,
+            metadata: self.metadata,
+        }
     }
 }
 
@@ -455,17 +463,10 @@ impl NewAssetDefinition {
         }
     }
 
-    /// Construct [`AssetDefinition`]
+    /// Identification
     #[inline]
-    #[must_use]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> AssetDefinition {
-        AssetDefinition {
-            id: self.id,
-            value_type: self.value_type,
-            mintable: self.mintable,
-            metadata: self.metadata,
-        }
+    pub fn id(&self) -> &<AssetDefinition as Identifiable>::Id {
+        &self.id
     }
 }
 
