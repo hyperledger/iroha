@@ -286,7 +286,7 @@ mod domain {
             let vec = match self {
                 Self::All => client
                     .request(client::domain::all())
-                    .wrap_err("Failed to get all accounts"),
+                    .wrap_err("Failed to get all domains"),
             }?;
             println!("{:#?}", vec);
             Ok(())
@@ -598,7 +598,7 @@ mod asset {
             let vec = match self {
                 Self::All => client
                     .request(client::asset::all())
-                    .wrap_err("Failed to get all accounts"),
+                    .wrap_err("Failed to get all assets"),
             }?;
             println!("{:#?}", vec);
             Ok(())
