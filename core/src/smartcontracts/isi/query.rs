@@ -54,6 +54,9 @@ pub enum Error {
     /// Query found wrong type of asset.
     #[error("Query found wrong type of asset: {0}")]
     Conversion(String),
+    /// Query without account.
+    #[error("Unauthorized query: account not provided")]
+    Unauthorized,
 }
 
 impl From<FindError> for Error {
@@ -227,8 +230,8 @@ mod tests {
                 max_instruction_number: 0,
                 max_wasm_size_bytes: 0,
             },
-            AllowAll::new(),
-            AllowAll::new(),
+            Arc::new(AllowAll::new()),
+            Arc::new(AllowAll::new()),
             Arc::clone(&wsv),
         );
 
@@ -297,8 +300,8 @@ mod tests {
             .chain_first()
             .validate(&TransactionValidator::new(
                 limits,
-                AllowAll::new(),
-                AllowAll::new(),
+                Arc::new(AllowAll::new()),
+                Arc::new(AllowAll::new()),
                 Arc::clone(&wsv),
             ))
             .sign(ALICE_KEYS.clone())
@@ -321,8 +324,8 @@ mod tests {
                 )
                 .validate(&TransactionValidator::new(
                     limits,
-                    AllowAll::new(),
-                    AllowAll::new(),
+                    Arc::new(AllowAll::new()),
+                    Arc::new(AllowAll::new()),
                     Arc::clone(&wsv),
                 ))
                 .sign(ALICE_KEYS.clone())
@@ -337,13 +340,13 @@ mod tests {
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn, TransactionValue::RejectedTransaction(_)))
+                .filter(|txn| matches!(txn.tx_value, TransactionValue::RejectedTransaction(_)))
                 .count() as u64,
             num_blocks
         );
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn, TransactionValue::Transaction(_)))
+                .filter(|txn| matches!(txn.tx_value, TransactionValue::Transaction(_)))
                 .count() as u64,
             num_blocks
         );
@@ -373,8 +376,8 @@ mod tests {
             .chain_first()
             .validate(&TransactionValidator::new(
                 tx_limits,
-                AllowAll::new(),
-                AllowAll::new(),
+                Arc::new(AllowAll::new()),
+                Arc::new(AllowAll::new()),
                 Arc::clone(&wsv),
             ))
             .sign(ALICE_KEYS.clone())

@@ -33,7 +33,7 @@ use self::{
 use crate::{
     block::{BlockHeader, ChainedBlock, EmptyChainHash, VersionedPendingBlock},
     genesis::GenesisNetworkTrait,
-    kura::{GetBlockHash, KuraTrait, StoreBlock},
+    kura::Kura,
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
@@ -48,7 +48,7 @@ trait Consensus {
 }
 
 /// `Sumeragi` is the implementation of the consensus.
-pub type Sumeragi<G, K> = SumeragiWithFault<G, K, NoFault>;
+pub type Sumeragi<G> = SumeragiWithFault<G, NoFault>;
 
 /// Generic sumeragi trait
 pub trait SumeragiTrait:
@@ -66,8 +66,6 @@ pub trait SumeragiTrait:
 {
     /// Genesis for sending genesis txs
     type GenesisNetwork: GenesisNetworkTrait;
-    /// Data storage
-    type Kura: KuraTrait;
 
     /// Construct [`Sumeragi`].
     ///
@@ -83,7 +81,7 @@ pub trait SumeragiTrait:
         genesis_network: Option<Self::GenesisNetwork>,
         queue: Arc<Queue>,
         broker: Broker,
-        kura: AlwaysAddr<Self::Kura>,
+        kura: Arc<Kura>,
         network: Addr<IrohaNetwork>,
     ) -> Result<Self>;
 }

@@ -1,5 +1,6 @@
 //! Module with permission for burning
 
+use iroha_core::smartcontracts::permissions::ValidatorVerdict;
 use iroha_data_model::asset::DefinitionId;
 
 use super::*;
@@ -26,22 +27,18 @@ declare_token!(
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAssetsCreatedByThisAccount;
 
-impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
+impl IsAllowed for OnlyAssetsCreatedByThisAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         match instruction {
             Instruction::Unregister(unregister) => {
-                if let IdBox::AssetId(asset_id) = unregister
-                    .object_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?
-                {
+                if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
                     let registered_by_signer_account = wsv
                         .asset_definition_entry(&asset_id.definition_id)
                         .map(|asset_definition_entry| {
@@ -49,19 +46,16 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
                         })
                         .unwrap_or(false);
                     if !registered_by_signer_account {
-                        return Err(
-                            "Can't unregister assets with definitions registered by other accounts.".to_owned().into()
+                        return Deny(
+                            "Can't unregister assets with definitions registered by other accounts.".to_owned()
                         );
                     }
                 }
-                Ok(())
+                Allow
             }
             Instruction::Burn(burn_box) => {
-                let destination_id = burn_box
-                    .destination_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
+                let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&asset_id.definition_id)
                     .map(|asset_definition_entry| {
@@ -69,15 +63,14 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
                     })
                     .unwrap_or(false);
                 if !registered_by_signer_account {
-                    return Err(
+                    return Deny(
                         "Can't burn assets with definitions registered by other accounts."
-                            .to_owned()
-                            .into(),
+                            .to_owned(),
                     );
                 }
-                Ok(())
+                Allow
             }
-            _ => Ok(()),
+            _ => Skip,
         }
     }
 }
@@ -86,8 +79,6 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
 /// for a specific asset.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct GrantedByAssetCreator;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
 impl HasToken for GrantedByAssetCreator {
     fn token(
@@ -131,16 +122,15 @@ impl HasToken for GrantedByAssetCreator {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantRegisteredByMeAccess;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
-
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanBurnAssetWithDefinition = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanBurnAssetWithDefinition =
+            ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
@@ -150,42 +140,33 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyOwnedAssets;
 
-impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
+impl IsAllowed for OnlyOwnedAssets {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         match instruction {
             Instruction::Unregister(unregister) => {
-                if let IdBox::AssetId(asset_id) = unregister
-                    .object_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?
-                {
+                if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
                     if &asset_id.account_id != authority {
-                        return Err("Can't unregister assets from another account."
-                            .to_owned()
-                            .into());
+                        return Deny("Can't unregister assets from another account.".to_owned());
                     }
                 }
-                Ok(())
+                Allow
             }
             Instruction::Burn(burn_box) => {
-                let destination_id = burn_box
-                    .destination_id
-                    .evaluate(wsv, &Context::new())
-                    .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
+                let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
                 if &asset_id.account_id != authority {
-                    return Err("Can't burn assets from another account.".to_owned().into());
+                    return Deny("Can't burn assets from another account.".to_owned());
                 }
-                Ok(())
+                Allow
             }
-            _ => Ok(()),
+            _ => Skip,
         }
     }
 }
@@ -193,8 +174,6 @@ impl IsAllowed<Instruction> for OnlyOwnedAssets {
 /// Allows burning user's assets from a different account if the corresponding user granted this permission token.
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetOwner;
-
-impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
 impl HasToken for GrantedByAssetOwner {
     fn token(
@@ -237,25 +216,21 @@ impl HasToken for GrantedByAssetOwner {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantMyAssetAccess;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
-
 impl IsGrantAllowed for GrantMyAssetAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanBurnUserAssets = extract_specialized_token(instruction, wsv)?;
+    ) -> ValidatorVerdict {
+        let token: CanBurnUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
 
         if &token.asset_id.account_id != authority {
-            return Err(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "The signer does not own the account specified in the permission token.".to_owned(),
             );
         }
 
-        Ok(())
+        Allow
     }
 }

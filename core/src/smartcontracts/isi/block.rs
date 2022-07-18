@@ -1,6 +1,5 @@
 //! This module contains trait implementations related to block queries
 use eyre::Result;
-use iroha_data_model::block_value::BlockValue;
 use iroha_telemetry::metrics;
 
 use super::*;

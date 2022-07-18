@@ -9,7 +9,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
+    smartcontracts::isi::query,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -33,7 +33,7 @@ pub struct Torii {
     wsv: Arc<WorldStateView>,
     queue: Arc<Queue>,
     events: EventsSender,
-    query_validator: Arc<IsQueryAllowedBoxed>,
+    query_judge: QueryJudgeArc,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
 }
@@ -86,7 +86,7 @@ pub(crate) const fn query_status_code(query_error: &query::Error) -> StatusCode 
     use query::Error::*;
     match query_error {
         Decode(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
-        Signature(_) => StatusCode::UNAUTHORIZED,
+        Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
         Permission(_) => StatusCode::FORBIDDEN,
         Find(_) => StatusCode::NOT_FOUND,
     }
