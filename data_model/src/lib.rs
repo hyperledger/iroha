@@ -712,16 +712,7 @@ where
 /// and `PartialCmp` implementations.
 pub trait Identifiable: Debug {
     /// The type of the `Id` of the entity.
-    type Id: Into<IdBox>
-        + fmt::Display
-        + fmt::Debug
-        + Clone
-        + Eq
-        + Ord
-        + core::hash::Hash
-        + Decode
-        + Encode
-        + Serialize;
+    type Id;
 
     /// Get reference to the type's `Id`. There should be no other
     /// inherent `impl` with the same name (e.g. `getset`).

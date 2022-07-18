@@ -1,5 +1,7 @@
 //! This module contains `EventFilter` and entities for filter
 
+use core::{fmt::Debug, hash::Hash};
+
 use super::*;
 
 /// Filter for all events
@@ -98,11 +100,13 @@ impl Filter for EntityFilter {
 /// Filter that accepts a data event with the matching origin.
 pub struct OriginFilter<T: HasOrigin>(<T::Origin as Identifiable>::Id)
 where
-    <T::Origin as Identifiable>::Id: IntoSchema;
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema;
 
 impl<T: HasOrigin> OriginFilter<T>
 where
-    <T::Origin as Identifiable>::Id: IntoSchema,
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
 {
     /// Construct [`OriginFilter`].
     pub fn new(origin_id: <T::Origin as Identifiable>::Id) -> Self {
@@ -117,7 +121,8 @@ where
 
 impl<T: HasOrigin> Filter for OriginFilter<T>
 where
-    <T::Origin as Identifiable>::Id: IntoSchema,
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
 {
     type EventType = T;
 
@@ -128,16 +133,18 @@ where
 
 impl<T: HasOrigin> PartialEq for OriginFilter<T>
 where
-    <T::Origin as Identifiable>::Id: IntoSchema,
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
 {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
 }
 
-impl<T: HasOrigin> core::hash::Hash for OriginFilter<T>
+impl<T: HasOrigin> Hash for OriginFilter<T>
 where
-    <T::Origin as Identifiable>::Id: IntoSchema,
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
 {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
@@ -146,7 +153,8 @@ where
 
 impl<'de, T: HasOrigin> Deserialize<'de> for OriginFilter<T>
 where
-    <T::Origin as Identifiable>::Id: IntoSchema,
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
     <<T as HasOrigin>::Origin as Identifiable>::Id: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
