@@ -2629,6 +2629,8 @@ dependencies = [
  "iroha_schema_gen",
  "iroha_version",
  "parity-scale-codec",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4070,7 +4072,8 @@ checksum = "957e51f3646910546462e67d5f7599b9e4fb8acdd304b087a6494730f9eebf04"
 [[package]]
 name = "unique_port"
 version = "0.2.1"
-source = "git+https://github.com/ales-tsurko/iroha2-unique_port?rev=09e95bb3608626c995b8e7e51c64ba7486c88948#09e95bb3608626c995b8e7e51c64ba7486c88948"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3f903132efabcb4242e0bbf16aedb2c3867526e42126b6ed3cb1b0bc4577708"
 dependencies = [
  "once_cell",
 ]
