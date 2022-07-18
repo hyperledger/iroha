@@ -140,14 +140,3 @@ where
         source.map_or_else(T::Target::null, IntoFfi::into_ffi)
     }
 }
-
-//impl<'itm, T> IntoFfiSliceRef<'itm> for Option<T>
-//where
-//    &'itm Self: IntoFfi,
-//{
-//    type Target = LocalSlice<<&'itm Self as IntoFfi>::Target>;
-//
-//    fn into_ffi(source: &[Self]) -> Self::Target {
-//        LocalSlice::from_iter(source.iter().map(IntoFfi::into_ffi))
-//    }
-//}

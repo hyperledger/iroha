@@ -3,7 +3,7 @@ use proc_macro_error::OptionExt;
 use quote::quote;
 use syn::{parse_quote, Ident, Type};
 
-use crate::impl_visitor::{Arg, FnDescriptor};
+use crate::impl_visitor::{unwrap_result_type, Arg, FnDescriptor};
 
 pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_ffi_fn_name(fn_descriptor);
@@ -172,7 +172,7 @@ pub fn gen_arg_ffi_to_src(arg: &impl crate::impl_visitor::Arg, is_output: bool) 
     }
 
     quote! {
-        let mut store = Default::default();
+        let mut store = core::default::Default::default();
         let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
     }
 }
@@ -205,6 +205,17 @@ pub fn gen_arg_src_to_ffi(arg: &impl crate::impl_visitor::Arg, is_output: bool) 
     };
 
     if is_output {
+        if unwrap_result_type(src_type).is_some() {
+            return quote! {
+                let #arg_name = if let Ok(ok) = #arg_name {
+                    iroha_ffi::IntoFfi::into_ffi(ok)
+                } else {
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    return Err(FfiResult::ExecutionFail);
+                };
+            };
+        }
+
         return ffi_conversion;
     }
 
@@ -243,7 +254,7 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 
         return quote! {
             #output_arg_conversion
-            <#arg_type as iroha_ffi::FfiOutput>::write(#arg_name, __out_ptr)?;
+            iroha_ffi::OutPtrOf::<#arg_type>::write(__out_ptr, #arg_name)?;
         };
     }
 
@@ -261,5 +272,5 @@ pub fn gen_ffi_fn_out_ptr_arg(arg: &impl crate::impl_visitor::Arg) -> TokenStrea
     let arg_name = arg.name();
     let arg_type = arg.ffi_type_resolved();
 
-    quote! { #arg_name: <#arg_type as iroha_ffi::FfiOutput>::OutPtr }
+    quote! { #arg_name: <#arg_type as iroha_ffi::Output>::OutPtr }
 }

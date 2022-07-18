@@ -192,7 +192,7 @@ impl NewAccount {
     }
 
     /// Identification
-    pub fn id(&self) -> &<Account as Identifiable>::Id {
+    pub(crate) fn id(&self) -> &<Account as Identifiable>::Id {
         &self.id
     }
 }

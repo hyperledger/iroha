@@ -115,7 +115,7 @@ fn gen_ffi_fn_args(handle: &Receiver, field: &impl Arg, derive: Derive) -> Token
             #handle_name: #handle_type, #field_name: #field_type,
         },
         Derive::Getter | Derive::MutGetter => quote! {
-            #handle_name: #handle_type, #field_name: <#field_type as iroha_ffi::FfiOutput>::OutPtr,
+            #handle_name: #handle_type, #field_name: <#field_type as iroha_ffi::Output>::OutPtr
         },
     }
 }
@@ -149,7 +149,7 @@ fn gen_ffi_fn_body(
                 let __out_ptr = #field_name;
                 let #field_name = #handle_name.#method_name();
                 #from_field
-                iroha_ffi::FfiOutput::write(#field_name, __out_ptr)?;
+                iroha_ffi::OutPtrOf::write(__out_ptr, #field_name)?;
                 Ok(())
             }}
         }

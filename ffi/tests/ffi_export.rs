@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, FfiResult, Handle,
-    IntoFfi, TryFromFfi, TryFromReprC,
+    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, FfiResult, FfiTuple2,
+    Handle, IntoFfi, TryFromFfi, TryFromReprC,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
@@ -78,14 +78,14 @@ impl FfiStruct {
         self.name.as_mut()
     }
 
-    ///// Fallible int output
-    //pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
-    //    if flag {
-    //        Ok(42)
-    //    } else {
-    //        Err("fail")
-    //    }
-    //}
+    /// Fallible int output
+    pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
+        if flag {
+            Ok(42)
+        } else {
+            Err("fail")
+        }
+    }
 }
 
 fn get_new_struct() -> FfiStruct {
@@ -231,7 +231,7 @@ fn empty_return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
 
-    let out_params = OutBoxedSlice(core::ptr::null_mut(), 0, params_len.as_mut_ptr());
+    let out_params = OutBoxedSlice::from_uninit_slice(None, &mut params_len);
 
     unsafe {
         assert_eq!(
@@ -250,13 +250,12 @@ fn empty_return_iterator() {
 fn return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
-    let mut params = Vec::with_capacity(1);
+    let mut params = [MaybeUninit::new(FfiTuple2(
+        core::ptr::null(),
+        core::ptr::null(),
+    ))];
 
-    let out_params = OutBoxedSlice(
-        params.as_mut_ptr(),
-        params.capacity(),
-        params_len.as_mut_ptr(),
-    );
+    let out_params = OutBoxedSlice::from_uninit_slice(Some(params.as_mut_slice()), &mut params_len);
 
     unsafe {
         assert_eq!(
@@ -264,14 +263,11 @@ fn return_iterator() {
             FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
         );
 
-        let params_len = params_len.assume_init();
-        assert_eq!(params_len, 2);
-        params.set_len(core::cmp::min(params_len as usize, params.capacity()));
-        assert_eq!(params.len(), 1);
+        assert_eq!(params_len.assume_init(), 2);
 
         let mut store = Default::default();
         let item: (&Name, &Value) =
-            <(_, _) as TryFromReprC>::try_from_repr_c(params[0], &mut store).unwrap();
+            <(_, _) as TryFromReprC>::try_from_repr_c(params[0].assume_init(), &mut store).unwrap();
         let expected = get_default_params();
         assert_eq!((&expected[0].0, &expected[0].1), item);
 
@@ -282,20 +278,20 @@ fn return_iterator() {
     }
 }
 
-//#[test]
-//fn return_result() {
-//    let mut output = MaybeUninit::new(0);
-//
-//    unsafe {
-//        assert_eq!(
-//            FfiResult::ExecutionFail,
-//            FfiStruct__fallible_int_output(u8::from(false), output.as_mut_ptr())
-//        );
-//        assert_eq!(0, output.assume_init());
-//        assert_eq!(
-//            FfiResult::Ok,
-//            FfiStruct__fallible_int_output(u8::from(true), output.as_mut_ptr())
-//        );
-//        assert_eq!(42, output.assume_init());
-//    }
-//}
+#[test]
+fn return_result() {
+    let mut output = MaybeUninit::new(0);
+
+    unsafe {
+        assert_eq!(
+            FfiResult::ExecutionFail,
+            FfiStruct__fallible_int_output(u8::from(false), output.as_mut_ptr())
+        );
+        assert_eq!(0, output.assume_init());
+        assert_eq!(
+            FfiResult::Ok,
+            FfiStruct__fallible_int_output(u8::from(true), output.as_mut_ptr())
+        );
+        assert_eq!(42, output.assume_init());
+    }
+}

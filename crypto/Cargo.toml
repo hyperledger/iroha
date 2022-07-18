@@ -11,9 +11,10 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["ursa"]
-ffi = ["iroha_ffi"]
 # Force static linking
 vendored = ["openssl-sys"]
+# Generate extern functions callable via FFI
+ffi = ["iroha_ffi"]
 
 [dependencies]
 iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.5", default-features = false }

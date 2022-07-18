@@ -5,6 +5,7 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
+#[cfg(feature = "ffi")]
 use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
@@ -94,7 +95,7 @@ impl FromStr for Name {
 #[allow(non_snake_case, unsafe_code)]
 pub unsafe extern "C" fn Name__from_str<'itm>(
     candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
-    output: <<Name as IntoFfi>::Target as iroha_ffi::FfiOutput>::OutPtr,
+    out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
 ) -> iroha_ffi::FfiResult {
     let res = std::panic::catch_unwind(|| {
         // False positive - doesn't compile otherwise
@@ -105,7 +106,7 @@ pub unsafe extern "C" fn Name__from_str<'itm>(
             let method_res = Name::from_str(candidate)
                 .map_err(|_e| iroha_ffi::FfiResult::ExecutionFail)?
                 .into_ffi();
-            iroha_ffi::FfiOutput::write(method_res, output)?;
+            iroha_ffi::OutPtrOf::write(out_ptr, method_res)?;
             Ok(())
         };
 
@@ -184,30 +185,27 @@ mod tests {
 
     #[test]
     #[allow(unsafe_code)]
+    #[cfg(feature = "ffi")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
-        use crate::ffi::{Handle, __drop};
-
+        use iroha_ffi::Handle;
         let candidate = "Name";
-        let candidate_bytes = candidate.as_bytes();
-        let candidate_bytes_len = candidate_bytes.len();
 
         unsafe {
             let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
 
             assert_eq!(
                 iroha_ffi::FfiResult::Ok,
-                Name__from_str(
-                    candidate_bytes.as_ptr(),
-                    candidate_bytes_len,
-                    name.as_mut_ptr()
-                )
+                Name__from_str(candidate.into_ffi(), name.as_mut_ptr())
             );
 
             let name = name.assume_init();
             assert_ne!(core::ptr::null_mut(), name);
             assert_eq!(Name::from_str(candidate)?, *name);
 
-            assert_eq!(iroha_ffi::FfiResult::Ok, __drop(Name::ID, name.cast()));
+            assert_eq!(
+                iroha_ffi::FfiResult::Ok,
+                crate::ffi::__drop(Name::ID, name.cast())
+            );
         }
 
         Ok(())

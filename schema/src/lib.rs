@@ -211,8 +211,9 @@ impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, 
                 decimal_places: P::decimal_places(),
             })
         });
-
-        I::schema(metamap);
+        if !metamap.contains_key(&I::type_name()) {
+            I::schema(metamap);
+        }
     }
 }
 
@@ -251,8 +252,9 @@ impl<T: IntoSchema> IntoSchema for Vec<T> {
                 sorted: false,
             })
         });
-
-        T::schema(map);
+        if !map.contains_key(&T::type_name()) {
+            T::schema(map);
+        }
     }
 }
 
@@ -264,8 +266,9 @@ impl<T: IntoSchema> IntoSchema for Option<T> {
         let _ = map
             .entry(Self::type_name())
             .or_insert_with(|| Metadata::Option(T::type_name()));
-
-        T::schema(map);
+        if !map.contains_key(&T::type_name()) {
+            T::schema(map);
+        }
     }
 }
 
@@ -290,9 +293,12 @@ impl<T: IntoSchema, E: IntoSchema> IntoSchema for Result<T, E> {
                 err: E::type_name(),
             })
         });
-
-        T::schema(map);
-        E::schema(map);
+        if !map.contains_key(&T::type_name()) {
+            T::schema(map);
+        }
+        if !map.contains_key(&E::type_name()) {
+            E::schema(map);
+        }
     }
 }
 
@@ -309,8 +315,12 @@ impl<K: IntoSchema, V: IntoSchema> IntoSchema for BTreeMap<K, V> {
             })
         });
 
-        K::schema(map);
-        V::schema(map);
+        if !map.contains_key(&K::type_name()) {
+            K::schema(map);
+        }
+        if !map.contains_key(&V::type_name()) {
+            V::schema(map);
+        }
     }
 }
 
@@ -325,8 +335,9 @@ impl<K: IntoSchema> IntoSchema for BTreeSet<K> {
                 sorted: true,
             })
         });
-
-        K::schema(map);
+        if !map.contains_key(&K::type_name()) {
+            K::schema(map)
+        }
     }
 }
 
@@ -337,14 +348,14 @@ impl IntoSchema for core::time::Duration {
     // Look at:
     //   https://docs.rs/parity-scale-codec/2.1.1/src/parity_scale_codec/codec.rs.html#1182-1192
     fn schema(map: &mut MetaMap) {
-        u64::schema(map);
-        u32::schema(map);
-
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![u64::type_name(), u32::type_name()],
             })
         });
+
+        u32::schema(map);
+        u64::schema(map);
     }
 }
 
@@ -362,8 +373,9 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
                 sorted: false,
             })
         });
-
-        T::schema(map);
+        if !map.contains_key(&T::type_name()) {
+            T::schema(map);
+        }
     }
 }
 

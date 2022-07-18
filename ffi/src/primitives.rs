@@ -8,6 +8,11 @@ use crate::{
     FfiResult, IntoFfi, ReprC, TryFromReprC,
 };
 
+#[inline]
+const fn is_valid_bool(source: u8) -> bool {
+    source == 0 || source == 1
+}
+
 impl<'itm> TryFromReprC<'itm> for bool {
     type Source = <u8 as TryFromReprC<'itm>>::Source;
     type Store = ();
@@ -15,10 +20,11 @@ impl<'itm> TryFromReprC<'itm> for bool {
     unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
         let source: u8 = TryFromReprC::try_from_repr_c(source, &mut ())?;
 
-        match source {
-            0 | 1 => Ok(source != 0),
-            _ => Err(FfiResult::TrapRepresentation),
+        if !is_valid_bool(source) {
+            return Err(FfiResult::TrapRepresentation);
         }
+
+        Ok(source != 0)
     }
 }
 impl<'itm> TryFromReprC<'itm> for &'itm bool {
@@ -31,7 +37,7 @@ impl<'itm> TryFromReprC<'itm> for &'itm bool {
         let mut store = ();
         let source: &u8 = TryFromReprC::try_from_repr_c(source, &mut store)?;
 
-        if !(*source == 0 || *source == 1) {
+        if !is_valid_bool(*source) {
             return Err(FfiResult::TrapRepresentation);
         }
 
@@ -49,7 +55,7 @@ impl<'slice> TryFromReprCSliceRef<'slice> for bool {
         let mut store = ();
         let source: &[u8] = TryFromReprC::try_from_repr_c(source, &mut store)?;
 
-        if !source.iter().all(|e| *e == 0 || *e == 1) {
+        if !source.iter().all(|item| is_valid_bool(*item)) {
             return Err(FfiResult::TrapRepresentation);
         }
 
@@ -77,7 +83,7 @@ impl<'itm> IntoFfiSliceRef<'itm> for bool {
 
     fn into_ffi(source: &[Self]) -> Self::Target {
         // SAFETY: bool has the same representation as u8
-        unsafe { SliceRef::from_slice(&*(source as *const [bool] as *const [u8])) }
+        SliceRef::from_slice(unsafe { &*(source as *const [bool] as *const [u8]) })
     }
 }
 
@@ -181,7 +187,7 @@ macro_rules! primitive_impls {
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &'itm mut Self::Store) -> Result<&[Self], FfiResult> {
-                source.into_slice().ok_or(FfiResult::ArgIsNull)
+                source.into_rust().ok_or(FfiResult::ArgIsNull)
             }
         }
 
@@ -190,7 +196,7 @@ macro_rules! primitive_impls {
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<&'slice mut [Self], FfiResult> {
-                source.into_slice().ok_or(FfiResult::ArgIsNull)
+                source.into_rust().ok_or(FfiResult::ArgIsNull)
             }
         }
 
@@ -219,4 +225,4 @@ macro_rules! primitive_impls {
     };
 }
 
-primitive_impls! {u8, u16, u32, u64, u128, i8, i16, i32, i64, f32, f64}
+primitive_impls! {u8, u16, u32, u64, u128, i8, i16, i32, i64}

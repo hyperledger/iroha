@@ -22,6 +22,7 @@ default = ["std"]
 # Disabled for WASM interoperability, to reduce the binary size.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
+# Generate extern functions callable via FFI
 ffi = ["iroha_crypto/ffi", "iroha_ffi"]
 
 # Expose API for mutating structures (Internal use only)

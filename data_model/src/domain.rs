@@ -136,7 +136,7 @@ impl NewDomain {
     }
 
     /// Identification
-    pub fn id(&self) -> &<Domain as Identifiable>::Id {
+    pub(crate) fn id(&self) -> &<Domain as Identifiable>::Id {
         &self.id
     }
 }

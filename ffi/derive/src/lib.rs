@@ -13,6 +13,7 @@ mod derive;
 mod export;
 mod impl_visitor;
 
+/// Generate FFI functions
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
 pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -32,7 +33,7 @@ pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 abort!(item.vis, "Only public structs allowed in FFI");
             }
             if !item.generics.params.is_empty() {
-                abort!(item.generics, "Generic are not supported");
+                abort!(item.generics, "Generics are not supported");
             }
 
             let ffi_fns = gen_fns_from_derives(&item);
@@ -48,6 +49,7 @@ pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Derive implementations of traits required to convert into an FFI compatible type
 #[proc_macro_derive(IntoFfi)]
 #[proc_macro_error::proc_macro_error]
 pub fn into_ffi_derive(input: TokenStream) -> TokenStream {
@@ -69,6 +71,7 @@ pub fn into_ffi_derive(input: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Derive implementations of traits required to convert from an FFI compatible type
 #[proc_macro_derive(TryFromFfi)]
 #[proc_macro_error::proc_macro_error]
 pub fn try_from_ffi_derive(input: TokenStream) -> TokenStream {
@@ -262,7 +265,7 @@ fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
             type Store = Vec<Self>;
 
             unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'itm>>::Store) -> Result<&'itm [Self], iroha_ffi::FfiResult> {
-                let source = source.into_slice().ok_or(iroha_ffi::FfiResult::ArgIsNull)?;
+                let source = source.into_rust().ok_or(iroha_ffi::FfiResult::ArgIsNull)?;
 
                 for elem in source {
                     store.push(Clone::clone(iroha_ffi::TryFromReprC::try_from_repr_c(*elem, &mut ())?));
@@ -274,16 +277,14 @@ fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     }
 }
 
+#[allow(clippy::restriction)]
 fn derive_into_ffi_for_item(_: &Ident) -> TokenStream2 {
-    quote! {
-        // TODO:
-    }
+    unimplemented!("https://github.com/hyperledger/iroha/issues/2510")
 }
 
+#[allow(clippy::restriction)]
 fn derive_try_from_ffi_for_item(_: &Ident) -> TokenStream2 {
-    quote! {
-        // TODO:
-    }
+    unimplemented!("https://github.com/hyperledger/iroha/issues/2510")
 }
 
 fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> TokenStream2 {
@@ -313,22 +314,6 @@ fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> T
                 self as *mut #enum_name as *mut #ffi_type
             }
         }
-
-        //impl iroha_ffi::OptionWrapped for #enum_name {
-        //    type FfiType = *mut #ffi_type;
-        //}
-
-        //impl<'store> iroha_ffi::FromOption<'store> for #enum_name {
-        //    type Store = #ffi_type;
-
-        //    // TODO: Rely on trap representation to represent None values
-        //    fn into_ffi(source: Option<Self>, store: &'store mut <Self as iroha_ffi::FromOption<'store>>::Store) -> <Self as iroha_ffi::OptionWrapped>::FfiType {
-        //        source.map_or_else(core::ptr::null_mut, |item| {
-        //            *store = item as #ffi_type;
-        //            iroha_ffi::IntoFfi::into_ffi(store, &mut ())
-        //        })
-        //    }
-        //}
     }
 }
 
@@ -405,7 +390,7 @@ fn gen_fieldless_enum_try_from_ffi(
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'itm>>::Store) -> Result<&'itm [Self], iroha_ffi::FfiResult> {
-                source.into_slice().ok_or(iroha_ffi::FfiResult::ArgIsNull)
+                source.into_rust().ok_or(iroha_ffi::FfiResult::ArgIsNull)
             }
         }
         impl<'slice> iroha_ffi::slice::TryFromReprCSliceMut<'slice> for #enum_name {
@@ -413,7 +398,7 @@ fn gen_fieldless_enum_try_from_ffi(
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceMut>::Store) -> Result<&'slice mut [Self], iroha_ffi::FfiResult> {
-                source.into_slice().ok_or(iroha_ffi::FfiResult::ArgIsNull)
+                source.into_rust().ok_or(iroha_ffi::FfiResult::ArgIsNull)
             }
         }
     }

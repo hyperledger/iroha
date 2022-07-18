@@ -1,3 +1,4 @@
+use derive_more::Constructor;
 use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
 use syn::{parse_quote, visit::Visit, visit_mut::VisitMut, Ident, Type};
@@ -9,6 +10,7 @@ pub trait Arg {
     fn ffi_type_resolved(&self) -> Type;
 }
 
+#[derive(Constructor)]
 pub struct Receiver<'ast> {
     self_ty: &'ast syn::Path,
     name: Ident,
@@ -28,20 +30,10 @@ pub struct ReturnArg<'ast> {
 }
 
 pub struct ImplDescriptor<'ast> {
-    /// Associated types used by this method
+    /// Associated types in the impl block
     pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Functions in the impl block
     pub fns: Vec<FnDescriptor<'ast>>,
-}
-
-impl<'ast> Receiver<'ast> {
-    pub fn new(self_ty: &'ast syn::Path, name: Ident, type_: Type) -> Self {
-        Self {
-            self_ty,
-            name,
-            type_,
-        }
-    }
 }
 
 impl<'ast> InputArg<'ast> {
@@ -121,6 +113,10 @@ fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type, is_output: bool) ->
     ImplTraitResolver.visit_type_mut(&mut arg_type);
 
     if is_output {
+        if let Some(result_type) = unwrap_result_type(&arg_type) {
+            return parse_quote! {<#result_type as iroha_ffi::IntoFfi>::Target};
+        }
+
         return parse_quote! {<#arg_type as iroha_ffi::IntoFfi>::Target};
     }
 
@@ -155,7 +151,7 @@ pub struct FnDescriptor<'ast> {
 
 struct ImplVisitor<'ast> {
     trait_name: Option<&'ast syn::Path>,
-    /// Associated types used by this method
+    /// Associated types in the impl block
     associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Resolved type of the `Self` type
     self_ty: Option<&'ast syn::Path>,
@@ -345,9 +341,6 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
             }
         }
     }
-    fn visit_impl_item(&mut self, _: &'ast syn::ImplItem) {
-        unreachable!("You souldn't have used this method")
-    }
 }
 
 impl<'ast> Visit<'ast> for FnVisitor<'ast> {
@@ -487,7 +480,6 @@ impl VisitMut for SelfResolver<'_> {
 }
 
 struct ImplTraitResolver;
-
 impl VisitMut for ImplTraitResolver {
     fn visit_type_mut(&mut self, node: &mut Type) {
         let mut new_node = None;
@@ -533,4 +525,20 @@ impl VisitMut for ImplTraitResolver {
 
 fn get_ident(path: &syn::Path) -> &Ident {
     &path.segments.last().expect_or_abort("Defined").ident
+}
+
+pub fn unwrap_result_type(node: &Type) -> Option<&Type> {
+    if let Type::Path(type_) = node {
+        let last_seg = type_.path.segments.last().expect_or_abort("Defined");
+
+        if last_seg.ident == "Result" {
+            if let syn::PathArguments::AngleBracketed(args) = &last_seg.arguments {
+                if let syn::GenericArgument::Type(result_type) = &args.args[0] {
+                    return Some(result_type);
+                }
+            }
+        }
+    }
+
+    None
 }

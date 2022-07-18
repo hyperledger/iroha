@@ -181,6 +181,12 @@ impl NewRole {
             },
         }
     }
+
+    /// Identification
+    #[inline]
+    pub(crate) fn id(&self) -> &<Role as Identifiable>::Id {
+        &self.inner.id
+    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

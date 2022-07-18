@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use getset::Getters;
 use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle,
-    IntoFfi, TryFromFfi, TryFromReprC,
+    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle, IntoFfi,
+    TryFromFfi, TryFromReprC,
 };
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
@@ -63,23 +63,20 @@ fn main() {
     let in_params = vec![(Name("Nomen"), Value("Omen"))].into_ffi();
     let mut param: MaybeUninit<*const Value> = MaybeUninit::uninit();
     let mut out_params_data = Vec::with_capacity(2);
-    let mut data_len = MaybeUninit::uninit();
-    let out_params = OutBoxedSlice(
-        out_params_data.as_mut_ptr(),
-        out_params_data.capacity(),
-        data_len.as_mut_ptr(),
-    );
+    let mut data_len = MaybeUninit::<isize>::uninit();
+
+    let out_params =
+        OutBoxedSlice::from_uninit_slice(Some(&mut out_params_data[..]), &mut data_len);
 
     unsafe {
         let name = IntoFfi::into_ffi(name.clone());
 
         FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), in_params.as_ref());
-
         FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), name, param.as_mut_ptr());
+        FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params);
+
         let _param: Option<&Value> =
             TryFromReprC::try_from_repr_c(param.assume_init(), &mut ()).unwrap();
-
-        FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params);
         out_params_data.set_len(data_len.assume_init() as usize);
 
         __drop(FfiStruct::ID, ffi_struct.into_ffi().cast());

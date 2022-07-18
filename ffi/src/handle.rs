@@ -53,10 +53,10 @@ macro_rules! gen_ffi_impl {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
                         let mut store = Default::default();
-                        let handle_ref: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(handle_ptr, &mut store)?;
+                        let handle_ref: &$other = $crate::TryFromReprC::try_from_repr_c(handle_ptr, &mut store)?;
 
                         let new_handle = Clone::clone(handle_ref);
-                        let new_handle_ptr = iroha_ffi::IntoFfi::into_ffi(new_handle).into();
+                        let new_handle_ptr = $crate::IntoFfi::into_ffi(new_handle).into();
                         output_ptr.cast::<*mut $other>().write(new_handle_ptr);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
@@ -93,10 +93,10 @@ macro_rules! gen_ffi_impl {
                         let mut lhandle_store = Default::default();
                         let mut rhandle_store = Default::default();
 
-                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut lhandle_store)?;
-                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut rhandle_store)?;
+                        let lhandle: &$other = $crate::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut lhandle_store)?;
+                        let rhandle: &$other = $crate::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut rhandle_store)?;
 
-                        output_ptr.write(iroha_ffi::IntoFfi::into_ffi(lhandle == rhandle).into());
+                        output_ptr.write($crate::IntoFfi::into_ffi(lhandle == rhandle).into());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),
@@ -132,10 +132,10 @@ macro_rules! gen_ffi_impl {
                         let mut lhandle_store = Default::default();
                         let mut rhandle_store = Default::default();
 
-                        let lhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut lhandle_store)?;
-                        let rhandle: &$other = iroha_ffi::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut rhandle_store)?;
+                        let lhandle: &$other = $crate::TryFromReprC::try_from_repr_c(lhandle_ptr, &mut lhandle_store)?;
+                        let rhandle: &$other = $crate::TryFromReprC::try_from_repr_c(rhandle_ptr, &mut rhandle_store)?;
 
-                        output_ptr.write(iroha_ffi::IntoFfi::into_ffi(lhandle.cmp(rhandle)).into());
+                        output_ptr.write($crate::IntoFfi::into_ffi(lhandle.cmp(rhandle)).into());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),
@@ -161,7 +161,7 @@ macro_rules! gen_ffi_impl {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
-                        let handle: $other = iroha_ffi::TryFromReprC::try_from_repr_c(handle_ptr, &mut ())?;
+                        let handle: $other = $crate::TryFromReprC::try_from_repr_c(handle_ptr, &mut ())?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiResult::UnknownHandle),

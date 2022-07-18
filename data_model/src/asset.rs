@@ -478,7 +478,7 @@ impl NewAssetDefinition {
 
     /// Identification
     #[inline]
-    pub fn id(&self) -> &<AssetDefinition as Identifiable>::Id {
+    pub(crate) fn id(&self) -> &<AssetDefinition as Identifiable>::Id {
         &self.id
     }
 }

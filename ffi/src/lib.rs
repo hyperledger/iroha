@@ -70,12 +70,6 @@ pub trait TryFromReprC<'itm>: Sized + 'itm {
     ) -> Result<Self, FfiResult>;
 }
 
-/// Type that can be used as an out-pointer
-pub trait OutPtr: ReprC {
-    /// Return `false` if any of the out-pointers in `Self` are null, otherwise `true`
-    fn is_valid(&self) -> bool;
-}
-
 /// Conversion into a type that can be converted to an FFI-compatible [`ReprC`] type
 /// Except for opaque pointer types, ownership transfer over FFI is not permitted
 pub trait IntoFfi: Sized {
@@ -86,21 +80,24 @@ pub trait IntoFfi: Sized {
     fn into_ffi(self) -> Self::Target;
 }
 
-/// Type that can be returned from an FFI function as an out pointer function argument
-pub trait FfiOutput {
-    /// Type used to represent function return value as an out pointer function argument
-    type OutPtr: OutPtr;
-
-    /// Try to write [`Self`] into [`Self::OutPtr`] and return whether or not it was successful
+/// Type that can be returned from an FFI function as an out-pointer function argument
+pub trait OutPtrOf<T>: ReprC {
+    /// Try to write `T` into [`Self`] out-pointer and return whether or not it was successful
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`] - if any of the out-pointers in [`Self::OutPtr`] is set to null
+    /// * [`FfiResult::ArgIsNull`] - if any of the out-pointers in [`Self`] is set to null
     ///
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult>;
+    unsafe fn write(self, source: T) -> Result<(), FfiResult>;
+}
+
+/// Type that can be returned from an FFI function via out-pointer function argument
+pub trait Output: Sized {
+    /// Corresponding type of out-pointer
+    type OutPtr: OutPtrOf<Self>;
 }
 
 /// Result of execution of an FFI function
@@ -144,6 +141,23 @@ impl<'itm, T: 'itm> AsReprCRef<'itm> for *const T {
     }
 }
 
+impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm T {
+    type Source = *const T;
+    type Store = ();
+
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+        source.as_ref().ok_or(FfiResult::ArgIsNull)
+    }
+}
+impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
+    type Source = *mut T;
+    type Store = ();
+
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+        source.as_mut().ok_or(FfiResult::ArgIsNull)
+    }
+}
+
 impl<T: ReprC + Copy> IntoFfi for &T
 where
     T: IntoFfi<Target = T>,
@@ -165,67 +179,62 @@ where
     }
 }
 
-impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm T {
-    type Source = *const T;
-    type Store = ();
+impl<T> OutPtrOf<*mut T> for *mut *mut T {
+    unsafe fn write(self, source: *mut T) -> Result<(), FfiResult> {
+        if self.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
-        source.as_ref().ok_or(FfiResult::ArgIsNull)
+        self.write(source);
+        Ok(())
     }
 }
-impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
-    type Source = *mut T;
-    type Store = ();
+impl<T> OutPtrOf<*const T> for *mut *const T {
+    unsafe fn write(self, source: *const T) -> Result<(), FfiResult> {
+        if self.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
-        source.as_mut().ok_or(FfiResult::ArgIsNull)
+        self.write(source);
+        Ok(())
+    }
+}
+impl<T: ReprC> OutPtrOf<T> for *mut T
+where
+    T: IntoFfi<Target = T>,
+{
+    unsafe fn write(self, source: T) -> Result<(), FfiResult> {
+        if self.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        self.write(source);
+        Ok(())
+    }
+}
+impl<T: ReprC + Copy> OutPtrOf<Local<T>> for *mut T {
+    unsafe fn write(self, source: Local<T>) -> Result<(), FfiResult> {
+        if self.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        self.write(source.0);
+        Ok(())
     }
 }
 
-impl<T: ReprC> OutPtr for *mut T {
-    fn is_valid(&self) -> bool {
-        (*self).is_null()
-    }
+impl<T> Output for *mut T {
+    type OutPtr = *mut *mut T;
 }
-
-impl<T: ReprC + Copy> FfiOutput for T
+impl<T> Output for *const T {
+    type OutPtr = *mut *const T;
+}
+impl<T: ReprC> Output for T
 where
     T: IntoFfi<Target = Self>,
+    *mut Self: OutPtrOf<Self>,
 {
     type OutPtr = *mut Self;
-
-    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
-        if dest.is_null() {
-            return Err(FfiResult::ArgIsNull);
-        }
-
-        dest.write(self);
-        Ok(())
-    }
-}
-impl<T> FfiOutput for *const T {
-    type OutPtr = *mut Self;
-
-    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
-        if dest.is_null() {
-            return Err(FfiResult::ArgIsNull);
-        }
-
-        dest.write(self);
-        Ok(())
-    }
-}
-impl<T> FfiOutput for *mut T {
-    type OutPtr = *mut Self;
-
-    unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
-        if dest.is_null() {
-            return Err(FfiResult::ArgIsNull);
-        }
-
-        dest.write(self);
-        Ok(())
-    }
 }
 
 macro_rules! impl_tuple {
@@ -233,7 +242,7 @@ macro_rules! impl_tuple {
         /// FFI-compatible tuple with n elements
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         #[repr(C)]
-        pub struct $ffi_ty<$($ty),+>($($ty),+);
+        pub struct $ffi_ty<$($ty),+>($(pub $ty),+);
 
         #[allow(non_snake_case)]
         impl<$($ty),+> From<($( $ty, )*)> for $ffi_ty<$($ty),+> {
@@ -267,20 +276,6 @@ macro_rules! impl_tuple {
             }
         }
 
-        //impl<'itm, $($ty: TryFromReprC<'itm>),+> TryFromReprC<'itm> for &($($ty,)+) where $($ty::Source: Copy),+ {
-        //    type Source = *const $ffi_ty<$($ty::Source),+>;
-        //    type Store = ($( $ty::Store, )*);
-
-        //    #[allow(non_snake_case)]
-        //    unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self, FfiResult> {
-        //        impl_tuple! {@decl_priv_mod $($ty),+}
-
-        //        let $ffi_ty($($ty,)+) = &*source;
-        //        let store: private::Store<$($ty),+> = store.into();
-        //        Ok(($( <$ty as TryFromReprC>::try_from_repr_c($ty, store.$ty)?, )+))
-        //    }
-        //}
-
         impl<$($ty: IntoFfi),+> IntoFfi for ($( $ty, )+) {
             type Target = $ffi_ty<$($ty::Target),+>;
 
@@ -298,53 +293,6 @@ macro_rules! impl_tuple {
             fn into_ffi(self) -> Self::Target {
                 let ($($ty,)+) = Clone::clone(self);
                 Local::new($ffi_ty($( <$ty as IntoFfi>::into_ffi($ty),)+))
-            }
-        }
-
-        //impl<$($ty),+> slice::IntoFfiSliceRef for ($( $ty, )+) where Self: IntoFfi + Clone {
-        //    type Item = slice::LocalSliceRef<<Self as IntoFfi>::Item>;
-
-        //    fn into_ffi_slice(source: &[Self]) -> Self::Item {
-        //        source.iter().map(|item| Clone::clone(item).into_ffi()).collect()
-        //    }
-        //}
-
-        //impl<$($ty: TryAsRust),+> TryAsRust for ($( $ty, )+) {
-        //    type Item = ($($ty::Item,)+);
-
-        //    #[allow(non_snake_case)]
-        //    unsafe fn try_as_rust(source: &mut Self::Item) -> Result<Self, FfiResult> {
-        //        let ($($ty,)+) = source;
-        //        Ok(($(<$ty as TryAsRust>::try_as_rust($ty)?,)+))
-        //    }
-        //}
-        //impl<$($ty),+> TryAsRust for &($( $ty, )+) where Local<($($ty,)+)>: TryFromReprC {
-        //    type Item = Local<($($ty,)+)>;
-
-        //    #[allow(non_snake_case)]
-        //    unsafe fn try_as_rust(source: &mut Self::Item) -> Result<Self, FfiResult> {
-        //        Ok(&source.0)
-        //    }
-        //}
-
-        // TODO: why this clone
-        //impl<$($ty: Clone),+> slice::TryFromReprCSliceRef for ($( $ty, )+) {
-        //    type Item = slice::LocalSliceRef<Self>;
-
-        //    fn try_from_ffi_slice(source: &Self::Item) -> Result<&[Self], FfiResult> {
-        //        Ok(source)
-        //    }
-        //}
-
-        impl<$($ty: ReprC),+> FfiOutput for $ffi_ty<$($ty),+> {
-            type OutPtr = *mut Self;
-
-            unsafe fn write(self, dest: Self::OutPtr) -> Result<(), FfiResult> {
-                if dest.is_null() {
-                    return Err(FfiResult::ArgIsNull);
-                }
-
-                Ok(dest.write(self))
             }
         }
     };
