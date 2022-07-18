@@ -176,7 +176,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let builder = PeerBuilder::new()
         .with_configuration(configuration)
-        .with_instruction_validator(AllowAll)
+        .with_instruction_judge(Box::new(AllowAll::new()))
         .with_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));

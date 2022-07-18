@@ -3,12 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::{
-    prelude::ValidatorBuilder,
-    smartcontracts::{
-        isi::permissions::combinators::DenyAll, permissions::combinators::ValidatorApplyOr as _,
-    },
-};
+use iroha_core::{prelude::*, smartcontracts::permissions::HasToken};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{
     private_blockchain,
@@ -17,16 +12,6 @@ use iroha_permissions_validators::{
 use test_network::{PeerBuilder, *};
 
 use super::Configuration;
-
-const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
-    and second check with Account does not have the needed permission token: \
-    PermissionToken { name: \"can_burn_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
-    DefinitionId { name: \"xor\", domain_id: Id { name: \"wonderland\" } }, account_id: Id { name: \"bob\", domain_id: Id { name: \"wonderland\" } } }))} }..";
-
-const MINT_REJECTION_REASON: &str = "Failed to pass first check with Can\'t transfer assets of the other account. \
-    and second check with Account does not have the needed permission token: \
-    PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
-    DefinitionId { name: \"xor\", domain_id: Id { name: \"wonderland\" } }, account_id: Id { name: \"bob\", domain_id: Id { name: \"wonderland\" } } }))} }..";
 
 fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
     iroha_client
@@ -37,7 +22,7 @@ fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
 #[test]
 fn permissions_disallow_asset_transfer() {
     let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
-        .with_instruction_validator(public_blockchain::default_permissions())
+        .with_instruction_judge(public_blockchain::default_permissions())
         .start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
@@ -78,14 +63,12 @@ fn permissions_disallow_asset_transfer() {
         .downcast_ref::<PipelineRejectionReason>()
         .unwrap_or_else(|| panic!("Error {} is not PipelineRejectionReasons.", err));
     //Then
-    assert_eq!(
+    assert!(matches!(
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
-            NotPermittedFail {
-                reason: MINT_REJECTION_REASON.to_owned(),
-            }
+            NotPermittedFail { .. }
         ))
-    );
+    ));
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
 }
@@ -93,7 +76,7 @@ fn permissions_disallow_asset_transfer() {
 #[test]
 fn permissions_disallow_asset_burn() {
     let (_rt, _not_drop, mut iroha_client) = <PeerBuilder>::new()
-        .with_instruction_validator(public_blockchain::default_permissions())
+        .with_instruction_judge(public_blockchain::default_permissions())
         .start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
@@ -137,14 +120,12 @@ fn permissions_disallow_asset_burn() {
         .downcast_ref::<PipelineRejectionReason>()
         .unwrap_or_else(|| panic!("Error {} is not PipelineRejectionReasons.", err));
     //Then
-    assert_eq!(
+    assert!(matches!(
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(
-            NotPermittedFail {
-                reason: BURN_REJECTION_REASON.to_owned(),
-            }
+            NotPermittedFail { .. }
         ))
-    );
+    ));
 
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
@@ -152,8 +133,12 @@ fn permissions_disallow_asset_burn() {
 
 #[test]
 fn account_can_query_only_its_own_domain() {
+    let query_judge = JudgeBuilder::with_validator(private_blockchain::query::OnlyAccountsDomain)
+        .at_least_one_allow()
+        .build();
+
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
-        .with_query_validator(private_blockchain::query::OnlyAccountsDomain)
+        .with_query_judge(Box::new(query_judge))
         .start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
@@ -185,9 +170,15 @@ fn account_can_query_only_its_own_domain() {
 // If permissions are checked after instruction is executed during validation this introduces
 // a potential security liability that gives an attacker a backdoor for gaining root access
 fn permissions_checked_before_transaction_execution() {
+    let instruction_judge = JudgeBuilder::with_validator(
+        private_blockchain::register::GrantedAllowedRegisterDomains.into_validator(),
+    )
+    .at_least_one_allow()
+    .build();
+
     let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
-        .with_instruction_validator(private_blockchain::register::GrantedAllowedRegisterDomains)
-        .with_query_validator(DenyAll)
+        .with_instruction_judge(Box::new(instruction_judge))
+        .with_query_judge(Box::new(DenyAll::new()))
         .start_with_runtime();
 
     let isi = [
@@ -212,16 +203,16 @@ fn permissions_checked_before_transaction_execution() {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let instruction_validator = ValidatorBuilder::with_recursive_validator(
+    let instruction_judge = JudgeBuilder::with_recursive_validator(
         public_blockchain::key_value::AssetSetOnlyForSignerAccount
-            .or(public_blockchain::key_value::SetGrantedByAssetOwner),
+            .or(public_blockchain::key_value::SetGrantedByAssetOwner.into_validator()),
     )
-    .all_should_succeed()
+    .no_denies()
     .build();
 
     let (_rt, _not_drop, client) = <PeerBuilder>::new()
-        .with_instruction_validator(instruction_validator)
-        .with_query_validator(DenyAll)
+        .with_instruction_judge(Box::new(instruction_judge))
+        .with_query_judge(Box::new(DenyAll::new()))
         .start_with_runtime();
 
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");

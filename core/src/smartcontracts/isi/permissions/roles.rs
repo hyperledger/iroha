@@ -2,41 +2,58 @@
 
 use super::{super::Evaluate, *};
 
-// TODO: rewrite when specialization reaches stable
-// Currently we simply can't do the following:
-// impl <T: IsGrantAllowed> PermissionsValidator for T {}
-// when we have
-// impl <T: HasToken> PermissionsValidator for T {}
-/// Boxed validator implementing [`IsGrantAllowed`] trait.
-pub type IsGrantAllowedBoxed = Box<dyn IsGrantAllowed + Send + Sync>;
-
 /// Checks the [`GrantBox`] instruction.
 pub trait IsGrantAllowed: Debug {
     /// Checks the [`GrantBox`] instruction.
     ///
-    /// # Errors
+    /// # Reasons to deny
     /// If this validator doesn't approve this Grant instruction.
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView,
-    ) -> Result<()>;
-}
+    ) -> ValidatorVerdict;
 
-impl IsGrantAllowed for IsGrantAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        instruction: &GrantBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        IsGrantAllowed::check(self.as_ref(), authority, instruction, wsv)
+    /// Convert this object to a type implementing [`IsAllowed`] trait
+    ///
+    /// Could not use `impl<G: IsGrantAllowed> IsAllowed for G`
+    /// because of conflicting trait implementations
+    fn into_validator(self) -> IsGrantAllowedAsValidator<Self>
+    where
+        Self: Sized,
+    {
+        IsGrantAllowedAsValidator {
+            is_grant_allowed: self,
+        }
     }
 }
 
-/// Boxed validator implementing the [`IsRevokeAllowed`] trait.
-pub type IsRevokeAllowedBoxed = Box<dyn IsRevokeAllowed + Send + Sync>;
+/// Wrapper for types implementing [`IsGrantAllowed`]
+///
+/// Implements [`IsAllowed`] trait so that
+/// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
+#[derive(Debug)]
+pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed> {
+    is_grant_allowed: G,
+}
+
+impl<G: IsGrantAllowed> IsAllowed for IsGrantAllowedAsValidator<G> {
+    type Operation = Instruction;
+
+    fn check(
+        &self,
+        authority: &AccountId,
+        instruction: &Instruction,
+        wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
+        if let Instruction::Grant(isi) = instruction {
+            self.is_grant_allowed.check(authority, isi, wsv)
+        } else {
+            ValidatorVerdict::Skip
+        }
+    }
+}
 
 /// Checks the [`RevokeBox`] instruction.
 pub trait IsRevokeAllowed: Debug {
@@ -49,51 +66,49 @@ pub trait IsRevokeAllowed: Debug {
         authority: &AccountId,
         instruction: &RevokeBox,
         wsv: &WorldStateView,
-    ) -> Result<()>;
-}
+    ) -> ValidatorVerdict;
 
-impl IsRevokeAllowed for IsRevokeAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        instruction: &RevokeBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        IsRevokeAllowed::check(self.as_ref(), authority, instruction, wsv)
-    }
-}
-
-impl IsAllowed<Instruction> for IsGrantAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        instruction: &Instruction,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        if let Instruction::Grant(isi) = instruction {
-            <Self as IsGrantAllowed>::check(self, authority, isi, wsv)
-        } else {
-            Ok(())
+    /// Convert this object to a type implementing [`IsAllowed`] trait
+    ///
+    /// Could not use `impl<R: IsGrantAllowed> IsAllowed for R`
+    /// because of conflicting trait implementations
+    fn into_validator(self) -> IsRevokeAllowedAsValidator<Self>
+    where
+        Self: Sized,
+    {
+        IsRevokeAllowedAsValidator {
+            is_revoke_allowed: self,
         }
     }
 }
 
-impl IsAllowed<Instruction> for IsRevokeAllowedBoxed {
+/// Wrapper for types implementing [`IsGrantAllowed`]
+///
+/// Implements [`IsAllowed`] trait so that
+/// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
+#[derive(Debug)]
+pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed> {
+    is_revoke_allowed: R,
+}
+
+impl<R: IsRevokeAllowed> IsAllowed for IsRevokeAllowedAsValidator<R> {
+    type Operation = Instruction;
+
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         if let Instruction::Revoke(isi) = instruction {
-            <Self as IsRevokeAllowed>::check(self, authority, isi, wsv)
+            self.is_revoke_allowed.check(authority, isi, wsv)
         } else {
-            Ok(())
+            ValidatorVerdict::Skip
         }
     }
 }
 
-/// Used in `unpack_` function below
+/// Used in `unpack_` functions for role granting and revoking
 macro_rules! unpack {
     ($i:ident, $w:ident, Instruction::$v:ident => $t:ty) => {{
         let operation = if let Instruction::$v(operation) = &$i {

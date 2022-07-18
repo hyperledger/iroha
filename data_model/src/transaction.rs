@@ -11,7 +11,7 @@ use core::{
 use std::{collections::btree_set, time::Duration, vec};
 
 use derive_more::Display;
-use iroha_crypto::{SignatureOf, SignaturesOf};
+use iroha_crypto::{Hash, SignatureOf, SignaturesOf};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
@@ -439,6 +439,43 @@ impl PartialOrd for TransactionValue {
     }
 }
 
+/// `TransactionQueryResult` is used in `FindAllTransactions` query
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct TransactionQueryResult {
+    /// Transaction
+    pub tx_value: TransactionValue,
+    /// The hash of the block to which `tx` belongs to
+    pub block_hash: Hash,
+}
+
+impl TransactionQueryResult {
+    #[inline]
+    /// Return payload of the transaction
+    pub fn payload(&self) -> &Payload {
+        self.tx_value.payload()
+    }
+}
+
+impl Ord for TransactionQueryResult {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.payload()
+            .creation_time
+            .cmp(&other.payload().creation_time)
+    }
+}
+
+impl PartialOrd for TransactionQueryResult {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(
+            self.payload()
+                .creation_time
+                .cmp(&other.payload().creation_time),
+        )
+    }
+}
+
 declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
@@ -725,8 +762,9 @@ pub mod prelude {
     pub use super::{
         BlockRejectionReason, Executable, InstructionExecutionFail, NotPermittedFail, Payload,
         PendingTransactions, RejectedTransaction, RejectionReason, Transaction, TransactionLimits,
-        TransactionRejectionReason, TransactionValue, Txn, UnsatisfiedSignatureConditionFail,
-        ValidTransaction, VersionedPendingTransactions, VersionedRejectedTransaction,
-        VersionedTransaction, VersionedValidTransaction, WasmExecutionFail,
+        TransactionQueryResult, TransactionRejectionReason, TransactionValue, Txn,
+        UnsatisfiedSignatureConditionFail, ValidTransaction, VersionedPendingTransactions,
+        VersionedRejectedTransaction, VersionedTransaction, VersionedValidTransaction,
+        WasmExecutionFail,
     };
 }

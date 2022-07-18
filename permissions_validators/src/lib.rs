@@ -6,7 +6,9 @@ use iroha_core::{
     prelude::*,
     smartcontracts::{
         permissions::{
-            prelude::*, HasToken, IsAllowed, IsInstructionAllowedBoxed, IsQueryAllowedBoxed,
+            judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
+            HasToken,
+            ValidatorVerdict::*,
         },
         Evaluate,
     },
@@ -15,83 +17,33 @@ use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
 use serde::Serialize;
 
-macro_rules! impl_from_item_for_instruction_validator_box {
-    ( $ty:ty ) => {
-        impl From<$ty> for IsInstructionAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                Box::new(validator)
-            }
+macro_rules! try_evaluate_or_deny {
+    ($e:expr, $wsv:ident) => {
+        match $e.evaluate($wsv, &Context::new()) {
+            Ok(value) => value,
+            Err(err) => return ValidatorVerdict::Deny(err.to_string()),
         }
     };
 }
 
-macro_rules! impl_from_item_for_query_validator_box {
-    ( $ty:ty ) => {
-        impl From<$ty> for IsQueryAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                Box::new(validator)
-            }
+// TODO: Use [`FromResidual`](https://doc.rust-lang.org/std/ops/trait.FromResidual.html)
+// once it becomes stable
+macro_rules! ok_or_deny {
+    ($r:expr) => {
+        match $r {
+            Ok(value) => value,
+            Err(err) => return ValidatorVerdict::Deny(err),
         }
     };
 }
 
-macro_rules! impl_from_item_for_granted_token_validator_box {
-    ( $ty:ty ) => {
-        impl From<$ty> for HasTokenBoxed {
-            fn from(validator: $ty) -> Self {
-                Box::new(validator)
-            }
-        }
-
-        impl From<$ty> for IsInstructionAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                let validator: HasTokenBoxed = validator.into();
-                Box::new(validator)
-            }
-        }
-    };
-}
-
-macro_rules! impl_from_item_for_grant_instruction_validator_box {
-    ( $ty:ty ) => {
-        impl From<$ty> for IsGrantAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                Box::new(validator)
-            }
-        }
-
-        impl From<$ty> for IsInstructionAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                let validator: IsGrantAllowedBoxed = validator.into();
-                Box::new(validator)
-            }
-        }
-    };
-}
-
-macro_rules! impl_from_item_for_revoke_instruction_validator_box {
-    ( $ty:ty ) => {
-        impl From<$ty> for IsRevokeAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                Box::new(validator)
-            }
-        }
-
-        impl From<$ty> for IsInstructionAllowedBoxed {
-            fn from(validator: $ty) -> Self {
-                let validator: IsRevokeAllowedBoxed = validator.into();
-                Box::new(validator)
-            }
-        }
-    };
-}
-
-macro_rules! try_into_or_exit {
-    ( $ident:ident ) => {
-        if let Ok(into) = $ident.try_into() {
-            into
-        } else {
-            return Ok(());
+// TODO: Use [`FromResidual`](https://doc.rust-lang.org/std/ops/trait.FromResidual.html)
+// once it becomes stable
+macro_rules! ok_or_skip {
+    ($r:expr) => {
+        match $r {
+            Ok(value) => value,
+            Err(_) => return ValidatorVerdict::Skip,
         }
     };
 }

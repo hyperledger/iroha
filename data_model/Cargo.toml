@@ -40,7 +40,7 @@ iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.5", optional = true }
 dashmap = { version = "4.0", optional = true}
 tokio = { version = "1.6.0", features = ["sync", "rt-multi-thread"], optional = true}
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-derive_more = { version = "0.99.16", default-features = false, features = ["display", "constructor", "from_str"] }
+derive_more = { version = "0.99.16", default-features = false, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.59", default-features = false }
 warp = { version = "0.3", default-features = false, optional = true }
