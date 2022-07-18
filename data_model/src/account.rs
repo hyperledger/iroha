@@ -19,6 +19,8 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "mutable_api")]
+use crate::Registrable;
 use crate::{
     asset::{prelude::AssetId, AssetsMap},
     domain::prelude::*,
@@ -129,18 +131,29 @@ impl Default for SignatureCheckCondition {
 #[display(fmt = "[{id}]")]
 pub struct NewAccount {
     /// Identification
-    id: <NewAccount as Identifiable>::Id,
+    id: <Account as Identifiable>::Id,
     /// Signatories, i.e. signatures attached to this message.
     signatories: Signatories,
     /// Metadata that should be submitted with the builder
     metadata: Metadata,
 }
 
-impl Identifiable for NewAccount {
-    type Id = <Account as Identifiable>::Id;
+#[cfg(feature = "mutable_api")]
+impl Registrable for NewAccount {
+    type Target = Account;
 
-    fn id(&self) -> &Self::Id {
-        &self.id
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        Self::Target {
+            id: self.id,
+            signatories: self.signatories,
+            assets: AssetsMap::default(),
+            permission_tokens: Permissions::default(),
+            signature_check_condition: SignatureCheckCondition::default(),
+            metadata: self.metadata,
+            roles: RoleIds::default(),
+        }
     }
 }
 
@@ -176,19 +189,9 @@ impl NewAccount {
         }
     }
 
-    /// Construct [`Account`]
-    #[must_use]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Account {
-        Account {
-            id: self.id,
-            signatories: self.signatories,
-            assets: AssetsMap::default(),
-            permission_tokens: Permissions::default(),
-            signature_check_condition: SignatureCheckCondition::default(),
-            metadata: self.metadata,
-            roles: RoleIds::default(),
-        }
+    /// Identification
+    pub fn id(&self) -> &<Account as Identifiable>::Id {
+        &self.id
     }
 }
 
