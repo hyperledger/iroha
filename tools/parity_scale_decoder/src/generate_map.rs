@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use iroha_core::*;
 use iroha_crypto::*;
 use iroha_data_model::{prelude::*, query::SignedQueryRequest, *};
-use iroha_data_primitives::atomic::*;
+use iroha_data_primitives::{atomic::*, fixed};
 use iroha_schema::IntoSchema;
 use iroha_version::*;
 

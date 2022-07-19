@@ -15,6 +15,7 @@ pub mod world;
 pub use error::*;
 use eyre::Result;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
+use iroha_data_primitives::fixed::Fixed;
 use iroha_logger::prelude::*;
 
 use super::{Evaluate, Execute};
@@ -30,7 +31,8 @@ pub mod error {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
-    use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*, trigger};
+    use iroha_data_model::{metadata, prelude::*, trigger};
+    use iroha_data_primitives::fixed::FixedPointOperationError;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use thiserror::Error;

@@ -29,7 +29,7 @@ ffi_api = ["iroha_ffi", "iroha_crypto/ffi_api"]
 mutable_api = []
 
 [dependencies]
-iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.5", default-features = false }
+iroha_data_primitives = { path = "../data_primitives", version = "=2.0.0-pre-rc.5", default-features = false }
 iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.5" }
 iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.5", default-features = false }
 iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.5", default-features = false }
