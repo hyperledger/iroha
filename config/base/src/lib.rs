@@ -232,3 +232,27 @@ pub trait Configurable: Serialize + DeserializeOwned {
     /// Get inner documentation for non-leaf fields
     fn get_inner_docs() -> String;
 }
+
+pub mod view {
+    //! Module for view related traits and structs
+
+    /// Marker trait to set default value `IS_HAS_VIEW` to `false`
+    pub trait NoView {
+        /// [`Self`] doesn't implement [`HasView`]
+        const IS_HAS_VIEW: bool = false;
+    }
+    impl<T> NoView for T {}
+
+    /// Marker traits for types for which views are implemented  
+    pub trait HasView {}
+
+    /// Wrapper structure used to check if type implements `[HasView]`
+    /// If `T` doesn't implement [`HasView`] then `NoView::IS_HAS_VIEW` (`false`) will be used
+    /// Otherwise `IsHasView::IS_HAS_VIEW` (`true`) from `impl` block will shadow `NoView::IS_HAS_VIEW`  
+    pub struct IsHasView<T>(std::marker::PhantomData<T>);
+
+    impl<T: HasView> IsHasView<T> {
+        /// `T` implements trait [`HasView`]
+        pub const IS_HAS_VIEW: bool = true;
+    }
+}

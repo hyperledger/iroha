@@ -622,11 +622,15 @@ pub fn view(input: TokenStream) -> TokenStream {
     let view = gen_view_struct(ast);
     let impl_from = gen_impl_from(&original, &view);
     let impl_default = gen_impl_default(&original, &view);
+    let impl_has_view = gen_impl_has_view(&original);
+    let assertions = gen_assertions(&view);
     let out = quote! {
         #original
+        #impl_has_view
         #view
         #impl_from
         #impl_default
+        #assertions
     };
     out.into()
 }
@@ -741,6 +745,39 @@ fn gen_impl_default(original: &ViewInput, view: &ViewInput) -> proc_macro2::Toke
     }
 }
 
+fn gen_impl_has_view(original: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput {
+        generics,
+        ident: view_ident,
+        ..
+    } = original;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics iroha_config_base::view::HasView for #view_ident #ty_generics #where_clause {}
+    }
+}
+
+fn gen_assertions(view: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput { fields, .. } = view;
+    let field_types = extract_field_types(fields);
+    let messages: Vec<String> = extract_field_idents(fields)
+        .iter()
+        .map(|ident| {
+            format!("Field `{ident}` has it's own view, consider adding attribute #[view(into = ViewType)]")
+        })
+        .collect();
+    quote! {
+        /// Assert that every field of 'View' doesn't implement `HasView` trait
+        const _: () = {
+            use iroha_config_base::view::NoView;
+            #(
+                const _: () = assert!(!iroha_config_base::view::IsHasView::<#field_types>::IS_HAS_VIEW, #messages);
+            )*
+        };
+    }
+}
+
 /// Change [`Field`] type to `Type` if `#[view(type = Type)]` is present
 fn view_field_change_type(field: &mut Field) {
     if let Some(ty) = field
@@ -790,4 +827,9 @@ fn extract_field_idents(fields: &[Field]) -> Vec<&Ident> {
                 .expect("Should always be set for named structures")
         })
         .collect::<Vec<_>>()
+}
+
+/// Return [`Vec`] of fields types
+fn extract_field_types(fields: &[Field]) -> Vec<&Type> {
+    fields.iter().map(|field| &field.ty).collect::<Vec<_>>()
 }
