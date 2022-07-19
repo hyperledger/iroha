@@ -13,7 +13,7 @@ env:
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
   deploy:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -68,7 +68,7 @@ jobs:
           ref: dev
 
   upload_coverage:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -83,10 +83,10 @@ jobs:
       - name: Upload to codecov
         uses: codecov/codecov-action@v3
         with:
-          file: lcov-${{ github.event.pull_request.head.sha }}.info
+          file: lcov.info
 
   archive-and-publish-schema:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -121,7 +121,7 @@ jobs:
           path: target/schema
 
   print-telemetry:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
