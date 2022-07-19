@@ -73,16 +73,7 @@ impl From<GenesisDomain> for Domain {
 
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    OrdEqHash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Identifiable,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
@@ -160,7 +151,7 @@ impl NewDomain {
     Debug,
     Display,
     Clone,
-    OrdEqHash,
+    IdOrdEqHash,
     Getters,
     MutGetters,
     Decode,
@@ -168,7 +159,6 @@ impl NewDomain {
     Deserialize,
     Serialize,
     IntoSchema,
-    Identifiable,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[cfg_attr(feature = "ffi", ffi_export)]

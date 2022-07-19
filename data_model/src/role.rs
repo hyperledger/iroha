@@ -7,7 +7,7 @@ use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-use iroha_data_model_derive::OrdEqHash;
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
@@ -48,17 +48,7 @@ pub struct Id {
 
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    OrdEqHash,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Identifiable,
+    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[cfg_attr(feature = "ffi", ffi_export)]
@@ -95,10 +85,11 @@ impl Registered for Role {
 
 /// Builder for [`Role`]
 #[derive(
-    Debug, Display, Clone, OrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
+#[id(type = "<Role as Identifiable>::Id")]
 pub struct NewRole {
     inner: Role,
 }

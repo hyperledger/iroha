@@ -13,7 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-use iroha_data_model_derive::OrdEqHash;
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
@@ -128,16 +128,7 @@ impl Default for SignatureCheckCondition {
 /// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    OrdEqHash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Identifiable,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "[{id}]")]
@@ -223,7 +214,7 @@ impl NewAccount {
     Debug,
     Display,
     Clone,
-    OrdEqHash,
+    IdOrdEqHash,
     Getters,
     MutGetters,
     Setters,
@@ -232,7 +223,6 @@ impl NewAccount {
     Deserialize,
     Serialize,
     IntoSchema,
-    Identifiable,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "({id})")] // TODO: Add more?

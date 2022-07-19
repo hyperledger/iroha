@@ -2,7 +2,6 @@
 
 #![allow(
     clippy::expect_used,
-    clippy::too_many_lines,
     clippy::eval_order_dependence,
     clippy::unwrap_in_result
 )]
@@ -17,9 +16,8 @@ use syn::{
     Attribute, Field, Generics, Ident, Token, TypePath, Variant, Visibility,
 };
 
-/// A derive macro for `Identifiable` trait. Currently supports derivations only for
-/// `IdBox`, `Event` enums, and structs from the `data_model` crate (with the exception of `NewRole` due
-/// to its unconventional trait implementation).
+/// A derive macro for `Identifiable` trait and id-based comparison traits. Currently supports derivations only for
+/// `IdBox`, `Event` enums, and structs from the `data_model` crate that don't have generic parameters.
 ///
 /// As such, the macro introduces a new
 /// outer attribute `id` for the entities it is derived from. This attribute should
@@ -27,11 +25,20 @@ use syn::{
 /// should be supplied as a string literal that constitutes a
 /// legal Rust type path.
 ///
+/// As this macro also derives an implementation of `Ord`, `PartialOrd`, `Eq`, `PartialEq` and `Hash` traits that always
+/// conforms to the same implementation principles based on ids of the entities.
+/// Thus none of the entities that derive this macro should derive neither of the aforementioned traits,
+/// as they will be overridden.
+///
+/// Another warning: additional care should be exercised when using this macro for types that could be connected with
+/// anything concerning the trigger `Set` structure, or anywhere else where the specifics of `Ord`
+/// implementation become important, as subtle bugs may appear.
+///
 /// Example:
 /// ```rust
 ///
 /// // For a struct decorated like this
-/// #[derive(Identifiable)]
+/// #[derive(IdOrdEqHash)]
 /// #[id(type = "<Domain as Identifiable>::Id")]
 /// pub struct NewDomain {
 ///    /// The identification associated with the domain builder.
@@ -42,7 +49,7 @@ use syn::{
 ///    metadata: Metadata,
 /// }
 ///
-/// // The following impl will be derived
+/// // The following impls will be derived
 /// impl Identifiable for NewDomain {
 ///    type Id = <Domain as Identifiable>::Id;
 ///
@@ -50,8 +57,30 @@ use syn::{
 ///        &self.id
 ///    }
 /// }
+/// impl core::cmp::PartialOrd for Domain {
+///     #[inline]
+///     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+///         Some(self.cmp(other))
+///     }
+/// }
+/// impl core::cmp::Ord for Domain {
+///     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+///         self.id().cmp(other.id())
+///     }
+/// }
+/// impl core::cmp::PartialEq for Domain {
+///     fn eq(&self, other: &Self) -> bool {
+///         self.id() == other.id()
+///     }
+/// }
+/// impl core::cmp::Eq for Domain {}
+/// impl core::hash::Hash for Domain {
+///     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+///         self.id().hash(state);
+///     }
+/// }
 /// ```
-#[proc_macro_derive(Identifiable, attributes(id))]
+#[proc_macro_derive(IdOrdEqHash, attributes(id))]
 pub fn id_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as id::IdInput);
     id::impl_id(&ast)
@@ -67,20 +96,125 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// imports. This macro also depends on the naming conventions adopted so far, such as that
 /// `Event` enums always have tuple variants with either some sort of `Id` or another `Event` inside
 /// of them, as well as that all `Event` inner fields precede `Id` fields in the enum definition.
+///
+/// Example:
+/// ```rust
+///    // For a struct decorated like this
+///    #[derive(Filter)]
+///    pub enum DomainEvent {
+///        Account(AccountEvent),
+///        AssetDefinition(AssetDefinitionEvent),
+///        Created(DomainId),
+///        Deleted(DomainId),
+///        MetadataInserted(DomainId),
+///        MetadataRemoved(DomainId),
+///    }
+///
+/// // The following lengthy code will be derived
+///    #[derive(
+///        Clone,
+///        PartialEq,
+///        PartialOrd,
+///        Ord,
+///        Eq,
+///        Debug,
+///        Decode,
+///        Encode,
+///        Deserialize,
+///        Serialize,
+///        IntoSchema,
+///        Hash,
+///    )]
+///    #[doc = " A filter for DomainFilter"]
+///    pub struct DomainFilter {
+///        origin_filter: crate::prelude::FilterOpt<
+///                crate::prelude::OriginFilter<crate::prelude::DomainEvent>
+///            >,
+///        event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
+///    }
+///    impl DomainFilter {
+///        #[doc = "DomainFilter"]
+///        pub const fn new(
+///            origin_filter: crate::prelude::FilterOpt<
+///                    crate::prelude::OriginFilter<<crate::prelude::DomainEvent>
+///                >,
+///            event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
+///        ) -> Self {
+///            Self {
+///                origin_filter,
+///                event_filter,
+///            }
+///        }
+///        #[doc = r" Get `origin_filter`"]
+///        #[inline]
+///        pub const fn origin_filter(
+///            &self,
+///        ) -> &crate::prelude::FilterOpt<
+///                crate::prelude::OriginFilter<crate::prelude::DomainEvent>
+///            > {
+///            &self.origin_filter
+///        }
+///        #[doc = r" Get `event_filter`"]
+///        #[inline]
+///        pub const fn event_filter(&self) -> &crate::prelude::FilterOpt<DomainEventFilter> {
+///            &self.event_filter
+///        }
+///    }
+///    impl Filter for DomainFilter {
+///        type EventType = crate::prelude::DomainEvent;
+///        fn matches(&self, event: &Self::EventType) -> bool {
+///            self.origin_filter.matches(event) && self.event_filter.matches(event)
+///        }
+///    }
+///    #[derive(
+///        Clone,
+///        PartialEq,
+///        PartialOrd,
+///        Ord,
+///        Eq,
+///        Debug,
+///        Decode,
+///        Encode,
+///        Deserialize,
+///        Serialize,
+///        IntoSchema,
+///        Hash,
+///    )]
+///    #[allow(clippy::enum_variant_names, missing_docs)]
+///    pub enum DomainEventFilter {
+///        ByCreated,
+///        ByDeleted,
+///        ByMetadataInserted,
+///        ByMetadataRemoved,
+///        ByAccount(crate::prelude::FilterOpt<AccountFilter>),
+///        ByAssetDefinition(crate::prelude::FilterOpt<AssetDefinitionFilter>),
+///    }
+///    impl Filter for DomainEventFilter {
+///        type EventType = crate::prelude::DomainEvent;
+///        fn matches(&self, event: &crate::prelude::DomainEvent) -> bool {
+///            match (self, event) {
+///                (Self::ByCreated, crate::prelude::DomainEvent::Created(_))
+///                    | (Self::ByDeleted, crate::prelude::DomainEvent::Deleted(_))
+///                    | (Self::ByMetadataInserted, crate::prelude::DomainEvent::MetadataInserted(_))
+///                    | (Self::ByMetadataRemoved, crate::prelude::DomainEvent::MetadataRemoved(_)) => {
+///                        true
+///                    }
+///                (Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {
+///                    filter_opt.matches(event)
+///                }
+///                (
+///                    Self::ByAssetDefinition(filter_opt),
+///                    crate::prelude::DomainEvent::AssetDefinition(event),
+///                ) => filter_opt.matches(event),
+///                _ => false,
+///            }
+///        }
+///    }
+/// ```
 #[proc_macro_derive(Filter)]
 pub fn filter_derive(input: TokenStream) -> TokenStream {
     let event = parse_macro_input!(input as filter::EventEnum);
     filter::impl_filter(&event)
-}
-
-/// An implementation of `Ord`, `PartialOrd`, `Eq`, `PartialEq` and `Hash` traits that always
-/// conforms to the same implementation principles based on ids of the entities.
-/// Thus, this derive should only be used for types that also implement
-/// `Identifiable`.
-#[proc_macro_derive(OrdEqHash)]
-pub fn ordeqhash_derive(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).expect("Failed to parse input TokenStream.");
-    id::impl_ordeqhash(&ast)
 }
 
 mod id {
@@ -96,63 +230,16 @@ mod id {
         _brace_token: Brace,
         _enum_variants: Option<Punctuated<Variant, Token![,]>>,
         struct_fields: Option<Punctuated<Field, Token![,]>>,
-        event_variants: Option<Punctuated<filter::EventVariant, Token![,]>>,
         id_type: TypePath,
     }
-    impl IdInput {
-        fn generate_identifiable_impls_with_event_fields(
-            &self,
-            id_type: &TypePath,
-        ) -> Vec<proc_macro2::TokenStream> {
-            self.event_variants
-                .as_ref()
-                .expect("Should not be called for enums/structs besides `Event`")
-                .iter()
-                .filter_map(|variant| match variant {
-                    filter::EventVariant::IdField(_) => None,
-                    filter::EventVariant::EventField {
-                        variant: event_variant_ident,
-                        ..
-                    } => {
-                        let inner_event_field_ident = format_ident!(
-                            "{}_id",
-                            id_type
-                                .path
-                                .get_ident()
-                                .expect("Supplied `id_type` should be an ident convertible type path")
-                                .to_string()
-                                .strip_suffix("Id")
-                                .expect("Associated type for `Event`s should have `Id` suffix")
-                                .to_ascii_lowercase()
-                        );
-                        Some(quote! {
-                            Self::#event_variant_ident(event) => &event.id().#inner_event_field_ident
-                        })
-                    }
-                })
-                .collect()
-        }
 
-        fn generate_identifiable_impls_with_id_fields(&self) -> Vec<proc_macro2::TokenStream> {
-            self.event_variants
-                .as_ref()
-                .expect("Should not be called for enums/structs besides `Event`")
-                .iter()
-                .filter_map(|variant| match variant {
-                    filter::EventVariant::IdField(event_variant_ident) => Some(quote! {
-                        Self::#event_variant_ident(id)
-                    }),
-                    filter::EventVariant::EventField { .. } => None,
-                })
-                .collect()
-        }
-    }
     impl Parse for IdInput {
         fn parse(input: ParseStream) -> syn::Result<Self> {
             let attrs = input.call(Attribute::parse_outer)?;
             let id_type = parse_id_attribute(&attrs);
             let vis = input.parse::<Visibility>()?;
             if input.peek(Token![struct]) {
+                // Most usual case, most of the `domain_model` identifiables
                 let struct_token = Some(input.parse::<Token![struct]>()?);
                 let content;
                 Ok(IdInput {
@@ -165,50 +252,30 @@ mod id {
                     _brace_token: syn::braced!(content in input),
                     struct_fields: Some(content.parse_terminated(Field::parse_named)?),
                     _enum_variants: None,
-                    event_variants: None,
                     id_type,
                 })
             } else {
+                // Only used in [`IdBox`] case
                 let enum_token = Some(input.parse::<Token![enum]>()?);
                 let ident = input.parse::<Ident>()?;
                 let content;
-                if ident.to_string().ends_with("Event") {
-                    Ok(IdInput {
-                        _attrs: attrs,
-                        _vis: vis,
-                        _enum_token: enum_token,
-                        _struct_token: None,
-                        ident,
-                        _generics: input.parse()?,
-                        _brace_token: syn::braced!(content in input),
-                        _enum_variants: None,
-                        struct_fields: None,
-                        event_variants: Some(
-                            content.parse_terminated(filter::EventVariant::parse)?,
-                        ),
-                        id_type,
-                    })
-                } else {
-                    // Box case
-                    Ok(IdInput {
-                        _attrs: attrs,
-                        _vis: vis,
-                        _enum_token: enum_token,
-                        _struct_token: None,
-                        ident,
-                        _generics: input.parse()?,
-                        _brace_token: syn::braced!(content in input),
-                        _enum_variants: Some(content.parse_terminated(syn::Variant::parse)?),
-                        struct_fields: None,
-                        event_variants: None,
-                        id_type,
-                    })
-                }
+                Ok(IdInput {
+                    _attrs: attrs,
+                    _vis: vis,
+                    _enum_token: enum_token,
+                    _struct_token: None,
+                    ident,
+                    _generics: input.parse()?,
+                    _brace_token: syn::braced!(content in input),
+                    _enum_variants: Some(content.parse_terminated(syn::Variant::parse)?),
+                    struct_fields: None,
+                    id_type,
+                })
             }
         }
     }
 
-    pub(super) fn impl_ordeqhash(ast: &syn::DeriveInput) -> TokenStream {
+    fn impl_ordeqhash(ast: &IdInput) -> proc_macro2::TokenStream {
         let name = ast.ident.clone();
 
         quote! {
@@ -239,55 +306,41 @@ mod id {
                 }
             }
         }
-        .into()
     }
 
     pub(super) fn impl_id(ast: &IdInput) -> TokenStream {
         let id = ast.id_type.clone();
         let name = ast.ident.clone();
 
-        if ast.event_variants.is_some() {
-            let event_fields = ast.generate_identifiable_impls_with_event_fields(&ast.id_type);
-            let id_fields = ast.generate_identifiable_impls_with_id_fields();
+        let ordeqhash = impl_ordeqhash(ast);
 
-            quote! {
-                impl Identifiable for #name {
-                    type Id = #id;
-
-                    fn id(&self) -> &Self::Id {
-                        match self {
-                            #(#id_fields)|* => id,
-                            #(#event_fields),*
-                        }
-                    }
-                }
-            }
-            .into()
+        let body = if ast.ident.to_string().starts_with("NewRole") {
+            quote! { &self.inner.id }
         } else if ast.struct_fields.is_some() {
-            quote! {
-                impl Identifiable for #name {
-                    type Id = #id;
-
-                    fn id(&self) -> &Self::Id {
-                        &self.id
-                    }
-                }
-            }
-            .into()
+            // Most usual case for many `data_model` structs
+            quote! { &self.id }
         } else {
-            quote! {
-                impl Identifiable for #name {
-                    type Id = #id;
+            // Currently [`IdBox`] only
+            quote! { self }
+        };
+        quote! {
+            impl Identifiable for #name {
+                type Id = #id;
 
-                    fn id(&self) -> &Self::Id {
-                        self
-                    }
+                #[inline]
+                fn id(&self) -> &Self::Id {
+                    #body
                 }
             }
-            .into()
+            #ordeqhash
         }
+        .into()
     }
 
+    /// Find an attribute that is called `id`, parse only the provided
+    /// literal inside it. E.g. if it is #[id(type = "Id")], only `Id`
+    /// is extracted. Technically, the first component inside parentheses
+    /// could be anything with the current implementation.
     fn parse_id_attribute(attrs: &[Attribute]) -> TypePath {
         attrs
             .iter()
@@ -299,8 +352,9 @@ mod id {
                                 lit: syn::Lit::Str(inner),
                                 ..
                             })) => {
-                                let path =
-                                    inner.parse::<syn::TypePath>().expect("Failed parse lit?");
+                                let path = inner
+                                    .parse::<syn::TypePath>()
+                                    .expect("Failed to parse the provided literal");
                                 Some(path)
                             }
                             _ => None,
@@ -333,6 +387,7 @@ mod filter {
     }
 
     impl EventEnum {
+        /// Used to produce fields like `ByAccount(crate::prelude::FilterOpt<AccountFilter>)` in `DomainEventFilter`.
         fn generate_filter_variants_with_event_fields(&self) -> Vec<proc_macro2::TokenStream> {
             self.variants
                 .iter()
@@ -342,7 +397,10 @@ mod filter {
                         variant: variant_ident,
                         field: field_ident,
                     } => {
+                        // E.g. `Account` field in the event => `ByAccount` in the event filter
                         let filter_variant_ident = format_ident!("By{}", variant_ident);
+                        // E.g. `AccountEvent` inner field from `Account` variant in event =>
+                        // `AccountFilter` inside the event filter
                         let inner_filter_ident = format_ident!(
                             "{}Filter",
                             field_ident
@@ -358,11 +416,13 @@ mod filter {
                 .collect()
         }
 
+        /// Used to produce fields like `ByCreated` in `DomainEventFilter`.
         fn generate_filter_variants_with_id_fields(&self) -> Vec<Ident> {
             self.variants
                 .iter()
                 .filter_map(|variant| match variant {
                     EventVariant::IdField(event_variant_ident) => {
+                        // Event fields such as `MetadataRemoved` get mapped to `ByMetadataRemoved`
                         let filter_variant_ident = format_ident!("By{}", event_variant_ident);
                         Some(filter_variant_ident)
                     }
@@ -371,6 +431,8 @@ mod filter {
                 .collect()
         }
 
+        /// Match arms for `Filter` impls of event filters of the form
+        /// `(Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {filter_opt.matches(event)}`.
         fn generate_filter_impls_with_event_fields(&self) -> Vec<proc_macro2::TokenStream> {
             self.variants
                 .iter()
@@ -391,6 +453,8 @@ mod filter {
                     }}).collect()
         }
 
+        /// Match arms for `Filter` impls of event filters of the form
+        /// `(Self::ByCreated, crate::prelude::DomainEvent::Created(_))`.
         fn generate_filter_impls_with_id_fields(&self) -> Vec<proc_macro2::TokenStream> {
             self.variants
                 .iter()
@@ -458,11 +522,16 @@ mod filter {
                     Ok(EventVariant::IdField(variant_ident))
                 }
             } else {
-                Err(syn::Error::new_spanned(field_type, "Wrong type path"))
+                Err(syn::Error::new_spanned(
+                    field_type,
+                    "Unexpected AST type variant",
+                ))
             }
         }
     }
 
+    /// Generates the filter for the event. E.g. for `AccountEvent`, `AccountFilter`
+    /// and its `impl Filter` are generated.
     pub(super) fn impl_filter(event: &EventEnum) -> TokenStream {
         let EventEnum {
             vis,
@@ -471,11 +540,7 @@ mod filter {
             ..
         } = event;
 
-        let id_variants = event.generate_filter_variants_with_id_fields();
-        let event_variants = event.generate_filter_variants_with_event_fields();
-
-        let id_impls = event.generate_filter_impls_with_id_fields();
-        let event_impls = event.generate_filter_impls_with_event_fields();
+        let event_filter_and_impl = impl_event_filter(event);
 
         let filter_ident = format_ident!(
             "{}Filter",
@@ -488,11 +553,11 @@ mod filter {
 
         let import_path = quote! { crate::prelude };
         let fil_opt = quote! { #import_path::FilterOpt };
-        let id_fil = quote! { #import_path::IdFilter };
+        let orig_fil = quote! { #import_path::OriginFilter };
         let imp_event = quote! { #import_path::#event_ident };
 
-        let filter_doc = format!("{}", filter_ident);
-        let new_doc = format!("{}", filter_ident);
+        let filter_doc = format!(" Filter for {} entity", event_ident);
+        let new_doc = format!(" Construct new {}", filter_ident);
 
         quote! {
             #[derive(
@@ -511,26 +576,26 @@ mod filter {
             )]
             #[doc = #filter_doc]
             #vis struct #filter_ident #generics {
-                id_filter: #fil_opt<#id_fil<<#imp_event as Identifiable>::Id>>,
+                origin_filter: #fil_opt<#orig_fil<#imp_event>>,
                 event_filter: #fil_opt<#event_filter_ident>
             }
 
             impl #filter_ident {
                 #[doc = #new_doc]
                 pub const fn new(
-                    id_filter: #fil_opt<#id_fil<<#imp_event as Identifiable>::Id>>,
+                    origin_filter: #fil_opt<#orig_fil<#imp_event>>,
                     event_filter: #fil_opt<#event_filter_ident>,
                 ) -> Self {
                     Self {
-                        id_filter,
+                        origin_filter,
                         event_filter,
                     }
                 }
 
-                /// Get `id_filter`
+                /// Get `origin_filter`
                 #[inline]
-                pub const fn id_filter(&self) -> &#fil_opt<#id_fil<<#imp_event as Identifiable>::Id>> {
-                    &self.id_filter
+                pub const fn origin_filter(&self) -> &#fil_opt<#orig_fil<#imp_event>> {
+                    &self.origin_filter
                 }
 
                 /// Get `event_filter`
@@ -542,11 +607,37 @@ mod filter {
 
             impl Filter for #filter_ident {
                 type EventType = #imp_event;
-                fn matches(&self, entity: &Self::EventType) -> bool {
-                    self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+                fn matches(&self, event: &Self::EventType) -> bool {
+                    self.origin_filter.matches(event) && self.event_filter.matches(event)
                 }
             }
 
+            #event_filter_and_impl
+        }
+        .into()
+    }
+
+    /// Generates the event filter for the event. E.g. for `AccountEvent`, `AccountEventFilter`
+    /// and its `impl Filter` are generated.
+    fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
+        let EventEnum {
+            vis,
+            ident: event_ident,
+            generics,
+            ..
+        } = event;
+
+        let id_variants = event.generate_filter_variants_with_id_fields();
+        let event_variants = event.generate_filter_variants_with_event_fields();
+
+        let id_impls = event.generate_filter_impls_with_id_fields();
+        let event_impls = event.generate_filter_impls_with_event_fields();
+
+        let event_filter_ident = format_ident!("{}Filter", event_ident);
+        let import_path = quote! { crate::prelude };
+        let imp_event = quote! { #import_path::#event_ident };
+
+        quote! {
             #[derive(
                 Clone,
                 PartialEq,
@@ -577,8 +668,6 @@ mod filter {
                     }
                 }
             }
-
         }
-        .into()
     }
 }

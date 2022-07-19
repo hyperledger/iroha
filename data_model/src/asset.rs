@@ -117,7 +117,7 @@ impl AssetDefinitionEntry {
     Debug,
     Display,
     Clone,
-    OrdEqHash,
+    IdOrdEqHash,
     Getters,
     MutGetters,
     Decode,
@@ -125,7 +125,6 @@ impl AssetDefinitionEntry {
     Deserialize,
     Serialize,
     IntoSchema,
-    Identifiable,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
@@ -187,17 +186,7 @@ pub enum Mintable {
 /// Asset represents some sort of commodity or value.
 /// All possible variants of [`Asset`] entity's components.
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    OrdEqHash,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Identifiable,
+    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[cfg_attr(feature = "ffi", ffi_export)]
@@ -393,16 +382,7 @@ pub struct Id {
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    OrdEqHash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Identifiable,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{id} {mintable}{value_type}")]
