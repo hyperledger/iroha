@@ -11,7 +11,19 @@ mod asset {
     use super::*;
 
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -24,10 +36,10 @@ mod asset {
         MetadataRemoved(AssetId),
     }
 
-    impl Identifiable for AssetEvent {
-        type Id = AssetId;
+    impl HasOrigin for AssetEvent {
+        type Origin = Asset;
 
-        fn id(&self) -> &AssetId {
+        fn origin_id(&self) -> &<Asset as Identifiable>::Id {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
@@ -40,7 +52,19 @@ mod asset {
     }
 
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -55,10 +79,10 @@ mod asset {
     // AssetDefinitionEventFilter enum and its `impl Filter for
     // AssetDefinitionEventFilter`.
 
-    impl Identifiable for AssetDefinitionEvent {
-        type Id = AssetDefinitionId;
+    impl HasOrigin for AssetDefinitionEvent {
+        type Origin = AssetDefinition;
 
-        fn id(&self) -> &AssetDefinitionId {
+        fn origin_id(&self) -> &<AssetDefinition as Identifiable>::Id {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
@@ -76,7 +100,19 @@ mod peer {
     use super::*;
 
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -85,10 +121,10 @@ mod peer {
         Removed(PeerId),
     }
 
-    impl Identifiable for PeerEvent {
-        type Id = PeerId;
+    impl HasOrigin for PeerEvent {
+        type Origin = Peer;
 
-        fn id(&self) -> &PeerId {
+        fn origin_id(&self) -> &<Peer as Identifiable>::Id {
             match self {
                 Self::Added(id) | Self::Removed(id) => id,
             }
@@ -102,7 +138,19 @@ mod role {
     use super::*;
 
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -111,10 +159,10 @@ mod role {
         Deleted(RoleId),
     }
 
-    impl Identifiable for RoleEvent {
-        type Id = RoleId;
+    impl HasOrigin for RoleEvent {
+        type Origin = Role;
 
-        fn id(&self) -> &RoleId {
+        fn origin_id(&self) -> &<Role as Identifiable>::Id {
             match self {
                 Self::Created(id) | Self::Deleted(id) => id,
             }
@@ -129,7 +177,19 @@ mod account {
 
     /// Account event
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -147,12 +207,12 @@ mod account {
         MetadataRemoved(AccountId),
     }
 
-    impl Identifiable for AccountEvent {
-        type Id = AccountId;
+    impl HasOrigin for AccountEvent {
+        type Origin = Account;
 
-        fn id(&self) -> &AccountId {
+        fn origin_id(&self) -> &<Account as Identifiable>::Id {
             match self {
-                Self::Asset(asset) => &asset.id().account_id,
+                Self::Asset(asset) => &asset.origin_id().account_id,
                 Self::Created(id)
                 | Self::Deleted(id)
                 | Self::AuthenticationAdded(id)
@@ -175,7 +235,19 @@ mod domain {
 
     /// Domain Event
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -188,13 +260,13 @@ mod domain {
         MetadataRemoved(DomainId),
     }
 
-    impl Identifiable for DomainEvent {
-        type Id = DomainId;
+    impl HasOrigin for DomainEvent {
+        type Origin = Domain;
 
-        fn id(&self) -> &DomainId {
+        fn origin_id(&self) -> &<Domain as Identifiable>::Id {
             match self {
-                Self::Account(account) => &account.id().domain_id,
-                Self::AssetDefinition(asset_definition) => &asset_definition.id().domain_id,
+                Self::Account(account) => &account.origin_id().domain_id,
+                Self::AssetDefinition(asset_definition) => &asset_definition.origin_id().domain_id,
                 Self::Created(id)
                 | Self::Deleted(id)
                 | Self::MetadataInserted(id)
@@ -211,7 +283,19 @@ mod trigger {
 
     /// Trigger Event
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -222,10 +306,10 @@ mod trigger {
         Shortened(TriggerId),
     }
 
-    impl Identifiable for TriggerEvent {
-        type Id = TriggerId;
+    impl HasOrigin for TriggerEvent {
+        type Origin = Trigger<FilterBox>;
 
-        fn id(&self) -> &TriggerId {
+        fn origin_id(&self) -> &<Trigger<FilterBox> as Identifiable>::Id {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
@@ -236,11 +320,31 @@ mod trigger {
     }
 }
 
+/// Trait for events originating from [`HasOrigin::Origin`].
+pub trait HasOrigin {
+    /// Type of the origin.
+    type Origin: Identifiable;
+    /// Identification of the origin.
+    fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id;
+}
+
 /// World event
 ///
 /// Does not participate in `Event`, but useful for events warranties when modifying `wsv`
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 #[allow(missing_docs)]
 pub enum WorldEvent {
@@ -252,7 +356,19 @@ pub enum WorldEvent {
 
 /// Event
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 pub enum Event {
     /// Peer event
@@ -317,6 +433,6 @@ pub mod prelude {
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         role::{RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{TriggerEvent, TriggerEventFilter, TriggerFilter},
-        Event as DataEvent, WorldEvent,
+        Event as DataEvent, HasOrigin, WorldEvent,
     };
 }

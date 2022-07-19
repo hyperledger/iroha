@@ -126,26 +126,26 @@ fn impl_from_filter(ast: &syn::DeriveInput) -> TokenStream {
         )]
         #[doc = #filter_doc]
         #vis struct #filter_ident #generics {
-            id_filter: #import_path::FilterOpt<#import_path::IdFilter<<#import_path::#event_ident as Identifiable>::Id>>,
+            origin_filter: #import_path::FilterOpt<#import_path::OriginFilter<#import_path::#event_ident>>,
             event_filter: #import_path::FilterOpt<#event_filter_ident>
         }
 
         impl #filter_ident {
             #[doc = #new_doc]
             pub const fn new(
-                id_filter: #import_path::FilterOpt<#import_path::IdFilter<<#import_path::#event_ident as Identifiable>::Id>>,
+                origin_filter: #import_path::FilterOpt<#import_path::OriginFilter<#import_path::#event_ident>>,
                 event_filter: #import_path::FilterOpt<#event_filter_ident>,
             ) -> Self {
                 Self {
-                    id_filter,
+                    origin_filter,
                     event_filter,
                 }
             }
 
-            /// Get `id_filter`
+            /// Get `origin_filter`
             #[inline]
-            pub const fn id_filter(&self) -> &#import_path::FilterOpt<#import_path::IdFilter<<#import_path::#event_ident as Identifiable>::Id>> {
-                &self.id_filter
+            pub const fn origin_filter(&self) -> &#import_path::FilterOpt<#import_path::OriginFilter<#import_path::#event_ident>> {
+                &self.origin_filter
             }
 
             /// Get `event_filter`
@@ -157,8 +157,8 @@ fn impl_from_filter(ast: &syn::DeriveInput) -> TokenStream {
 
         impl Filter for #filter_ident {
             type EventType = #import_path::#event_ident;
-            fn matches(&self, entity: &Self::EventType) -> bool {
-                self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+            fn matches(&self, event: &Self::EventType) -> bool {
+                self.origin_filter.matches(event) && self.event_filter.matches(event)
             }
         }
 
