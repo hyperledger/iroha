@@ -34,7 +34,6 @@ view! {
     }
 }
 
-#[allow(clippy::expect_used)]
 impl Default for Configuration {
     fn default() -> Self {
         let (public_key, private_key) = Self::placeholder_keypair().into();

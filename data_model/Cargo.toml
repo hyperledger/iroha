@@ -47,7 +47,6 @@ warp = { version = "0.3", default-features = false, optional = true }
 thiserror = { version = "1.0.28", optional = true }
 getset = "0.1.2"
 strum = { version = "0.24.0", default-features = false, features = ["derive"] }
-url = { version = "2.2.2", features = ["serde"], optional = true }
 
 [dev-dependencies]
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.5" }

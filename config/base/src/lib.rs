@@ -13,7 +13,7 @@ pub mod derive {
     /// View contains a subset of the fields that the type has.
     ///
     /// Works only with structs.
-    /// Type must implement `Default`.
+    /// Type must implement [`Default`].
     ///
     /// ## Container attributes
     ///
@@ -34,7 +34,7 @@ pub mod derive {
     ///     struct Structure {
     ///         #[view(type = u64)]
     ///         a: u32,
-    ///         // `View` doesn't have field `b` so we must exclude it.
+    ///         // `View` shouldn't have field `b` so we must exclude it.
     ///         #[view(ignore)]
     ///         b: u32,
     ///     }
@@ -57,10 +57,20 @@ pub mod derive {
     /// //          }
     /// //      }
     /// // }
+    /// //
+    /// //  impl Default for StructureView {
+    /// //      fn default() -> Self {
+    /// //          Self::from(<Structure as Default>::default())
+    /// //      }
+    /// //  }
+    ///
     ///
     /// let structure = Structure { a: 13, b: 37 };
     /// let view: StructureView = structure.into();
     /// assert_eq!(view.a, 13);
+    /// let structure_default = Structure::default();
+    /// let view_default = StructureView::default();
+    /// assert_eq!(structure_default.a, view_default.a);
     /// ```
     pub use iroha_config_derive::view;
     /// Derive macro for implementing [`iroha_config::Configurable`](`crate::Configurable`) for config structures.

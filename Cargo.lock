@@ -1933,7 +1933,6 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
- "url",
  "warp",
 ]
 

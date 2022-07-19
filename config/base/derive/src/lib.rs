@@ -552,20 +552,47 @@ impl ToTokens for ViewInput {
     }
 }
 
+/// Keywords used inside `#[view(...)]`
+mod kw {
+    syn::custom_keyword!(ignore);
+    syn::custom_keyword!(into);
+}
+
+/// Structure to parse `#[view(...)]` attributes
+/// [`Inner`] is responsible for parsing attribute arguments
+struct View<Inner: Parse>(std::marker::PhantomData<Inner>);
+
+impl<Inner: Parse> View<Inner> {
+    fn parse(attr: &Attribute) -> syn::Result<Inner> {
+        attr.path
+            .is_ident("view")
+            .then(|| attr.parse_args::<Inner>())
+            .map_or_else(
+                || {
+                    Err(syn::Error::new_spanned(
+                        attr,
+                        "Attribute must be in form #[view...]",
+                    ))
+                },
+                |inner| inner,
+            )
+    }
+}
+
 struct ViewIgnore {
-    _ident: Ident,
+    _kw: kw::ignore,
 }
 
 impl Parse for ViewIgnore {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
-            _ident: parse_const_ident(input, "ignore")?,
+            _kw: input.parse()?,
         })
     }
 }
 
 struct ViewFieldType {
-    _ident: Ident,
+    _kw: kw::into,
     _eq: Token![=],
     ty: Type,
 }
@@ -573,14 +600,20 @@ struct ViewFieldType {
 impl Parse for ViewFieldType {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
-            _ident: parse_const_ident(input, "into")?,
+            _kw: input.parse()?,
             _eq: input.parse()?,
             ty: input.parse()?,
         })
     }
 }
 
-/// Generate view for given struct and conversion from type to its view.
+impl From<ViewFieldType> for Type {
+    fn from(value: ViewFieldType) -> Self {
+        value.ty
+    }
+}
+
+/// Generate view for given struct and convert from type to its view.
 /// More details in `iroha_config_base` reexport.
 #[proc_macro]
 pub fn view(input: TokenStream) -> TokenStream {
@@ -616,8 +649,10 @@ fn gen_view_struct(mut ast: ViewInput) -> ViewInput {
         #[doc = #view_doc]
     ));
     // Remove `Default` from #[derive(..., Default, ...)] or #[derive(Default)] because we implement `Default` inside macro
-    for attr in &mut ast.attrs {
-        if attr.path.is_ident("derive") {
+    ast.attrs
+        .iter_mut()
+        .filter(|attr| attr.path.is_ident("derive"))
+        .for_each(|attr| {
             let meta = attr
                 .parse_meta()
                 .expect("derive macro must be in one of the meta forms");
@@ -646,8 +681,7 @@ fn gen_view_struct(mut ast: ViewInput) -> ViewInput {
                 }
                 _ => {}
             }
-        }
-    }
+        });
     remove_attr_struct(&mut ast, "view");
     ast.ident = format_ident!("{}View", ast.ident);
     ast
@@ -668,7 +702,7 @@ fn gen_impl_from(original: &ViewInput, view: &ViewInput) -> proc_macro2::TokenSt
     let field_idents = extract_field_idents(fields);
 
     quote! {
-        impl #impl_generics From<#original_ident> for #view_ident #ty_generics #where_clause {
+        impl #impl_generics core::convert::From<#original_ident> for #view_ident #ty_generics #where_clause {
             fn from(config: #original_ident) -> Self {
                 let #original_ident {
                     #(
@@ -678,7 +712,7 @@ fn gen_impl_from(original: &ViewInput, view: &ViewInput) -> proc_macro2::TokenSt
                 } =  config;
                 Self {
                     #(
-                        #field_idents: From::<_>::from(#field_idents),
+                        #field_idents: core::convert::From::<_>::from(#field_idents),
                     )*
                 }
             }
@@ -694,26 +728,14 @@ fn gen_impl_default(original: &ViewInput, view: &ViewInput) -> proc_macro2::Toke
     let ViewInput {
         generics,
         ident: view_ident,
-        fields,
         ..
     } = view;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let field_idents = extract_field_idents(fields);
 
     quote! {
-        impl #impl_generics Default for #view_ident #ty_generics #where_clause {
+        impl #impl_generics core::default::Default for #view_ident #ty_generics #where_clause {
             fn default() -> Self {
-                let #original_ident {
-                    #(
-                        #field_idents,
-                    )*
-                    ..
-                } =  #original_ident::default();
-                Self {
-                    #(
-                        #field_idents: From::<_>::from(#field_idents),
-                    )*
-                }
+                core::convert::From::<_>::from(<#original_ident as core::default::Default>::default())
             }
         }
     }
@@ -721,14 +743,13 @@ fn gen_impl_default(original: &ViewInput, view: &ViewInput) -> proc_macro2::Toke
 
 /// Change [`Field`] type to `Type` if `#[view(type = Type)]` is present
 fn view_field_change_type(field: &mut Field) {
-    if let Some(ty) = field.attrs.iter().find_map(|attr| {
-        if !attr.path.is_ident("view") {
-            return None;
-        }
-        attr.parse_args::<ViewFieldType>()
-            .map(|field_type| field_type.ty)
-            .ok()
-    }) {
+    if let Some(ty) = field
+        .attrs
+        .iter()
+        .map(View::<ViewFieldType>::parse)
+        .find_map(Result::ok)
+        .map(ViewFieldType::into)
+    {
         field.ty = ty;
     }
 }
@@ -738,12 +759,8 @@ fn is_view_field_ignored(field: &Field) -> bool {
     field
         .attrs
         .iter()
-        .find_map(|attr| {
-            if !attr.path.is_ident("view") {
-                return None;
-            }
-            attr.parse_args::<ViewIgnore>().ok()
-        })
+        .map(View::<ViewIgnore>::parse)
+        .find_map(Result::ok)
         .is_none()
 }
 
