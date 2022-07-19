@@ -21,7 +21,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            Executable::from(vec![instruction.clone().into()]),
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
@@ -31,7 +31,6 @@ fn must_execute_both_triggers() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_2".parse()?,
         Action::new(

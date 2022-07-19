@@ -320,7 +320,7 @@ impl Set {
                 count = min(atomic.get(), count);
             }
             if count == 0 {
-                return;
+                continue;
             }
 
             let ids = vec![
