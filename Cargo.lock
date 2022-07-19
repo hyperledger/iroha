@@ -1877,6 +1877,7 @@ dependencies = [
  "getset",
  "hex",
  "hex-literal",
+ "iroha_data_primitives",
  "iroha_ffi",
  "iroha_schema",
  "openssl-sys",
