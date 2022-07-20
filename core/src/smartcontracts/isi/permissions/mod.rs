@@ -2,9 +2,10 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{fmt::Debug, marker::PhantomData, ops::Deref};
+use std::{fmt::Display, marker::PhantomData, ops::Deref};
 
 pub use checks::*;
+use derive_more::Display;
 pub use has_token::*;
 use iroha_data_model::prelude::*;
 use iroha_schema::IntoSchema;
@@ -23,7 +24,7 @@ pub mod roles;
 pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Operation for which the permission should be checked
-pub trait NeedsPermission: Debug {
+pub trait NeedsPermission {
     /// Get the type of validator required to check the operation
     ///
     /// Accepts `self` because of the [`NeedsPermissionBox`]
@@ -71,7 +72,7 @@ impl NeedsPermission for NeedsPermissionBox {
 }
 
 /// Implementation of this trait provides custom permission checks for the Iroha-base
-pub trait IsAllowed: Debug {
+pub trait IsAllowed: Display {
     /// Type of operation to be checked
     type Operation: NeedsPermission;
 
@@ -247,7 +248,8 @@ mod tests {
     use super::{judge::DenyAll, prelude::*, *};
     use crate::wsv::World;
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Deny all burn operations")]
     struct DenyBurn;
 
     impl IsAllowed for DenyBurn {
@@ -266,7 +268,8 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Deny all Alice's operations")]
     struct DenyAlice;
 
     impl IsAllowed for DenyAlice {
@@ -286,7 +289,8 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Always find `token`")]
     struct GrantedToken;
 
     // TODO: ADD some Revoke tests.

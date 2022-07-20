@@ -3,7 +3,7 @@
 use super::{super::Evaluate, *};
 
 /// Checks the [`GrantBox`] instruction.
-pub trait IsGrantAllowed: Debug {
+pub trait IsGrantAllowed {
     /// Checks the [`GrantBox`] instruction.
     ///
     /// # Reasons to deny
@@ -33,12 +33,12 @@ pub trait IsGrantAllowed: Debug {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed> {
     is_grant_allowed: G,
 }
 
-impl<G: IsGrantAllowed> IsAllowed for IsGrantAllowedAsValidator<G> {
+impl<G: IsGrantAllowed + Display> IsAllowed for IsGrantAllowedAsValidator<G> {
     type Operation = Instruction;
 
     fn check(
@@ -56,7 +56,7 @@ impl<G: IsGrantAllowed> IsAllowed for IsGrantAllowedAsValidator<G> {
 }
 
 /// Checks the [`RevokeBox`] instruction.
-pub trait IsRevokeAllowed: Debug {
+pub trait IsRevokeAllowed {
     /// Checks the [`RevokeBox`] instruction.
     ///
     /// # Errors
@@ -86,12 +86,13 @@ pub trait IsRevokeAllowed: Debug {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(fmt = "{}", is_revoke_allowed)]
 pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed> {
     is_revoke_allowed: R,
 }
 
-impl<R: IsRevokeAllowed> IsAllowed for IsRevokeAllowedAsValidator<R> {
+impl<R: IsRevokeAllowed + Display> IsAllowed for IsRevokeAllowedAsValidator<R> {
     type Operation = Instruction;
 
     fn check(

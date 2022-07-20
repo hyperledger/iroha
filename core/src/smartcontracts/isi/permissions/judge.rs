@@ -1,6 +1,8 @@
 //! Module with [`Judge`] trait and its implementations
 
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
+
+use derive_more::Display;
 
 use super::*;
 
@@ -61,14 +63,13 @@ pub trait Judge {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(fmt = "{}", judge)]
 pub struct JudgeAsValidator<O: NeedsPermission, J: Judge<Operation = O>> {
     judge: J,
 }
 
-impl<O: NeedsPermission, J: Judge<Operation = O> + std::fmt::Debug> IsAllowed
-    for JudgeAsValidator<O, J>
-{
+impl<O: NeedsPermission, J: Judge<Operation = O> + Display> IsAllowed for JudgeAsValidator<O, J> {
     type Operation = O;
 
     fn check(
@@ -88,12 +89,28 @@ impl<O: NeedsPermission, J: Judge<Operation = O> + std::fmt::Debug> IsAllowed
 ///
 /// Provides detailed message as [`DenialReason`] if none of the validators
 /// returned [`Allow`](ValidatorVerdict::Allow) verdict.
-#[derive(Debug)]
 pub struct AtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
+impl<O: NeedsPermission + Display> Display for AtLeastOneAllow<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("AtLeastOneAllow [")?;
+
+        let mut first = true;
+        for validator in &self.validators {
+            if !first {
+                f.write_str(", ")?;
+            }
+            f.write_fmt(format_args!("`{}`", validator))?;
+            first = false;
+        }
+
+        f.write_str("]")
+    }
+}
+
+impl<O: NeedsPermission + Display> Judge for AtLeastOneAllow<O> {
     type Operation = O;
 
     fn judge(
@@ -108,16 +125,16 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
             match validator.check(authority, operation, wsv) {
                 ValidatorVerdict::Allow => return Ok(()),
                 ValidatorVerdict::Deny(reason) => {
-                    messages.push(format!("Validator {validator:?} denied: {reason}"));
+                    messages.push(format!("Validator `{validator}` denied: {reason}"));
                 }
                 ValidatorVerdict::Skip => {
-                    messages.push(format!("Validator {validator:?} skipped"));
+                    messages.push(format!("Validator `{validator}` skipped"));
                 }
             }
         }
 
         Err(format!(
-            "None of the validators has allowed operation {operation:?}: {messages:#?}",
+            "None of the validators has allowed operation `{operation}`: {messages:#?}",
         ))
     }
 }
@@ -126,12 +143,11 @@ impl<O: NeedsPermission> Judge for AtLeastOneAllow<O> {
 /// [`Deny`](ValidatorVerdict::Deny) verdict from the contained validators.
 ///
 /// Iterates over all validators.
-#[derive(Debug)]
 pub struct NoDenies<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl<O: NeedsPermission> Judge for NoDenies<O> {
+impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
     type Operation = O;
 
     fn judge(
@@ -143,7 +159,7 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
         for validator in &self.validators {
             if let ValidatorVerdict::Deny(reason) = validator.check(authority, operation, wsv) {
                 return Err(format!(
-                    "Validator {validator:?} denied operation {operation:?}: {reason}"
+                    "Validator `{validator}` denied operation `{operation}`: {reason}"
                 ));
             }
         }
@@ -158,12 +174,11 @@ impl<O: NeedsPermission> Judge for NoDenies<O> {
 ///
 /// Iterates over all validators until first `Deny` is found or
 /// all validators are checked.
-#[derive(Debug)]
 pub struct NoDeniesAndAtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl<O: NeedsPermission> Judge for NoDeniesAndAtLeastOneAllow<O> {
+impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
     type Operation = O;
 
     fn judge(
@@ -180,11 +195,11 @@ impl<O: NeedsPermission> Judge for NoDeniesAndAtLeastOneAllow<O> {
                 ValidatorVerdict::Allow => allowed = true,
                 ValidatorVerdict::Deny(reason) => {
                     return Err(format!(
-                        "Validator {validator:?} denied operation {operation:?}: {reason}"
+                        "Validator `{validator}` denied operation `{operation}`: {reason}"
                     ));
                 }
                 ValidatorVerdict::Skip => {
-                    messages.push(format!("Validator {validator:?} skipped"));
+                    messages.push(format!("Validator `{validator}` skipped"));
                 }
             }
         }
@@ -193,7 +208,7 @@ impl<O: NeedsPermission> Judge for NoDeniesAndAtLeastOneAllow<O> {
             Ok(())
         } else {
             Err(format!(
-                "None of the validators has allowed operation {operation:?}: {messages:#?}",
+                "None of the validators has allowed operation `{operation}`: {messages:#?}",
             ))
         }
     }
@@ -232,7 +247,8 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
 
 /// All operations are disallowed to be executed for all possible
 /// values. Mostly for tests and simple cases.
-#[derive(Debug, Default, Clone, Copy, Serialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Display)]
+#[display(fmt = "Deny all operations")]
 pub struct DenyAll<O: NeedsPermission> {
     #[serde(default, skip_serializing)]
     _phantom_operation: PhantomData<O>,
@@ -276,7 +292,6 @@ pub mod builder {
 
     /// Helper struct for [`Builder`].
     /// Makes sure there is at least one validator and all validators have the same type
-    #[derive(Debug)]
     #[must_use]
     pub struct WithValidators<O: NeedsPermission> {
         validators: Vec<IsOperationAllowedBoxed<O>>,
@@ -296,7 +311,7 @@ pub mod builder {
         /// Returns new [`JudgeBuilder with validators`][WithValidators] with provided `validator`
         #[inline]
         pub fn with_validator<
-            O: NeedsPermission + 'static,
+            O: NeedsPermission + Display + 'static,
             V: IsAllowed<Operation = O> + Send + Sync + 'static,
         >(
             validator: V,
@@ -319,7 +334,7 @@ pub mod builder {
         }
     }
 
-    impl<O: NeedsPermission + 'static> WithValidators<O> {
+    impl<O: NeedsPermission + Display + 'static> WithValidators<O> {
         #[inline]
         fn new<V: IsAllowed<Operation = O> + Send + Sync + 'static>(validator: V) -> Self {
             Self {
@@ -390,7 +405,7 @@ pub mod builder {
 
     impl<O, J> WithJudge<O, J>
     where
-        O: NeedsPermission + Send + Sync + 'static,
+        O: NeedsPermission + Display + Send + Sync + 'static,
         J: Judge<Operation = O> + IsAllowed<Operation = O> + Send + Sync + 'static,
     {
         /// Add a validator to the list.
@@ -425,7 +440,7 @@ pub mod builder {
 
     impl<O> WithJudge<O, AtLeastOneAllow<O>>
     where
-        O: NeedsPermission + 'static,
+        O: NeedsPermission + Display + 'static,
     {
         /// Apply [`NoDenies`] together with [`AtLeastOneAllow`]
         ///
@@ -443,7 +458,7 @@ pub mod builder {
 
     impl<O> WithJudge<O, NoDenies<O>>
     where
-        O: NeedsPermission + 'static,
+        O: NeedsPermission + Display + 'static,
     {
         /// Apply [`AtLeastOneAllow`] together with [`NoDenies`]
         ///

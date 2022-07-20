@@ -4,7 +4,7 @@ use super::*;
 
 /// Trait that checks whether a permission token is needed for a certain action.
 /// The trait should be implemented by the validator.
-pub trait HasToken: Debug {
+pub trait HasToken {
     /// Get the token that `authority` should
     /// possess, given the `instruction` they are planning to execute
     /// on the current state of `wsv`
@@ -27,7 +27,7 @@ pub trait HasToken: Debug {
     /// because of conflicting trait implementations
     fn into_validator(self) -> HasTokenAsValidator<Self>
     where
-        Self: Sized,
+        Self: Display + Sized,
     {
         HasTokenAsValidator { has_token: self }
     }
@@ -37,12 +37,13 @@ pub trait HasToken: Debug {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
-pub struct HasTokenAsValidator<H: HasToken> {
+#[derive(Debug, Display)]
+#[display(fmt = "{}", has_token)]
+pub struct HasTokenAsValidator<H: HasToken + Display> {
     has_token: H,
 }
 
-impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
+impl<H: HasToken + Display> IsAllowed for HasTokenAsValidator<H> {
     type Operation = Instruction;
 
     fn check(
