@@ -10,7 +10,7 @@ use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{asset::AssetDefinition, prelude::*};
-use iroha_data_primitives::small::{smallvec, SmallVec};
+use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::{time, time::Duration};

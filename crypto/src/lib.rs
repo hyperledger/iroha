@@ -20,7 +20,7 @@ pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
-use iroha_data_primitives::conststr::ConstString;
+use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};

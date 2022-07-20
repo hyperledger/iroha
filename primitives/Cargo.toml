@@ -1,5 +1,5 @@
 [package]
-name = "iroha_data_primitives"
+name = "iroha_primitives"
 version = "2.0.0-pre-rc.5"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
@@ -36,3 +36,4 @@ thiserror = { version = "1.0.28", optional = true }
 
 [dev-dependencies]
 serde_json = { version = "1.0.59", default-features = false, features = ["alloc"] }
+trybuild = "1.0.53"

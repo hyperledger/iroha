@@ -1,7 +1,7 @@
 //! This module contains data events
 
 use iroha_data_model_derive::Filter;
-use iroha_data_primitives::small::SmallVec;
+use iroha_primitives::small::SmallVec;
 
 use super::*;
 

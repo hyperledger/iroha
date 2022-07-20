@@ -5,8 +5,8 @@ use eyre::{eyre, Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
-use iroha_data_primitives::small::SmallStr;
 use iroha_logger::Configuration as LoggerConfiguration;
+use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";

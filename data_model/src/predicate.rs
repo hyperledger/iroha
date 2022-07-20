@@ -414,7 +414,7 @@ pub mod numerical {
     //! Numerical predicates.
     use core::cmp::{max, min};
 
-    use iroha_data_primitives::fixed::Fixed;
+    use iroha_primitives::fixed::Fixed;
 
     use super::*;
 
@@ -536,7 +536,7 @@ pub mod numerical {
     mod tests {
         #![allow(clippy::print_stdout, clippy::use_debug)]
 
-        use iroha_data_primitives::fixed::Fixed;
+        use iroha_primitives::fixed::Fixed;
 
         use super::*;
 

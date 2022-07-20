@@ -2,7 +2,7 @@
 //! instructions implementations.
 
 use iroha_data_model::prelude::*;
-use iroha_data_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
+use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;

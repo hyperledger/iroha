@@ -8,7 +8,7 @@ use iroha_client::{
 };
 use iroha_core::prelude::*;
 use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
-use iroha_data_primitives::small::SmallStr;
+use iroha_primitives::small::SmallStr;
 use test_network::*;
 
 use super::Configuration;

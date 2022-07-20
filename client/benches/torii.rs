@@ -11,7 +11,7 @@ use iroha_core::{
     prelude::*,
 };
 use iroha_data_model::prelude::*;
-use iroha_data_primitives::small::SmallStr;
+use iroha_primitives::small::SmallStr;
 use iroha_version::Encode;
 use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;

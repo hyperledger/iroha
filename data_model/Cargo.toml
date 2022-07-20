@@ -21,7 +21,7 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Disabled for WASM interoperability, to reduce the binary size.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
-std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
+std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
 # Expose FFI API to facilitate dynamic linking
 ffi_api = ["iroha_ffi", "iroha_crypto/ffi_api"]
 
@@ -29,7 +29,7 @@ ffi_api = ["iroha_ffi", "iroha_crypto/ffi_api"]
 mutable_api = []
 
 [dependencies]
-iroha_data_primitives = { path = "../data_primitives", version = "=2.0.0-pre-rc.5", default-features = false }
+iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.5", default-features = false }
 iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.5" }
 iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.5", default-features = false }
 iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.5", default-features = false }
@@ -57,7 +57,6 @@ hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.5" }
 
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
-trybuild = "1.0.53"
 criterion = "0.3"
 
 [[bench]]

@@ -9,8 +9,8 @@ use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-use iroha_data_primitives::{fixed, fixed::Fixed};
 use iroha_macro::FromVariant;
+use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};

@@ -12,9 +12,9 @@ use core::{cmp::Ordering, str::FromStr};
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
-use iroha_data_primitives::conststr::ConstString;
 #[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
+use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};

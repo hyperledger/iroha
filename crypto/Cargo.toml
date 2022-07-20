@@ -17,7 +17,7 @@ vendored = ["openssl-sys"]
 ffi_api = ["iroha_ffi"]
 
 [dependencies]
-iroha_data_primitives = { path = "../data_primitives", version = "=2.0.0-pre-rc.5", default-features = false }
+iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.5", default-features = false }
 iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.5", optional = true }
 iroha_schema = { path = "../schema" }
 

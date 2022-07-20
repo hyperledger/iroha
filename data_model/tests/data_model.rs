@@ -9,7 +9,7 @@ use iroha_core::{
     prelude::*,
 };
 use iroha_data_model::{prelude::*, ParseError};
-use iroha_data_primitives::small::SmallStr;
+use iroha_primitives::small::SmallStr;
 use test_network::{prepare_test_for_nextest, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 

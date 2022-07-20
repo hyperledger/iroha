@@ -5,7 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
-use iroha_data_primitives::conststr::ConstString;
+use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};

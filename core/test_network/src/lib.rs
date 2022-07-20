@@ -18,11 +18,11 @@ use iroha_core::{
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
-use iroha_data_primitives::small;
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_permissions_validators::public_blockchain::{
     burn::CanBurnAssetWithDefinition, mint::CanMintUserAssetDefinitions,
 };
+use iroha_primitives::small;
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{
