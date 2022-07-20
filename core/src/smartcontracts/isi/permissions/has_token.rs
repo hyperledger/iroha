@@ -38,7 +38,7 @@ pub trait HasToken {
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug, Display)]
-#[display(fmt = "{}", has_token)]
+#[display(fmt = "Allow if signer has `{}` token", has_token)]
 pub struct HasTokenAsValidator<H: HasToken + Display> {
     has_token: H,
 }

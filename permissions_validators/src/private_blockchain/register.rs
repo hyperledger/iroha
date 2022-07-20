@@ -9,7 +9,8 @@ declare_token!(
 );
 
 /// Prohibits registering domains.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Prohibit register domains")]
 pub struct ProhibitRegisterDomains;
 
 impl IsAllowed for ProhibitRegisterDomains {
@@ -34,7 +35,8 @@ impl IsAllowed for ProhibitRegisterDomains {
 }
 
 /// Validator that allows to register domains for accounts with the corresponding permission token.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "CanRegisterDomains")]
 pub struct GrantedAllowedRegisterDomains;
 
 impl HasToken for GrantedAllowedRegisterDomains {

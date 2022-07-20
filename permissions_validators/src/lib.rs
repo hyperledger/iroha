@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use derive_more::Display;
 use iroha_core::{
     prelude::*,
     smartcontracts::{

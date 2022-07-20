@@ -5,7 +5,8 @@ use iroha_core::smartcontracts::permissions::ValidatorVerdict;
 use super::*;
 
 /// Allow queries that only access the data of the domain of the signer.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow queries that only access the data of the domain of the signer")]
 pub struct OnlyAccountsDomain;
 
 impl IsAllowed for OnlyAccountsDomain {
@@ -280,7 +281,8 @@ impl IsAllowed for OnlyAccountsDomain {
 }
 
 /// Allow queries that only access the signers account data.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow queries that only access the signers account data")]
 pub struct OnlyAccountsData;
 
 impl IsAllowed for OnlyAccountsData {

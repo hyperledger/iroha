@@ -21,7 +21,7 @@ pub trait IsGrantAllowed {
     /// because of conflicting trait implementations
     fn into_validator(self) -> IsGrantAllowedAsValidator<Self>
     where
-        Self: Sized,
+        Self: Display + Sized,
     {
         IsGrantAllowedAsValidator {
             is_grant_allowed: self,
@@ -34,7 +34,8 @@ pub trait IsGrantAllowed {
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug, Display)]
-pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed> {
+#[display(fmt = "Allow grant if `{}` succeeds", is_grant_allowed)]
+pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed + Display> {
     is_grant_allowed: G,
 }
 
