@@ -82,7 +82,6 @@ jobs:
           search_artifacts: true
       - name: Rename lcov report file
         run: mv lcov-${{ github.event.pull_request.head.sha }}.info lcov.info
-      - name: Upload to codecov 0
       - name: Upload to codecov
         uses: codecov/codecov-action@v3
         with:
