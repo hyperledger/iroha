@@ -1,5 +1,7 @@
 //! This module contains `EventFilter` and entities for filter
 
+use core::{fmt::Debug, hash::Hash};
+
 use super::*;
 
 /// Filter for all events
@@ -14,8 +16,8 @@ pub type EventFilter = FilterOpt<EntityFilter>;
     Debug,
     Decode,
     Encode,
-    Deserialize,
     Serialize,
+    Deserialize,
     IntoSchema,
     Hash,
 )]
@@ -94,42 +96,73 @@ impl Filter for EntityFilter {
     }
 }
 
-#[derive(
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-/// Filter for identifiers
-///
-/// Passes id trough filter, if it equals to the one provided in construction
-pub struct IdFilter<Id: Eq>(Id);
+#[derive(Clone, PartialOrd, Ord, Eq, Debug, Decode, Encode, Serialize, IntoSchema)]
+/// Filter that accepts a data event with the matching origin.
+pub struct OriginFilter<T: HasOrigin>(<T::Origin as Identifiable>::Id)
+where
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema;
 
-impl<Id: Eq> IdFilter<Id> {
-    /// Construct new `IdFilter`
-    pub fn new(id: Id) -> Self {
-        Self(id)
+impl<T: HasOrigin> OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+{
+    /// Construct [`OriginFilter`].
+    pub fn new(origin_id: <T::Origin as Identifiable>::Id) -> Self {
+        Self(origin_id)
     }
 
-    /// Get `id`
-    pub fn id(&self) -> &Id {
+    /// Get the id of the origin of the data event that this filter accepts.
+    pub fn origin_id(&self) -> &<T::Origin as Identifiable>::Id {
         &self.0
     }
 }
 
-impl<Id: Eq> Filter for IdFilter<Id> {
-    type EventType = Id;
+impl<T: HasOrigin> Filter for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+{
+    type EventType = T;
 
-    fn matches(&self, id: &Id) -> bool {
-        id == &self.0
+    fn matches(&self, event: &T) -> bool {
+        event.origin_id() == self.origin_id()
+    }
+}
+
+impl<T: HasOrigin> PartialEq for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T: HasOrigin> Hash for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+{
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<'de, T: HasOrigin> Deserialize<'de> for OriginFilter<T>
+where
+    <T::Origin as Identifiable>::Id:
+        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+    <<T as HasOrigin>::Origin as Identifiable>::Id: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let origin_id = <T::Origin as Identifiable>::Id::deserialize(deserializer)?;
+        Ok(Self::new(origin_id))
     }
 }
 
@@ -137,7 +170,7 @@ pub mod prelude {
     pub use super::{
         EntityFilter as DataEntityFilter, EventFilter as DataEventFilter,
         FilterOpt::{self, *},
-        IdFilter,
+        OriginFilter,
     };
 }
 
@@ -164,7 +197,7 @@ mod tests {
         let asset_created = AssetEvent::Created(asset_id);
         let account_asset_created = AccountEvent::Asset(asset_created.clone());
         let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountFilter::new(
-            BySome(IdFilter(account_id)),
+            BySome(OriginFilter(account_id)),
             AcceptAll,
         ))));
         assert!(!account_filter.matches(&domain_created.into()));

@@ -17,7 +17,7 @@ use alloc::{
 };
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 
-use block_value::BlockValue;
+use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
@@ -193,14 +193,6 @@ pub enum IdBox {
     RoleId(<role::Role as Identifiable>::Id),
 }
 
-impl Identifiable for IdBox {
-    type Id = Self;
-
-    fn id(&self) -> &Self::Id {
-        self
-    }
-}
-
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
@@ -344,6 +336,8 @@ pub enum Value {
     Hash(Hash),
     /// Block
     Block(BlockValueWrapper),
+    /// Block headers
+    BlockHeader(BlockHeaderValue),
 }
 
 /// Cross-platform wrapper for `BlockValue`.
@@ -437,6 +431,7 @@ impl fmt::Display for Value {
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
             Value::Block(v) => fmt::Display::fmt(&**v, f),
+            Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -462,7 +457,8 @@ impl Value {
             | TransactionQueryResult(_)
             | PermissionToken(_)
             | Hash(_)
-            | Block(_) => 1_usize,
+            | Block(_)
+            | BlockHeader(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -720,7 +716,7 @@ where
 /// and `PartialCmp` implementations.
 pub trait Identifiable: Debug {
     /// The type of the `Id` of the entity.
-    type Id: Into<IdBox> + fmt::Display + fmt::Debug + Clone + Eq + Ord;
+    type Id;
 
     /// Get reference to the type's `Id`. There should be no other
     /// inherent `impl` with the same name (e.g. `getset`).

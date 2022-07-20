@@ -83,6 +83,10 @@ pub enum QueryBox {
     FindAllPeers(FindAllPeers),
     /// [`FindAllBlocks`] variant.
     FindAllBlocks(FindAllBlocks),
+    /// [`FindAllBlockHeaders`] variant.
+    FindAllBlockHeaders(FindAllBlockHeaders),
+    /// [`FindBlockHeaderByHash`] variant.
+    FindBlockHeaderByHash(FindBlockHeaderByHash),
     /// [`FindAllTransactions`] variant.
     FindAllTransactions(FindAllTransactions),
     /// [`FindTransactionsByAccountId`] variant.
@@ -232,7 +236,7 @@ pub mod role {
 
     use crate::prelude::*;
 
-    /// `FindAllRoles` Iroha Query will find all `Roles`s presented.
+    /// `FindAllRoles` Iroha Query finds all `Roles`s presented.
     #[derive(
         Debug,
         Clone,
@@ -254,7 +258,8 @@ pub mod role {
         type Output = Vec<Role>;
     }
 
-    /// `FindAllRoles` Iroha Query will find all `Roles`s presented.
+    /// `FindAllRoleIds` Iroha Query finds [`Id`](crate::role::Id)s of
+    /// all `Roles`s presented.
     #[derive(
         Debug,
         Clone,
@@ -276,7 +281,7 @@ pub mod role {
         type Output = Vec<<Role as Identifiable>::Id>;
     }
 
-    /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`](crate::role::Id)
+    /// `FindRoleByRoleId` Iroha Query finds the [`Role`] which has the given [`Id`](crate::role::Id)
     #[derive(
         Debug,
         Clone,
@@ -299,7 +304,7 @@ pub mod role {
         type Output = Role;
     }
 
-    /// `FindRolesByAccountId` Iroha Query will find an [`Role`]s for a specified account.
+    /// `FindRolesByAccountId` Iroha Query finds all [`Role`]s for a specified account.
     #[derive(
         Debug,
         Clone,
@@ -370,7 +375,8 @@ pub mod permissions {
 
     use crate::prelude::*;
 
-    /// `FindPermissionTokensByAccountId` Iroha Query will find an `Role`s for a specified account.
+    /// `FindPermissionTokensByAccountId` Iroha Query finds all `PermissionToken`s
+    /// for a specified account.
     #[derive(
         Debug,
         Clone,
@@ -412,7 +418,7 @@ pub mod account {
     use crate::prelude::*;
 
     // TODO: Better to have find all account ids query instead.
-    /// `FindAllAccounts` Iroha Query will find all `Account`s presented.
+    /// `FindAllAccounts` Iroha Query finds all `Account`s presented.
     #[derive(
         Debug,
         Clone,
@@ -434,7 +440,7 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
-    /// `FindAccountById` Iroha Query will find an `Account` by it's identification.
+    /// `FindAccountById` Iroha Query finds an `Account` by it's identification.
     #[derive(
         Debug,
         Clone,
@@ -457,8 +463,8 @@ pub mod account {
         type Output = Account;
     }
 
-    /// `FindAccountById` Iroha Query will find a [`Value`] of the key-value metadata pair
-    /// in the specified account.
+    /// `FindAccountKeyValueByIdAndKey` Iroha Query finds a [`Value`]
+    /// of the key-value metadata pair in the specified account.
     #[derive(
         Debug,
         Clone,
@@ -483,8 +489,8 @@ pub mod account {
         type Output = Value;
     }
 
-    /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
-    /// find all `Account`s with this name.
+    /// `FindAccountsByName` Iroha Query gets `Account`s name as input and
+    /// finds all `Account`s with this name.
     #[derive(
         Debug,
         Clone,
@@ -507,8 +513,8 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
-    /// `FindAccountsByDomainId` Iroha Query will get `Domain`s id as input and
-    /// find all `Account`s under this `Domain`.
+    /// `FindAccountsByDomainId` Iroha Query gets `Domain`s id as input and
+    /// finds all `Account`s under this `Domain`.
     #[derive(
         Debug,
         Clone,
@@ -531,8 +537,8 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
-    /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
-    /// find all `Account`s storing `Asset` with such definition.
+    /// `FindAccountsWithAsset` Iroha Query gets `AssetDefinition`s id as input and
+    /// finds all `Account`s storing `Asset` with such definition.
     #[derive(
         Debug,
         Clone,
@@ -631,7 +637,7 @@ pub mod asset {
 
     use crate::prelude::*;
 
-    /// `FindAllAssets` Iroha Query will find all `Asset`s presented in Iroha Peer.
+    /// `FindAllAssets` Iroha Query finds all `Asset`s presented in Iroha Peer.
     #[derive(
         Debug,
         Clone,
@@ -653,7 +659,7 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// `FindAllAssetsDefinitions` Iroha Query will find all `AssetDefinition`s presented
+    /// `FindAllAssetsDefinitions` Iroha Query finds all `AssetDefinition`s presented
     /// in Iroha Peer.
     #[derive(
         Debug,
@@ -676,7 +682,7 @@ pub mod asset {
         type Output = Vec<AssetDefinition>;
     }
 
-    /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
+    /// `FindAssetById` Iroha Query finds an `Asset` by it's identification in Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -699,7 +705,7 @@ pub mod asset {
         type Output = Asset;
     }
 
-    /// `FindAssetDefinitionById` Iroha Query will find an `AssetDefinition` by it's identification in Iroha `Peer`.
+    /// `FindAssetDefinitionById` Iroha Query finds an `AssetDefinition` by it's identification in Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -722,8 +728,8 @@ pub mod asset {
         type Output = AssetDefinition;
     }
 
-    /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
-    /// find all `Asset`s with it in Iroha `Peer`.
+    /// `FindAssetsByName` Iroha Query gets `Asset`s name as input and
+    /// finds all `Asset`s with it in Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -746,7 +752,7 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
+    /// `FindAssetsByAccountId` Iroha Query gets `AccountId` as input and find all `Asset`s
     /// owned by the `Account` in Iroha Peer.
     #[derive(
         Debug,
@@ -770,8 +776,8 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
-    /// find all `Asset`s with this `AssetDefinition` in Iroha Peer.
+    /// `FindAssetsByAssetDefinitionId` Iroha Query gets `AssetDefinitionId` as input and
+    /// finds all `Asset`s with this `AssetDefinition` in Iroha Peer.
     #[derive(
         Debug,
         Clone,
@@ -794,8 +800,8 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// `FindAssetsByDomainId` Iroha Query will get `Domain`s id as input and
-    /// find all `Asset`s under this `Domain` in Iroha `Peer`.
+    /// `FindAssetsByDomainId` Iroha Query gets `Domain`s id as input and
+    /// finds all `Asset`s under this `Domain` in Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -818,8 +824,8 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// `FindAssetsByDomainIdAndAssetDefinitionId` Iroha Query will get `Domain`'s id and
-    /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
+    /// `FindAssetsByDomainIdAndAssetDefinitionId` Iroha Query gets `Domain`'s id and
+    /// `AssetDefinitionId` as inputs and finds `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
     #[derive(
         Debug,
@@ -845,7 +851,7 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
+    /// `FindAssetQuantityById` Iroha Query gets `AssetId` as input and finds `Asset::quantity`
     /// parameter's value if `Asset` is presented in Iroha Peer.
     #[derive(
         Debug,
@@ -869,7 +875,7 @@ pub mod asset {
         type Output = u32;
     }
 
-    /// `FindAssetKeyValueByIdAndKey` Iroha Query will get `AssetId` and key as input and find [`Value`]
+    /// `FindAssetKeyValueByIdAndKey` Iroha Query gets `AssetId` and key as input and finds [`Value`]
     /// of the key-value pair stored in this asset.
     #[derive(
         Debug,
@@ -895,7 +901,7 @@ pub mod asset {
         type Output = Value;
     }
 
-    /// `FindAssetDefinitionKeyValueByIdAndKey` Iroha Query will get `AssetDefinitionId` and key as input and find [`Value`]
+    /// `FindAssetDefinitionKeyValueByIdAndKey` Iroha Query gets `AssetDefinitionId` and key as input and finds [`Value`]
     /// of the key-value pair stored in this asset definition.
     #[derive(
         Debug,
@@ -1054,7 +1060,7 @@ pub mod domain {
 
     use crate::prelude::*;
 
-    /// `FindAllDomains` Iroha Query will find all `Domain`s presented in Iroha `Peer`.
+    /// `FindAllDomains` Iroha Query finds all `Domain`s presented in Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -1076,7 +1082,7 @@ pub mod domain {
         type Output = Vec<Domain>;
     }
 
-    /// `FindDomainById` Iroha Query will find a `Domain` by it's identification in Iroha `Peer`.
+    /// `FindDomainById` Iroha Query finds a `Domain` by it's identification in Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -1114,7 +1120,7 @@ pub mod domain {
         }
     }
 
-    /// `FindDomainKeyValueByIdAndKey` Iroha Query will find a [`Value`] of the key-value metadata pair
+    /// `FindDomainKeyValueByIdAndKey` Iroha Query finds a [`Value`] of the key-value metadata pair
     /// in the specified domain.
     #[derive(
         Debug,
@@ -1171,7 +1177,7 @@ pub mod peer {
     use super::Query;
     use crate::{peer::Peer, Parameter};
 
-    /// `FindAllPeers` Iroha Query will find all trusted `Peer`s presented in current Iroha `Peer`.
+    /// `FindAllPeers` Iroha Query finds all trusted `Peer`s presented in current Iroha `Peer`.
     #[derive(
         Debug,
         Clone,
@@ -1193,7 +1199,7 @@ pub mod peer {
         type Output = Vec<Peer>;
     }
 
-    /// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
+    /// `FindAllParameters` Iroha Query finds all `Peer`s parameters.
     #[derive(
         Debug,
         Clone,
@@ -1362,7 +1368,7 @@ pub mod trigger {
 }
 
 pub mod transaction {
-    //! Queries related to `Transaction`.
+    //! Queries related to transactions.
 
     #![allow(clippy::missing_inline_in_public_items)]
 
@@ -1396,7 +1402,7 @@ pub mod transaction {
         PartialOrd,
         Ord,
     )]
-    /// `FindAllTransactions` Iroha Query will list all transactions included in blockchain
+    /// `FindAllTransactions` Iroha Query lists all transactions included in blockchain
     pub struct FindAllTransactions;
 
     impl Query for FindAllTransactions {
@@ -1410,7 +1416,7 @@ pub mod transaction {
         }
     }
 
-    /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
+    /// `FindTransactionsByAccountId` Iroha Query finds all transaction included in blockchain
     /// for the account
     #[derive(
         Debug,
@@ -1442,7 +1448,7 @@ pub mod transaction {
         }
     }
 
-    /// `FindTransactionByHash` Iroha Query will find a transaction (if any)
+    /// `FindTransactionByHash` Iroha Query finds a transaction (if any)
     /// with corresponding hash value
     #[derive(
         Debug,
@@ -1481,20 +1487,26 @@ pub mod transaction {
 }
 
 pub mod block {
-    //! Queries related to `Transaction`.
+    //! Queries related to blocks.
 
     #![allow(clippy::missing_inline_in_public_items)]
 
     #[cfg(not(feature = "std"))]
     use alloc::{boxed::Box, format, string::String, vec::Vec};
 
+    use iroha_crypto::Hash;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use super::Query;
-    use crate::block_value::BlockValue;
+    use crate::{
+        block_value::{BlockHeaderValue, BlockValue},
+        prelude::EvaluatesTo,
+    };
 
+    /// `FindAllBlocks` Iroha Query lists all blocks sorted by
+    /// height in descending order
     #[derive(
         Default,
         Debug,
@@ -1510,7 +1522,6 @@ pub mod block {
         PartialOrd,
         Ord,
     )]
-    /// `FindAllBlocks` Iroha Query will list all blocks
     pub struct FindAllBlocks;
 
     impl Query for FindAllBlocks {
@@ -1519,14 +1530,74 @@ pub mod block {
 
     impl FindAllBlocks {
         /// Construct [`FindAllBlocks`].
-        pub fn new() -> Self {
-            Self {}
+        pub const fn new() -> Self {
+            Self
+        }
+    }
+
+    /// `FindAllBlockHeaders` Iroha Query lists all block headers
+    /// sorted by height in descending order
+    #[derive(
+        Default,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    pub struct FindAllBlockHeaders;
+
+    impl Query for FindAllBlockHeaders {
+        type Output = Vec<BlockHeaderValue>;
+    }
+
+    impl FindAllBlockHeaders {
+        /// Construct [`FindAllBlockHeaders`].
+        pub const fn new() -> Self {
+            Self
+        }
+    }
+
+    /// `FindBlockHeaderByHash` Iroha Query finds block header by block hash
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    pub struct FindBlockHeaderByHash {
+        /// Block hash.
+        pub hash: EvaluatesTo<Hash>,
+    }
+
+    impl Query for FindBlockHeaderByHash {
+        type Output = BlockHeaderValue;
+    }
+
+    impl FindBlockHeaderByHash {
+        /// Construct [`FindBlockHeaderByHash`].
+        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+            Self { hash: hash.into() }
         }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::FindAllBlocks;
+        pub use super::{FindAllBlockHeaders, FindAllBlocks, FindBlockHeaderByHash};
     }
 }
 
