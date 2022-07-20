@@ -12,7 +12,7 @@ use core::str::FromStr;
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
-use iroha_data_model_derive::OrdEqHash;
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;

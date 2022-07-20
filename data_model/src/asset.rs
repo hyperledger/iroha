@@ -9,7 +9,7 @@ use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
-use iroha_data_model_derive::OrdEqHash;
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_macro::FromVariant;

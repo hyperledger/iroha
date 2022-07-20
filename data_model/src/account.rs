@@ -14,8 +14,8 @@ use std::collections::{btree_map, btree_set};
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi_api")]
-use iroha_ffi::ffi_bindgen;
+#[cfg(feature = "ffi")]
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -161,20 +161,6 @@ impl Registrable for NewAccount {
     }
 }
 
-impl PartialOrd for NewAccount {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NewAccount {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
 impl HasMetadata for NewAccount {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -227,6 +213,7 @@ impl NewAccount {
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "({id})")] // TODO: Add more?
 #[id(type = "Id")]
+#[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
@@ -257,7 +244,7 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
