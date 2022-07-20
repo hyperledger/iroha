@@ -83,7 +83,7 @@ jobs:
       - name: Upload to codecov
         uses: codecov/codecov-action@v3
         with:
-          files: lcov.info
+          files: lcov-${{ github.event.pull_request.head.sha }}.info
 
   archive-and-publish-schema:
     if: github.event.pull_request.merged
