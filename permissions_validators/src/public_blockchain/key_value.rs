@@ -133,7 +133,7 @@ impl IsGrantAllowed for GrantMyAssetAccessSet {
         &self,
         authority: &AccountId,
         token: Self::Token,
-        wsv: &WorldStateView,
+        _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if &token.asset_id.account_id != authority {
             return Deny(
@@ -219,7 +219,7 @@ impl IsGrantAllowed for GrantMyMetadataAccessSet {
         &self,
         authority: &AccountId,
         token: Self::Token,
-        wsv: &WorldStateView,
+        _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if &token.account_id != authority {
             return Deny(
@@ -303,7 +303,7 @@ impl IsGrantAllowed for GrantMyAssetAccessRemove {
         &self,
         authority: &AccountId,
         token: Self::Token,
-        wsv: &WorldStateView,
+        _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if &token.asset_id.account_id != authority {
             return Deny(
@@ -388,7 +388,7 @@ impl IsGrantAllowed for GrantMyMetadataAccessRemove {
         &self,
         authority: &AccountId,
         token: Self::Token,
-        wsv: &WorldStateView,
+        _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if &token.account_id != authority {
             return Deny(

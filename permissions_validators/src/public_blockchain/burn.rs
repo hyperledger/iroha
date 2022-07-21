@@ -230,7 +230,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
         &self,
         authority: &AccountId,
         token: Self::Token,
-        wsv: &WorldStateView,
+        _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if &token.asset_id.account_id != authority {
             return Deny(

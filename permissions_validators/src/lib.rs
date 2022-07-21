@@ -8,14 +8,13 @@ use iroha_core::{
     smartcontracts::{
         permissions::{
             judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
-            HasToken,
+            HasToken, PermissionTokenTrait as _,
             ValidatorVerdict::*,
         },
         Evaluate,
     },
 };
 use iroha_data_model::{isi::*, prelude::*};
-use iroha_macro::error::ErrorTryFromEnum;
 use serde::Serialize;
 
 macro_rules! try_evaluate_or_deny {

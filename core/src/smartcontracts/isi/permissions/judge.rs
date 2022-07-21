@@ -93,9 +93,9 @@ pub struct AtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
-impl<O: NeedsPermission + Display> Display for AtLeastOneAllow<O> {
+impl<O: NeedsPermission> Display for AtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("AtLeastOneAllow [")?;
+        f.write_str("At least one allow in: [")?;
 
         let mut first = true;
         for validator in &self.validators {
@@ -147,6 +147,23 @@ pub struct NoDenies<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
 }
 
+impl<O: NeedsPermission> Display for NoDenies<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("No denies in: [")?;
+
+        let mut first = true;
+        for validator in &self.validators {
+            if !first {
+                f.write_str(", ")?;
+            }
+            f.write_fmt(format_args!("`{}`", validator))?;
+            first = false;
+        }
+
+        f.write_str("]")
+    }
+}
+
 impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
     type Operation = O;
 
@@ -176,6 +193,23 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
 /// all validators are checked.
 pub struct NoDeniesAndAtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
+}
+
+impl<O: NeedsPermission> Display for NoDeniesAndAtLeastOneAllow<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("No denies and at least one allow in: [")?;
+
+        let mut first = true;
+        for validator in &self.validators {
+            if !first {
+                f.write_str(", ")?;
+            }
+            f.write_fmt(format_args!("`{}`", validator))?;
+            first = false;
+        }
+
+        f.write_str("]")
+    }
 }
 
 impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
