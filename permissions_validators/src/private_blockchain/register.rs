@@ -35,17 +35,18 @@ impl IsAllowed for ProhibitRegisterDomains {
 }
 
 /// Validator that allows to register domains for accounts with the corresponding permission token.
-#[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "CanRegisterDomains")]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedAllowedRegisterDomains;
 
 impl HasToken for GrantedAllowedRegisterDomains {
+    type Token = CanRegisterDomains;
+
     fn token(
         &self,
         _authority: &AccountId,
         _instruction: &Instruction,
         _wsv: &WorldStateView,
-    ) -> Result<PermissionToken, String> {
-        Ok(CanRegisterDomains::new().into())
+    ) -> Result<CanRegisterDomains, String> {
+        Ok(CanRegisterDomains::new())
     }
 }

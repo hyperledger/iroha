@@ -3,7 +3,7 @@
 use super::{super::Evaluate, *};
 
 /// Checks the [`GrantBox`] instruction.
-pub trait IsGrantAllowed {
+pub trait IsGrantAllowed: Display {
     /// Type of token to check.
     type Token: PermissionTokenTrait;
 
@@ -24,7 +24,8 @@ pub trait IsGrantAllowed {
     /// because of conflicting trait implementations
     fn into_validator(self) -> IsGrantAllowedAsValidator<Self>
     where
-        Self: Display + Sized,
+        // Self: Display + Sized,
+        Self: Sized,
     {
         IsGrantAllowedAsValidator {
             is_grant_allowed: self,
@@ -36,14 +37,20 @@ pub trait IsGrantAllowed {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug, Display)]
-#[display(
-    fmt = "Allow to grant `{}` token if `{}` succeeds",
-    G::Token::NAME,
-    is_grant_allowed
-)]
+#[derive(Debug)]
 pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed + Display> {
     is_grant_allowed: G,
+}
+
+impl<R: IsGrantAllowed + Display> Display for IsGrantAllowedAsValidator<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Allow to grant `{}` permission token if `{}` succeeds",
+            R::Token::name(),
+            self.is_grant_allowed
+        )
+    }
 }
 
 impl<G: IsGrantAllowed + Display> IsAllowed for IsGrantAllowedAsValidator<G> {
@@ -99,14 +106,20 @@ pub trait IsRevokeAllowed {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug, Display)]
-#[display(
-    fmt = "Allow to revoke `{}` token if `{}` succeeds",
-    R::Token::NAME,
-    is_revoke_allowed
-)]
+#[derive(Debug)]
 pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed + Display> {
     is_revoke_allowed: R,
+}
+
+impl<R: IsRevokeAllowed + Display> Display for IsRevokeAllowedAsValidator<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Allow to revoke `{}` permission token if `{}` succeeds",
+            R::Token::name(),
+            self.is_revoke_allowed
+        )
+    }
 }
 
 impl<R: IsRevokeAllowed + Display> IsAllowed for IsRevokeAllowedAsValidator<R> {

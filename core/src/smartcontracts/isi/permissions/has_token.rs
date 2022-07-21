@@ -5,6 +5,9 @@ use super::*;
 /// Trait that checks whether a permission token is needed for a certain action.
 /// The trait should be implemented by the validator.
 pub trait HasToken {
+    /// Type of token to check for.
+    type Token: PermissionTokenTrait;
+
     /// Get the token that `authority` should
     /// possess, given the `instruction` they are planning to execute
     /// on the current state of `wsv`
@@ -19,7 +22,7 @@ pub trait HasToken {
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String>;
+    ) -> std::result::Result<Self::Token, String>;
 
     /// Convert this object to a type implementing [`IsAllowed`] trait
     ///
@@ -27,7 +30,7 @@ pub trait HasToken {
     /// because of conflicting trait implementations
     fn into_validator(self) -> HasTokenAsValidator<Self>
     where
-        Self: Display + Sized,
+        Self: Sized,
     {
         HasTokenAsValidator { has_token: self }
     }
@@ -37,13 +40,22 @@ pub trait HasToken {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug, Display)]
-#[display(fmt = "Allow if signer has `{}` token", has_token)]
-pub struct HasTokenAsValidator<H: HasToken + Display> {
+#[derive(Debug)]
+pub struct HasTokenAsValidator<H: HasToken> {
     has_token: H,
 }
 
-impl<H: HasToken + Display> IsAllowed for HasTokenAsValidator<H> {
+impl<H: HasToken> Display for HasTokenAsValidator<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Allow if signer has `{}` permission token",
+            H::Token::name()
+        )
+    }
+}
+
+impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
     type Operation = Instruction;
 
     fn check(
@@ -53,7 +65,7 @@ impl<H: HasToken + Display> IsAllowed for HasTokenAsValidator<H> {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         let permission_token = match self.has_token.token(authority, instruction, wsv) {
-            Ok(permission_token) => permission_token,
+            Ok(concrete_token) => concrete_token.into(),
             Err(err) => {
                 return ValidatorVerdict::Deny(format!(
                     "Unable to identify corresponding permission token: {}",

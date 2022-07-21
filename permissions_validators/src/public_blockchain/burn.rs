@@ -24,7 +24,8 @@ declare_token!(
 );
 
 /// Checks that account can burn only the assets which were registered by this account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow burn only assets registered by a signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -119,25 +120,26 @@ impl HasToken for GrantedByAssetCreator {
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow to grant burn if signer is the asset creator")]
 pub struct GrantRegisteredByMeAccess;
 
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
+    type Token = CanBurnAssetWithDefinition;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanBurnAssetWithDefinition =
-            ok_or_skip!(extract_specialized_token(instruction, wsv));
-
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
 /// Checks that account can burn only the assets that he currently owns.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow burn only owned assets")]
 pub struct OnlyOwnedAssets;
 
 impl IsAllowed for OnlyOwnedAssets {
@@ -213,18 +215,19 @@ impl HasToken for GrantedByAssetOwner {
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow if signer is the asset owner")]
 pub struct GrantMyAssetAccess;
 
 impl IsGrantAllowed for GrantMyAssetAccess {
+    type Token = CanBurnUserAssets;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanBurnUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
-
         if &token.asset_id.account_id != authority {
             return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),

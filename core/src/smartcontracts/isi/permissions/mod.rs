@@ -228,7 +228,7 @@ pub trait PermissionTokenTrait:
     Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
 {
     /// Name of the permission token.
-    const NAME: &'static Name;
+    fn name() -> &'static Name;
 }
 
 /// Represents error when converting specialized permission tokens
@@ -312,22 +312,49 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, Serialize, Display)]
-    #[display(fmt = "Always find `token`")]
-    struct GrantedToken;
+    #[derive(Debug, Clone, Serialize)]
+    struct SomeToken;
+
+    impl PermissionTokenTrait for SomeToken {
+        fn name() -> &'static Name {
+            static NAME: once_cell::sync::Lazy<Name> =
+                once_cell::sync::Lazy::new(|| "some_token".parse().expect("Valid"));
+            &NAME
+        }
+    }
+
+    impl From<SomeToken> for PermissionToken {
+        fn from(_: SomeToken) -> Self {
+            PermissionToken::new(SomeToken::name().clone())
+        }
+    }
+
+    impl TryFrom<PermissionToken> for SomeToken {
+        type Error = PredefinedTokenConversionError;
+        fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+            if token.name() == Self::name() {
+                Ok(Self)
+            } else {
+                Err(PredefinedTokenConversionError::Name(token.name().clone()))
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize)]
+    struct HasSomeToken;
 
     // TODO: ADD some Revoke tests.
 
-    impl HasToken for GrantedToken {
+    impl HasToken for HasSomeToken {
+        type Token = SomeToken;
+
         fn token(
             &self,
             _authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> std::result::Result<PermissionToken, String> {
-            Ok(PermissionToken::new(
-                Name::from_str("token").expect("Valid"),
-            ))
+        ) -> std::result::Result<SomeToken, String> {
+            Ok(SomeToken)
         }
     }
 
@@ -413,12 +440,10 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(PermissionToken::new(
-            Name::from_str("token").expect("Valid")
-        )));
+        assert!(bob_account.add_permission(SomeToken.into()));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator = GrantedToken.into_validator();
+        let validator = HasSomeToken.into_validator();
         assert!(validator
             .check(&alice_id, &instruction_burn, &wsv)
             .is_deny());

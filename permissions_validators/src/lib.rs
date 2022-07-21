@@ -89,13 +89,6 @@ macro_rules! declare_token {
         }
 
         impl $ident {
-            /// Get associated [`PermissionToken`](iroha_data_model::permissions::PermissionToken) name.
-            pub fn name() -> &'static Name {
-                static NAME: once_cell::sync::Lazy<Name> =
-                    once_cell::sync::Lazy::new(|| $string.parse().expect("Tested. Works."));
-                &NAME
-            }
-
             $(
               #[doc = concat!("Get `", stringify!($param_name), "` parameter name")]
               pub fn $param_name() -> &'static Name {
@@ -116,16 +109,26 @@ macro_rules! declare_token {
         }
 
         impl iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait for $ident {
-            const NAME: &'static Name = $string.parse().expect("Tested. Works.");
+            fn name() -> &'static Name {
+                static NAME: once_cell::sync::Lazy<Name> =
+                    once_cell::sync::Lazy::new(|| $string.parse().expect("Tested. Works."));
+                &NAME
+            }
+
         }
 
         impl From<$ident> for iroha_data_model::permissions::PermissionToken {
             #[allow(unused)] // `value` can be unused if token has no params
             fn from(value: $ident) -> Self {
-                iroha_data_model::permissions::PermissionToken::new($ident::name().clone())
-                    .with_params([
-                      $(($ident::$param_name().clone(), value.$param_name.into())),*
-                    ])
+                iroha_data_model::permissions::PermissionToken::new(
+                    <
+                        $ident as
+                        iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
+                    >::name().clone()
+                )
+                .with_params([
+                    $(($ident::$param_name().clone(), value.$param_name.into())),*
+                ])
             }
         }
 
@@ -136,7 +139,10 @@ macro_rules! declare_token {
             fn try_from(
                 token: iroha_data_model::permissions::PermissionToken
             ) -> std::result::Result<Self, Self::Error> {
-                if token.name() != Self::name() {
+                if token.name() != <
+                    Self as
+                    iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
+                >::name() {
                     return Err(Self::Error::Name(token.name().clone()))
                 }
                 let mut params = token.params().collect::<std::collections::HashMap<_, _>>();
