@@ -14,7 +14,8 @@ declare_token!(
 
 /// Checks that account can un-register only the assets which were
 /// registered by this account in the first place.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow unregister only assets created by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -52,12 +53,14 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
 pub struct GrantedByAssetCreator;
 
 impl HasToken for GrantedByAssetCreator {
+    type Token = CanUnregisterAssetWithDefinition;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let unregister_box = if let Instruction::Unregister(unregister) = instruction {
             unregister
         } else {
@@ -72,24 +75,25 @@ impl HasToken for GrantedByAssetCreator {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        Ok(CanUnregisterAssetWithDefinition::new(object_id).into())
+        Ok(CanUnregisterAssetWithDefinition::new(object_id))
     }
 }
 
 /// Validator that checks Grant instruction so that the access is
 /// granted to the assets of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow if the asset is created by the signer")]
 pub struct GrantRegisteredByMeAccess;
 
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
+    type Token = CanUnregisterAssetWithDefinition;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanUnregisterAssetWithDefinition =
-            ok_or_skip!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
@@ -97,25 +101,19 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
 /// Validator that checks Revoke instructions, such that the access is
 /// revoked and the assets of the signer's account are no longer
 /// accessible.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Display, Clone, Copy, Serialize)]
+#[display(fmt = "Allow if the asset is created by the signer")]
 pub struct RevokeRegisteredByMeAccess;
 
 impl IsRevokeAllowed for RevokeRegisteredByMeAccess {
+    type Token = CanUnregisterAssetWithDefinition;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &RevokeBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let value = try_evaluate_or_deny!(instruction.object, wsv);
-        let permission_token: PermissionToken = ok_or_skip!(value
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| (e.to_string())));
-
-        let token: CanUnregisterAssetWithDefinition = ok_or_skip!(permission_token
-            .try_into()
-            .map_err(|e: PredefinedTokenConversionError| (e.to_string())));
-
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
