@@ -247,6 +247,6 @@ mod tests {
                 .paginate(Pagination::new(Some(1), Some(1)))
                 .collect::<Vec<_>>(),
             vec![2_i32]
-        )
+        );
     }
 }

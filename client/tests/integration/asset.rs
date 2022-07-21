@@ -235,3 +235,74 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 
     Ok(())
 }
+
+#[test]
+fn correct_pagination_assets_after_creating_new_one() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+
+    let account_id = AccountId::from_str("alice@wonderland")?;
+
+    let mut assets = vec![];
+    let mut instructions: Vec<Instruction> = vec![];
+
+    for i in 0..10 {
+        let asset_definition_id = AssetDefinitionId::from_str(&format!("xor{}#wonderland", i))?;
+        let asset_definition = AssetDefinition::quantity(asset_definition_id.clone());
+        let asset = Asset::new(
+            AssetId::new(asset_definition_id, account_id.clone()),
+            AssetValue::Quantity(0),
+        );
+
+        assets.push(asset.clone());
+
+        let create_asset_definition = RegisterBox::new(asset_definition);
+        let create_asset = RegisterBox::new(asset);
+
+        instructions.push(create_asset_definition.into());
+        instructions.push(create_asset.into());
+    }
+
+    test_client.submit_all_blocking(instructions)?;
+
+    let res = test_client.request_with_pagination(
+        client::asset::by_account_id(account_id.clone()),
+        Pagination::new(Some(1), Some(5)),
+    )?;
+
+    assert_eq!(
+        res.output
+            .iter()
+            .map(|asset| asset.id().definition_id.name.clone())
+            .collect::<Vec<_>>(),
+        assets
+            .iter()
+            .take(5)
+            .map(|asset| asset.id().definition_id.name.clone())
+            .collect::<Vec<_>>()
+    );
+
+    let new_asset_definition_id = AssetDefinitionId::from_str("xor10#wonderland")?;
+    let new_asset_definition = AssetDefinition::quantity(new_asset_definition_id.clone());
+    let new_asset = Asset::new(
+        AssetId::new(new_asset_definition_id, account_id.clone()),
+        AssetValue::Quantity(0),
+    );
+
+    let create_asset_definition = RegisterBox::new(new_asset_definition);
+    let create_asset = RegisterBox::new(new_asset.clone());
+
+    test_client.submit_all_blocking(vec![create_asset_definition.into(), create_asset.into()])?;
+
+    let res = test_client.request_with_pagination(
+        client::asset::by_account_id(account_id),
+        Pagination::new(Some(6), None),
+    )?;
+
+    let mut right = assets.into_iter().skip(5).take(5).collect::<Vec<_>>();
+
+    right.push(new_asset);
+
+    assert_eq!(res.output.into_iter().collect::<Vec<_>>(), right);
+
+    Ok(())
+}

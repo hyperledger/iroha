@@ -24,9 +24,71 @@ use crate::{
     ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
-/// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+/// Key of [`AssetsMap`]
+pub struct AssetsMapKey {
+    /// [`Id`] of inserted [`Asset`]
+    pub asset_id: <Asset as Identifiable>::Id,
+    /// Insertion timestamp
+    pub timestamp: i64,
+}
+
+impl AssetsMapKey {
+    /// Creates new [`AssetsMapKey`] from [`Asset`]
+    #[inline]
+    pub const fn new(asset_id: <Asset as Identifiable>::Id, timestamp: i64) -> Self {
+        Self {
+            asset_id,
+            timestamp,
+        }
+    }
+}
+
+impl PartialEq for AssetsMapKey {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.asset_id.eq(&other.asset_id)
+    }
+}
+
+impl Eq for AssetsMapKey {}
+
+impl PartialOrd for AssetsMapKey {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (
+            self.asset_id.cmp(&other.asset_id),
+            self.timestamp.cmp(&other.timestamp),
+        ) {
+            (Ordering::Equal, _) => Some(Ordering::Equal),
+            (ord, Ordering::Equal) => Some(ord),
+            (_, Ordering::Less) => Some(Ordering::Less),
+            (_, Ordering::Greater) => Some(Ordering::Greater),
+        }
+    }
+}
+
+impl Ord for AssetsMapKey {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (
+            self.asset_id.cmp(&other.asset_id),
+            self.timestamp.cmp(&other.timestamp),
+        ) {
+            (Ordering::Equal, _) => Ordering::Equal,
+            (ord, Ordering::Equal) => ord,
+            (_, Ordering::Less) => Ordering::Less,
+            (_, Ordering::Greater) => Ordering::Greater,
+        }
+    }
+}
+
+/// [`AssetsMapKeyMap`] stores pairs of [`Id`] and [`AssetsMapKey`].
+pub type AssetsMapKeyMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, AssetsMapKey>;
+
+/// [`AssetsMap`] provides an API to work with collection of key ([`AssetsMapKey`]) - value
 /// ([`Asset`]) pairs.
-pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
+pub type AssetsMap = btree_map::BTreeMap<AssetsMapKey, Asset>;
 
 /// [`AssetDefinitionsMap`] provides an API to work with collection of key ([`DefinitionId`]) - value
 /// (`AssetDefinition`) pairs.

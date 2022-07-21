@@ -11,6 +11,7 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
+use chrono::Utc;
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
@@ -23,7 +24,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "mutable_api")]
 use crate::Registrable;
 use crate::{
-    asset::{prelude::AssetId, AssetsMap},
+    asset::{prelude::AssetId, AssetsMap, AssetsMapKey, AssetsMapKeyMap},
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     metadata::Metadata,
@@ -153,6 +154,7 @@ impl Registrable for NewAccount {
             id: self.id,
             signatories: self.signatories,
             assets: AssetsMap::default(),
+            assets_keys: AssetsMapKeyMap::default(),
             permission_tokens: Permissions::default(),
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: self.metadata,
@@ -182,6 +184,22 @@ impl NewAccount {
     /// Identification
     pub(crate) fn id(&self) -> &<Account as Identifiable>::Id {
         &self.id
+    }
+
+    /// Construct [`Account`]
+    #[must_use]
+    #[cfg(feature = "mutable_api")]
+    pub fn build(self) -> Account {
+        Account {
+            id: self.id,
+            signatories: self.signatories,
+            assets_keys: AssetsMapKeyMap::default(),
+            assets: AssetsMap::default(),
+            permission_tokens: Permissions::default(),
+            signature_check_condition: SignatureCheckCondition::default(),
+            metadata: self.metadata,
+            roles: RoleIds::default(),
+        }
     }
 }
 
@@ -217,6 +235,8 @@ impl NewAccount {
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
+    /// [`AssetsMap`] keys.
+    assets_keys: AssetsMapKeyMap,
     /// Asset's in this [`Account`].
     assets: AssetsMap,
     /// [`Account`]'s signatories.
@@ -264,7 +284,8 @@ impl Account {
     /// Return a reference to the [`Asset`] corresponding to the asset id.
     #[inline]
     pub fn asset(&self, asset_id: &AssetId) -> Option<&Asset> {
-        self.assets.get(asset_id)
+        let assets_map_key = self.assets_keys.get(asset_id)?;
+        self.assets.get(assets_map_key)
     }
 
     /// Get an iterator over [`Asset`]s of the `Account`
@@ -324,19 +345,24 @@ impl Account {
     /// Return a mutable reference to the [`Asset`] corresponding to the asset id
     #[inline]
     pub fn asset_mut(&mut self, asset_id: &AssetId) -> Option<&mut Asset> {
-        self.assets.get_mut(asset_id)
+        let key = self.assets_keys.get(asset_id)?;
+        self.assets.get_mut(key)
     }
 
     /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
     #[inline]
     pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
-        self.assets.insert(asset.id().clone(), asset)
+        let datetime = Utc::now();
+        let key = AssetsMapKey::new(asset.id().clone(), datetime.timestamp_millis());
+        self.assets_keys.insert(asset.id().clone(), key.clone());
+        self.assets.insert(key, asset)
     }
 
     /// Remove asset from the [`Account`] and return it
     #[inline]
     pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
-        self.assets.remove(asset_id)
+        let key = self.assets_keys.remove(asset_id)?;
+        self.assets.remove(&key)
     }
 
     /// Add [`permission`](PermissionToken) into the [`Account`].
