@@ -26,7 +26,8 @@ declare_token!(
 );
 
 /// Checks that account transfers only the assets that he owns.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow transfer only assets that are owned by the signer")]
 pub struct OnlyOwnedAssets;
 
 impl IsAllowed for OnlyOwnedAssets {
@@ -59,12 +60,14 @@ impl IsAllowed for OnlyOwnedAssets {
 pub struct GrantedByAssetOwner;
 
 impl HasToken for GrantedByAssetOwner {
+    type Token = CanTransferUserAssets;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
             transfer_box
         } else {
@@ -79,24 +82,25 @@ impl HasToken for GrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        Ok(CanTransferUserAssets::new(source_id).into())
+        Ok(CanTransferUserAssets::new(source_id))
     }
 }
 
 /// Validator that checks Grant instruction so that the access is
 /// granted to the assets of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow if the signer is the owner of the asset")]
 pub struct GrantMyAssetAccess;
 
 impl IsGrantAllowed for GrantMyAssetAccess {
+    type Token = CanTransferUserAssets;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanTransferUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
-
         if &token.asset_id.account_id != authority {
             return Deny(
                 "The signer does not own the asset specified in the permission token".to_owned(),
@@ -109,7 +113,8 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 
 /// Validator that checks that `Transfer` instruction execution count
 /// fits well in some time period
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow transfer if account hasn't exceeded the limit")]
 pub struct ExecutionCountFitsInLimit;
 
 impl IsAllowed for ExecutionCountFitsInLimit {
