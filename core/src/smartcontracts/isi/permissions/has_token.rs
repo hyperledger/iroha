@@ -49,7 +49,7 @@ impl<H: HasToken> Display for HasTokenAsValidator<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Allow if signer has `{}` permission token",
+            "Allow if signer has the corresponding `{}` permission token",
             H::Token::name()
         )
     }
@@ -68,7 +68,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             Ok(concrete_token) => concrete_token.into(),
             Err(err) => {
                 return ValidatorVerdict::Deny(format!(
-                    "Unable to identify corresponding permission token: {}",
+                    "Unable to identify the corresponding permission token: {}",
                     err
                 ));
             }
@@ -81,8 +81,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             Ok(contain) => contain,
             Err(err) => {
                 return ValidatorVerdict::Deny(format!(
-                    "Unable to check if account has permission token: {}",
-                    err
+                    "Unable to check if the account has the permission token: {err}",
                 ));
             }
         };
@@ -91,8 +90,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             ValidatorVerdict::Allow
         } else {
             ValidatorVerdict::Deny(format!(
-                "Account does not have the needed permission token: {:?}.",
-                permission_token
+                "Account does not have the needed permission token: {permission_token:?}",
             ))
         }
     }
