@@ -223,6 +223,29 @@ impl From<Result<()>> for ValidatorVerdict {
 /// Reason for denying the execution of a particular instruction.
 pub type DenialReason = String;
 
+/// Trait for hard-coded strongly-typed permission tokens.
+pub trait PermissionTokenTrait:
+    Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
+{
+    /// Name of the permission token.
+    const NAME: &'static Name;
+}
+
+/// Represents error when converting specialized permission tokens
+/// to generic `[PermissionToken]`
+#[derive(Debug, thiserror::Error)]
+pub enum PredefinedTokenConversionError {
+    /// Wrong token name
+    #[error("Wrong token name: {0}")]
+    Name(Name),
+    /// Parameter not present in token parameters
+    #[error("Parameter {0} not found")]
+    Param(&'static Name),
+    /// Unexpected value for parameter
+    #[error("Wrong value for parameter {0}")]
+    Value(&'static Name),
+}
+
 pub mod prelude {
     //! Exports common types for permissions.
 

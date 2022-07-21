@@ -4,14 +4,17 @@ use super::{super::Evaluate, *};
 
 /// Checks the [`GrantBox`] instruction.
 pub trait IsGrantAllowed {
-    /// Checks the [`GrantBox`] instruction.
+    /// Type of token to check.
+    type Token: PermissionTokenTrait;
+
+    /// Check if authority can grant the permission token.
     ///
     /// # Reasons to deny
-    /// If this validator doesn't approve this Grant instruction.
+    /// If this validator doesn't approve such Grant instruction.
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict;
 
@@ -34,7 +37,11 @@ pub trait IsGrantAllowed {
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug, Display)]
-#[display(fmt = "Allow grant if `{}` succeeds", is_grant_allowed)]
+#[display(
+    fmt = "Allow to grant `{}` token if `{}` succeeds",
+    G::Token::NAME,
+    is_grant_allowed
+)]
 pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed + Display> {
     is_grant_allowed: G,
 }
@@ -48,24 +55,29 @@ impl<G: IsGrantAllowed + Display> IsAllowed for IsGrantAllowedAsValidator<G> {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        if let Instruction::Grant(isi) = instruction {
-            self.is_grant_allowed.check(authority, isi, wsv)
-        } else {
-            ValidatorVerdict::Skip
+        if let Instruction::Grant(grant) = instruction {
+            if let Ok(token) = extract_specialized_token_from_grant::<G::Token>(grant, wsv) {
+                return self.is_grant_allowed.check(authority, token, wsv);
+            }
         }
+
+        ValidatorVerdict::Skip
     }
 }
 
 /// Checks the [`RevokeBox`] instruction.
 pub trait IsRevokeAllowed {
-    /// Checks the [`RevokeBox`] instruction.
+    /// Type of token to check.
+    type Token: PermissionTokenTrait;
+
+    /// Check if authority can Revoke the permission token.
     ///
-    /// # Errors
-    /// If this validator doesn't approve this Revoke instruction.
+    /// # Reasons to deny
+    /// If this validator doesn't approve such Revoke instruction.
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &RevokeBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict;
 
@@ -75,7 +87,7 @@ pub trait IsRevokeAllowed {
     /// because of conflicting trait implementations
     fn into_validator(self) -> IsRevokeAllowedAsValidator<Self>
     where
-        Self: Sized,
+        Self: Display + Sized,
     {
         IsRevokeAllowedAsValidator {
             is_revoke_allowed: self,
@@ -88,8 +100,12 @@ pub trait IsRevokeAllowed {
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug, Display)]
-#[display(fmt = "{}", is_revoke_allowed)]
-pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed> {
+#[display(
+    fmt = "Allow to revoke `{}` token if `{}` succeeds",
+    R::Token::NAME,
+    is_revoke_allowed
+)]
+pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed + Display> {
     is_revoke_allowed: R,
 }
 
@@ -102,11 +118,12 @@ impl<R: IsRevokeAllowed + Display> IsAllowed for IsRevokeAllowedAsValidator<R> {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        if let Instruction::Revoke(isi) = instruction {
-            self.is_revoke_allowed.check(authority, isi, wsv)
-        } else {
-            ValidatorVerdict::Skip
+        if let Instruction::Revoke(revoke) = instruction {
+            if let Ok(token) = extract_specialized_token_from_revoke::<R::Token>(revoke, wsv) {
+                return self.is_revoke_allowed.check(authority, token, wsv);
+            }
         }
+        ValidatorVerdict::Skip
     }
 }
 
@@ -173,4 +190,80 @@ pub fn unpack_if_role_revoke(
     wsv: &WorldStateView,
 ) -> eyre::Result<Vec<Instruction>> {
     unpack!(instruction, wsv, Instruction::Revoke => RevokeBox)
+}
+
+macro_rules! impl_extract_specialized_token {
+    (<$isi_type:ty>, $isi:ident, $wsv:ident) => {{
+        let value = $isi
+            .object
+            .evaluate($wsv, &Context::new())
+            .map_err(|e| e.to_string())?;
+
+        match value {
+            Value::Id(IdBox::RoleId(role_id)) => {
+                let role = $wsv
+                    .roles()
+                    .get(&role_id)
+                    .ok_or_else(|| format!("Role with id `{role_id}` not found"))?;
+                let specialized_token = role
+                    .permissions()
+                    .find_map(|permission| T::try_from(permission.clone()).ok())
+                    .ok_or_else(|| {
+                        format!(
+                            "Role {} doesn't contain requested permission token",
+                            role.value()
+                        )
+                    })?;
+
+                Ok(specialized_token)
+            }
+            Value::PermissionToken(permission_token) => {
+                let specialized_token: T = permission_token
+                    .try_into()
+                    .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+
+                Ok(specialized_token)
+            }
+            _ => Err(format!(
+                "Provided `{}` instruction contains unsupported object type",
+                stringify!($isi_type)
+            )),
+        }
+    }};
+}
+
+/// Extracts specialized token from [`GrantBox`]
+///
+/// # Errors
+/// - Cannot evaluate `instruction`
+/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`]
+/// - There is no such role
+/// - Role doesn't contain requested specialized token
+/// - Generic [`PermissionToken`] can't be converted to requested specialized token.
+fn extract_specialized_token_from_grant<T>(
+    instruction: &GrantBox,
+    wsv: &WorldStateView,
+) -> Result<T>
+where
+    T: PermissionTokenTrait,
+{
+    impl_extract_specialized_token!(<GrantBox>, instruction, wsv)
+}
+
+/// Extracts specialized token from [`RevokeBox`]
+///
+/// # Errors
+/// - Cannot evaluate `instruction`
+/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`]
+/// - There is no such role
+/// - Role doesn't contain requested specialized token
+/// - Generic [`PermissionToken`] can't be converted to requested specialized token.
+fn extract_specialized_token_from_revoke<T>(
+    instruction: &RevokeBox,
+    wsv: &WorldStateView,
+) -> Result<T>
+where
+    T: PermissionTokenTrait,
+{
+    impl_extract_specialized_token!(<RevokeBox>, instruction, wsv)
 }

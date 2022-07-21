@@ -52,7 +52,7 @@ macro_rules! ok_or_skip {
 macro_rules! declare_token {
     (
         $(#[$outer_meta:meta])* // Structure attributes
-        $ident:ident {          // Structure definiton
+        $ident:ident {          // Structure definition
             $(
                 $(#[$inner_meta:meta])* // Field attributes
                 $param_name:ident ($param_string:literal): $param_typ:ty
@@ -115,6 +115,10 @@ macro_rules! declare_token {
             }
         }
 
+        impl iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait for $ident {
+            const NAME: &'static Name = $string.parse().expect("Tested. Works.");
+        }
+
         impl From<$ident> for iroha_data_model::permissions::PermissionToken {
             #[allow(unused)] // `value` can be unused if token has no params
             fn from(value: $ident) -> Self {
@@ -126,7 +130,7 @@ macro_rules! declare_token {
         }
 
         impl TryFrom<iroha_data_model::permissions::PermissionToken> for $ident {
-            type Error = PredefinedTokenConversionError;
+            type Error = iroha_core::smartcontracts::isi::permissions::PredefinedTokenConversionError;
 
             #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
@@ -148,21 +152,6 @@ macro_rules! declare_token {
             }
         }
     };
-}
-
-/// Represents error when converting specialized permission tokens
-/// to generic `[PermissionToken]`
-#[derive(Debug, thiserror::Error)]
-pub enum PredefinedTokenConversionError {
-    /// Wrong token name
-    #[error("Wrong token name: {0}")]
-    Name(Name),
-    /// Parameter not present in token parameters
-    #[error("Parameter {0} not found")]
-    Param(&'static Name),
-    /// Unexpected value for parameter
-    #[error("Wrong value for parameter {0}")]
-    Value(&'static Name),
 }
 
 // I need to put these modules after the macro definitions.
