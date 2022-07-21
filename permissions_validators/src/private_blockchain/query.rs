@@ -219,6 +219,12 @@ impl IsAllowed for OnlyAccountsDomain {
                 }
             }
             FindAllBlocks(_) => Deny("You are not permitted to access all blocks.".to_owned()),
+            FindAllBlockHeaders(_) => {
+                Deny("You are not permitted to access all blocks.".to_owned())
+            }
+            FindBlockHeaderByHash(_) => {
+                Deny("You are not permitted to access arbitrary blocks.".to_owned())
+            }
             FindAllTransactions(_) => {
                 Deny("Cannot access transactions of another domain.".to_owned())
             }
@@ -417,6 +423,12 @@ impl IsAllowed for OnlyAccountsData {
             }
             FindAllBlocks(_) => {
                 Deny("You are not permitted to access all blocks.".to_owned())
+            }
+            FindAllBlockHeaders(_) => {
+                Deny("Access to all block headers not permitted".to_owned())
+            }
+            FindBlockHeaderByHash(_) => {
+                Deny("Access to arbitrary block headers not permitted".to_owned())
             }
             FindAllTransactions(_) => {
                 Deny("Cannot access transactions of another account.".to_owned())
