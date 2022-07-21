@@ -10,7 +10,10 @@ use iroha_telemetry::metrics;
 /// - TODO: technical accounts.
 /// - TODO: technical account permissions.
 pub mod isi {
-    use iroha_data_model::trigger::{self, prelude::*};
+    use iroha_data_model::{
+        events::Filter,
+        trigger::{self, prelude::*},
+    };
 
     use super::{super::prelude::*, *};
 
@@ -157,8 +160,25 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            wsv.execute_trigger(self.trigger_id, authority);
-            Ok(())
+            let id = self.trigger_id;
+
+            wsv.triggers()
+                .inspect_by_id(&id.clone(), |action| -> Result<(), Self::Error> {
+                    let allow_execute =
+                        if let FilterBox::ExecuteTrigger(filter) = action.clone_and_box().filter {
+                            let event = ExecuteTriggerEvent::new(id.clone(), authority.clone());
+                            filter.matches(&event) || action.technical_account() == &authority
+                        } else {
+                            false
+                        };
+                    if allow_execute {
+                        wsv.execute_trigger(id.clone(), authority.clone());
+                        Ok(())
+                    } else {
+                        Err(ValidationError::new("Unauthorized trigger execution").into())
+                    }
+                })
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
         }
     }
 }

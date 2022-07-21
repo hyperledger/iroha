@@ -225,7 +225,6 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
         .into_iter()
         .map(|asset| asset.id().clone())
         .collect::<Vec<_>>();
-    dbg!(&asset_definition_ids);
 
     assert!(asset_definition_ids.contains(&normal_asset_definition_id));
     assert!(!asset_definition_ids.contains(&incorrect_asset_definition_id));
