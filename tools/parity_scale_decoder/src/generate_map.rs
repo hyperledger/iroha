@@ -209,6 +209,7 @@ pub fn generate_map() -> DumpDecodedMap {
         NotPermittedFail,
         Option<Hash>,
         Option<core::time::Duration>,
+        Option<domain::Id>,
         Option<domain::IpfsPath>,
         Option<events::pipeline::EntityKind>,
         Option<events::pipeline::StatusKind>,

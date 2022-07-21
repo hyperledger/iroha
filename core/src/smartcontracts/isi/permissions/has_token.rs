@@ -62,7 +62,8 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
         };
 
         let contain = match wsv.map_account(authority, |account| {
-            account.contains_permission(&permission_token)
+            wsv.account_permission_tokens(account)
+                .contains(&permission_token)
         }) {
             Ok(contain) => contain,
             Err(err) => {

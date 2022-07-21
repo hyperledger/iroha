@@ -81,6 +81,7 @@ pub mod isi {
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger_id = self.object_id.clone();
+
             wsv.modify_triggers(|triggers| {
                 if triggers.remove(&trigger_id) {
                     Ok(TriggerEvent::Deleted(self.object_id))
@@ -107,7 +108,7 @@ pub mod isi {
 
             wsv.modify_triggers(|triggers| {
                 triggers
-                    .inspect(&id, |action| -> Result<(), Self::Error> {
+                    .inspect_by_id(&id, |action| -> Result<(), Self::Error> {
                         if action.mintable() {
                             Ok(())
                         } else {
@@ -174,7 +175,7 @@ pub mod query {
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.world.triggers.ids())
+            Ok(wsv.triggers().ids())
         }
     }
 
@@ -189,9 +190,8 @@ pub mod query {
             // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
             let action = wsv
-                .world
-                .triggers
-                .inspect(&id, |action| action.clone_and_box())
+                .triggers()
+                .inspect_by_id(&id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
 
             // TODO: Should we redact the metadata if the account is not the technical account/owner?
@@ -211,9 +211,8 @@ pub mod query {
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
             iroha_logger::trace!(%id, %key);
-            wsv.world
-                .triggers
-                .inspect(&id, |action| {
+            wsv.triggers()
+                .inspect_by_id(&id, |action| {
                     action
                         .metadata()
                         .get(&key)
@@ -226,9 +225,19 @@ pub mod query {
 
     impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
-        fn execute(&self, _wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
-            iroha_logger::warn!("'find triggers by domain id' is implemented as a stub.");
-            Ok(vec![])
+        fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
+            let domain_id = &self
+                .domain_id
+                .evaluate(wsv, &Context::new())
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {}", e)))?;
+
+            let triggers = wsv
+                .triggers()
+                .inspect_by_domain_id(domain_id, |trigger_id, action| {
+                    Trigger::<FilterBox>::new(trigger_id.clone(), action.clone_and_box())
+                });
+
+            Ok(triggers)
         }
     }
 }

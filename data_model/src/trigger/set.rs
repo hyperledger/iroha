@@ -17,7 +17,7 @@ use dashmap::DashMap;
 use tokio::{sync::RwLock, task};
 
 use super::Id;
-use crate::{events::Filter as _, prelude::*};
+use crate::{events::Filter as EventFilter, prelude::*};
 
 /// [`Set::mod_repeats()`] error
 #[derive(Debug, Clone, thiserror::Error)]
@@ -120,14 +120,65 @@ impl Set {
         self.ids.iter().map(|entry| entry.key().clone()).collect()
     }
 
+    /// Apply `f` to triggers that belong to the given [`DomainId`]
+    ///
+    /// Returns an empty list if [`Set`] doesn't contain any trigger belonging to [`DomainId`].
+    pub fn inspect_by_domain_id<F, R>(&self, domain_id: &DomainId, f: F) -> Vec<R>
+    where
+        F: Fn(&Id, &dyn ActionTrait) -> R,
+    {
+        self.ids
+            .iter()
+            .filter_map(|pair| {
+                let id = pair.key();
+                let trigger_domain_id = id.domain_id.as_ref()?;
+
+                if trigger_domain_id != domain_id {
+                    return None;
+                }
+
+                let event_type = pair.value();
+
+                let result = match event_type {
+                    EventType::Data => self
+                        .data_triggers
+                        .get(id)
+                        .map(|entry| f(id, entry.value()))
+                        .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+                    EventType::Pipeline => self
+                        .pipeline_triggers
+                        .get(id)
+                        .map(|entry| f(id, entry.value()))
+                        .expect(
+                            "`Set::pipeline_triggers` doesn't contain required id. This is a bug",
+                        ),
+                    EventType::Time => self
+                        .time_triggers
+                        .get(id)
+                        .map(|entry| f(id, entry.value()))
+                        .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+                    EventType::ExecuteTrigger => self
+                        .by_call_triggers
+                        .get(id)
+                        .map(|entry| f(id, entry.value()))
+                        .expect(
+                            "`Set::by_call_triggers` doesn't contain required id. This is a bug",
+                        ),
+                };
+
+                Some(result)
+            })
+            .collect()
+    }
+
     /// Apply `f` to the trigger identified by `id`
     ///
     /// Returns [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
-    pub fn inspect<F, R>(&self, id: &Id, f: F) -> Option<R>
+    pub fn inspect_by_id<F, R>(&self, id: &Id, f: F) -> Option<R>
     where
         F: Fn(&dyn ActionTrait) -> R,
     {
-        self.ids.get(id).map(|event_type| match event_type.value() {
+        self.ids.get(id).map(|pair| match pair.value() {
             EventType::Data => self
                 .data_triggers
                 .get(id)
@@ -200,7 +251,7 @@ impl Set {
         f: impl Fn(u32) -> std::result::Result<u32, RepeatsOverflowError>,
     ) -> Result<(), ModRepeatsError> {
         let res = self
-            .inspect(id, |action| match action.repeats() {
+            .inspect_by_id(id, |action| match action.repeats() {
                 Repeats::Exactly(atomic) => {
                     let new_repeats = f(atomic.get())?;
                     atomic.set(new_repeats);
@@ -221,7 +272,29 @@ impl Set {
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::handle_data_event()`] call
     pub fn handle_data_event(&self, event: &DataEvent) {
-        self.handle_event(&self.data_triggers, event, EventType::Data)
+        for entry in self.data_triggers.iter() {
+            let id = entry.key();
+
+            // Check only if the trigger is domain scoped
+            if id.domain_id.is_some() && id.domain_id.as_ref() != event.domain_id() {
+                continue;
+            }
+
+            self.match_and_insert_trigger(EventType::Data, event, entry.pair());
+        }
+    }
+
+    /// Handle [`ExecuteTriggerEvent`].
+    ///
+    /// Finds all actions, that are triggered by `event` and stores them.
+    /// This actions will be inspected in the next [`Set::inspect_matched()`] call
+    pub fn handle_execute_trigger_event(&self, event: &ExecuteTriggerEvent) {
+        let entry = match self.by_call_triggers.get(&event.trigger_id) {
+            Some(entry) => entry,
+            None => return,
+        };
+
+        self.match_and_insert_trigger(EventType::ExecuteTrigger, event, entry.pair());
     }
 
     /// Handle [`PipelineEvent`].
@@ -229,7 +302,9 @@ impl Set {
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::inspect_matched()`] call
     pub fn handle_pipeline_event(&self, event: &PipelineEvent) {
-        self.handle_event(&self.pipeline_triggers, event, EventType::Pipeline)
+        for entry in self.pipeline_triggers.iter() {
+            self.match_and_insert_trigger(EventType::Pipeline, event, entry.pair());
+        }
     }
 
     /// Handle [`TimeEvent`].
@@ -245,7 +320,7 @@ impl Set {
                 count = min(atomic.get(), count);
             }
             if count == 0 {
-                return;
+                continue;
             }
 
             let ids = vec![
@@ -258,38 +333,28 @@ impl Set {
         }
     }
 
-    /// Handle [`ExecuteTriggerEvent`].
+    /// Matches and insert an [`TriggerId`] into the matched ids set.
     ///
-    /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected ln the next [`Set::inspect_matched()`] call
-    pub fn handle_execute_trigger_event(&self, event: &ExecuteTriggerEvent) {
-        self.handle_event(&self.by_call_triggers, event, EventType::ExecuteTrigger)
-    }
-
-    /// Handle generic event
-    fn handle_event<F, E>(
+    /// Skips insertion:
+    /// - If the action's filter doesn't match an event
+    /// - If the action's repeats count equals to 0
+    fn match_and_insert_trigger<T: EventFilter>(
         &self,
-        triggers: &DashMap<Id, Action<F>>,
-        event: &E,
         event_type: EventType,
-    ) where
-        F: Filter<EventType = E>,
-    {
-        for entry in triggers {
-            let action = entry.value();
-            if !action.filter.matches(event) {
+        event: &T::EventType,
+        (id, action): (&Id, &Action<T>),
+    ) {
+        if !action.filter.matches(event) {
+            return;
+        }
+
+        if let Repeats::Exactly(atomic) = &action.repeats {
+            if atomic.get() == 0 {
                 return;
             }
-
-            if let Repeats::Exactly(atomic) = &action.repeats {
-                if atomic.get() == 0 {
-                    return;
-                }
-            }
-
-            task::block_in_place(|| self.matched_ids.blocking_write())
-                .push((event_type, entry.key().clone()))
         }
+
+        task::block_in_place(|| self.matched_ids.blocking_write()).push((event_type, id.clone()))
     }
 
     /// Calls `f` for every action, matched by previously called `handle_` methods.

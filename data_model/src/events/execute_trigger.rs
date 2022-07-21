@@ -7,9 +7,9 @@ use crate::prelude::*;
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema)]
 pub struct Event {
     /// Id of trigger to be executed
-    trigger_id: TriggerId,
+    pub trigger_id: TriggerId,
     /// Authority of user who tries to execute trigger
-    authority: AccountId,
+    pub authority: AccountId,
 }
 
 impl Event {

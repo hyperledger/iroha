@@ -24,7 +24,7 @@ fn call_execute_trigger() -> Result<()> {
     let register_trigger = build_register_trigger_isi(asset_id.clone(), vec![instruction.into()]);
     test_client.submit(register_trigger)?;
 
-    let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTriggerBox::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
@@ -48,7 +48,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let register_trigger = build_register_trigger_isi(asset_id, vec![instruction.into()]);
     test_client.submit(register_trigger)?;
 
-    let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
 
     let thread_client = test_client.clone();
@@ -79,7 +79,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = "alice@wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTriggerBox::new(trigger_id);
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
