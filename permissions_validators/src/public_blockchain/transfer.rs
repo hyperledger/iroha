@@ -89,7 +89,7 @@ impl HasToken for GrantedByAssetOwner {
 /// Validator that checks Grant instruction so that the access is
 /// granted to the assets of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the owner of the asset")]
+#[display(fmt = "the signer is the asset owner")]
 pub struct GrantMyAssetAccess;
 
 impl IsGrantAllowed for GrantMyAssetAccess {

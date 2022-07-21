@@ -46,7 +46,7 @@ impl<R: IsGrantAllowed + Display> Display for IsGrantAllowedAsValidator<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Allow to grant `{}` permission token if `{}` succeeds",
+            "Allow to grant `{}` permission token if `{}`",
             R::Token::name(),
             self.is_grant_allowed
         )

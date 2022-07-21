@@ -123,7 +123,7 @@ impl HasToken for SetGrantedByAssetOwner {
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the asset owner")]
+#[display(fmt = "the signer is the asset owner")]
 pub struct GrantMyAssetAccessSet;
 
 impl IsGrantAllowed for GrantMyAssetAccessSet {
@@ -209,7 +209,7 @@ impl HasToken for SetGrantedByAccountOwner {
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the account owner")]
+#[display(fmt = "the signer is the account owner")]
 pub struct GrantMyMetadataAccessSet;
 
 impl IsGrantAllowed for GrantMyMetadataAccessSet {
@@ -293,7 +293,7 @@ impl HasToken for RemoveGrantedByAssetOwner {
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the account owner")]
+#[display(fmt = "the signer is the account owner")]
 pub struct GrantMyAssetAccessRemove;
 
 impl IsGrantAllowed for GrantMyAssetAccessRemove {
@@ -378,7 +378,7 @@ impl HasToken for RemoveGrantedByAccountOwner {
 /// Validator that checks Grant instruction so that the access is granted to the metadata
 /// of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the account owner")]
+#[display(fmt = "the signer is the account owner")]
 pub struct GrantMyMetadataAccessRemove;
 
 impl IsGrantAllowed for GrantMyMetadataAccessRemove {
@@ -402,7 +402,7 @@ impl IsGrantAllowed for GrantMyMetadataAccessRemove {
 /// Validator that checks Grant instruction so that the access is granted to the assets definition
 /// registered by signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the asset creator")]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantMyAssetDefinitionSet;
 
 impl IsGrantAllowed for GrantMyAssetDefinitionSet {
@@ -421,7 +421,7 @@ impl IsGrantAllowed for GrantMyAssetDefinitionSet {
 // Validator that checks Grant instruction so that the access is granted to the assets defintion
 /// registered by signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the asset creator")]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantMyAssetDefinitionRemove;
 
 impl IsGrantAllowed for GrantMyAssetDefinitionRemove {

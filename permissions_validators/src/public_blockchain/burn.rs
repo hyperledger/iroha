@@ -123,7 +123,7 @@ impl HasToken for GrantedByAssetCreator {
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if the signer is the asset creator")]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantRegisteredByMeAccess;
 
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
@@ -220,7 +220,7 @@ impl HasToken for GrantedByAssetOwner {
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow if signer is the asset owner")]
+#[display(fmt = "the signer is the asset owner")]
 pub struct GrantMyAssetAccess;
 
 impl IsGrantAllowed for GrantMyAssetAccess {

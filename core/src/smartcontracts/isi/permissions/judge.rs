@@ -176,7 +176,7 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
         for validator in &self.validators {
             if let ValidatorVerdict::Deny(reason) = validator.check(authority, operation, wsv) {
                 return Err(format!(
-                    "Validator `{validator}` denied operation `{operation}`: {reason}"
+                    "Validator `{validator}` denied the operation `{operation}`: {reason}"
                 ));
             }
         }
@@ -229,7 +229,7 @@ impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
                 ValidatorVerdict::Allow => allowed = true,
                 ValidatorVerdict::Deny(reason) => {
                     return Err(format!(
-                        "Validator `{validator}` denied operation `{operation}`: {reason}"
+                        "Validator `{validator}` denied the operation `{operation}`: {reason}"
                     ));
                 }
                 ValidatorVerdict::Skip => {
