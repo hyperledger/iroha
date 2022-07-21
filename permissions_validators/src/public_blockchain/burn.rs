@@ -82,12 +82,14 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
 pub struct GrantedByAssetCreator;
 
 impl HasToken for GrantedByAssetCreator {
+    type Token = CanBurnAssetWithDefinition;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         match instruction {
             Instruction::Unregister(unregister) => {
                 if let IdBox::AssetId(asset_id) = unregister
@@ -95,7 +97,7 @@ impl HasToken for GrantedByAssetCreator {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?
                 {
-                    Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+                    Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id))
                 } else {
                     Err("Expected the unregister asset instruction".to_owned())
                 }
@@ -111,7 +113,7 @@ impl HasToken for GrantedByAssetCreator {
                     return Err("Destination is not an Asset.".to_owned());
                 };
 
-                Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+                Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id))
             }
             _ => Err("Expected burn or unregister asset instruction".to_owned()),
         }
@@ -178,12 +180,14 @@ impl IsAllowed for OnlyOwnedAssets {
 pub struct GrantedByAssetOwner;
 
 impl HasToken for GrantedByAssetOwner {
+    type Token = CanBurnUserAssets;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         match instruction {
             Instruction::Unregister(unregister) => {
                 if let IdBox::AssetId(asset_id) = unregister
@@ -191,7 +195,7 @@ impl HasToken for GrantedByAssetOwner {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?
                 {
-                    Ok(CanBurnUserAssets::new(asset_id).into())
+                    Ok(CanBurnUserAssets::new(asset_id))
                 } else {
                     Err("Expected the unregister asset instruction".to_owned())
                 }
@@ -206,7 +210,7 @@ impl HasToken for GrantedByAssetOwner {
                 } else {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
-                Ok(CanBurnUserAssets::new(destination_id).into())
+                Ok(CanBurnUserAssets::new(destination_id))
             }
             _ => Err("Expected burn or unregister asset instruction".to_owned()),
         }

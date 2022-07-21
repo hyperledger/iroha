@@ -538,7 +538,7 @@ impl HasToken for SetGrantedByAssetDefinitionOwner {
         } else {
             return Err("Source id is not an AssetDefinitionId".to_owned());
         };
-        Ok(CanSetKeyValueInAssetDefinition::new(object_id).into())
+        Ok(CanSetKeyValueInAssetDefinition::new(object_id))
     }
 }
 
@@ -569,6 +569,6 @@ impl HasToken for RemoveGrantedByAssetDefinitionOwner {
         } else {
             return Err("Source id is not an AssetDefinitionId".to_owned());
         };
-        Ok(CanRemoveKeyValueInAssetDefinition::new(object_id).into())
+        Ok(CanRemoveKeyValueInAssetDefinition::new(object_id))
     }
 }
