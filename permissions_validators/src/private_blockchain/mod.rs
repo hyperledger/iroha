@@ -36,13 +36,18 @@ pub fn default_query_permissions() -> QueryJudgeBoxed {
 #[display(fmt = "Prohibit grant")]
 pub struct ProhibitGrant;
 
-impl IsGrantAllowed for ProhibitGrant {
+impl IsAllowed for ProhibitGrant {
+    type Operation = Instruction;
+
     fn check(
         &self,
         _authority: &AccountId,
-        _instruction: &GrantBox,
+        instruction: &Instruction,
         _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        Deny("Granting at runtime is prohibited.".to_owned())
+        if let Instruction::Grant(_) = instruction {
+            return Deny("Grant is prohibited.".to_owned());
+        }
+        Skip
     }
 }

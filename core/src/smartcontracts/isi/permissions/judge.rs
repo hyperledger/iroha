@@ -216,7 +216,8 @@ impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
 
 /// All operations are allowed to be executed for all possible values.
 /// Mostly for tests and simple cases.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Display, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[display(fmt = "Allow all operations")]
 pub struct AllowAll<O: NeedsPermission> {
     #[serde(skip_serializing, default)]
     _phantom_operation: PhantomData<O>,
@@ -247,7 +248,7 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
 
 /// All operations are disallowed to be executed for all possible
 /// values. Mostly for tests and simple cases.
-#[derive(Debug, Default, Clone, Copy, Serialize, Display)]
+#[derive(Debug, Display, Default, Clone, Copy, Serialize)]
 #[display(fmt = "Deny all operations")]
 pub struct DenyAll<O: NeedsPermission> {
     #[serde(default, skip_serializing)]
