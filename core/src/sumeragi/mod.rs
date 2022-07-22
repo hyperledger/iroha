@@ -36,6 +36,7 @@ use crate::{
     kura::Kura,
     prelude::*,
     queue::Queue,
+    send_event,
     tx::TransactionValidator,
     EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
 };

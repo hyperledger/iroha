@@ -360,11 +360,10 @@ mod tests {
         fail_factory_create: Arc<AtomicBool>,
         telemetry_sender: tokio::sync::mpsc::Sender<Telemetry>,
         message_receiver: futures::channel::mpsc::Receiver<Message>,
-        run_handle: JoinHandle<()>,
     }
 
     impl Suite {
-        pub fn new() -> Self {
+        pub fn new() -> (Self, JoinHandle<()>) {
             let (telemetry_sender, telemetry_receiver) = tokio::sync::mpsc::channel(100);
             let (message_sender, message_receiver) = futures::channel::mpsc::channel(100);
             let fail_send = Arc::new(AtomicBool::new(false));
@@ -395,13 +394,13 @@ mod tests {
                     client.run(telemetry_receiver, internal_receiver).await;
                 })
             };
-            Self {
+            let me = Self {
                 fail_send,
                 fail_factory_create,
                 telemetry_sender,
                 message_receiver,
-                run_handle,
-            }
+            };
+            (me, run_handle)
         }
     }
 
@@ -428,18 +427,14 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn send_succeeds() {
-        iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
-
+    async fn send_succeeds_with_suite(suite: Suite) {
         let Suite {
             telemetry_sender,
             mut message_receiver,
-            run_handle,
             ..
-        } = Suite::new();
+        } = suite;
 
-        // The first message is initialization
+        // The first message is `initialization`
         telemetry_sender
             .send(system_connected_telemetry())
             .await
@@ -475,7 +470,7 @@ mod tests {
             assert!(payload.contains_key("network_id"));
         }
 
-        // The second message is update
+        // The second message is `update`
         telemetry_sender
             .send(system_interval_telemetry(2))
             .await
@@ -499,22 +494,15 @@ mod tests {
             );
             assert_eq!(payload.get("peers"), Some(&Value::Number(2_i32.into())));
         }
-
-        drop(telemetry_sender);
-        run_handle.await.unwrap();
     }
 
-    #[tokio::test]
-    async fn reconnect_fails() {
-        iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
-
+    async fn reconnect_fails_with_suite(suite: Suite) {
         let Suite {
             fail_send,
             fail_factory_create,
             telemetry_sender,
             mut message_receiver,
-            run_handle,
-        } = Suite::new();
+        } = suite;
 
         // Fail sending the first message
         fail_send.store(true, Ordering::Release);
@@ -544,22 +532,15 @@ mod tests {
             .await
             .unwrap();
         assert!(message_receiver.try_next().is_err());
-
-        drop(telemetry_sender);
-        run_handle.await.unwrap();
     }
 
-    #[tokio::test]
-    async fn send_after_reconnect_fails() {
-        iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
-
+    async fn send_after_reconnect_fails_with_suite(suite: Suite) {
         let Suite {
             fail_send,
             telemetry_sender,
             mut message_receiver,
-            run_handle,
             ..
-        } = Suite::new();
+        } = suite;
 
         // Fail sending the first message
         fail_send.store(true, Ordering::Release);
@@ -588,8 +569,24 @@ mod tests {
         fail_send.store(false, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(message_receiver.try_next().is_ok());
-
-        drop(telemetry_sender);
-        run_handle.await.unwrap();
     }
+
+    macro_rules! test_with_suite {
+        ($ident:ident, $future:ident) => {
+            #[tokio::test]
+            async fn $ident() {
+                iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
+                let (suite, run_handle) = Suite::new();
+                $future(suite).await;
+                run_handle.await.unwrap();
+            }
+        };
+    }
+
+    test_with_suite!(send_succeeds, send_succeeds_with_suite);
+    test_with_suite!(reconnect_fails, reconnect_fails_with_suite);
+    test_with_suite!(
+        send_after_reconnect_fails,
+        send_after_reconnect_fails_with_suite
+    );
 }

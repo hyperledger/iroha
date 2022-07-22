@@ -205,7 +205,11 @@ async fn multiple_networks() {
         compact_mode: false,
         ..Configuration::default()
     };
-    drop(iroha_logger::init(&log_config));
+    // Can't use logger because it's failed to initialize.
+    #[allow(clippy::print_stderr)]
+    if let Err(err) = iroha_logger::init(&log_config) {
+        eprintln!("Failed to initialize logger: {err}");
+    }
     info!("Starting...");
 
     let delay = Duration::from_millis(200);
@@ -268,7 +272,7 @@ async fn start_network(
         broker: broker.clone(),
         messages,
     };
-    drop(actor.start().await);
+    actor.start().await;
 
     let network = Network::<TestMessage>::new(
         broker.clone(),
