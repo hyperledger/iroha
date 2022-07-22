@@ -1,0 +1,18 @@
+FROM archlinux:base-devel-20220612.0.61195
+
+RUN set -eux && \
+    pacman -Syu rustup mold rust-musl --noconfirm && \
+    rustup set profile minimal && \
+    rustup toolchain add stable && \
+    rustup component add llvm-tools-preview clippy && \
+    rustup install --profile default nightly-2022-04-20 && \
+    rustup toolchain add nightly-2022-04-20-x86_64-unknown-linux-musl && \
+    rustup component add rust-src && \
+    rustup component add rust-src --toolchain nightly-2022-04-20-x86_64-unknown-linux-musl && \
+    rustup component add rustfmt --toolchain nightly-2022-04-20-x86_64-unknown-linux-musl && \
+    rustup component add rust-std && \
+    # rustup target add wasm32-unknown-unknown && \
+    rustup target add wasm32-unknown-unknown --toolchain nightly-2022-04-20 && \
+    cargo install cargo-lints cargo-nono webassembly-test-runner && \
+    rustup target add x86_64-unknown-linux-musl && \
+    pacman -S musl rust-musl --noconfirm

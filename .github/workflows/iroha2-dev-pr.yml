@@ -12,6 +12,10 @@ on:
       # Not part of the workspace
       - "!wasm/**"
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -44,6 +48,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
+      - uses: actions/checkout@v2
       # TODO Remove these steps #2165
       - uses: actions-rs/toolchain@v1
         with:
@@ -52,16 +57,19 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       #
-      - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Run tests and generate lcov report
-        if: always()
+      - name: Run tests and generate lcov coverage report
         run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v2
+      - name: Upload to codecov
+        uses: codecov/codecov-action@v3
         with:
-          file: lcov.info
+          files: lcov.info
           fail_ci_if_error: true
+      - name: Upload codecov report artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: lcov-${{ github.event.pull_request.head.sha }}.info
+          path: lcov.info
 
   integration_tests:
     runs-on: ubuntu-latest

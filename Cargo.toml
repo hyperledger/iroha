@@ -35,6 +35,12 @@ members = [
   "version/derive",
 ]
 
-[profile.release-with-debug]
+
+[profile.deploy]
 inherits = "release"
-debug = true
+opt-level = 3
+debug = false
+strip = "symbols"
+debug-assertions = false
+lto = true
+incremental = false
