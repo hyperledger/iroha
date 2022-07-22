@@ -2,14 +2,16 @@
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, FfiResult};
+use iroha_ffi::{
+    ffi_export, gen_ffi_impl, handles, FfiResult, Handle, IntoFfi, TryFromFfi, TryFromReprC,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
 pub struct FfiStruct1 {
     name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
 pub struct FfiStruct2 {
     name: String,
 }
@@ -20,7 +22,7 @@ gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
 gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
 gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
 
-#[ffi_bindgen]
+#[ffi_export]
 impl FfiStruct1 {
     /// New
     pub fn new(name: String) -> Self {
@@ -34,7 +36,7 @@ fn gen_shared_fns() {
 
     let ffi_struct1 = unsafe {
         let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
-        assert_eq! {FfiResult::Ok, FfiStruct1__new(&name, ffi_struct.as_mut_ptr())};
+        assert_eq! {FfiResult::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str()), ffi_struct.as_mut_ptr())};
         let ffi_struct = ffi_struct.assume_init();
         assert!(!ffi_struct.is_null());
         assert_eq!(FfiStruct1 { name }, *ffi_struct);
@@ -51,33 +53,41 @@ fn gen_shared_fns() {
                 cloned.as_mut_ptr().cast(),
             );
 
-            let cloned = cloned.assume_init();
-            assert_eq!(*ffi_struct1, *cloned);
+            let cloned = TryFromReprC::try_from_repr_c(cloned.assume_init(), &mut ()).unwrap();
+            assert_eq!(*ffi_struct1, cloned);
 
             cloned
         };
 
-        let mut is_equal = MaybeUninit::<bool>::new(false);
+        let mut is_equal = MaybeUninit::<u8>::new(1);
+        let cloned_ptr = IntoFfi::into_ffi(&cloned);
+
         __eq(
             FfiStruct1::ID,
             ffi_struct1.cast(),
-            cloned.cast(),
+            cloned_ptr.cast(),
             is_equal.as_mut_ptr(),
         );
-        let is_equal = is_equal.assume_init();
+        let is_equal: bool =
+            TryFromReprC::try_from_repr_c(is_equal.assume_init(), &mut ()).unwrap();
         assert!(is_equal);
 
-        let mut ordering = MaybeUninit::<Ordering>::new(Ordering::Less);
+        // TODO: Fix
+        let mut ordering = MaybeUninit::<i8>::new(1);
         __ord(
             FfiStruct1::ID,
             ffi_struct1.cast(),
-            cloned.cast(),
+            cloned_ptr.cast(),
             ordering.as_mut_ptr(),
         );
-        let ordering = ordering.assume_init();
+        let ordering: Ordering =
+            TryFromReprC::try_from_repr_c(ordering.assume_init(), &mut ()).unwrap();
         assert_eq!(ordering, Ordering::Equal);
 
         assert_eq!(FfiResult::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
-        assert_eq!(FfiResult::Ok, __drop(FfiStruct1::ID, cloned.cast()));
+        assert_eq!(
+            FfiResult::Ok,
+            __drop(FfiStruct1::ID, cloned.into_ffi().cast())
+        );
     }
 }

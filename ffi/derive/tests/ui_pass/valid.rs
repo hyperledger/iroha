@@ -1,15 +1,18 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use getset::Getters;
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, Pair};
+use iroha_ffi::{
+    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle, IntoFfi,
+    TryFromFfi, TryFromReprC,
+};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
 pub struct Name(&'static str);
-#[derive(Clone)]
+#[derive(Clone, IntoFfi, TryFromFfi)]
 pub struct Value(&'static str);
 
-#[ffi_bindgen]
-#[derive(Getters)]
+#[ffi_export]
+#[derive(Clone, Getters, IntoFfi, TryFromFfi)]
 #[getset(get = "pub")]
 pub struct FfiStruct {
     name: Name,
@@ -20,7 +23,7 @@ pub struct FfiStruct {
 handles! {0, FfiStruct}
 gen_ffi_impl! {Drop: FfiStruct}
 
-#[ffi_bindgen]
+#[ffi_export]
 impl FfiStruct {
     /// New
     pub fn new(name: Name) -> Self {
@@ -50,32 +53,32 @@ impl FfiStruct {
 fn main() {
     let name = Name("X");
 
-    let ffi_struct = unsafe {
-        let mut ffi_struct: MaybeUninit<*mut FfiStruct> = MaybeUninit::uninit();
-        FfiStruct__new(&name, ffi_struct.as_mut_ptr());
-        ffi_struct.assume_init()
+    let mut ffi_struct: FfiStruct = unsafe {
+        let mut ffi_struct = MaybeUninit::<*mut FfiStruct>::uninit();
+        let name = IntoFfi::into_ffi(name.clone());
+        FfiStruct__new(name, ffi_struct.as_mut_ptr());
+        TryFromReprC::try_from_repr_c(ffi_struct.assume_init(), &mut ()).unwrap()
     };
 
-    let in_params: Vec<Pair<*const Name, *const Value>> = vec![(Name("Nomen"), Value("Omen"))]
-        .iter()
-        .map(|(key, val)| Pair(key as *const _, val as *const _))
-        .collect();
-
+    let in_params = vec![(Name("Nomen"), Value("Omen"))].into_ffi();
     let mut param: MaybeUninit<*const Value> = MaybeUninit::uninit();
-    let mut out_params: Vec<Pair<*const Name, *const Value>> = Vec::new();
-    let mut params_len: MaybeUninit<usize> = MaybeUninit::uninit();
+    let mut out_params_data = Vec::with_capacity(2);
+    let mut data_len = MaybeUninit::<isize>::uninit();
+
+    let out_params =
+        OutBoxedSlice::from_uninit_slice(Some(&mut out_params_data[..]), &mut data_len);
 
     unsafe {
-        FfiStruct__with_params(ffi_struct, in_params.as_ptr(), in_params.len());
-        FfiStruct__get_param(ffi_struct, &name, param.as_mut_ptr());
+        let name = IntoFfi::into_ffi(name.clone());
 
-        FfiStruct__params(
-            ffi_struct,
-            out_params.as_mut_ptr(),
-            out_params.capacity(),
-            params_len.as_mut_ptr(),
-        );
+        FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), in_params.as_ref());
+        FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), name, param.as_mut_ptr());
+        FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params);
 
-        __drop(FfiStruct::ID, ffi_struct.cast());
+        let _param: Option<&Value> =
+            TryFromReprC::try_from_repr_c(param.assume_init(), &mut ()).unwrap();
+        out_params_data.set_len(data_len.assume_init() as usize);
+
+        __drop(FfiStruct::ID, ffi_struct.into_ffi().cast());
     }
 }

@@ -1,14 +1,14 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_set, format, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-#[cfg(feature = "ffi_api")]
-use iroha_ffi::ffi_bindgen;
+#[cfg(feature = "ffi")]
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,7 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     Serialize,
     IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct Id {
     /// Role name, should be unique .
     pub name: Name,
@@ -58,7 +59,8 @@ pub struct Id {
     Serialize,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[cfg_attr(feature = "ffi", ffi_export)]
 #[display(fmt = "{id}")]
 #[getset(get = "pub")]
 pub struct Role {
@@ -84,7 +86,7 @@ impl Ord for Role {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl Role {
     /// Constructor.
     #[inline]
@@ -125,6 +127,8 @@ impl Registered for Role {
     Serialize,
     IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[allow(clippy::multiple_inherent_impl)]
 pub struct NewRole {
     inner: Role,
 }
@@ -154,7 +158,17 @@ impl Ord for NewRole {
     }
 }
 
-/// Builder for [`Role`]
+#[cfg_attr(feature = "ffi", ffi_export)]
+impl NewRole {
+    /// Add permission to the [`Role`]
+    #[must_use]
+    #[inline]
+    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+        self.inner.permissions.insert(perm.into());
+        self
+    }
+}
+
 impl NewRole {
     /// Constructor
     #[must_use]
@@ -170,16 +184,8 @@ impl NewRole {
 
     /// Identification
     #[inline]
-    pub fn id(&self) -> &<Role as Identifiable>::Id {
+    pub(crate) fn id(&self) -> &<Role as Identifiable>::Id {
         &self.inner.id
-    }
-
-    /// Add permission to the [`Role`]
-    #[must_use]
-    #[inline]
-    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
-        self.inner.permissions.insert(perm.into());
-        self
     }
 }
 

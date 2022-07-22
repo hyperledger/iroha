@@ -167,13 +167,13 @@ impl<T: IntoSchema> IntoSchema for HashOf<T> {
         format!("{}::HashOf<{}>", module_path!(), T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        Hash::schema(map);
-
         map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![Hash::type_name()],
             })
         });
+
+        Hash::schema(map);
     }
 }
 

@@ -1,10 +1,12 @@
 //! This module contains [`Name`](`crate::name::Name`) structure
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
+#[cfg(feature = "ffi")]
+use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -18,7 +20,9 @@ use crate::{ParseError, ValidationError};
 #[derive(
     DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(transparent)]
+// TODO: This struct doesn't have to be opaque
 pub struct Name(ConstString);
 
 impl Name {
@@ -31,7 +35,7 @@ impl Name {
         range: impl Into<RangeInclusive<usize>>,
     ) -> Result<(), ValidationError> {
         let range = range.into();
-        if range.contains(&self.as_ref().chars().count()) {
+        if range.contains(&self.0.chars().count()) {
             Ok(())
         } else {
             Err(ValidationError::new(&format!(
@@ -86,27 +90,40 @@ impl FromStr for Name {
 /// # Safety
 ///
 /// All of the given pointers must be valid
-#[cfg(feature = "ffi_api")]
+#[no_mangle]
+#[cfg(feature = "ffi")]
 #[allow(non_snake_case, unsafe_code)]
-pub unsafe extern "C" fn Name__from_str(
-    candidate: *const u8,
-    candidate_len: usize,
-    output: *mut *mut Name,
+pub unsafe extern "C" fn Name__from_str<'itm>(
+    candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
+    out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
 ) -> iroha_ffi::FfiResult {
-    let candidate = core::slice::from_raw_parts(candidate, candidate_len);
+    let res = std::panic::catch_unwind(|| {
+        // False positive - doesn't compile otherwise
+        #[allow(clippy::let_unit_value)]
+        let fn_body = || {
+            let mut store = Default::default();
+            let candidate: &str = iroha_ffi::TryFromReprC::try_from_repr_c(candidate, &mut store)?;
+            let method_res = Name::from_str(candidate)
+                .map_err(|_e| iroha_ffi::FfiResult::ExecutionFail)?
+                .into_ffi();
+            iroha_ffi::OutPtrOf::write(out_ptr, method_res)?;
+            Ok(())
+        };
 
-    let method_res = match core::str::from_utf8(candidate) {
-        Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
-        Ok(candidate) => Name::from_str(candidate),
-    };
-    let method_res = match method_res {
-        Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
-        Ok(method_res) => method_res,
-    };
-    let method_res = Box::into_raw(Box::new(method_res));
+        if let Err(err) = fn_body() {
+            return err;
+        }
 
-    output.write(method_res);
-    iroha_ffi::FfiResult::Ok
+        iroha_ffi::FfiResult::Ok
+    });
+
+    match res {
+        Ok(res) => res,
+        Err(_) => {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+            iroha_ffi::FfiResult::UnrecoverableError
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Name {
@@ -168,31 +185,27 @@ mod tests {
 
     #[test]
     #[allow(unsafe_code)]
-    #[cfg(feature = "ffi_api")]
+    #[cfg(feature = "ffi")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
-        use crate::ffi::{Handle, __drop};
-
+        use iroha_ffi::Handle;
         let candidate = "Name";
-        let candidate_bytes = candidate.as_bytes();
-        let candidate_bytes_len = candidate_bytes.len();
 
         unsafe {
             let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
 
             assert_eq!(
                 iroha_ffi::FfiResult::Ok,
-                Name__from_str(
-                    candidate_bytes.as_ptr(),
-                    candidate_bytes_len,
-                    name.as_mut_ptr()
-                )
+                Name__from_str(candidate.into_ffi(), name.as_mut_ptr())
             );
 
             let name = name.assume_init();
             assert_ne!(core::ptr::null_mut(), name);
             assert_eq!(Name::from_str(candidate)?, *name);
 
-            assert_eq!(iroha_ffi::FfiResult::Ok, __drop(Name::ID, name.cast()));
+            assert_eq!(
+                iroha_ffi::FfiResult::Ok,
+                crate::ffi::__drop(Name::ID, name.cast())
+            );
         }
 
         Ok(())
