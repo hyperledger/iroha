@@ -260,36 +260,38 @@ mod tests {
         let broker = Broker::new();
         Actor1(broker.clone()).start().await;
         Actor1(broker.clone()).start().await;
-        let mut rec = broker.subscribe_with_channel::<Message1>();
 
-        time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(
-            (
-                broker.subscribers::<Message1>(),
-                broker.subscribers::<Stop>()
-            ),
-            (3, 2)
-        );
+        {
+            let mut rec = broker.subscribe_with_channel::<Message1>();
 
-        broker.issue_send(Message1).await;
-        time::sleep(Duration::from_millis(100)).await;
+            time::sleep(Duration::from_millis(100)).await;
+            assert_eq!(
+                (
+                    broker.subscribers::<Message1>(),
+                    broker.subscribers::<Stop>()
+                ),
+                (3, 2)
+            );
 
-        broker.issue_send(Stop).await;
-        time::sleep(Duration::from_millis(100)).await;
+            broker.issue_send(Message1).await;
+            time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(
-            (
-                broker.subscribers::<Message1>(),
-                broker.subscribers::<Stop>()
-            ),
-            (1, 0)
-        );
+            broker.issue_send(Stop).await;
+            time::sleep(Duration::from_millis(100)).await;
 
-        tokio::time::timeout(Duration::from_millis(10), rec.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        drop(rec);
+            assert_eq!(
+                (
+                    broker.subscribers::<Message1>(),
+                    broker.subscribers::<Stop>()
+                ),
+                (1, 0)
+            );
+
+            tokio::time::timeout(Duration::from_millis(10), rec.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        }
 
         assert_eq!(
             (
