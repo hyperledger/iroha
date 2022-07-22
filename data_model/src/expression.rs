@@ -1072,8 +1072,8 @@ pub struct Where {
     pub values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
 }
 
-impl std::fmt::Display for Where {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Where {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "`{} where: [", self.expression)?;
 
         let mut first = true;

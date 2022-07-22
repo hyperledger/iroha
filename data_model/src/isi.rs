@@ -187,8 +187,8 @@ pub struct SequenceBox {
     pub instructions: Vec<Instruction>,
 }
 
-impl std::fmt::Display for SequenceBox {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SequenceBox {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Sequence [")?;
         let mut first = true;
         for instruction in &self.instructions {
@@ -214,8 +214,8 @@ pub struct If {
     pub otherwise: Option<Instruction>,
 }
 
-impl std::fmt::Display for If {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for If {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "IF `{}` THEN `{}`", self.condition, self.then)?;
         if let Some(otherwise) = &self.otherwise {
             write!(f, " ELSE `{}`", otherwise)?;
