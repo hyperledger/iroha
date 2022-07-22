@@ -1728,8 +1728,8 @@ dependencies = [
  "derive_more",
  "futures",
  "iroha_actor_derive",
- "iroha_data_primitives",
  "iroha_logger",
+ "iroha_primitives",
  "once_cell",
  "petgraph",
  "thiserror",
@@ -1776,6 +1776,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_permissions_validators",
+ "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
  "parity-scale-codec",
@@ -1851,6 +1852,7 @@ dependencies = [
  "iroha_logger",
  "iroha_macro",
  "iroha_p2p",
+ "iroha_primitives",
  "iroha_schema",
  "iroha_telemetry",
  "iroha_version",
@@ -1876,6 +1878,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "iroha_ffi",
+ "iroha_primitives",
  "iroha_schema",
  "openssl-sys",
  "parity-scale-codec",
@@ -1898,9 +1901,9 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model_derive",
- "iroha_data_primitives",
  "iroha_ffi",
  "iroha_macro",
+ "iroha_primitives",
  "iroha_schema",
  "iroha_version",
  "parity-scale-codec",
@@ -1910,7 +1913,6 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
- "trybuild",
  "warp",
 ]
 
@@ -1921,22 +1923,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "iroha_data_primitives"
-version = "2.0.0-pre-rc.5"
-dependencies = [
- "derive_more",
- "fixnum",
- "iroha_macro",
- "iroha_schema",
- "parity-scale-codec",
- "serde",
- "serde_json",
- "smallstr",
- "smallvec",
- "thiserror",
 ]
 
 [[package]]
@@ -2052,6 +2038,23 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "iroha_primitives"
+version = "2.0.0-pre-rc.5"
+dependencies = [
+ "derive_more",
+ "fixnum",
+ "iroha_macro",
+ "iroha_schema",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "smallstr",
+ "smallvec",
+ "thiserror",
+ "trybuild",
 ]
 
 [[package]]
@@ -2624,7 +2627,7 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_data_primitives",
+ "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
  "iroha_version",
@@ -3630,6 +3633,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_permissions_validators",
+ "iroha_primitives",
  "once_cell",
  "rand 0.8.5",
  "tempfile",

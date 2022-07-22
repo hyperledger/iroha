@@ -11,8 +11,9 @@ use dashmap::{
 use eyre::Result;
 use getset::Getters;
 use iroha_crypto::HashOf;
-use iroha_data_model::{prelude::*, small::SmallVec};
+use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
+use iroha_primitives::small::SmallVec;
 use iroha_telemetry::metrics::Metrics;
 use tokio::{sync::broadcast, task};
 

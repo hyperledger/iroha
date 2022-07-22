@@ -18,12 +18,13 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config" }
+iroha_core = { version = "=2.0.0-pre-rc.5", path = "../core", features = ["dev-telemetry", "telemetry"]}
 iroha_crypto = { version = "=2.0.0-pre-rc.5", path = "../crypto"}
 iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model", features = ["warp"] }
+iroha_primitives = { version = "=2.0.0-pre-rc.5", path = "../primitives" }
 iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger"}
 iroha_telemetry = { version ="=2.0.0-pre-rc.5", path = "../telemetry" }
 iroha_version = { version = "=2.0.0-pre-rc.5", path = "../version" }
-iroha_core = { version = "=2.0.0-pre-rc.5", path = "../core", features = ["dev-telemetry", "telemetry"]}
 
 attohttpc = "0.18"
 eyre = "0.6.5"

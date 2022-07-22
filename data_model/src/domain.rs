@@ -14,6 +14,7 @@ use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
 #[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
+use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
@@ -340,7 +341,7 @@ impl FromIterator<Domain> for crate::Value {
 /// Represents path in IPFS. Performs checks to ensure path validity.
 /// Construct using [`FromStr::from_str`] method.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
-pub struct IpfsPath(String);
+pub struct IpfsPath(ConstString);
 
 impl FromStr for IpfsPath {
     type Err = ParseError;
@@ -377,7 +378,7 @@ impl FromStr for IpfsPath {
             Self::check_cid(path)?;
         }
 
-        Ok(IpfsPath(String::from(string)))
+        Ok(IpfsPath(ConstString::from(string)))
     }
 }
 
@@ -421,7 +422,7 @@ impl<'de> Deserialize<'de> for IpfsPath {
 
 impl Decode for IpfsPath {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-        let name = String::decode(input)?;
+        let name = ConstString::decode(input)?;
         Self::from_str(&name).map_err(|error| error.reason.into())
     }
 }
@@ -517,7 +518,7 @@ mod tests {
     #[test]
     fn deserialize_ipfs() {
         for invalid_ipfs in INVALID_IPFS {
-            let invalid_ipfs = IpfsPath(invalid_ipfs.to_owned());
+            let invalid_ipfs = IpfsPath(invalid_ipfs.into());
             let serialized = serde_json::to_string(&invalid_ipfs).expect("Valid");
             let ipfs = serde_json::from_str::<IpfsPath>(serialized.as_str());
 
@@ -528,7 +529,7 @@ mod tests {
     #[test]
     fn decode_ipfs() {
         for invalid_ipfs in INVALID_IPFS {
-            let invalid_ipfs = IpfsPath(invalid_ipfs.to_owned());
+            let invalid_ipfs = IpfsPath(invalid_ipfs.into());
             let bytes = invalid_ipfs.encode();
             let ipfs = IpfsPath::decode(&mut &bytes[..]);
 

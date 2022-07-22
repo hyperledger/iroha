@@ -1,10 +1,8 @@
 //! This module contains [`Asset`] structure, it's implementation and related traits and
 //! instructions implementations.
 
-use iroha_data_model::{
-    prelude::*,
-    primitives::{CheckedOp, IntoMetric},
-};
+use iroha_data_model::prelude::*;
+use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;

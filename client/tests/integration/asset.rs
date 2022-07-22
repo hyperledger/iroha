@@ -4,7 +4,8 @@ use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_data_model::{fixed::Fixed, prelude::*};
+use iroha_data_model::prelude::*;
+use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 use super::Configuration;

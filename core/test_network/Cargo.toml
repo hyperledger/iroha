@@ -15,6 +15,7 @@ iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
 iroha_client = { version = "=2.0.0-pre-rc.5", path = "../../client" }
 iroha_core = { version = "=2.0.0-pre-rc.5", path = "../../core" }
 iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../../data_model" }
+iroha_primitives = { version = "=2.0.0-pre-rc.5", path = "../../primitives" }
 iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../../logger" }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.5", path = "../../permissions_validators" }
 

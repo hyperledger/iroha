@@ -14,7 +14,7 @@ deadlock_detection = ["petgraph"]
 [dependencies]
 iroha_actor_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }
 iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger" }
-iroha_data_primitives = { version = "=2.0.0-pre-rc.5", path = "../data_model/primitives" }
+iroha_primitives = { version = "=2.0.0-pre-rc.5", path = "../primitives" }
 
 async-trait = "0.1"
 once_cell = "1.8.0"

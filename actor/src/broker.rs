@@ -59,7 +59,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha_data_primitives::small::{self, SmallVec};
+use iroha_primitives::small::{self, SmallVec};
 
 use super::*;
 

@@ -1,5 +1,5 @@
 [package]
-name = "iroha_data_primitives"
+name = "iroha_primitives"
 version = "2.0.0-pre-rc.5"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
@@ -23,8 +23,8 @@ default = ["std"]
 std = ["iroha_macro/std", "fixnum/std", "thiserror"]
 
 [dependencies]
-iroha_macro = { path = "../../macro", version = "=2.0.0-pre-rc.5", default-features = false }
-iroha_schema = { path = "../../schema", version = "=2.0.0-pre-rc.5", default-features = false }
+iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.5", default-features = false }
+iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.5", default-features = false }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 fixnum = { version = "0.6.1", default-features = false, features = ["serde", "parity", "i64"]}
@@ -36,3 +36,4 @@ thiserror = { version = "1.0.28", optional = true }
 
 [dev-dependencies]
 serde_json = { version = "1.0.59", default-features = false, features = ["alloc"] }
+trybuild = "1.0.53"

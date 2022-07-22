@@ -34,17 +34,18 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model", features = ["mutable_api", "warp"] }
-iroha_macro = { version = "=2.0.0-pre-rc.5", path = "../macro" }
-iroha_p2p = { version = "=2.0.0-pre-rc.5", path = "../p2p" }
-iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger"}
-iroha_crypto = { version = "=2.0.0-pre-rc.5", path = "../crypto" }
-iroha_version = { version = "=2.0.0-pre-rc.5", path = "../version", features = ["warp"] }
 iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../actor" }
 iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config" }
+iroha_crypto = { version = "=2.0.0-pre-rc.5", path = "../crypto" }
+iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model", features = ["mutable_api", "warp"] }
+iroha_primitives = { version = "=2.0.0-pre-rc.5", path = "../primitives" }
 iroha_futures = { version = "=2.0.0-pre-rc.5", path = "../futures" }
-iroha_telemetry = { version = "=2.0.0-pre-rc.5", path = "../telemetry" }
+iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger"}
+iroha_macro = { version = "=2.0.0-pre-rc.5", path = "../macro" }
+iroha_p2p = { version = "=2.0.0-pre-rc.5", path = "../p2p" }
 iroha_schema = { version = "=2.0.0-pre-rc.5", path = "../schema" }
+iroha_telemetry = { version = "=2.0.0-pre-rc.5", path = "../telemetry" }
+iroha_version = { version = "=2.0.0-pre-rc.5", path = "../version", features = ["warp"] }
 
 async-trait = "0.1"
 async-stream = "0.3.2"

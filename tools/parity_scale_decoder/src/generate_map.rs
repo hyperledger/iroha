@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use iroha_core::*;
 use iroha_crypto::*;
 use iroha_data_model::{prelude::*, query::SignedQueryRequest, *};
-use iroha_data_primitives::atomic::*;
+use iroha_primitives::{atomic::*, fixed};
 use iroha_schema::IntoSchema;
 use iroha_version::*;
 
@@ -355,7 +355,7 @@ pub fn generate_map() -> DumpDecodedMap {
         i64,
         iroha_data_model::predicate::PredicateBox,
         iroha_data_model::predicate::numerical::Range,
-        iroha_data_model::predicate::numerical::SemiInterval<iroha_data_primitives::fixed::Fixed>,
+        iroha_data_model::predicate::numerical::SemiInterval<iroha_primitives::fixed::Fixed>,
         iroha_data_model::predicate::numerical::SemiInterval<u128>,
         iroha_data_model::predicate::numerical::SemiInterval<u32>,
         iroha_data_model::predicate::string::Predicate,

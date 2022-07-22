@@ -23,9 +23,8 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
-use iroha_data_primitives::small::SmallVec;
-pub use iroha_data_primitives::{self as primitives, fixed, small};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
+use iroha_primitives::{fixed, small, small::SmallVec};
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
@@ -873,7 +872,6 @@ pub mod prelude {
         asset::prelude::*,
         block_value::prelude::*,
         domain::prelude::*,
-        fixed::prelude::*,
         name::prelude::*,
         pagination::{prelude::*, Pagination},
         peer::prelude::*,
@@ -884,7 +882,6 @@ pub mod prelude {
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permissions::prelude::*, query::prelude::*, small, transaction::prelude::*,
-        trigger::prelude::*,
+        permissions::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
     };
 }

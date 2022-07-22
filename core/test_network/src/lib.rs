@@ -22,6 +22,7 @@ use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_permissions_validators::public_blockchain::{
     burn::CanBurnAssetWithDefinition, mint::CanMintUserAssetDefinitions,
 };
+use iroha_primitives::small;
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{

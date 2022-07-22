@@ -215,7 +215,7 @@ impl FromStr for Id {
 pub mod action {
     //! Contains trigger action and common trait for all actions
 
-    use iroha_data_primitives::atomic::AtomicU32;
+    use iroha_primitives::atomic::AtomicU32;
 
     use super::*;
     use crate::HasMetadata;
