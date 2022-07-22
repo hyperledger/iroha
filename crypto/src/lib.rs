@@ -20,9 +20,8 @@ pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
+use iroha_ffi::{ffi_export, ffi};
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
@@ -63,23 +62,59 @@ pub struct NoSuchAlgorithm;
 #[cfg(feature = "std")]
 impl std::error::Error for NoSuchAlgorithm {}
 
-/// Algorithm for hashing
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Algorithm {
-    /// Ed25519
-    #[display(fmt = "{}", "ED_25519")]
-    Ed25519,
-    /// Secp256k1
-    #[display(fmt = "{}", "SECP_256_K1")]
-    Secp256k1,
-    /// BlsNormal
-    #[display(fmt = "{}", "BLS_NORMAL")]
-    BlsNormal,
-    /// BlsSmall
-    #[display(fmt = "{}", "BLS_SMALL")]
-    BlsSmall,
+ffi! {
+    /// Algorithm for hashing
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+    #[repr(u8)]
+    pub enum Algorithm {
+        /// Ed25519
+        #[display(fmt = "{}", "ED_25519")]
+        Ed25519,
+        /// Secp256k1
+        #[display(fmt = "{}", "SECP_256_K1")]
+        Secp256k1,
+        /// BlsNormal
+        #[display(fmt = "{}", "BLS_NORMAL")]
+        BlsNormal,
+        /// BlsSmall
+        #[display(fmt = "{}", "BLS_SMALL")]
+        BlsSmall,
+    }
+
+    /// Public Key used in signatures.
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, IntoSchema)]
+    #[debug(
+        fmt = "{{ digest: {digest_function}, payload: {} }}",
+        "hex::encode_upper(payload.as_slice())"
+    )]
+    pub struct PublicKey {
+        /// Digest function
+        digest_function: ConstString,
+        /// payload of key
+        payload: Vec<u8>,
+    }
+
+    /// Private Key used in signatures.
+    #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize)]
+    #[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
+    #[display(fmt = "{}", "hex::encode(payload)")]
+    pub struct PrivateKey {
+        /// Digest function
+        digest_function: ConstString,
+        /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
+        #[serde(with = "hex::serde")]
+        payload: Vec<u8>,
+    }
+
+    /// Pair of Public and Private keys.
+    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize)]
+    #[getset(get = "pub")]
+    pub struct KeyPair {
+        /// Public Key.
+        public_key: PublicKey,
+        /// Private Key.
+        private_key: PrivateKey,
+    }
 }
 
 impl Default for Algorithm {
@@ -162,17 +197,6 @@ impl KeyGenConfiguration {
         self.algorithm = algorithm;
         self
     }
-}
-
-/// Pair of Public and Private keys.
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize)]
-#[getset(get = "pub")]
-pub struct KeyPair {
-    /// Public Key.
-    public_key: PublicKey,
-    /// Private Key.
-    private_key: PrivateKey,
 }
 
 /// Error when dealing with cryptographic functions
@@ -363,21 +387,7 @@ impl From<multihash::ConvertError> for KeyParseError {
 #[cfg(feature = "std")]
 impl std::error::Error for KeyParseError {}
 
-/// Public Key used in signatures.
-#[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, IntoSchema)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[debug(
-    fmt = "{{ digest: {digest_function}, payload: {} }}",
-    "hex::encode_upper(payload.as_slice())"
-)]
-pub struct PublicKey {
-    /// Digest function
-    digest_function: ConstString,
-    /// payload of key
-    payload: Vec<u8>,
-}
-
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[ffi_export]
 impl PublicKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -494,21 +504,7 @@ impl Decode for PublicKey {
     }
 }
 
-/// Private Key used in signatures.
-#[derive(DebugCustom, Display, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
-#[display(fmt = "{}", "hex::encode(payload)")]
-#[allow(clippy::multiple_inherent_impl)]
-pub struct PrivateKey {
-    /// Digest function
-    digest_function: ConstString,
-    /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
-    #[serde(with = "hex::serde")]
-    payload: Vec<u8>,
-}
-
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[ffi_export]
 impl PrivateKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -574,7 +570,6 @@ impl<'de> Deserialize<'de> for PrivateKey {
     }
 }
 
-#[cfg(feature = "ffi")]
 mod ffi {
     use iroha_ffi::{gen_ffi_impl, handles};
 

@@ -7,9 +7,8 @@ use core::borrow::Borrow;
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
+use iroha_ffi::ffi;
 use derive_more::Display;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -72,28 +71,14 @@ impl Limits {
     }
 }
 
-/// Collection of parameters by their names with checked insertion.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[serde(transparent)]
-#[allow(clippy::multiple_inherent_impl)]
-#[display(fmt = "Metadata")]
-pub struct Metadata {
-    map: btree_map::BTreeMap<Name, Value>,
+ffi! {
+    /// Collection of parameters by their names with checked insertion.
+    #[derive(Debug, Display, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "Metadata")]
+    #[serde(transparent)]
+    pub struct Metadata {
+        map: btree_map::BTreeMap<Name, Value>,
+    }
 }
 
 /// A path slice, composed of [`Name`]s.

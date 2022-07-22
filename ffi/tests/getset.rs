@@ -3,18 +3,23 @@
 use std::mem::MaybeUninit;
 
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{ffi, ffi_export};
 
-#[derive(Debug, Clone, PartialEq, Eq, IntoFfi, TryFromFfi)]
-pub struct Name(String);
+ffi! {
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Name(String);
 
-#[derive(Clone, Setters, Getters, MutGetters, IntoFfi, TryFromFfi)]
-#[ffi_export]
-#[getset(get = "pub")]
-pub struct FfiStruct {
-    #[getset(set = "pub", get_mut = "pub")]
-    id: u32,
-    name: Name,
+    /// FfiStruct
+    #[derive(Clone, Setters, Getters, MutGetters)]
+    #[getset(get = "pub")]
+    #[ffi_export]
+    pub struct FfiStruct {
+        /// id
+        #[getset(set = "pub", get_mut = "pub")]
+        id: u32,
+        /// Name
+        name: Name,
+    }
 }
 
 #[test]

@@ -5,25 +5,34 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
-#[cfg(feature = "ffi")]
-use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
+use iroha_ffi::ffi;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
 use crate::{ParseError, ValidationError};
 
-/// `Name` struct represents type for Iroha Entities names, like
-/// [`Domain`](`crate::domain::Domain`)'s name or
-/// [`Account`](`crate::account::Account`)'s name.
-#[derive(
-    DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[repr(transparent)]
-// TODO: This struct doesn't have to be opaque
-pub struct Name(ConstString);
+ffi! {
+    /// `Name` struct represents type for Iroha Entities names, like
+    /// [`Domain`](`crate::domain::Domain`)'s name or
+    /// [`Account`](`crate::account::Account`)'s name.
+    #[derive(
+        DebugCustom,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Encode,
+        Serialize,
+        IntoSchema,
+    )]
+    #[repr(transparent)]
+    pub struct Name(ConstString);
+}
 
 impl Name {
     /// Check if `range` contains the number of chars in the inner `ConstString` of this [`Name`].
@@ -91,9 +100,8 @@ impl FromStr for Name {
 ///
 /// All of the given pointers must be valid
 #[no_mangle]
-#[cfg(feature = "ffi")]
 #[allow(non_snake_case, unsafe_code)]
-pub unsafe extern "C" fn Name__from_str<'itm>(
+unsafe extern "C" fn Name__from_str<'itm>(
     candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
     out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
 ) -> iroha_ffi::FfiResult {
@@ -103,9 +111,9 @@ pub unsafe extern "C" fn Name__from_str<'itm>(
         let fn_body = || {
             let mut store = Default::default();
             let candidate: &str = iroha_ffi::TryFromReprC::try_from_repr_c(candidate, &mut store)?;
-            let method_res = Name::from_str(candidate)
-                .map_err(|_e| iroha_ffi::FfiResult::ExecutionFail)?
-                .into_ffi();
+            let method_res = iroha_ffi::IntoFfi::into_ffi(
+                Name::from_str(candidate).map_err(|_e| iroha_ffi::FfiResult::ExecutionFail)?,
+            );
             iroha_ffi::OutPtrOf::write(out_ptr, method_res)?;
             Ok(())
         };
@@ -185,7 +193,6 @@ mod tests {
 
     #[test]
     #[allow(unsafe_code)]
-    #[cfg(feature = "ffi")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
         use iroha_ffi::Handle;
         let candidate = "Name";

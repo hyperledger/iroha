@@ -2,22 +2,30 @@ use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use getset::Getters;
 use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle, IntoFfi,
-    TryFromFfi, TryFromReprC,
+    ffi, ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle, IntoFfi,
+    TryFromReprC,
 };
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct Name(&'static str);
-#[derive(Clone, IntoFfi, TryFromFfi)]
-pub struct Value(&'static str);
+ffi! {
+    /// Name
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Name(&'static str);
 
-#[ffi_export]
-#[derive(Clone, Getters, IntoFfi, TryFromFfi)]
-#[getset(get = "pub")]
-pub struct FfiStruct {
-    name: Name,
-    #[getset(skip)]
-    params: BTreeMap<Name, Value>,
+    /// Value
+    #[derive(Clone)]
+    pub struct Value(&'static str);
+
+    /// FfiStruct
+    #[derive(Clone, Getters)]
+    #[getset(get = "pub")]
+    #[ffi_export]
+    pub struct FfiStruct {
+        /// Name
+        name: Name,
+        /// Params
+        #[getset(skip)]
+        params: BTreeMap<Name, Value>,
+    }
 }
 
 handles! {0, FfiStruct}

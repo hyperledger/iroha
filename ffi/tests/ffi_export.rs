@@ -3,28 +3,31 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, FfiResult, FfiTuple2,
-    Handle, IntoFfi, TryFromFfi, TryFromReprC,
+    ffi, ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, FfiResult, FfiTuple2,
+    Handle, IntoFfi, TryFromReprC,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct Name(String);
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct Value(String);
+ffi! {
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Name(String);
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Value(String);
+
+    /// FfiStruct
+    #[derive(Clone)]
+    #[ffi_export]
+    pub struct FfiStruct {
+        name: Option<Name>,
+        tokens: Vec<Value>,
+        params: BTreeMap<Name, Value>,
+    }
+}
 
 fn get_default_params() -> [(Name, Value); 2] {
     [
         (Name(String::from("Nomen")), Value(String::from("Omen"))),
         (Name(String::from("Nomen2")), Value(String::from("Omen2"))),
     ]
-}
-
-#[ffi_export]
-#[derive(Clone, IntoFfi, TryFromFfi)]
-pub struct FfiStruct {
-    name: Option<Name>,
-    tokens: Vec<Value>,
-    params: BTreeMap<Name, Value>,
 }
 
 handles! {0, FfiStruct}

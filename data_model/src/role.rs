@@ -8,8 +8,7 @@ use std::collections::btree_set;
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{ffi_export, ffi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -22,49 +21,37 @@ use crate::{
 /// Collection of [`RoleId`](Id)s
 pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
-/// Identification of a role.
-#[derive(
-    Debug,
-    Display,
-    Constructor,
-    FromStr,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-pub struct Id {
-    /// Role name, should be unique .
-    pub name: Name,
+ffi! {
+    /// Identification of a role.
+    #[derive(Debug, Display, Constructor, FromStr, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct Id {
+        /// Role name, should be unique .
+        pub name: Name,
+    }
+
+    #[derive(Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[id(type = "<Role as Identifiable>::Id")]
+    pub struct NewRole {
+        inner: Role,
+    }
+
+    /// Role is a tag for a set of permission tokens.
+    #[derive(Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{id}")]
+    #[getset(get = "pub")]
+    #[id(type = "Id")]
+    #[ffi_export]
+    pub struct Role {
+        /// Unique name of the role.
+        #[getset(skip)]
+        id: <Self as Identifiable>::Id,
+        /// Permission tokens.
+        #[getset(skip)]
+        permissions: Permissions,
+    }
 }
 
-/// Role is a tag for a set of permission tokens.
-#[derive(
-    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[cfg_attr(feature = "ffi", ffi_export)]
-#[display(fmt = "{id}")]
-#[getset(get = "pub")]
-#[id(type = "Id")]
-pub struct Role {
-    /// Unique name of the role.
-    #[getset(skip)]
-    id: <Self as Identifiable>::Id,
-    /// Permission tokens.
-    #[getset(skip)]
-    permissions: Permissions,
-}
-
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[ffi_export]
 impl Role {
     /// Constructor.
     #[inline]
@@ -83,17 +70,6 @@ impl Registered for Role {
     type With = NewRole;
 }
 
-/// Builder for [`Role`]
-#[derive(
-    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[allow(clippy::multiple_inherent_impl)]
-#[id(type = "<Role as Identifiable>::Id")]
-pub struct NewRole {
-    inner: Role,
-}
-
 #[cfg(feature = "mutable_api")]
 impl crate::Registrable for NewRole {
     type Target = Role;
@@ -105,7 +81,7 @@ impl crate::Registrable for NewRole {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[ffi_export]
 impl NewRole {
     /// Add permission to the [`Role`]
     #[must_use]

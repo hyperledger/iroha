@@ -18,6 +18,7 @@ macro_rules! handles {
 
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
+#[cfg(not(feature = "client"))]
 macro_rules! gen_ffi_impl {
     (@catch_unwind $block:block ) => {
         match std::panic::catch_unwind(|| $block) {
@@ -169,6 +170,77 @@ macro_rules! gen_ffi_impl {
 
                 Ok(())
             })
+        }
+    };
+}
+
+/// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
+#[macro_export]
+#[cfg(feature = "client")]
+macro_rules! gen_ffi_impl {
+    ( $vis:vis Clone: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Clone::clone`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __clone(
+                handle_id: $crate::handle::Id,
+                handle_ptr: *const core::ffi::c_void,
+                output_ptr: *mut *mut core::ffi::c_void
+            ) -> $crate::FfiResult;
+        }
+    };
+    ( $vis:vis Eq: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Eq::eq`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __eq(
+                handle_id: $crate::handle::Id,
+                left_handle_ptr: *const core::ffi::c_void,
+                right_handle_ptr: *const core::ffi::c_void,
+                output_ptr: *mut u8,
+            ) -> $crate::FfiResult;
+        }
+    };
+    ( $vis:vis Ord: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Ord::ord`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __ord(
+                handle_id: $crate::handle::Id,
+                left_handle_ptr: *const core::ffi::c_void,
+                right_handle_ptr: *const core::ffi::c_void,
+                output_ptr: *mut i8,
+            ) -> $crate::FfiResult;
+        }
+    };
+    ( $vis:vis Drop: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Drop::drop`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __drop(
+                handle_id: $crate::handle::Id,
+                handle_ptr: *mut core::ffi::c_void,
+            ) -> $crate::FfiResult;
         }
     };
 }

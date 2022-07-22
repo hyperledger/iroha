@@ -14,8 +14,7 @@ use std::collections::{btree_map, btree_set};
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{ffi, ffi_export};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -76,23 +75,11 @@ impl From<GenesisAccount> for Account {
     }
 }
 
-/// Condition which checks if the account has the right signatures.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+ffi! {
+    /// Condition which checks if the account has the right signatures.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+}
 
 impl SignatureCheckCondition {
     /// Gets reference to the raw `ExpressionBox`.
@@ -125,21 +112,19 @@ impl Default for SignatureCheckCondition {
     }
 }
 
-/// Builder which should be submitted in a transaction to create a new [`Account`]
-#[allow(clippy::multiple_inherent_impl)]
-#[derive(
-    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "[{id}]")]
-#[id(type = "<Account as Identifiable>::Id")]
-pub struct NewAccount {
-    /// Identification
-    id: <Account as Identifiable>::Id,
-    /// Signatories, i.e. signatures attached to this message.
-    signatories: Signatories,
-    /// Metadata that should be submitted with the builder
-    metadata: Metadata,
+ffi! {
+    /// Builder which should be submitted in a transaction to create a new [`Account`]
+    #[derive(Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[id(type = "<Account as Identifiable>::Id")]
+    #[display(fmt = "[{id}]")]
+    pub struct NewAccount {
+        /// Identification
+        id: <Account as Identifiable>::Id,
+        /// Signatories, i.e. signatures attached to this message.
+        signatories: Signatories,
+        /// Metadata that should be submitted with the builder
+        metadata: Metadata,
+    }
 }
 
 #[cfg(feature = "mutable_api")]
@@ -185,7 +170,7 @@ impl NewAccount {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[ffi_export]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -195,43 +180,31 @@ impl NewAccount {
     }
 }
 
-/// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    IdOrdEqHash,
-    Getters,
-    MutGetters,
-    Setters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "({id})")] // TODO: Add more?
-#[id(type = "Id")]
-#[allow(clippy::multiple_inherent_impl)]
-pub struct Account {
-    /// An Identification of the [`Account`].
-    id: <Self as Identifiable>::Id,
-    /// Asset's in this [`Account`].
-    assets: AssetsMap,
-    /// [`Account`]'s signatories.
-    signatories: Signatories,
-    /// Permissions tokens of this account
-    permission_tokens: Permissions,
-    /// Condition which checks if the account has the right signatures.
-    #[getset(get = "pub")]
-    #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
-    signature_check_condition: SignatureCheckCondition,
-    /// Metadata of this account as a key-value store.
-    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    metadata: Metadata,
-    /// Roles of this account, they are tags for sets of permissions stored in `World`.
-    roles: RoleIds,
+ffi! {
+    /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
+    #[derive(Debug, Display, Clone, IdOrdEqHash, Getters, MutGetters, Setters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "({id})")] // TODO: Add more?
+    #[id(type = "Id")]
+    #[ffi_export]
+    pub struct Account {
+        /// An Identification of the [`Account`].
+        id: <Self as Identifiable>::Id,
+        /// Asset's in this [`Account`].
+        assets: AssetsMap,
+        /// [`Account`]'s signatories.
+        signatories: Signatories,
+        /// Permissions tokens of this account
+        permission_tokens: Permissions,
+        /// Condition which checks if the account has the right signatures.
+        #[getset(get = "pub")]
+        #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
+        signature_check_condition: SignatureCheckCondition,
+        /// Metadata of this account as a key-value store.
+        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
+        metadata: Metadata,
+        /// Roles of this account, they are tags for sets of permissions stored in `World`.
+        roles: RoleIds,
+    }
 }
 
 impl HasMetadata for Account {
@@ -244,7 +217,7 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[ffi_export]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
@@ -379,37 +352,24 @@ impl FromIterator<Account> for crate::Value {
     }
 }
 
-/// Identification of an Account. Consists of Account's name and Domain's name.
-///
-/// # Example
-///
-/// ```
-/// use iroha_data_model::account::Id;
-///
-/// let id = "user@company".parse::<Id>().expect("Valid");
-/// ```
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "{name}@{domain_id}")]
-pub struct Id {
-    /// [`Account`]'s name.
-    pub name: Name,
-    /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
-    pub domain_id: <Domain as Identifiable>::Id,
+ffi! {
+    /// Identification of an Account. Consists of Account's name and Domain's name.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use iroha_data_model::account::Id;
+    ///
+    /// let id = "user@company".parse::<Id>().expect("Valid");
+    /// ```
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize IntoSchema)]
+    #[display(fmt = "{name}@{domain_id}")]
+    pub struct Id {
+        /// [`Account`]'s name.
+        pub name: Name,
+        /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
+        pub domain_id: <Domain as Identifiable>::Id,
+    }
 }
 
 impl Id {

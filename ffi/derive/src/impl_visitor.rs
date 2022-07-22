@@ -11,33 +11,33 @@ pub trait Arg {
 }
 
 #[derive(Constructor)]
-pub struct Receiver<'ast> {
-    self_ty: &'ast syn::Path,
+pub struct Receiver {
+    self_ty: syn::Path,
     name: Ident,
     type_: Type,
 }
 
-pub struct InputArg<'ast> {
-    self_ty: &'ast syn::Path,
-    name: &'ast Ident,
-    type_: &'ast Type,
+pub struct InputArg {
+    self_ty: syn::Path,
+    name: Ident,
+    type_: Type,
 }
 
-pub struct ReturnArg<'ast> {
-    self_ty: &'ast syn::Path,
+pub struct ReturnArg {
+    self_ty: syn::Path,
     name: Ident,
-    type_: &'ast Type,
+    type_: Type,
 }
 
 pub struct ImplDescriptor<'ast> {
     /// Associated types in the impl block
     pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Functions in the impl block
-    pub fns: Vec<FnDescriptor<'ast>>,
+    pub fns: Vec<FnDescriptor>,
 }
 
-impl<'ast> InputArg<'ast> {
-    pub fn new(self_ty: &'ast syn::Path, name: &'ast Ident, type_: &'ast Type) -> Self {
+impl InputArg {
+    pub fn new(self_ty: syn::Path, name: Ident, type_: Type) -> Self {
         Self {
             self_ty,
             name,
@@ -46,8 +46,8 @@ impl<'ast> InputArg<'ast> {
     }
 }
 
-impl<'ast> ReturnArg<'ast> {
-    pub fn new(self_ty: &'ast syn::Path, name: Ident, type_: &'ast Type) -> Self {
+impl ReturnArg {
+    pub fn new(self_ty: syn::Path, name: Ident, type_: Type) -> Self {
         Self {
             self_ty,
             name,
@@ -56,7 +56,7 @@ impl<'ast> ReturnArg<'ast> {
     }
 }
 
-impl Arg for Receiver<'_> {
+impl Arg for Receiver {
     fn name(&self) -> &Ident {
         &self.name
     }
@@ -64,40 +64,40 @@ impl Arg for Receiver<'_> {
         &self.type_
     }
     fn src_type_resolved(&self) -> Type {
-        resolve_src_type(self.self_ty, self.type_.clone())
+        resolve_src_type(&self.self_ty, self.type_.clone())
     }
     fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty, self.type_.clone(), false)
+        resolve_ffi_type(&self.self_ty, self.type_.clone(), false)
     }
 }
 
-impl Arg for InputArg<'_> {
-    fn name(&self) -> &Ident {
-        self.name
-    }
-    fn src_type(&self) -> &Type {
-        self.type_
-    }
-    fn src_type_resolved(&self) -> Type {
-        resolve_src_type(self.self_ty, self.type_.clone())
-    }
-    fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty, self.type_.clone(), false)
-    }
-}
-
-impl Arg for ReturnArg<'_> {
+impl Arg for InputArg {
     fn name(&self) -> &Ident {
         &self.name
     }
     fn src_type(&self) -> &Type {
-        self.type_
+        &self.type_
     }
     fn src_type_resolved(&self) -> Type {
-        resolve_src_type(self.self_ty, self.type_.clone())
+        resolve_src_type(&self.self_ty, self.type_.clone())
     }
     fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty, self.type_.clone(), true)
+        resolve_ffi_type(&self.self_ty, self.type_.clone(), false)
+    }
+}
+
+impl Arg for ReturnArg {
+    fn name(&self) -> &Ident {
+        &self.name
+    }
+    fn src_type(&self) -> &Type {
+        &self.type_
+    }
+    fn src_type_resolved(&self) -> Type {
+        resolve_src_type(&self.self_ty, self.type_.clone())
+    }
+    fn ffi_type_resolved(&self) -> Type {
+        resolve_ffi_type(&self.self_ty, self.type_.clone(), true)
     }
 }
 
@@ -133,20 +133,21 @@ fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type, is_output: bool) ->
     parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'itm>>::Source}
 }
 
-pub struct FnDescriptor<'ast> {
+pub struct FnDescriptor {
     /// Resolved type of the `Self` type
-    pub self_ty: &'ast syn::Path,
+    pub self_ty: syn::Path,
 
     /// Function documentation
-    pub doc: syn::LitStr,
-    /// Name of the method in the original implementation
-    pub method_name: &'ast Ident,
+    pub doc: syn::Attribute,
+    /// Original signature of the method
+    pub sig: syn::Signature,
+
     /// Receiver argument, i.e. `self`
-    pub receiver: Option<Receiver<'ast>>,
+    pub receiver: Option<Receiver>,
     /// Input fn arguments
-    pub input_args: Vec<InputArg<'ast>>,
+    pub input_args: Vec<InputArg>,
     /// Output fn argument
-    pub output_arg: Option<ReturnArg<'ast>>,
+    pub output_arg: Option<ReturnArg>,
 }
 
 struct ImplVisitor<'ast> {
@@ -156,7 +157,7 @@ struct ImplVisitor<'ast> {
     /// Resolved type of the `Self` type
     self_ty: Option<&'ast syn::Path>,
     /// Collection of FFI functions
-    pub fns: Vec<FnDescriptor<'ast>>,
+    pub fns: Vec<FnDescriptor>,
 }
 
 struct FnVisitor<'ast> {
@@ -164,15 +165,16 @@ struct FnVisitor<'ast> {
     self_ty: &'ast syn::Path,
 
     /// Function documentation
-    doc: Option<syn::LitStr>,
-    /// Name of the method in the original implementation
-    method_name: Option<&'ast Ident>,
+    doc: Option<syn::Attribute>,
+    /// Original signature of the method
+    sig: Option<&'ast syn::Signature>,
+
     /// Receiver argument, i.e. `self`
-    receiver: Option<Receiver<'ast>>,
+    receiver: Option<Receiver>,
     /// Input fn arguments
-    input_args: Vec<InputArg<'ast>>,
+    input_args: Vec<InputArg>,
     /// Output fn argument
-    output_arg: Option<ReturnArg<'ast>>,
+    output_arg: Option<ReturnArg>,
 
     /// Name of the argument being visited
     curr_arg_name: Option<&'ast Ident>,
@@ -194,19 +196,21 @@ impl<'ast> ImplDescriptor<'ast> {
     }
 }
 
-impl<'ast> FnDescriptor<'ast> {
-    fn from_impl_method(self_ty: &'ast syn::Path, node: &'ast syn::ImplItemMethod) -> Self {
+impl FnDescriptor {
+    fn from_impl_method(self_ty: &syn::Path, node: &syn::ImplItemMethod) -> Self {
         let mut visitor = FnVisitor::new(self_ty);
 
         visitor.visit_impl_item_method(node);
         FnDescriptor::from_visitor(visitor)
     }
 
-    fn from_visitor(visitor: FnVisitor<'ast>) -> Self {
+    fn from_visitor(visitor: FnVisitor) -> Self {
         Self {
-            self_ty: visitor.self_ty,
-            doc: visitor.doc.expect_or_abort("Missing documentation"),
-            method_name: visitor.method_name.expect_or_abort("Defined"),
+            self_ty: visitor.self_ty.clone(),
+
+            doc: visitor.doc.expect_or_abort("Missing doc"),
+            sig: visitor.sig.expect_or_abort("Missing signature").clone(),
+
             receiver: visitor.receiver,
             input_args: visitor.input_args,
             output_arg: visitor.output_arg,
@@ -214,7 +218,7 @@ impl<'ast> FnDescriptor<'ast> {
     }
 
     pub fn self_ty_name(&self) -> &Ident {
-        get_ident(self.self_ty)
+        get_ident(&self.self_ty)
     }
 }
 
@@ -247,7 +251,8 @@ impl<'ast> FnVisitor<'ast> {
             self_ty,
 
             doc: None,
-            method_name: None,
+            sig: None,
+
             receiver: None,
             input_args: vec![],
             output_arg: None,
@@ -257,9 +262,12 @@ impl<'ast> FnVisitor<'ast> {
     }
 
     fn add_input_arg(&mut self, src_type: &'ast Type) {
-        let arg_name = self.curr_arg_name.take().expect_or_abort("Defined");
-        self.input_args
-            .push(InputArg::new(self.self_ty, arg_name, src_type));
+        let arg_name = self.curr_arg_name.take().expect_or_abort("Defined").clone();
+        self.input_args.push(InputArg::new(
+            self.self_ty.clone(),
+            arg_name,
+            src_type.clone(),
+        ));
     }
 
     /// Produces name of the return type. Name of the self argument is used for dummy
@@ -273,7 +281,8 @@ impl<'ast> FnVisitor<'ast> {
                 if matches!(self_src_ty, Type::Path(_)) {
                     // NOTE: `Self` is first consumed and then returned in the same method
                     let name = core::mem::replace(&mut receiver.name, parse_quote! {irrelevant});
-                    *receiver = Receiver::new(self.self_ty, name, parse_quote! {#self_src_ty});
+                    *receiver =
+                        Receiver::new(self.self_ty.clone(), name, parse_quote! {#self_src_ty});
                 }
 
                 return receiver.name.clone();
@@ -288,25 +297,10 @@ impl<'ast> FnVisitor<'ast> {
         assert!(self.output_arg.is_none());
 
         self.output_arg = Some(ReturnArg::new(
-            self.self_ty,
+            self.self_ty.clone(),
             self.gen_output_arg_name(src_type),
-            src_type,
+            src_type.clone(),
         ));
-    }
-
-    fn visit_impl_item_method_attribute(&mut self, node: &'ast syn::Attribute) {
-        if let Ok(meta) = node.parse_meta() {
-            if !meta.path().is_ident("doc") {
-                return;
-            }
-
-            self.doc = if let syn::Meta::NameValue(doc) = meta {
-                let lit = doc.lit;
-                Some(parse_quote! {#lit})
-            } else {
-                unreachable!()
-            };
-        }
     }
 }
 
@@ -345,13 +339,13 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
 
 impl<'ast> Visit<'ast> for FnVisitor<'ast> {
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
-        for attr in &node.attrs {
-            self.visit_impl_item_method_attribute(attr);
-        }
+        self.doc = find_doc_attr(&node.attrs).cloned();
+
         if !matches!(node.vis, syn::Visibility::Public(_)) {
             abort!(node.vis, "Methods defined in the impl block must be public");
         }
 
+        self.sig = Some(&node.sig);
         self.visit_signature(&node.sig);
     }
     fn visit_signature(&mut self, node: &'ast syn::Signature) {
@@ -367,7 +361,6 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         if node.abi.is_some() {
             abort!(node.abi, "Extern fn declarations not supported")
         }
-        self.method_name = Some(&node.ident);
         for fn_input_arg in &node.inputs {
             self.visit_fn_arg(fn_input_arg);
         }
@@ -403,7 +396,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         );
 
         let handle_name = Ident::new("__handle", Span::call_site());
-        self.receiver = Some(Receiver::new(self.self_ty, handle_name, src_type));
+        self.receiver = Some(Receiver::new(self.self_ty.clone(), handle_name, src_type));
     }
 
     fn visit_pat_type(&mut self, node: &'ast syn::PatType) {
@@ -445,6 +438,20 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
             }
         }
     }
+}
+
+pub fn find_doc_attr(attrs: &[syn::Attribute]) -> Option<&syn::Attribute> {
+    for attr in attrs {
+        if let Ok(meta) = attr.parse_meta() {
+            if !meta.path().is_ident("doc") {
+                continue;
+            }
+
+            return Some(attr);
+        }
+    }
+
+    None
 }
 
 /// Visitor replaces all occurrences of `Self` in a path type with a fully qualified type
@@ -541,4 +548,16 @@ pub fn unwrap_result_type(node: &Type) -> Option<&Type> {
     }
 
     None
+}
+
+pub fn ffi_output_arg(fn_descriptor: &FnDescriptor) -> Option<&crate::impl_visitor::ReturnArg> {
+    fn_descriptor.output_arg.as_ref().and_then(|output_arg| {
+        if let Some(receiver) = &fn_descriptor.receiver {
+            if receiver.name() == output_arg.name() {
+                return None;
+            }
+        }
+
+        Some(output_arg)
+    })
 }

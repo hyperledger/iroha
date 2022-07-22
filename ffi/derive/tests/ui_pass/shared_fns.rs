@@ -1,17 +1,19 @@
 use std::{cmp::Ordering, mem::MaybeUninit};
 
 use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, AsReprCRef, Handle, IntoFfi, TryFromFfi, TryFromReprC,
+    ffi, ffi_export, gen_ffi_impl, handles, AsReprCRef, Handle, IntoFfi, TryFromReprC,
 };
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct1 {
-    name: String,
-}
+ffi! {
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct FfiStruct1 {
+        name: String,
+    }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct2 {
-    name: String,
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct FfiStruct2 {
+        name: String,
+    }
 }
 
 handles! {0, FfiStruct1, FfiStruct2}

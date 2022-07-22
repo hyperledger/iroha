@@ -23,10 +23,9 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
-#[cfg(feature = "ffi")]
-use iroha_ffi::{IntoFfi, TryFromFfi};
+use iroha_ffi::ffi;
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_primitives::{fixed, small, small::SmallVec};
+use iroha_primitives::{fixed, small};
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
@@ -279,67 +278,68 @@ impl IdentifiableBox {
 /// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 
-/// Sized container for all possible values.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[allow(clippy::enum_variant_names)]
-#[repr(u8)]
-pub enum Value {
-    /// [`u32`] integer.
-    U32(u32),
-    /// [`u128`] integer.
-    U128(u128),
-    /// [`bool`] value.
-    Bool(bool),
-    /// [`String`] value.
-    String(String),
-    /// [`Name`] value.
-    Name(Name),
-    /// [`fixed::Fixed`] value
-    Fixed(fixed::Fixed),
-    /// [`Vec`] of `Value`.
-    Vec(
-        #[skip_from]
-        #[skip_try_from]
-        Vec<Value>,
-    ),
-    /// Recursive inclusion of LimitedMetadata,
-    LimitedMetadata(metadata::Metadata),
-    /// `Id` of `Asset`, `Account`, etc.
-    Id(IdBox),
-    /// `impl Identifiable` as in `Asset`, `Account` etc.
-    Identifiable(IdentifiableBox),
-    /// [`PublicKey`].
-    PublicKey(PublicKey),
-    /// Iroha [`Parameter`] variant.
-    Parameter(Parameter),
-    /// Signature check condition.
-    SignatureCheckCondition(SignatureCheckCondition),
-    /// Committed or rejected transactions
-    TransactionValue(TransactionValue),
-    /// Transaction Query
-    TransactionQueryResult(TransactionQueryResult),
-    /// [`PermissionToken`].
-    PermissionToken(PermissionToken),
-    /// [`struct@Hash`]
-    Hash(Hash),
-    /// Block
-    Block(BlockValueWrapper),
-    /// Block headers
-    BlockHeader(BlockHeaderValue),
+ffi! {
+    /// Sized container for all possible values.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        FromVariant,
+        IntoSchema,
+    )]
+    #[allow(clippy::enum_variant_names)]
+    #[repr(u8)]
+    pub enum Value {
+        /// [`u32`] integer.
+        U32(u32),
+        /// [`u128`] integer.
+        U128(u128),
+        /// [`bool`] value.
+        Bool(bool),
+        /// [`String`] value.
+        String(String),
+        /// [`Name`] value.
+        Name(Name),
+        /// [`fixed::Fixed`] value
+        Fixed(fixed::Fixed),
+        /// [`Vec`] of `Value`.
+        Vec(
+            #[skip_from]
+            #[skip_try_from]
+            Vec<Value>,
+        ),
+        /// Recursive inclusion of LimitedMetadata,
+        LimitedMetadata(metadata::Metadata),
+        /// `Id` of `Asset`, `Account`, etc.
+        Id(IdBox),
+        /// `impl Identifiable` as in `Asset`, `Account` etc.
+        Identifiable(IdentifiableBox),
+        /// [`PublicKey`].
+        PublicKey(PublicKey),
+        /// Iroha [`Parameter`] variant.
+        Parameter(Parameter),
+        /// Signature check condition.
+        SignatureCheckCondition(SignatureCheckCondition),
+        /// Committed or rejected transactions
+        TransactionValue(TransactionValue),
+        /// Transaction Query
+        TransactionQueryResult(TransactionQueryResult),
+        /// [`PermissionToken`].
+        PermissionToken(PermissionToken),
+        /// [`struct@Hash`]
+        Hash(Hash),
+        /// Block
+        Block(BlockValueWrapper),
+        /// Block headers
+        BlockHeader(BlockHeaderValue),
+    }
 }
 
 /// Cross-platform wrapper for `BlockValue`.
@@ -474,11 +474,11 @@ impl From<BlockValue> for Value {
     }
 }
 
-impl<A: small::Array> From<SmallVec<A>> for Value
+impl<A: small::Array> From<small::SmallVec<A>> for Value
 where
     A::Item: Into<Value>,
 {
-    fn from(sv: SmallVec<A>) -> Self {
+    fn from(sv: small::SmallVec<A>) -> Self {
         // This looks inefficient, but `Value` can only hold a
         // heap-allocated `Vec` (it's recursive) and the vector
         // conversions only do a heap allocation (if that).

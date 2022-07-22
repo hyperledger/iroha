@@ -13,8 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::Getters;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{ffi_export, ffi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -24,32 +23,19 @@ use crate::{Name, Value};
 /// Collection of [`PermissionToken`]s
 pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
-/// Stored proof of the account having a permission for a certain action.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[cfg_attr(feature = "ffi", ffi_export)]
-#[getset(get = "pub")]
-#[display(fmt = "{name}")]
-pub struct PermissionToken {
-    /// Name of the permission rule given to account.
-    name: Name,
-    /// Params identifying how this rule applies.
-    #[getset(skip)]
-    params: btree_map::BTreeMap<Name, Value>,
+ffi! {
+    /// Stored proof of the account having a permission for a certain action.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{name}")]
+    #[getset(get = "pub")]
+    #[ffi_export]
+    pub struct PermissionToken {
+        /// Name of the permission rule given to account.
+        name: Name,
+        /// Params identifying how this rule applies.
+        #[getset(skip)]
+        params: btree_map::BTreeMap<Name, Value>,
+    }
 }
 
 impl PermissionToken {
