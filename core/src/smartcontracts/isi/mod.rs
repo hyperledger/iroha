@@ -722,4 +722,65 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn executing_unregistered_trigger_should_return_error() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        let trigger_id = TriggerId::from_str("test_trigger_id")?;
+
+        assert!(matches!(
+            ExecuteTriggerBox::new(trigger_id)
+                .execute(account_id, &wsv)
+                .expect_err("Error expected"),
+            Error::Find(_)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        let fake_account_id = AccountId::from_str("fake@wonderland")?;
+        let trigger_id = TriggerId::from_str("test_trigger_id")?;
+
+        // register fake account
+        let (public_key, _) = KeyPair::generate()
+            .expect("Failed to generate KeyPair")
+            .into();
+        let register_account =
+            RegisterBox::new(Account::new(fake_account_id.clone(), [public_key]));
+        register_account.execute(account_id.clone(), &wsv)?;
+
+        // register the trigger
+        let register_trigger = RegisterBox::new(Trigger::new(
+            trigger_id.clone(),
+            Action::new(
+                Executable::from(Vec::new()),
+                Repeats::Indefinitely,
+                account_id.clone(),
+                FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                    trigger_id.clone(),
+                    account_id.clone(),
+                )),
+            ),
+        ));
+
+        register_trigger.execute(account_id.clone(), &wsv)?;
+
+        // execute with the valid account
+        ExecuteTriggerBox::new(trigger_id.clone()).execute(account_id, &wsv)?;
+
+        // execute with the fake account
+        assert!(matches!(
+            ExecuteTriggerBox::new(trigger_id)
+                .execute(fake_account_id, &wsv)
+                .expect_err("Error expected"),
+            Error::Validate(_)
+        ));
+
+        Ok(())
+    }
 }

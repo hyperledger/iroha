@@ -163,7 +163,7 @@ pub mod isi {
             let id = self.trigger_id;
 
             wsv.triggers()
-                .inspect_by_id(&id.clone(), |action| -> Result<(), Self::Error> {
+                .inspect_by_id(&id, |action| -> Result<(), Self::Error> {
                     let allow_execute =
                         if let FilterBox::ExecuteTrigger(filter) = action.clone_and_box().filter {
                             let event = ExecuteTriggerEvent::new(id.clone(), authority.clone());
