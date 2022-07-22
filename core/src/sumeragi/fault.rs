@@ -644,7 +644,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
         );
         for event in Vec::<Event>::from(&block) {
             trace!(?event);
-            drop(self.events_sender.send(event));
+            send_event(&self.events_sender, event);
         }
         let signed_block = block.sign(self.key_pair.clone())?;
         if !network_topology.is_consensus_required() {
@@ -723,7 +723,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
 
         for event in Vec::<Event>::from(&block) {
             trace!(?event);
-            drop(self.events_sender.send(event));
+            send_event(&self.events_sender, event);
         }
 
         let previous_role = self.topology.role(&self.peer_id);

@@ -491,7 +491,7 @@ where
     M::Result: Send,
 {
     async fn handle(self, sender: oneshot::Sender<M::Result>) {
-        drop(sender.send(self));
+        let _send_event_result = sender.send(self);
     }
 }
 

@@ -23,7 +23,7 @@ use super::{
 use crate::{
     block::BlockHeader,
     genesis::GenesisNetworkTrait,
-    queue,
+    queue, send_event,
     sumeragi::{NetworkMessage, Role, Sumeragi, Topology, VotingBlock},
     VersionedAcceptedTransaction, VersionedCommittedBlock, VersionedValidBlock,
 };
@@ -300,7 +300,7 @@ impl BlockCreated {
 
         for event in Vec::<Event>::from(&self.block) {
             trace!(?event);
-            drop(sumeragi.events_sender.send(event));
+            send_event(&sumeragi.events_sender, event);
         }
         sumeragi.update_view_changes(self.block.header().view_change_proofs.clone());
         let network_topology = sumeragi.network_topology_current_or_genesis(self.block.header());

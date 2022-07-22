@@ -20,6 +20,7 @@ use tokio::{sync::broadcast, task};
 use crate::{
     block::Chain,
     prelude::*,
+    send_event,
     smartcontracts::{
         isi::{query::Error as QueryError, Error},
         wasm, Execute, FindError,
@@ -276,7 +277,7 @@ impl WorldStateView {
 
     /// Send [`Event`]s to known subscribers.
     fn produce_event(&self, event: impl Into<Event>) {
-        let _result = self.events_sender.send(event.into());
+        send_event(&self.events_sender, event.into());
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.

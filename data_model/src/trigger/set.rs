@@ -11,7 +11,7 @@
 #![cfg(feature = "std")]
 #![allow(clippy::expect_used)]
 
-use std::{cmp::min, result::Result, sync::Arc};
+use std::{cmp::min, result::Result};
 
 use dashmap::DashMap;
 use tokio::{sync::RwLock, task};
@@ -406,22 +406,16 @@ impl Set {
         F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,
     {
-        let succeed = Arc::new(RwLock::new(Vec::new()));
-        let errors = Arc::new(RwLock::new(Vec::new()));
+        let mut succeed = Vec::new();
+        let mut errors = Vec::new();
 
-        let succeed_clone = Arc::clone(&succeed);
-        let errors_clone = Arc::clone(&errors);
-        let apply_f = move |id: Id, action: &dyn ActionTrait| {
+        let apply_f = move |action: &dyn ActionTrait| {
             if let Repeats::Exactly(atomic) = action.repeats() {
                 if atomic.get() == 0 {
-                    return;
+                    return None;
                 }
             }
-
-            match f(action) {
-                Ok(()) => task::block_in_place(|| succeed_clone.blocking_write()).push(id),
-                Err(err) => task::block_in_place(|| errors_clone.blocking_write()).push(err),
-            }
+            Some(f(action))
         };
 
         // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
@@ -432,54 +426,40 @@ impl Set {
             ids_clone
         };
         for (event_type, id) in matched_ids {
-            // Ignoring `None` variant cause this means that action was deleted after `handle_`
+            // Ignoring `None` variant because this means that action was deleted after `handle_*()`
             // call and before `inspect_matching()` call
-            let _ = match event_type {
+            let result = match event_type {
                 EventType::Data => self
                     .data_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(entry.value())),
                 EventType::Pipeline => self
                     .pipeline_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(entry.value())),
                 EventType::Time => self
                     .time_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(entry.value())),
                 EventType::ExecuteTrigger => self
                     .by_call_triggers
                     .get(&id)
-                    .map(|entry| apply_f(id, entry.value())),
+                    .map(|entry| apply_f(entry.value())),
+            };
+
+            match result.flatten() {
+                Some(Ok(_)) => succeed.push(id),
+                Some(Err(err)) => errors.push(err),
+                None => {}
             };
 
             task::yield_now().await;
         }
 
-        drop(apply_f);
-        let succeed = Self::unwrap_arc_lock(succeed);
-
-        if errors.read().await.is_empty() {
+        if errors.is_empty() {
             return (succeed, Ok(()));
         }
-
-        let errors = Self::unwrap_arc_lock(errors);
         (succeed, Err(errors))
-    }
-
-    /// Unwrap `a`
-    ///
-    /// # Panics
-    /// - If `Arc` has strong count > 1
-    #[allow(clippy::panic)]
-    fn unwrap_arc_lock<T>(a: Arc<RwLock<T>>) -> T {
-        // Match with panic cause can't use `expect()` due to
-        // error value not implementing `Display`
-        #[allow(clippy::match_wild_err_arm)]
-        match Arc::try_unwrap(a) {
-            Ok(lock) => lock.into_inner(),
-            Err(_) => panic!("`Arc` is has strong count > 1. This is a bug"),
-        }
     }
 
     /// Remove actions with zero execution count from `triggers`

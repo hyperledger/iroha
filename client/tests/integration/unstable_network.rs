@@ -57,7 +57,9 @@ fn unstable_network(
     polling_max_attempts: u32,
     polling_period: Duration,
 ) {
-    drop(iroha_logger::install_panic_hook());
+    if let Err(error) = iroha_logger::install_panic_hook() {
+        eprintln!("Installing panic hook failed: {error}");
+    }
     let rt = Runtime::test();
     // Given
     let (network, mut iroha_client) = rt.block_on(async {
