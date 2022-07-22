@@ -8,8 +8,8 @@ use core::borrow::Borrow;
 use std::collections::btree_map;
 
 use derive_more::Display;
-#[cfg(feature = "ffi_api")]
-use iroha_ffi::ffi_bindgen;
+#[cfg(feature = "ffi")]
+use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -80,14 +80,15 @@ impl Limits {
     Default,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     IntoSchema,
-    PartialOrd,
-    Ord,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "Metadata")]
@@ -98,7 +99,6 @@ pub struct Metadata {
 /// A path slice, composed of [`Name`]s.
 pub type Path = [Name];
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Metadata {
     /// Constructor.
     #[inline]

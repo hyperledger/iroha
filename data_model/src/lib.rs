@@ -23,6 +23,8 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
+#[cfg(feature = "ffi")]
+use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{fixed, small, small::SmallVec};
 use iroha_schema::{IntoSchema, MetaMap};
@@ -284,16 +286,18 @@ pub type ValueBox = Box<Value>;
     Clone,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     FromVariant,
     IntoSchema,
-    PartialOrd,
-    Ord,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::enum_variant_names)]
+#[repr(u8)]
 pub enum Value {
     /// [`u32`] integer.
     U32(u32),
@@ -790,8 +794,8 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(feature = "ffi_api")]
-mod ffi {
+#[cfg(feature = "ffi")]
+pub(crate) mod ffi {
     use iroha_ffi::{gen_ffi_impl, handles};
 
     use super::*;
@@ -804,13 +808,9 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
 
-    gen_ffi_impl! { Clone:
+    gen_ffi_impl! { pub Clone:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -818,12 +818,8 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
-    gen_ffi_impl! { Eq:
+    gen_ffi_impl! { pub Eq:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -831,22 +827,16 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
-    gen_ffi_impl! { Ord:
+    gen_ffi_impl! { pub Ord:
         account::Account,
         asset::Asset,
         domain::Domain,
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey
     }
-    gen_ffi_impl! { Drop:
+    gen_ffi_impl! { pub Drop:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -854,10 +844,6 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
 }
 

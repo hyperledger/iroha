@@ -40,7 +40,7 @@ pub struct BlockHeaderValue {
 
 impl PartialOrd for BlockHeaderValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.timestamp.cmp(&other.timestamp))
+        Some(self.cmp(other))
     }
 }
 
@@ -68,7 +68,7 @@ pub struct BlockValue {
 
 impl PartialOrd for BlockValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.header.cmp(&other.header))
+        Some(self.cmp(other))
     }
 }
 

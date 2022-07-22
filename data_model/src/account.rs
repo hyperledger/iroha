@@ -13,8 +13,8 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-#[cfg(feature = "ffi_api")]
-use iroha_ffi::ffi_bindgen;
+#[cfg(feature = "ffi")]
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -82,14 +82,15 @@ impl From<GenesisAccount> for Account {
     Clone,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     IntoSchema,
-    PartialOrd,
-    Ord,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
 impl SignatureCheckCondition {
@@ -128,6 +129,7 @@ impl Default for SignatureCheckCondition {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "[{id}]")]
 pub struct NewAccount {
     /// Identification
@@ -190,12 +192,12 @@ impl NewAccount {
     }
 
     /// Identification
-    pub fn id(&self) -> &<Account as Identifiable>::Id {
+    pub(crate) fn id(&self) -> &<Account as Identifiable>::Id {
         &self.id
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -221,9 +223,9 @@ impl NewAccount {
     Serialize,
     IntoSchema,
 )]
-#[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "({id})")] // TODO: Add more?
+#[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
@@ -234,7 +236,8 @@ pub struct Account {
     /// Permissions tokens of this account
     permission_tokens: Permissions,
     /// Condition which checks if the account has the right signatures.
-    #[cfg_attr(feature = "mutable_api", getset(get = "pub", set = "pub"))]
+    #[getset(get = "pub")]
+    #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
     signature_check_condition: SignatureCheckCondition,
     /// Metadata of this account as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
@@ -275,7 +278,7 @@ impl Ord for Account {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi", ffi_export)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
@@ -434,6 +437,7 @@ impl FromIterator<Account> for crate::Value {
     Serialize,
     IntoSchema,
 )]
+#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}@{domain_id}")]
 pub struct Id {
     /// [`Account`]'s name.

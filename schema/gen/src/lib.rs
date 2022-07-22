@@ -13,7 +13,7 @@ macro_rules! schemas {
     ($($t:ty),* $(,)?) => {{
         let mut out = MetaMap::new();
         $(<$t as IntoSchema>::schema(&mut out);)*
-            out
+        out
     }};
 }
 

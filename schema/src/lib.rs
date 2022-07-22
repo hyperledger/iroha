@@ -353,12 +353,9 @@ impl IntoSchema for core::time::Duration {
                 types: vec![u64::type_name(), u32::type_name()],
             })
         });
-        if !map.contains_key("u64") {
-            u64::schema(map);
-        }
-        if !map.contains_key("u32") {
-            u32::schema(map);
-        }
+
+        u32::schema(map);
+        u64::schema(map);
     }
 }
 
