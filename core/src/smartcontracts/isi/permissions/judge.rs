@@ -2,8 +2,6 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use derive_more::Display;
-
 use super::*;
 
 /// Boxed generic judge
@@ -47,9 +45,11 @@ pub trait Judge {
         wsv: &WorldStateView,
     ) -> Result<()>;
 
-    /// Display `judge` with given `name` instead of default detailed description
-    // TODO: Should we introduce `Display` as a supertrait?
-    fn display_as(&mut self, name: String);
+    /// Disable operation description in validation error message
+    ///
+    /// Useful when one judge is nested in the other judge and we don't want to
+    /// print operation description twice in the error message
+    fn no_display_operation(&mut self);
 
     /// Convert this object to a type implementing [`IsAllowed`] trait
     ///
@@ -59,7 +59,7 @@ pub trait Judge {
     where
         Self: Sized,
     {
-        JudgeAsValidator { judge: self }
+        JudgeAsValidator::new(self)
     }
 }
 
@@ -67,10 +67,36 @@ pub trait Judge {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug, Display)]
-#[display(fmt = "{}", judge)]
+#[derive(Debug)]
 pub struct JudgeAsValidator<O: NeedsPermission, J: Judge<Operation = O>> {
     judge: J,
+    name: Option<String>,
+}
+
+impl<O: NeedsPermission, J: Judge<Operation = O>> JudgeAsValidator<O, J> {
+    /// Create new [`JudgeAsValidator`] with given `judge`
+    #[inline]
+    fn new(judge: J) -> Self {
+        Self { judge, name: None }
+    }
+
+    /// Display `judge` with given `name` instead of default detailed description
+    #[must_use]
+    #[inline]
+    pub fn display_as(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+}
+
+impl<O: NeedsPermission, J: Judge<Operation = O> + Display> Display for JudgeAsValidator<O, J> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(name) = &self.name {
+            write!(f, "{}", name)
+        } else {
+            write!(f, "{}", self.judge)
+        }
+    }
 }
 
 impl<O: NeedsPermission, J: Judge<Operation = O> + Display> IsAllowed for JudgeAsValidator<O, J> {
@@ -95,7 +121,7 @@ impl<O: NeedsPermission, J: Judge<Operation = O> + Display> IsAllowed for JudgeA
 /// returned [`Allow`](ValidatorVerdict::Allow) verdict.
 pub struct AtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
-    name: Option<String>,
+    display_operation: bool,
 }
 
 impl<O: NeedsPermission> AtLeastOneAllow<O> {
@@ -103,17 +129,13 @@ impl<O: NeedsPermission> AtLeastOneAllow<O> {
     fn new(validators: Vec<IsOperationAllowedBoxed<O>>) -> Self {
         AtLeastOneAllow {
             validators,
-            name: None,
+            display_operation: true,
         }
     }
 }
 
 impl<O: NeedsPermission> Display for AtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            return write!(f, "{}", name);
-        }
-
         f.write_str("At least one allow in: [")?;
 
         let mut first = true;
@@ -153,12 +175,13 @@ impl<O: NeedsPermission + Display> Judge for AtLeastOneAllow<O> {
         }
 
         Err(format!(
-            "None of the validators has allowed operation `{operation}`: {messages:#?}",
+            "None of the validators has allowed the operation{}: {messages:#?}",
+            construct_operation_string(&operation, self.display_operation)
         ))
     }
 
-    fn display_as(&mut self, name: String) {
-        self.name = Some(name);
+    fn no_display_operation(&mut self) {
+        self.display_operation = false;
     }
 }
 
@@ -168,7 +191,7 @@ impl<O: NeedsPermission + Display> Judge for AtLeastOneAllow<O> {
 /// Iterates over all validators.
 pub struct NoDenies<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
-    name: Option<String>,
+    display_operation: bool,
 }
 
 impl<O: NeedsPermission> NoDenies<O> {
@@ -176,17 +199,13 @@ impl<O: NeedsPermission> NoDenies<O> {
     fn new(validators: Vec<IsOperationAllowedBoxed<O>>) -> Self {
         NoDenies {
             validators,
-            name: None,
+            display_operation: true,
         }
     }
 }
 
 impl<O: NeedsPermission> Display for NoDenies<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            return write!(f, "{}", name);
-        }
-
         f.write_str("No denies in: [")?;
 
         let mut first = true;
@@ -214,7 +233,8 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
         for validator in &self.validators {
             if let ValidatorVerdict::Deny(reason) = validator.check(authority, operation, wsv) {
                 return Err(format!(
-                    "Validator `{validator}` denied the operation `{operation}`: {reason}"
+                    "Validator `{validator}` denied the operation{}: {reason}",
+                    construct_operation_string(&operation, self.display_operation)
                 ));
             }
         }
@@ -222,8 +242,8 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
         Ok(())
     }
 
-    fn display_as(&mut self, name: String) {
-        self.name = Some(name);
+    fn no_display_operation(&mut self) {
+        self.display_operation = false;
     }
 }
 
@@ -235,7 +255,7 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
 /// all validators are checked.
 pub struct NoDeniesAndAtLeastOneAllow<O: NeedsPermission> {
     validators: Vec<IsOperationAllowedBoxed<O>>,
-    name: Option<String>,
+    display_operation: bool,
 }
 
 impl<O: NeedsPermission> NoDeniesAndAtLeastOneAllow<O> {
@@ -243,17 +263,13 @@ impl<O: NeedsPermission> NoDeniesAndAtLeastOneAllow<O> {
     fn new(validators: Vec<IsOperationAllowedBoxed<O>>) -> Self {
         NoDeniesAndAtLeastOneAllow {
             validators,
-            name: None,
+            display_operation: true,
         }
     }
 }
 
 impl<O: NeedsPermission> Display for NoDeniesAndAtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            return write!(f, "{}", name);
-        }
-
         f.write_str("No denies and at least one allow in: [")?;
 
         let mut first = true;
@@ -299,21 +315,22 @@ impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
             Ok(())
         } else {
             Err(format!(
-                "None of the validators has allowed operation `{operation}`: {messages:#?}",
+                "None of the validators has allowed operation{}: {messages:#?}",
+                construct_operation_string(&operation, self.display_operation)
             ))
         }
     }
 
-    fn display_as(&mut self, name: String) {
-        self.name = Some(name);
+    fn no_display_operation(&mut self) {
+        self.display_operation = false;
     }
 }
 
 /// All operations are allowed to be executed for all possible values.
 /// Mostly for tests and simple cases.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[display(fmt = "Allow all operations")]
 pub struct AllowAll<O: NeedsPermission> {
-    name: Option<String>,
     #[serde(skip_serializing, default)]
     _phantom_operation: PhantomData<O>,
 }
@@ -329,19 +346,8 @@ impl<O: NeedsPermission> AllowAll<O> {
 impl<O: NeedsPermission> Default for AllowAll<O> {
     fn default() -> Self {
         Self {
-            name: None,
             _phantom_operation: PhantomData,
         }
-    }
-}
-
-impl<O: NeedsPermission> Display for AllowAll<O> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            return write!(f, "{}", name);
-        }
-
-        f.write_str("Allow all operations")
     }
 }
 
@@ -357,16 +363,16 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
         Ok(())
     }
 
-    fn display_as(&mut self, name: String) {
-        self.name = Some(name);
+    fn no_display_operation(&mut self) {
+        // do nothing, cause `AllowAll` never displays operation
     }
 }
 
 /// All operations are disallowed to be executed for all possible
 /// values. Mostly for tests and simple cases.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Display, Clone, Serialize)]
+#[display(fmt = "Deny all operations")]
 pub struct DenyAll<O: NeedsPermission> {
-    name: Option<String>,
     #[serde(default, skip_serializing)]
     _phantom_operation: PhantomData<O>,
 }
@@ -382,19 +388,8 @@ impl<O: NeedsPermission> DenyAll<O> {
 impl<O: NeedsPermission> Default for DenyAll<O> {
     fn default() -> Self {
         Self {
-            name: None,
             _phantom_operation: PhantomData,
         }
-    }
-}
-
-impl<O: NeedsPermission> Display for DenyAll<O> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            return write!(f, "{}", name);
-        }
-
-        f.write_str("Deny all operations")
     }
 }
 
@@ -410,8 +405,16 @@ impl<O: NeedsPermission> Judge for DenyAll<O> {
         Err("All operations are denied.".to_owned())
     }
 
-    fn display_as(&mut self, name: String) {
-        self.name = Some(name);
+    fn no_display_operation(&mut self) {
+        // do nothing, cause `DenyAll` never displays operation
+    }
+}
+
+fn construct_operation_string<O: Display>(operation: &O, display_operation: bool) -> String {
+    if display_operation {
+        format!(" `{}`", operation)
+    } else {
+        String::new()
     }
 }
 
@@ -551,10 +554,13 @@ pub mod builder {
             WithValidators::new(self.judge.into_validator()).with_validator(validator)
         }
 
-        /// Display judge with the given `name` instead of default detailed description.
+        /// Disable operation description in validation error message
+        ///
+        /// Useful when one judge is nested in the other judge and we don't want to
+        /// print operation description twice in the error message
         #[inline]
-        pub fn display_as(mut self, name: String) -> Self {
-            self.judge.display_as(name);
+        pub fn no_display_operation(mut self) -> Self {
+            self.judge.no_display_operation();
             self
         }
     }
@@ -567,7 +573,8 @@ pub mod builder {
             + Sync
             + 'static,
     {
-        /// Add a validator to the list and wrap it with `CheckNested` to check nested permissions.
+        /// Add a validator to the list and wrap it with
+        /// [`CheckNested`] to check nested permissions.
         #[inline]
         pub fn with_recursive_validator<
             V: IsAllowed<Operation = Instruction> + Send + Sync + 'static,
