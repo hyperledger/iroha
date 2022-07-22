@@ -176,7 +176,7 @@ impl<O: NeedsPermission + Display> Judge for AtLeastOneAllow<O> {
 
         Err(format!(
             "None of the validators has allowed the operation{}: {messages:#?}",
-            construct_operation_string(&operation, self.display_operation)
+            construct_operation_string(&operation, self.display_operation, authority)
         ))
     }
 
@@ -234,7 +234,7 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
             if let ValidatorVerdict::Deny(reason) = validator.check(authority, operation, wsv) {
                 return Err(format!(
                     "Validator `{validator}` denied the operation{}: {reason}",
-                    construct_operation_string(&operation, self.display_operation)
+                    construct_operation_string(&operation, self.display_operation, authority)
                 ));
             }
         }
@@ -302,7 +302,8 @@ impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
                 ValidatorVerdict::Allow => allowed = true,
                 ValidatorVerdict::Deny(reason) => {
                     return Err(format!(
-                        "Validator `{validator}` denied the operation `{operation}`: {reason}"
+                        "Validator `{validator}` denied the operation{}: {reason}",
+                        construct_operation_string(&operation, self.display_operation, authority)
                     ));
                 }
                 ValidatorVerdict::Skip => {
@@ -316,7 +317,7 @@ impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
         } else {
             Err(format!(
                 "None of the validators has allowed operation{}: {messages:#?}",
-                construct_operation_string(&operation, self.display_operation)
+                construct_operation_string(&operation, self.display_operation, authority)
             ))
         }
     }
@@ -410,9 +411,16 @@ impl<O: NeedsPermission> Judge for DenyAll<O> {
     }
 }
 
-fn construct_operation_string<O: Display>(operation: &O, display_operation: bool) -> String {
+/// Create string with operation description and
+/// **leading** space if `display_operation` is `true`.
+/// Returns empty string if `display_operation` is `false`.
+fn construct_operation_string<O: Display>(
+    operation: &O,
+    display_operation: bool,
+    authority: &<Account as Identifiable>::Id,
+) -> String {
     if display_operation {
-        format!(" `{}`", operation)
+        format!(" `{}` by `{}`", operation, authority)
     } else {
         String::new()
     }
