@@ -6,8 +6,11 @@ use impl_visitor::ImplDescriptor;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::abort;
-use quote::quote;
-use syn::{parse_macro_input, parse_quote, Attribute, Ident, Item};
+use quote::{format_ident, quote};
+use syn::{
+    parse_macro_input, parse_quote, punctuated::Punctuated, token::Comma, Attribute, FnArg, Ident,
+    Item, ItemFn, ReturnType,
+};
 
 mod derive;
 mod export;
@@ -43,6 +46,25 @@ pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 #( #ffi_fns )*
             }
+        }
+        Item::Fn(item) => {
+            if item.sig.asyncness.is_some() {
+                abort!(item.sig.asyncness, "Async functions are not supported");
+            }
+
+            if item.sig.unsafety.is_some() {
+                abort!(item.sig.unsafety, "You shouldn't specify function unsafety");
+            }
+
+            if item.sig.abi.is_some() {
+                abort!(item.sig.unsafety, "You shouldn't specify function ABI");
+            }
+
+            if !item.sig.generics.params.is_empty() {
+                abort!(item.sig.generics, "Generics are not supported");
+            }
+
+            gen_ffi_fn_from_fn(item)
         }
         item => abort!(item, "Item not supported"),
     }
@@ -434,4 +456,47 @@ fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> TokenStream2 {
     } else {
         abort!(enum_name, "Enum doesn't have a valid representation")
     }
+}
+
+fn gen_ffi_fn_from_fn(item: ItemFn) -> TokenStream2 {
+    let signature = item.sig;
+    let ident = format_ident!("__{}", signature.ident);
+    let inputs: Punctuated<FnArg, Comma> =
+        signature.inputs.into_iter().map(gen_ffi_fn_arg).collect();
+    let output = gen_ffi_fn_output(signature.output);
+    let body = item.block;
+
+    let result = quote! {
+        #[no_mangle]
+        pub extern "C" fn #ident<'a>(#inputs) #output
+            #body
+    };
+    // println!("{}", result.to_string());
+
+    result
+}
+
+fn gen_ffi_fn_arg(arg: FnArg) -> FnArg {
+    let mut arg = match arg {
+        FnArg::Typed(arg) => arg,
+        _ => unreachable!(),
+    };
+
+    let ty = arg.ty;
+    let tokens: TokenStream = quote!(<#ty as iroha_ffi::TryFromReprC>::Source).into();
+    arg.ty = syn::parse::<Box<syn::Type>>(tokens).expect("Can't generate FFI type");
+
+    arg.into()
+}
+
+fn gen_ffi_fn_output(output: ReturnType) -> ReturnType {
+    let (arrow, ty) = match output {
+        ReturnType::Type(arrow, ty) => (arrow, ty),
+        ReturnType::Default => return output,
+    };
+
+    let ty = quote!(<#ty as iroha_ffi::IntoFfi>::Target).into();
+    let ty = syn::parse::<Box<syn::Type>>(ty).expect("Can't generate FFI type");
+
+    ReturnType::Type(arrow, ty)
 }
