@@ -7,8 +7,8 @@
 use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use config::Configuration;
 use iroha_actor::{broker::*, prelude::*};
+use iroha_config::iroha::Configuration;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
@@ -28,7 +28,6 @@ use tokio::{
 };
 use torii::Torii;
 
-pub mod config;
 mod event;
 pub mod samples;
 mod stream;
@@ -360,7 +359,7 @@ where
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-fn domains(configuration: &config::Configuration) -> [Domain; 1] {
+fn domains(configuration: &Configuration) -> [Domain; 1] {
     let key = configuration.genesis.account_public_key.clone();
     [Domain::from(GenesisDomain::new(key))]
 }

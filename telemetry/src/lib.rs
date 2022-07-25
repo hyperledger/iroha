@@ -1,6 +1,5 @@
 //! Crate with iroha telemetry processing
 
-mod config;
 #[cfg(feature = "dev-telemetry")]
 pub mod dev;
 pub mod futures;
@@ -8,7 +7,7 @@ pub mod metrics;
 mod retry_period;
 pub mod ws;
 
-pub use config::Configuration;
+pub use iroha_config::telemetry::Configuration;
 pub use iroha_telemetry_derive::metrics;
 
 pub mod msg {

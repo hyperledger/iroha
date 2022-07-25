@@ -2,7 +2,9 @@
 //! should be reserved for testing, and only [`NoFault`], should be
 //! used in code.
 
-use super::{config::SumeragiConfiguration, *};
+use iroha_config::sumeragi::Configuration;
+
+use super::*;
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {
@@ -92,7 +94,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiTrait for SumeragiWithFa
     type GenesisNetwork = G;
 
     fn from_configuration(
-        configuration: &SumeragiConfiguration,
+        configuration: &Configuration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView>,
         transaction_validator: TransactionValidator,

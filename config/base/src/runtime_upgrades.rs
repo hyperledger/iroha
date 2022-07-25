@@ -228,9 +228,9 @@ pub mod handle {
     /// # Examples
     /// ```ignore
     /// use serde::{Serialize, Deserialize};
-    /// use  iroha_config::runtime_upgrades::{handle::Value, Reload};
+    /// use  iroha_config_base::runtime_upgrades::{handle::Value, Reload};
     ///
-    /// #[derive(iroha_config::derive::Configurable, Serialize, Deserialize)]
+    /// #[derive(iroha_config_base::derive::Configurable, Serialize, Deserialize)]
     /// pub struct Config { option: Value<bool> }
     ///
     /// fn main() {

@@ -14,6 +14,7 @@ metric-instrumentation = []
 
 [dependencies]
 iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config" }
+iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model" }
 iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre-rc.5", path = "../futures", features = ["telemetry"] }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }

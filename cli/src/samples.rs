@@ -2,22 +2,19 @@
 //! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
 use std::{collections::HashSet, str::FromStr};
 
-use iroha_core::{
-    block_sync::config::BlockSyncConfiguration,
-    genesis::config::GenesisConfiguration,
-    kura::config::KuraConfiguration,
+use iroha_config::{
+    block_sync::Configuration as BlockSyncConfiguration,
+    genesis::Configuration as GenesisConfiguration,
+    iroha::Configuration,
+    kura::Configuration as KuraConfiguration,
     queue::Configuration as QueueConfiguration,
-    smartcontracts::wasm::config::Configuration as WasmConfiguration,
-    sumeragi::config::{SumeragiConfiguration, TrustedPeers},
-    wsv::config::Configuration as WsvConfiguration,
+    sumeragi::{Configuration as SumeragiConfiguration, TrustedPeers},
+    torii::{Configuration as ToriiConfiguration, DEFAULT_TORII_P2P_ADDR},
+    wasm::Configuration as WasmConfiguration,
+    wsv::Configuration as WsvConfiguration,
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::peer::Id as PeerId;
-
-use crate::{
-    config::Configuration,
-    torii::config::{ToriiConfiguration, DEFAULT_TORII_P2P_ADDR},
-};
 
 /// Get sample trusted peers. The public key must be the same as `configuration.public_key`
 ///
@@ -72,7 +69,7 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
         public_key: public_key.clone(),
         private_key: private_key.clone(),
         kura: KuraConfiguration {
-            init_mode: iroha_core::kura::Mode::Strict,
+            init_mode: iroha_config::kura::Mode::Strict,
             block_store_path: "./blocks".into(),
             ..KuraConfiguration::default()
         },

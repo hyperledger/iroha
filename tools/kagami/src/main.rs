@@ -6,7 +6,7 @@ use std::io::{stdout, BufWriter, Write};
 
 use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
-use iroha::config::Configuration;
+use iroha_config::iroha::Configuration;
 
 pub type Outcome = color_eyre::Result<()>;
 
@@ -203,7 +203,7 @@ mod docs {
     use std::{fmt::Debug, io::Write};
 
     use color_eyre::eyre::WrapErr as _;
-    use iroha_config::Configurable;
+    use iroha_config::base::Configurable;
     use serde_json::Value;
 
     use super::*;

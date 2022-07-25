@@ -54,7 +54,6 @@ pub mod query;
 pub mod role;
 pub mod transaction;
 pub mod trigger;
-pub mod uri;
 
 /// Error which occurs when parsing string into a data model entity
 #[derive(Debug, Display, Clone, Copy)]
@@ -863,7 +862,7 @@ pub mod prelude {
         peer::prelude::*,
         role::prelude::*,
         trigger::prelude::*,
-        uri, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
+        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
         PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
