@@ -17,7 +17,7 @@ permissions:
 ## This workflow is created for pull requests from forks and has less permissions than build-iroha1 workflow
 on:
   pull_request_target:
-    branches: [main, support/1.*, edge, develop]
+    branches: [main, support/1.*, edge, develop, fix/iroha-context-print]
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
@@ -31,12 +31,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -87,12 +83,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -186,12 +178,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -360,12 +348,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -643,12 +627,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -923,12 +903,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -948,12 +924,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1224,12 +1196,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1337,12 +1305,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1510,12 +1474,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echo $JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
