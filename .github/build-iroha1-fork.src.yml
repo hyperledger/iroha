@@ -34,12 +34,8 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq
+          echor JSON_needs | jq
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
