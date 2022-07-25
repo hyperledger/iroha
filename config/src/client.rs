@@ -1,13 +1,15 @@
+//! Module for client-related configuration and structs
 use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use derive_more::Display;
 use eyre::{eyre, Result, WrapErr};
-use iroha_config::derive::Configurable;
+use iroha_config_base::derive::Configurable;
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
-use iroha_logger::Configuration as LoggerConfiguration;
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
+
+use crate::torii::uri;
 
 const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
@@ -82,13 +84,13 @@ pub struct Configuration {
     pub transaction_time_to_live_ms: u64,
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
-    /// Limits to which transactions must adhere to
+    /// The limits to which transactions must adhere to
     pub transaction_limits: TransactionLimits,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,
     /// `Logger` configuration.
     #[config(inner)]
-    pub logger_configuration: LoggerConfiguration,
+    pub logger_configuration: crate::logger::Configuration,
 }
 
 impl Default for Configuration {
@@ -109,7 +111,7 @@ impl Default for Configuration {
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
             },
             add_transaction_nonce: DEFAULT_ADD_TRANSACTION_NONCE,
-            logger_configuration: LoggerConfiguration::default(),
+            logger_configuration: crate::logger::Configuration::default(),
         }
     }
 }

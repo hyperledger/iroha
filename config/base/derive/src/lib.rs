@@ -3,11 +3,11 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_error::{abort, abort_call_site};
-use quote::quote;
+use quote::{format_ident, quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
-    Data, DataStruct, DeriveInput, Fields, GenericArgument, Ident, Lit, LitStr, Meta,
-    PathArguments, Token, Type, TypePath,
+    Attribute, Data, DataStruct, DeriveInput, Field, Fields, GenericArgument, Ident, Lit, LitStr,
+    Meta, NestedMeta, PathArguments, Token, Type, TypePath,
 };
 
 struct EnvPrefix {
@@ -99,7 +99,7 @@ impl Parse for SerdeAsStr {
     }
 }
 
-/// Derive for config. Check other doc in `iroha_config` reexport
+/// Derive for config. More details in `iroha_config_base` reexport
 #[proc_macro_derive(Configurable, attributes(config))]
 pub fn configurable_derive(input: TokenStream) -> TokenStream {
     let ast = match syn::parse(input) {
@@ -135,12 +135,12 @@ fn impl_load_env(
             } else if as_str_attr {
                 quote! {
                     #l_value = serde_json::from_value(var.into())
-                        .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
             } else {
                 quote! {
                     #l_value = serde_json::from_str(&var)
-                        .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
             };
             (set_field, l_value)
@@ -166,7 +166,7 @@ fn impl_load_env(
     quote! {
         fn load_environment(
             &'_ mut self
-        ) -> core::result::Result<(), iroha_config::derive::Error> {
+        ) -> core::result::Result<(), iroha_config_base::derive::Error> {
             #(#set_field)*
             Ok(())
         }
@@ -183,9 +183,9 @@ fn impl_get_doc_recursive(
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
-            ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
+            ) -> core::result::Result<std::option::Option<String>, iroha_config_base::derive::Error>
             {
-                Err(iroha_config::derive::Error::UnknownField(
+                Err(iroha_config_base::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
                 ))
             }
@@ -201,11 +201,11 @@ fn impl_get_doc_recursive(
                 quote! {
                     [stringify!(#ident)] => {
                         let curr_doc = #documentation;
-                        let inner_docs = <#ty as iroha_config::Configurable>::get_inner_docs();
+                        let inner_docs = <#ty as iroha_config_base::Configurable>::get_inner_docs();
                         let total_docs = format!("{}\n\nHas following fields:\n\n{}\n", curr_doc, inner_docs);
                         Some(total_docs)
                     },
-                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config::Configurable>::get_doc_recursive(rest)?,
+                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config_base::Configurable>::get_doc_recursive(rest)?,
                 }
             } else {
                 quote! { [stringify!(#ident)] => Some(#documentation.to_owned()), }
@@ -218,12 +218,12 @@ fn impl_get_doc_recursive(
     quote! {
         fn get_doc_recursive<'a>(
             inner_field: impl AsRef<[&'a str]>,
-        ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
+        ) -> core::result::Result<std::option::Option<String>, iroha_config_base::derive::Error>
         {
             let inner_field = inner_field.as_ref();
             let doc = match inner_field {
                 #variants
-                field => return Err(iroha_config::derive::Error::UnknownField(
+                field => return Err(iroha_config_base::derive::Error::UnknownField(
                     field.iter().map(ToString::to_string).collect()
                 )),
             };
@@ -245,7 +245,7 @@ fn impl_get_inner_docs(
         .zip(field_ty)
         .map(|(((ident, inner_thing), documentation), ty)| {
             let doc = if inner_thing {
-                quote!{ <#ty as iroha_config::Configurable>::get_inner_docs().as_str() }
+                quote!{ <#ty as iroha_config_base::Configurable>::get_inner_docs().as_str() }
             } else {
                 quote!{ #documentation.into() }
             };
@@ -283,7 +283,7 @@ fn impl_get_docs(
         .zip(field_ty)
         .map(|(((ident, inner_thing), documentation), ty)| {
             let doc = if inner_thing {
-                quote!{ <#ty as iroha_config::Configurable>::get_docs().into() }
+                quote!{ <#ty as iroha_config_base::Configurable>::get_docs().into() }
             } else {
                 quote!{ #documentation.into() }
             };
@@ -313,11 +313,11 @@ fn impl_get_recursive(
             fn get_recursive<'a, T>(
                 &self,
                 inner_field: T,
-            ) -> iroha_config::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
+            ) -> iroha_config_base::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
             where
                 T: AsRef<[&'a str]> + Send + 'a,
             {
-                Err(iroha_config::derive::Error::UnknownField(
+                Err(iroha_config_base::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
                 ))
             }
@@ -340,7 +340,7 @@ fn impl_get_recursive(
             quote! {
                 [stringify!(#ident)] => {
                     serde_json::to_value(&#l_value)
-                        .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
                 #inner_thing2
             }
@@ -360,7 +360,7 @@ fn impl_get_recursive(
             let inner_field = inner_field.as_ref();
             let value = match inner_field {
                 #variants
-                field => return Err(iroha_config::derive::Error::UnknownField(
+                field => return Err(iroha_config_base::derive::Error::UnknownField(
                     field.iter().map(ToString::to_string).collect()
                 )),
             };
@@ -488,8 +488,8 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     let get_docs = impl_get_docs(&field_ty, &field_idents, inner, docs);
 
     let out = quote! {
-        impl iroha_config::Configurable for #name {
-            type Error = iroha_config::derive::Error;
+        impl iroha_config_base::Configurable for #name {
+            type Error = iroha_config_base::derive::Error;
 
             #get_recursive
             #get_doc_recursive
@@ -499,4 +499,337 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
         }
     };
     out.into()
+}
+
+// Take struct with named fields as input
+#[derive(Debug, Clone)]
+struct ViewInput {
+    attrs: Vec<Attribute>,
+    vis: syn::Visibility,
+    _struct_token: Token![struct],
+    ident: Ident,
+    generics: syn::Generics,
+    fields: Vec<Field>,
+    _semi_token: Option<Token![;]>,
+}
+
+impl Parse for ViewInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            attrs: input.call(Attribute::parse_outer)?,
+            vis: input.parse()?,
+            _struct_token: input.parse()?,
+            ident: input.parse()?,
+            generics: input.parse()?,
+            fields: input
+                .parse::<syn::FieldsNamed>()?
+                .named
+                .into_iter()
+                .collect(),
+            _semi_token: input.parse()?,
+        })
+    }
+}
+
+// Recreate struct
+impl ToTokens for ViewInput {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let ViewInput {
+            attrs,
+            vis,
+            ident,
+            generics,
+            fields,
+            ..
+        } = self;
+        let stream = quote! {
+            #(#attrs)*
+            #vis struct #ident #generics {
+                #(#fields),*
+            }
+        };
+        tokens.extend(stream);
+    }
+}
+
+/// Keywords used inside `#[view(...)]`
+mod kw {
+    syn::custom_keyword!(ignore);
+    syn::custom_keyword!(into);
+}
+
+/// Structure to parse `#[view(...)]` attributes
+/// [`Inner`] is responsible for parsing attribute arguments
+struct View<Inner: Parse>(std::marker::PhantomData<Inner>);
+
+impl<Inner: Parse> View<Inner> {
+    fn parse(attr: &Attribute) -> syn::Result<Inner> {
+        attr.path
+            .is_ident("view")
+            .then(|| attr.parse_args::<Inner>())
+            .map_or_else(
+                || {
+                    Err(syn::Error::new_spanned(
+                        attr,
+                        "Attribute must be in form #[view...]",
+                    ))
+                },
+                |inner| inner,
+            )
+    }
+}
+
+struct ViewIgnore {
+    _kw: kw::ignore,
+}
+
+impl Parse for ViewIgnore {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _kw: input.parse()?,
+        })
+    }
+}
+
+struct ViewFieldType {
+    _kw: kw::into,
+    _eq: Token![=],
+    ty: Type,
+}
+
+impl Parse for ViewFieldType {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _kw: input.parse()?,
+            _eq: input.parse()?,
+            ty: input.parse()?,
+        })
+    }
+}
+
+impl From<ViewFieldType> for Type {
+    fn from(value: ViewFieldType) -> Self {
+        value.ty
+    }
+}
+
+/// Generate view for given struct and convert from type to its view.
+/// More details in `iroha_config_base` reexport.
+#[proc_macro]
+pub fn view(input: TokenStream) -> TokenStream {
+    let ast = syn::parse_macro_input!(input as ViewInput);
+    let original = gen_original_struct(ast.clone());
+    let view = gen_view_struct(ast);
+    let impl_from = gen_impl_from(&original, &view);
+    let impl_default = gen_impl_default(&original, &view);
+    let impl_has_view = gen_impl_has_view(&original);
+    let assertions = gen_assertions(&view);
+    let out = quote! {
+        #original
+        #impl_has_view
+        #view
+        #impl_from
+        #impl_default
+        #assertions
+    };
+    out.into()
+}
+
+fn gen_original_struct(mut ast: ViewInput) -> ViewInput {
+    remove_attr_struct(&mut ast, "view");
+    ast
+}
+
+#[allow(clippy::str_to_string, clippy::expect_used)]
+fn gen_view_struct(mut ast: ViewInput) -> ViewInput {
+    // Remove fields with #[view(ignore)]
+    ast.fields.retain(is_view_field_ignored);
+    // Change field type to `Type` if it has attribute #[view(into = Type)]
+    ast.fields.iter_mut().for_each(view_field_change_type);
+    // Replace doc-string for view
+    remove_attr(&mut ast.attrs, "doc");
+    let view_doc = format!("View for {}", ast.ident);
+    ast.attrs.push(syn::parse_quote!(
+        #[doc = #view_doc]
+    ));
+    // Remove `Default` from #[derive(..., Default, ...)] or #[derive(Default)] because we implement `Default` inside macro
+    ast.attrs
+        .iter_mut()
+        .filter(|attr| attr.path.is_ident("derive"))
+        .for_each(|attr| {
+            let meta = attr
+                .parse_meta()
+                .expect("derive macro must be in one of the meta forms");
+            match meta {
+                Meta::List(list) => {
+                    let items: Vec<syn::NestedMeta> = list
+                        .nested
+                        .into_iter()
+                        .filter(|nested| {
+                            if let NestedMeta::Meta(Meta::Path(path)) = nested {
+                                if path.is_ident("Default") {
+                                    return false;
+                                }
+                            }
+                            true
+                        })
+                        .collect();
+                    *attr = syn::parse_quote!(
+                        #[derive(#(#items),*)]
+                    )
+                }
+                Meta::Path(path) if path.is_ident("Default") => {
+                    *attr = syn::parse_quote!(
+                        #[derive()]
+                    )
+                }
+                _ => {}
+            }
+        });
+    remove_attr_struct(&mut ast, "view");
+    ast.ident = format_ident!("{}View", ast.ident);
+    ast
+}
+
+fn gen_impl_from(original: &ViewInput, view: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput {
+        ident: original_ident,
+        ..
+    } = original;
+    let ViewInput {
+        generics,
+        ident: view_ident,
+        fields,
+        ..
+    } = view;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let field_idents = extract_field_idents(fields);
+
+    quote! {
+        impl #impl_generics core::convert::From<#original_ident> for #view_ident #ty_generics #where_clause {
+            fn from(config: #original_ident) -> Self {
+                let #original_ident {
+                    #(
+                        #field_idents,
+                    )*
+                    ..
+                } =  config;
+                Self {
+                    #(
+                        #field_idents: core::convert::From::<_>::from(#field_idents),
+                    )*
+                }
+            }
+        }
+    }
+}
+
+fn gen_impl_default(original: &ViewInput, view: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput {
+        ident: original_ident,
+        ..
+    } = original;
+    let ViewInput {
+        generics,
+        ident: view_ident,
+        ..
+    } = view;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics core::default::Default for #view_ident #ty_generics #where_clause {
+            fn default() -> Self {
+                core::convert::From::<_>::from(<#original_ident as core::default::Default>::default())
+            }
+        }
+    }
+}
+
+fn gen_impl_has_view(original: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput {
+        generics,
+        ident: view_ident,
+        ..
+    } = original;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics iroha_config_base::view::HasView for #view_ident #ty_generics #where_clause {}
+    }
+}
+
+fn gen_assertions(view: &ViewInput) -> proc_macro2::TokenStream {
+    let ViewInput { fields, .. } = view;
+    let field_types = extract_field_types(fields);
+    let messages: Vec<String> = extract_field_idents(fields)
+        .iter()
+        .map(|ident| {
+            format!("Field `{ident}` has it's own view, consider adding attribute #[view(into = ViewType)]")
+        })
+        .collect();
+    quote! {
+        /// Assert that every field of 'View' doesn't implement `HasView` trait
+        const _: () = {
+            use iroha_config_base::view::NoView;
+            #(
+                const _: () = assert!(!iroha_config_base::view::IsHasView::<#field_types>::IS_HAS_VIEW, #messages);
+            )*
+        };
+    }
+}
+
+/// Change [`Field`] type to `Type` if `#[view(type = Type)]` is present
+fn view_field_change_type(field: &mut Field) {
+    if let Some(ty) = field
+        .attrs
+        .iter()
+        .map(View::<ViewFieldType>::parse)
+        .find_map(Result::ok)
+        .map(ViewFieldType::into)
+    {
+        field.ty = ty;
+    }
+}
+
+/// Check if [`Field`] has `#[view(ignore)]`
+fn is_view_field_ignored(field: &Field) -> bool {
+    field
+        .attrs
+        .iter()
+        .map(View::<ViewIgnore>::parse)
+        .find_map(Result::ok)
+        .is_none()
+}
+
+/// Remove attributes with ident [`attr_ident`] from struct attributes and field attributes
+fn remove_attr_struct(ast: &mut ViewInput, attr_ident: &str) {
+    let ViewInput { attrs, fields, .. } = ast;
+    for field in fields {
+        remove_attr(&mut field.attrs, attr_ident)
+    }
+    remove_attr(attrs, attr_ident);
+}
+
+/// Remove attributes with ident [`attr_ident`] from attributes
+fn remove_attr(attrs: &mut Vec<Attribute>, attr_ident: &str) {
+    attrs.retain(|attr| !attr.path.is_ident(attr_ident));
+}
+
+/// Return [`Vec`] of fields idents
+fn extract_field_idents(fields: &[Field]) -> Vec<&Ident> {
+    fields
+        .iter()
+        .map(|field| {
+            #[allow(clippy::expect_used)]
+            field
+                .ident
+                .as_ref()
+                .expect("Should always be set for named structures")
+        })
+        .collect::<Vec<_>>()
+}
+
+/// Return [`Vec`] of fields types
+fn extract_field_types(fields: &[Field]) -> Vec<&Type> {
+    fields.iter().map(|field| &field.ty).collect::<Vec<_>>()
 }

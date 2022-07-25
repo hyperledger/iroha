@@ -2,10 +2,8 @@
 
 use std::{str::FromStr as _, thread, time::Duration};
 
-use iroha_client::{
-    client::{self, Client},
-    config::Configuration as ClientConfiguration,
-};
+use iroha_client::client::{self, Client};
+use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_core::prelude::*;
 use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
 use iroha_primitives::small::SmallStr;

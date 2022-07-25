@@ -1800,6 +1800,7 @@ dependencies = [
  "color-eyre",
  "dialoguer",
  "iroha_client",
+ "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
  "serde_json",
@@ -1807,6 +1808,25 @@ dependencies = [
 
 [[package]]
 name = "iroha_config"
+version = "2.0.0-pre-rc.5"
+dependencies = [
+ "crossbeam",
+ "derive_more",
+ "eyre",
+ "iroha_config_base",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_primitives",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber 0.3.11",
+ "url",
+]
+
+[[package]]
+name = "iroha_config_base"
 version = "2.0.0-pre-rc.5"
 dependencies = [
  "crossbeam",
@@ -1988,6 +2008,7 @@ dependencies = [
  "color-eyre",
  "derive_more",
  "iroha_config",
+ "iroha_data_model",
  "once_cell",
  "serde",
  "serde_json",
@@ -2104,6 +2125,7 @@ dependencies = [
  "eyre",
  "futures",
  "iroha_config",
+ "iroha_data_model",
  "iroha_futures",
  "iroha_logger",
  "iroha_telemetry_derive",
@@ -2226,7 +2248,6 @@ version = "2.0.0-pre-rc.5"
 dependencies = [
  "clap 3.1.18",
  "color-eyre",
- "iroha",
  "iroha_config",
  "iroha_core",
  "iroha_crypto",
@@ -3630,6 +3651,7 @@ dependencies = [
  "iroha",
  "iroha_actor",
  "iroha_client",
+ "iroha_config",
  "iroha_core",
  "iroha_data_model",
  "iroha_logger",

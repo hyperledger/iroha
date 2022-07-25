@@ -1,11 +1,8 @@
-#[cfg(feature = "dev-telemetry")]
-use std::path::PathBuf;
+//! Module for telemetry-related configuration and structs.
 
-use iroha_config::derive::Configurable;
+use iroha_config_base::derive::Configurable;
 use serde::{Deserialize, Serialize};
 use url::Url;
-
-use crate::retry_period::RetryPeriod;
 
 /// Configuration parameters container
 #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -26,9 +23,8 @@ pub struct Configuration {
     #[serde(default = "default_max_retry_delay_exponent")]
     pub max_retry_delay_exponent: u8,
     /// The filepath that to write dev-telemetry to
-    #[cfg(feature = "dev-telemetry")]
     #[config(serde_as_str)]
-    pub file: Option<PathBuf>,
+    pub file: Option<std::path::PathBuf>,
 }
 
 impl Default for Configuration {
@@ -36,18 +32,25 @@ impl Default for Configuration {
         Self {
             name: None,
             url: None,
-            min_retry_period: RetryPeriod::DEFAULT_MIN_RETRY_PERIOD,
-            max_retry_delay_exponent: RetryPeriod::DEFAULT_MAX_RETRY_DELAY_EXPONENT,
-            #[cfg(feature = "dev-telemetry")]
+            min_retry_period: retry_period::DEFAULT_MIN_RETRY_PERIOD,
+            max_retry_delay_exponent: retry_period::DEFAULT_MAX_RETRY_DELAY_EXPONENT,
             file: None,
         }
     }
 }
 
 const fn default_min_retry_period() -> u64 {
-    RetryPeriod::DEFAULT_MIN_RETRY_PERIOD
+    retry_period::DEFAULT_MIN_RETRY_PERIOD
 }
 
 const fn default_max_retry_delay_exponent() -> u8 {
-    RetryPeriod::DEFAULT_MAX_RETRY_DELAY_EXPONENT
+    retry_period::DEFAULT_MAX_RETRY_DELAY_EXPONENT
+}
+
+/// `RetryPeriod` configuration
+pub mod retry_period {
+    /// Default minimal retry period
+    pub const DEFAULT_MIN_RETRY_PERIOD: u64 = 1;
+    /// Default maximum exponent for the retry delay
+    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = 4;
 }

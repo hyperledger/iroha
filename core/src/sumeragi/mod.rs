@@ -12,6 +12,7 @@ use std::{
 
 use eyre::{eyre, Result};
 use iroha_actor::{broker::*, prelude::*, Context};
+use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
@@ -19,7 +20,6 @@ use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use network_topology::{Role, Topology};
 use rand::prelude::SliceRandom;
 
-pub mod config;
 pub mod fault;
 pub mod message;
 pub mod network_topology;
@@ -73,7 +73,7 @@ pub trait SumeragiTrait:
     /// Can fail during initing network topology
     #[allow(clippy::too_many_arguments)]
     fn from_configuration(
-        configuration: &config::SumeragiConfiguration,
+        configuration: &Configuration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView>,
         transaction_validator: TransactionValidator,

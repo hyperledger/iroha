@@ -12,10 +12,10 @@ use std::{
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use iroha_actor::broker::*;
+use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::HashOf;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::{block::VersionedCommittedBlock, block_sync::ContinueSync, prelude::*, sumeragi};
@@ -87,7 +87,7 @@ impl Kura {
     /// to access the block store indicated by the
     /// path in the configuration.
     pub fn from_configuration(
-        configuration: &config::KuraConfiguration,
+        configuration: &Configuration,
         wsv: Arc<WorldStateView>,
         broker: Broker,
     ) -> Result<Arc<Self>> {
@@ -520,22 +520,6 @@ impl BlockStoreTrait for StdFileBlockStore {
     }
 }
 
-/// Kura work mode.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    /// Strict validation of all blocks.
-    Strict,
-    /// Fast initialization with basic checks.
-    Fast,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Strict
-    }
-}
-
 type Result<T, E = Error> = std::result::Result<T, E>;
 /// Error variants for persistent storage logic
 #[derive(thiserror::Error, Debug)]
@@ -553,80 +537,6 @@ pub enum Error {
     /// The block store tried reading data beyond the end of the block data file.
     #[error("Tried reading block data read out of bounds: {0}, {1}.")]
     OutOfBoundsBlockRead(u64, u64),
-}
-
-/// This module contains all configuration related logic.
-pub mod config {
-    use std::{num::NonZeroU64, path::Path};
-
-    use eyre::{eyre, Result};
-    use iroha_config::derive::Configurable;
-    use serde::{Deserialize, Serialize};
-
-    use super::Mode;
-
-    const DEFAULT_BLOCKS_PER_STORAGE_FILE: u64 = 1000_u64;
-    const DEFAULT_BLOCK_STORE_PATH: &str = "./blocks";
-    const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
-
-    /// Configuration of kura
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
-    #[serde(rename_all = "UPPERCASE")]
-    #[config(env_prefix = "KURA_")]
-    pub struct KuraConfiguration {
-        /// Possible modes: `strict`, `fast`.
-        #[serde(default)]
-        pub init_mode: Mode,
-        /// Path to the existing block store folder or path to create new folder.
-        #[serde(default = "default_block_store_path")]
-        pub block_store_path: String,
-        /// Maximum number of blocks to write into single storage file
-        #[serde(default = "default_blocks_per_storage_file")]
-        pub blocks_per_storage_file: NonZeroU64,
-        /// Default buffer capacity of actor's MPSC channel
-        #[serde(default = "default_actor_channel_capacity")]
-        pub actor_channel_capacity: u32,
-    }
-
-    impl Default for KuraConfiguration {
-        fn default() -> Self {
-            Self {
-                init_mode: Mode::default(),
-                block_store_path: default_block_store_path(),
-                blocks_per_storage_file: default_blocks_per_storage_file(),
-                actor_channel_capacity: default_actor_channel_capacity(),
-            }
-        }
-    }
-
-    impl KuraConfiguration {
-        /// Set `block_store_path` configuration parameter - will overwrite the existing one.
-        ///
-        /// # Errors
-        /// If path is not valid this method will fail.
-        pub fn block_store_path(&mut self, path: &Path) -> Result<()> {
-            self.block_store_path = path
-                .to_str()
-                .ok_or_else(|| eyre!("Failed to yield slice from path"))?
-                .to_owned();
-            Ok(())
-        }
-    }
-
-    fn default_block_store_path() -> String {
-        DEFAULT_BLOCK_STORE_PATH.to_owned()
-    }
-
-    fn default_blocks_per_storage_file() -> NonZeroU64 {
-        #![allow(clippy::expect_used)]
-        NonZeroU64::new(DEFAULT_BLOCKS_PER_STORAGE_FILE).expect(
-            "Default BLOCKS_PER_STORAGE value is set to non-positive value. This must not happen",
-        )
-    }
-
-    const fn default_actor_channel_capacity() -> u32 {
-        DEFAULT_ACTOR_CHANNEL_CAPACITY
-    }
 }
 
 #[allow(clippy::unwrap_used)]

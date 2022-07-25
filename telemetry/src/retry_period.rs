@@ -1,4 +1,8 @@
 /// Encapsulates the retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
+use iroha_config::telemetry::retry_period::{
+    DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
+};
+
 pub struct RetryPeriod {
     /// The minimum period
     min_period: u64,
@@ -9,8 +13,8 @@ pub struct RetryPeriod {
 }
 
 impl RetryPeriod {
-    pub const DEFAULT_MIN_RETRY_PERIOD: u64 = 1;
-    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = 4;
+    pub const DEFAULT_MIN_RETRY_PERIOD: u64 = DEFAULT_MIN_RETRY_PERIOD;
+    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = DEFAULT_MAX_RETRY_DELAY_EXPONENT;
 
     /// Constructs a new object
     pub const fn new(min_period: u64, max_exponent: u8) -> Self {

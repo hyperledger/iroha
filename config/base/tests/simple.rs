@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use iroha_config::{derive::Configurable, Configurable};
+use iroha_config_base::{derive::Configurable, Configurable};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Configurable)]

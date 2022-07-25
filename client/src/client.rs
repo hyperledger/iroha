@@ -7,7 +7,7 @@ use std::{
 use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use http_default::WebSocketStream;
-use iroha_config::{GetConfiguration, PostConfiguration};
+use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRequest};
@@ -20,7 +20,6 @@ use rand::Rng;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    config::Configuration,
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
@@ -248,7 +247,7 @@ pub struct Client {
     torii_url: SmallStr,
     /// Url to report status for administration
     telemetry_url: SmallStr,
-    /// Limits to which transactions must adhere to
+    /// The limits to which transactions must adhere to
     transaction_limits: TransactionLimits,
     /// Accounts keypair
     key_pair: KeyPair,
@@ -1222,8 +1221,9 @@ mod tests {
     #![allow(clippy::restriction)]
     use std::str::FromStr;
 
+    use iroha_config::client::{BasicAuth, WebLogin};
+
     use super::*;
-    use crate::config::{BasicAuth, WebLogin};
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";

@@ -7,15 +7,19 @@ use std::{collections::HashMap, sync::Arc, thread};
 
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha::{config::Configuration, torii::config::ToriiConfiguration, Iroha};
+use iroha::Iroha;
 use iroha_actor::{broker::*, prelude::*};
-use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
+use iroha_client::client::Client;
+use iroha_config::{
+    client::Configuration as ClientConfiguration, iroha::Configuration,
+    sumeragi::Configuration as SumeragiConfiguration, torii::Configuration as ToriiConfiguration,
+};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
     smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
-    sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
+    sumeragi::{Sumeragi, SumeragiTrait},
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
