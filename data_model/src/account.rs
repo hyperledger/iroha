@@ -13,6 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
@@ -127,10 +128,11 @@ impl Default for SignatureCheckCondition {
 /// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "[{id}]")]
+#[id(type = "<Account as Identifiable>::Id")]
 pub struct NewAccount {
     /// Identification
     id: <Account as Identifiable>::Id,
@@ -156,20 +158,6 @@ impl Registrable for NewAccount {
             metadata: self.metadata,
             roles: RoleIds::default(),
         }
-    }
-}
-
-impl PartialOrd for NewAccount {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NewAccount {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id.cmp(&other.id)
     }
 }
 
@@ -212,8 +200,7 @@ impl NewAccount {
     Debug,
     Display,
     Clone,
-    PartialEq,
-    Eq,
+    IdOrdEqHash,
     Getters,
     MutGetters,
     Setters,
@@ -225,6 +212,7 @@ impl NewAccount {
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "({id})")] // TODO: Add more?
+#[id(type = "Id")]
 #[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
     /// An Identification of the [`Account`].
@@ -246,14 +234,6 @@ pub struct Account {
     roles: RoleIds,
 }
 
-impl Identifiable for Account {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
-}
-
 impl HasMetadata for Account {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -262,20 +242,6 @@ impl HasMetadata for Account {
 
 impl Registered for Account {
     type With = NewAccount;
-}
-
-impl PartialOrd for Account {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Account {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id().cmp(other.id())
-    }
 }
 
 #[cfg_attr(feature = "ffi", ffi_export)]

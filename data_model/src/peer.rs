@@ -8,6 +8,7 @@ use core::{
 };
 
 use derive_more::Display;
+use iroha_data_model_derive::IdOrdEqHash;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -16,20 +17,10 @@ use crate::{Identifiable, PublicKey, Registered, Value};
 
 /// Peer represents Iroha instance.
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "@@{}", "id.address")]
+#[id(type = "Id")]
 pub struct Peer {
     /// Peer Identification.
     pub id: <Self as Identifiable>::Id,
@@ -80,14 +71,6 @@ impl Peer {
     #[inline]
     pub const fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
         Self { id }
-    }
-}
-
-impl Identifiable for Peer {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
     }
 }
 
