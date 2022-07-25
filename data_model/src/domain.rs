@@ -7,11 +7,12 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{cmp::Ordering, str::FromStr};
+use core::str::FromStr;
 
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
@@ -72,17 +73,18 @@ impl From<GenesisDomain> for Domain {
 
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
+#[id(type = "<Domain as Identifiable>::Id")]
 pub struct NewDomain {
-    /// The identification associated to the domain builder.
+    /// The identification associated with the domain builder.
     id: <Domain as Identifiable>::Id,
     /// The (IPFS) link to the logo of this domain.
     logo: Option<IpfsPath>,
-    /// metadata associated to the domain builder.
+    /// Metadata associated with the domain builder.
     metadata: Metadata,
 }
 
@@ -107,20 +109,6 @@ impl HasMetadata for NewDomain {
     #[inline]
     fn metadata(&self) -> &crate::metadata::Metadata {
         &self.metadata
-    }
-}
-
-impl PartialOrd for NewDomain {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NewDomain {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
     }
 }
 
@@ -163,8 +151,7 @@ impl NewDomain {
     Debug,
     Display,
     Clone,
-    PartialEq,
-    Eq,
+    IdOrdEqHash,
     Getters,
     MutGetters,
     Decode,
@@ -177,6 +164,7 @@ impl NewDomain {
 #[cfg_attr(feature = "ffi", ffi_export)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
+#[id(type = "Id")]
 pub struct Domain {
     /// Identification of this [`Domain`].
     id: <Self as Identifiable>::Id,
@@ -201,30 +189,8 @@ impl HasMetadata for Domain {
     }
 }
 
-impl Identifiable for Domain {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
-}
-
 impl Registered for Domain {
     type With = NewDomain;
-}
-
-impl PartialOrd for Domain {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Domain {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id().cmp(other.id())
-    }
 }
 
 #[cfg_attr(feature = "ffi", ffi_export)]

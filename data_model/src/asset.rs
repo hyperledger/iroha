@@ -9,6 +9,7 @@ use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
+use iroha_data_model_derive::IdOrdEqHash;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_macro::FromVariant;
@@ -116,8 +117,7 @@ impl AssetDefinitionEntry {
     Debug,
     Display,
     Clone,
-    PartialEq,
-    Eq,
+    IdOrdEqHash,
     Getters,
     MutGetters,
     Decode,
@@ -129,6 +129,7 @@ impl AssetDefinitionEntry {
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "{id} {value_type}{mintable}")]
+#[id(type = "DefinitionId")]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
     id: <Self as Identifiable>::Id,
@@ -146,20 +147,6 @@ pub struct AssetDefinition {
 impl HasMetadata for AssetDefinition {
     fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-}
-
-impl PartialOrd for AssetDefinition {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for AssetDefinition {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id().cmp(other.id())
     }
 }
 
@@ -199,22 +186,13 @@ pub enum Mintable {
 /// Asset represents some sort of commodity or value.
 /// All possible variants of [`Asset`] entity's components.
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[cfg_attr(feature = "ffi", ffi_export)]
 #[getset(get = "pub")]
 #[display(fmt = "{id}: {value}")]
+#[id(type = "Id")]
 pub struct Asset {
     /// Component Identification.
     #[getset(skip)]
@@ -305,20 +283,6 @@ impl AssetValue {
             Self::Fixed(ref q) => q.is_zero(),
             Self::Store(_) => false,
         }
-    }
-}
-
-impl PartialOrd for Asset {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Asset {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id().cmp(other.id())
     }
 }
 
@@ -418,10 +382,11 @@ pub struct Id {
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{id} {mintable}{value_type}")]
+#[id(type = "<AssetDefinition as Identifiable>::Id")]
 pub struct NewAssetDefinition {
     id: <AssetDefinition as Identifiable>::Id,
     value_type: AssetValueType,
@@ -448,20 +413,6 @@ impl crate::Registrable for NewAssetDefinition {
 impl HasMetadata for NewAssetDefinition {
     fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-}
-
-impl PartialOrd for NewAssetDefinition {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NewAssetDefinition {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
     }
 }
 
@@ -613,24 +564,8 @@ impl Id {
     }
 }
 
-impl Identifiable for Asset {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
-}
-
 impl Registered for Asset {
     type With = Self;
-}
-
-impl Identifiable for AssetDefinition {
-    type Id = DefinitionId;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
 }
 
 impl Registered for AssetDefinition {
