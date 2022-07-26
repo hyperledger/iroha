@@ -18,6 +18,7 @@ use std::collections::btree_map;
 use derive_more::Display;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
+use operation::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +64,41 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     pub fn len(&self) -> usize {
         self.expression.len()
     }
+
+    fn operation(&self) -> Operation {
+        use Expression::*;
+
+        match self.expression.as_ref() {
+            Add(_) => Operation::Add,
+            Subtract(_) => Operation::Subtract,
+            Multiply(_) => Operation::Multiply,
+            Divide(_) => Operation::Divide,
+            Mod(_) => Operation::Mod,
+            RaiseTo(_) => Operation::RaiseTo,
+            Greater(_) => Operation::Greater,
+            Less(_) => Operation::Less,
+            Equal(_) => Operation::Equal,
+            Not(_) => Operation::Not,
+            And(_) => Operation::And,
+            Or(_) => Operation::Or,
+            Contains(_) | ContainsAll(_) | ContainsAny(_) => Operation::MethodCall,
+            If(_) | Raw(_) | Query(_) | Where(_) | ContextValue(_) => Operation::Other,
+        }
+    }
+
+    /// Wrap expression into parentheses depending on `operation` and get the resulting string.
+    ///
+    /// # Panics
+    /// - If `operation` has [`Other`](Operation::Other) value.
+    fn parenthesise(&self, operation: Operation) -> String {
+        if self.operation().priority() < operation.priority()
+            && !matches!(self.expression.as_ref(), Expression::Raw(_))
+        {
+            format!("({})", self.expression)
+        } else {
+            format!("{}", self.expression)
+        }
+    }
 }
 
 impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
@@ -82,6 +118,90 @@ impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
                 }],
             })
         });
+    }
+}
+
+mod operation {
+    //! Module containing operations and their priorities.
+
+    /// Type of expression operation.
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum Operation {
+        MethodCall,
+        RaiseTo,
+        Multiply,
+        Divide,
+        Mod,
+        Add,
+        Subtract,
+        Greater,
+        Less,
+        Equal,
+        Not,
+        And,
+        Or,
+        Other,
+    }
+
+    /// Priority of operation.
+    ///
+    /// [`First`](Operation::First) is the highest priority
+    /// and [`Eight`](Operation::Eight) is the lowest.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Priority {
+        First = 1,
+        Second = 2,
+        Third = 3,
+        Fourth = 4,
+        Fifth = 5,
+        Sixth = 6,
+        Seventh = 7,
+        Eighth = 8,
+        Ninth = 9,
+    }
+
+    impl Operation {
+        /// Get the priority of the operation.
+        ///
+        /// Ordering is the same as in Python code.
+        /// See [`here`](https://docs.python.org/3/reference/expressions.html#operator-precedence)
+        /// for more details.
+        pub fn priority(self) -> Priority {
+            use Operation::*;
+
+            match self {
+                MethodCall => Priority::First,
+                RaiseTo => Priority::Second,
+                Multiply | Divide | Mod => Priority::Third,
+                Add | Subtract => Priority::Fourth,
+                Greater | Less | Equal => Priority::Fifth,
+                Not => Priority::Sixth,
+                And => Priority::Seventh,
+                Or => Priority::Eighth,
+                Other => Priority::Ninth,
+            }
+        }
+    }
+
+    impl PartialOrd for Priority {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for Priority {
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+            use core::cmp::Ordering::*;
+
+            let lhs = *self as u8;
+            let rhs = *other as u8;
+
+            match lhs.cmp(&rhs) {
+                Less => Greater,
+                Equal => Equal,
+                Greater => Less,
+            }
+        }
     }
 }
 
@@ -224,7 +344,7 @@ impl From<ContextValue> for ExpressionBox {
 }
 
 /// Evaluates to the multiplication of right and left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
     Debug,
     Display,
@@ -239,7 +359,11 @@ impl From<ContextValue> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` * `{}`", left, right)]
+#[display(
+    fmt = "{}*{}", // Keep without spaces
+    "left.parenthesise(Operation::Multiply)",
+    "right.parenthesise(Operation::Multiply)"
+)]
 pub struct Multiply {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -284,7 +408,11 @@ impl From<Multiply> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` / `{}`", left, right)]
+#[display(
+    fmt = "{}/{}", // Keep without spaces
+    "left.parenthesise(Operation::Divide)",
+    "right.parenthesise(Operation::Divide)"
+)]
 pub struct Divide {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -329,7 +457,11 @@ impl From<Divide> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` % `{}`", left, right)]
+#[display(
+    fmt = "{} % {}",
+    "left.parenthesise(Operation::Mod)",
+    "right.parenthesise(Operation::Mod)"
+)]
 pub struct Mod {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -374,7 +506,11 @@ impl From<Mod> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` ^ `{}`", left, right)]
+#[display(
+    fmt = "{}**{}",
+    "left.parenthesise(Operation::RaiseTo)",
+    "right.parenthesise(Operation::RaiseTo)"
+)]
 pub struct RaiseTo {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -419,7 +555,11 @@ impl From<RaiseTo> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` + `{}`", left, right)]
+#[display(
+    fmt = "{} + {}",
+    "left.parenthesise(Operation::Add)",
+    "right.parenthesise(Operation::Add)"
+)]
 pub struct Add {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -464,7 +604,11 @@ impl From<Add> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` - `{}`", left, right)]
+#[display(
+    fmt = "{} - {}",
+    "left.parenthesise(Operation::Subtract)",
+    "right.parenthesise(Operation::Subtract)"
+)]
 
 pub struct Subtract {
     /// Left operand.
@@ -510,7 +654,11 @@ impl From<Subtract> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` > `{}`", left, right)]
+#[display(
+    fmt = "{} > {}",
+    "left.parenthesise(Operation::Greater)",
+    "right.parenthesise(Operation::Greater)"
+)]
 pub struct Greater {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -555,7 +703,11 @@ impl From<Greater> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` < `{}`", left, right)]
+#[display(
+    fmt = "{} < {}",
+    "left.parenthesise(Operation::Less)",
+    "right.parenthesise(Operation::Less)"
+)]
 pub struct Less {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -600,7 +752,7 @@ impl From<Less> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "!`{}`", expression)]
+#[display(fmt = "!{}", "expression.parenthesise(Operation::Not)")]
 pub struct Not {
     /// Expression that should evaluate to `Value::Bool`.
     pub expression: EvaluatesTo<bool>,
@@ -641,7 +793,11 @@ impl From<Not> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` && `{}`", left, right)]
+#[display(
+    fmt = "{} && {}",
+    "left.parenthesise(Operation::And)",
+    "right.parenthesise(Operation::And)"
+)]
 pub struct And {
     /// Left operand.
     pub left: EvaluatesTo<bool>,
@@ -685,7 +841,11 @@ impl From<And> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` || `{}`", left, right)]
+#[display(
+    fmt = "{} || {}",
+    "left.parenthesise(Operation::Or)",
+    "right.parenthesise(Operation::Or)"
+)]
 pub struct Or {
     /// Left operand.
     pub left: EvaluatesTo<bool>,
@@ -786,7 +946,7 @@ impl IfBuilder {
     Ord,
 )]
 #[display(
-    fmt = "`{}` ? `{}` : `{}`",
+    fmt = "if {} {{ {} }} else {{ {} }}",
     condition,
     then_expression,
     else_expression
@@ -846,7 +1006,11 @@ impl From<If> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` contains `{}`", collection, element)]
+#[display(
+    fmt = "{}.contains({})",
+    "collection.parenthesise(Operation::MethodCall)",
+    "element"
+)]
 pub struct Contains {
     /// Expression, which should evaluate to `Value::Vec`.
     pub collection: EvaluatesTo<Vec<Value>>,
@@ -894,7 +1058,11 @@ impl From<Contains> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` contains all `{}`", collection, elements)]
+#[display(
+    fmt = "{}.contains_all({})",
+    "collection.parenthesise(Operation::MethodCall)",
+    "elements"
+)]
 
 pub struct ContainsAll {
     /// Expression, which should evaluate to `Value::Vec`.
@@ -943,7 +1111,11 @@ impl From<ContainsAll> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` contains any `{}`", collection, elements)]
+#[display(
+    fmt = "{}.contains_any({})",
+    "collection.parenthesise(Operation::MethodCall)",
+    "elements"
+)]
 pub struct ContainsAny {
     /// Expression, which should evaluate to `Value::Vec`.
     pub collection: EvaluatesTo<Vec<Value>>,
@@ -990,7 +1162,11 @@ impl From<ContainsAny> for ExpressionBox {
     PartialOrd,
     Ord,
 )]
-#[display(fmt = "`{}` == `{}`", left, right)]
+#[display(
+    fmt = "{} == {}",
+    "left.parenthesise(Operation::Equal)",
+    "right.parenthesise(Operation::Equal)"
+)]
 pub struct Equal {
     /// Left operand.
     pub left: EvaluatesTo<Value>,
@@ -1082,7 +1258,7 @@ impl core::fmt::Display for Where {
                 write!(f, ", ")?;
             }
             first = false;
-            write!(f, "`{}` = `{}`", key, value)?;
+            write!(f, "`{}` : `{}`", key, value)?;
         }
 
         write!(f, "]")
