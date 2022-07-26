@@ -238,6 +238,7 @@ pub type DenialReason = String;
 /// }
 ///
 /// impl PermissionTokenTrait for ExampleToken {
+///     #[inline]
 ///     fn name() -> &'static Name {
 ///         static NAME: once_cell::sync::Lazy<Name> =
 ///             once_cell::sync::Lazy::new(|| "example_token".parse().expect("Valid"));
@@ -371,6 +372,7 @@ mod tests {
     struct TestToken;
 
     impl PermissionTokenTrait for TestToken {
+        #[inline]
         fn name() -> &'static Name {
             static NAME: once_cell::sync::Lazy<Name> =
                 once_cell::sync::Lazy::new(|| "test_token".parse().expect("Valid"));
