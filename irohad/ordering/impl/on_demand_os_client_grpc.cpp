@@ -64,6 +64,77 @@ namespace {
     maybe_log->info("RPC succeeded(SendBatches): {}", context.peer());
     return true;
   }
+
+  void handleProposalResponse(
+      logger::LoggerPtr &log,
+      std::shared_ptr<iroha::ordering::transport::OnDemandOsClientGrpc::
+                          TransportFactoryType> &proposal_factory,
+      iroha::ordering::proto::ProposalResponse const &response,
+      iroha::consensus::Round const &round,
+      iroha::ordering::PackedProposalData ref_proposal) {
+    if (response.proposal().empty()) {
+      log->info("No proposals in response for round {}.", round);
+      iroha::getSubscription()->notify(
+          iroha::EventTypes::kOnProposalResponse,
+          iroha::ordering::ProposalEvent{
+              iroha::ordering::ProposalEvent::ProposalPack{}, round});
+      return;
+    }
+
+    std::vector<std::shared_ptr<shared_model::interface::Proposal const>>
+        proposal_pack;
+    proposal_pack.reserve(response.proposal().size());
+
+    for (auto const &proposal : response.proposal()) {
+#if USE_BLOOM_FILTER
+      if (proposal.proposal_hash().empty()) {
+        assert(!"Must have proposal hash!");
+        log->info("Remote node {} has no proposal.", context->peer());
+        iroha::getSubscription()->notify(
+            iroha::EventTypes::kOnProposalResponse,
+            iroha::ordering::ProposalEvent{std::nullopt, round});
+        return;
+      }
+#endif  // USE_BLOOM_FILTER
+
+      /// parse request
+      std::shared_ptr<shared_model::interface::Proposal const> remote_proposal;
+      if (auto proposal_result = proposal_factory->build(proposal);
+          iroha::expected::hasError(proposal_result)) {
+        log->warn("{}", proposal_result.assumeError().error);
+        break;
+      } else
+        remote_proposal = std::move(proposal_result).assumeValue();
+
+        /// merge if has local proposal or process directly if not
+#if USE_BLOOM_FILTER
+      if (ref_proposal.has_value()) {
+        std::shared_ptr<shared_model::interface::Proposal const> local_proposal;
+        local_proposal = ref_proposal.value().first;
+
+        iroha::getSubscription()->notify(
+            iroha::EventTypes::kRemoteProposalDiff,
+            RemoteProposalDownloadedEvent{
+                local_proposal,
+                remote_proposal,
+                response.bloom_filter(),
+                response.proposal_hash(),
+                round,
+                remote_proposal ? remote_proposal->createdTime() : 0ull});
+      } else
+#endif  // USE_BLOOM_FILTER
+          if (remote_proposal->transactions().empty()) {
+        log->info("Transactions sequence in proposal is empty");
+        break;
+      }
+
+      proposal_pack.emplace_back(std::move(remote_proposal));
+    }
+
+    iroha::getSubscription()->notify(
+        iroha::EventTypes::kOnProposalResponse,
+        iroha::ordering::ProposalEvent{std::move(proposal_pack), round});
+  }
 }  // namespace
 
 OnDemandOsClientGrpc::OnDemandOsClientGrpc(
@@ -90,61 +161,32 @@ OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
 }
 
 void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
-  // This code should not be called.
-  assert(false);
+  assert(!"This code should not be called.");
 }
 
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
-  std::shared_ptr<proto::BatchesRequest> request;
-  for (auto &batch : batches) {
-    if (!request)
-      request = std::make_shared<proto::BatchesRequest>();
-
-    for (auto &transaction : batch->transactions()) {
-      *(*request).add_transactions() = std::move(
+  proto::BatchesRequest request;
+  for (auto &batch : batches)
+    for (auto &transaction : batch->transactions())
+      *request.add_transactions() = std::move(
           static_cast<shared_model::proto::Transaction *>(transaction.get())
               ->getTransport());
-    }
 
-    if (request->ByteSizeLong() >= 2ull * 1024 * 1024) {
-      log_->debug("execute for called");
-      os_execution_keepers_->executeFor(
-          peer_name_,
-          [peer_name(peer_name_),
-           request(std::move(*request)),
-           wos_execution_keepers(utils::make_weak(os_execution_keepers_)),
-           time_provider(time_provider_),
-           stub(utils::make_weak(stub_)),
-           log(utils::make_weak(log_))]() mutable {
-            sendBatches(std::move(peer_name),
-                        wos_execution_keepers,
-                        std::move(request),
-                        time_provider,
-                        stub,
-                        log);
-          });
-      request.reset();
-    }
-  }
-
-  if (request) {
-    log_->debug("execute for called");
-    os_execution_keepers_->executeFor(
-        peer_name_,
-        [peer_name(peer_name_),
-         request(std::move(*request)),
-         wos_execution_keepers(utils::make_weak(os_execution_keepers_)),
-         time_provider(time_provider_),
-         stub(utils::make_weak(stub_)),
-         log(utils::make_weak(log_))]() mutable {
-          sendBatches(std::move(peer_name),
-                      wos_execution_keepers,
-                      std::move(request),
-                      time_provider,
-                      stub,
-                      log);
-        });
-  }
+  os_execution_keepers_->executeFor(
+      peer_name_,
+      [peer_name(peer_name_),
+       request(std::move(request)),
+       wos_execution_keepers(utils::make_weak(os_execution_keepers_)),
+       time_provider(time_provider_),
+       stub(utils::make_weak(stub_)),
+       log(utils::make_weak(log_))]() mutable {
+        sendBatches(std::move(peer_name),
+                    wos_execution_keepers,
+                    std::move(request),
+                    time_provider,
+                    stub,
+                    log);
+      });
 }
 
 std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
@@ -160,16 +202,6 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
 
   auto context = std::make_shared<grpc::ClientContext>();
   context_ = context;
-  proto::ProposalRequest request;
-  request.mutable_round()->set_block_round(round.block_round);
-  request.mutable_round()->set_reject_round(round.reject_round);
-
-#if USE_BLOOM_FILTER
-  if (ref_proposal.has_value())
-    request.set_bloom_filter(
-        std::string(ref_proposal.value().second.load().data(),
-                    ref_proposal.value().second.load().size()));
-#endif  // USE_BLOOM_FILTER
 
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
@@ -178,7 +210,6 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
        time_provider(time_provider_),
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),
-       request(std::move(request)),
        stub(utils::make_weak(stub_)),
        log(utils::make_weak(log_)),
        proposal_factory(utils::make_weak(proposal_factory_))] {
@@ -189,87 +220,43 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
           return;
         }
 
+        /// create request
+        proto::ProposalRequest request;
+        request.mutable_round()->set_block_round(round.block_round);
+        request.mutable_round()->set_reject_round(round.reject_round);
+#if USE_BLOOM_FILTER
+        if (ref_proposal.has_value())
+          request.set_bloom_filter(
+              std::string(ref_proposal.value().second.load().data(),
+                          ref_proposal.value().second.load().size()));
+#endif  // USE_BLOOM_FILTER
+
         /// make request
         context->set_deadline(time_provider() + proposal_request_timeout);
         proto::ProposalResponse response;
-        maybe_log->info("Requesting proposal");
-        auto status =
-            maybe_stub->RequestProposal(context.get(), request, &response);
-        if (not status.ok()) {
-          maybe_log->warn(
-              "RPC failed: {} {}", context->peer(), status.error_message());
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kOnProposalResponse,
-              ProposalEvent{ProposalEvent::ProposalPack{}, round});
-          return;
-        } else {
-          maybe_log->info("RPC succeeded(RequestingProposal): {}",
-                          context->peer());
-        }
 
-        if (response.proposal().empty()) {
-          maybe_log->info("No proposals in response for round {}.", round);
+
+        maybe_log->info("Requesting proposal for round {} from peer {}",
+                        round,
+                        context->peer());
+        if (auto status =
+                maybe_stub->RequestProposal(context.get(), request, &response);
+            !status.ok()) {
+          maybe_log->warn("RPC failed: {}", status.error_message());
           iroha::getSubscription()->notify(
               iroha::EventTypes::kOnProposalResponse,
               ProposalEvent{ProposalEvent::ProposalPack{}, round});
           return;
         }
 
-        std::vector<std::shared_ptr<shared_model::interface::Proposal const>>
-            proposal_pack;
-        proposal_pack.reserve(response.proposal().size());
 
-        for (auto const &proposal : response.proposal()) {
-#if USE_BLOOM_FILTER
-          if (proposal.proposal_hash().empty()) {
-            assert(!"Must have proposal hash!");
-            maybe_log->info("Remote node {} has no proposal.", context->peer());
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnProposalResponse,
-                ProposalEvent{std::nullopt, round});
-            return;
-          }
-#endif  // USE_BLOOM_FILTER
-
-          /// parse request
-          std::shared_ptr<shared_model::interface::Proposal const>
-              remote_proposal;
-          if (auto proposal_result = maybe_proposal_factory->build(proposal);
-              expected::hasError(proposal_result)) {
-            maybe_log->warn("{}", proposal_result.assumeError().error);
-            break;
-          } else
-            remote_proposal = std::move(proposal_result).assumeValue();
-
-        /// merge if has local proposal or process directly if not
-#if USE_BLOOM_FILTER
-          if (ref_proposal.has_value()) {
-            std::shared_ptr<shared_model::interface::Proposal const>
-                local_proposal;
-            local_proposal = ref_proposal.value().first;
-
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kRemoteProposalDiff,
-                RemoteProposalDownloadedEvent{
-                    local_proposal,
-                    remote_proposal,
-                    response.bloom_filter(),
-                    response.proposal_hash(),
-                    round,
-                    remote_proposal ? remote_proposal->createdTime() : 0ull});
-          } else
-#endif  // USE_BLOOM_FILTER
-              if (remote_proposal->transactions().empty()) {
-            maybe_log->info("Transactions sequence in proposal is empty");
-            break;
-          }
-
-          proposal_pack.emplace_back(std::move(remote_proposal));
-        }
-
-        iroha::getSubscription()->notify(
-            iroha::EventTypes::kOnProposalResponse,
-            ProposalEvent{std::move(proposal_pack), round});
+        /// handle response
+        maybe_log->info("RPC succeeded(RequestingProposal)");
+        handleProposalResponse(maybe_log,
+                               maybe_proposal_factory,
+                               response,
+                               round,
+                               std::move(ref_proposal));
       });
 }
 

@@ -100,8 +100,6 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   forLocalOS(&OnDemandOrderingService::onCollaborationOutcome,
              event.next_round);
 
-  this->sendCachedTransactions();
-
   if (!syncing_mode_) {
     assert(ordering_service_);
     assert(network_client_);
