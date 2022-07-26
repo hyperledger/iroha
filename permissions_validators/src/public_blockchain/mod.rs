@@ -80,10 +80,10 @@ pub fn default_permissions() -> InstructionJudgeBoxed {
             .with_validator(key_value::GrantMyAssetDefinitionSet.into_validator())
             .with_validator(key_value::GrantMyAssetDefinitionRemove.into_validator())
             .no_denies()
-            .no_display_operation()
+            .disable_display_of_operation_on_error()
             .build()
             .into_validator()
-            .display_as("Grant validator".to_owned());
+            .display_as("Grant validator");
     Box::new(
         JudgeBuilder::with_recursive_validator(grant_instruction_validator)
             .with_recursive_validator(

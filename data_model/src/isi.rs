@@ -114,7 +114,7 @@ pub struct RemoveKeyValueBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "REGISTER `{object}`")] // TODO: Display
+#[display(fmt = "REGISTER `{object}`")]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<RegistrableBox>,
@@ -124,7 +124,7 @@ pub struct RegisterBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "UNREGISTER `{object_id}`")] // TODO: Display
+#[display(fmt = "UNREGISTER `{object_id}`")]
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
@@ -134,7 +134,7 @@ pub struct UnregisterBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "MINT `{object}` TO `{destination_id}`")] // TODO: Display
+#[display(fmt = "MINT `{object}` TO `{destination_id}`")]
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -146,7 +146,7 @@ pub struct MintBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "Burn `{object}` from `{destination_id}`")]
+#[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -189,7 +189,7 @@ pub struct SequenceBox {
 
 impl core::fmt::Display for SequenceBox {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Sequence [")?;
+        write!(f, "SEQUENCE [")?;
         let mut first = true;
         for instruction in &self.instructions {
             if !first {

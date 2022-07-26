@@ -22,7 +22,7 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>> ValidatorApplyOr<O> for F 
 ///
 /// `check` succeeds if either `first` or `second` validator succeeds
 #[derive(Debug, Clone, Serialize, Display)]
-#[display(fmt = "`{}` or `{}`", first, second)]
+#[display(fmt = "`{}` || `{}`", first, second)]
 pub struct Or<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> {
     first: F,
     second: S,
@@ -69,8 +69,8 @@ where
             (&first_verdict, &second_verdict)
         {
             return ValidatorVerdict::Deny(format!(
-                "Nor first validator `{}` succeed: {first_reason}, \
-                 nor second validator `{}` succeed: {second_reason}",
+                "Neither the first validator `{}` succeeded: {first_reason}, \
+                 nor the second validator `{}`: {second_reason}",
                 self.first, self.second
             ));
         }

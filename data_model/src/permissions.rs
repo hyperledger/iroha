@@ -11,7 +11,6 @@ use alloc::{
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
-use derive_more::Display;
 use getset::Getters;
 #[cfg(feature = "ffi")]
 use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
@@ -27,7 +26,6 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 /// Stored proof of the account having a permission for a certain action.
 #[derive(
     Debug,
-    Display,
     Clone,
     PartialEq,
     Eq,
@@ -43,13 +41,29 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[cfg_attr(feature = "ffi", ffi_export)]
 #[getset(get = "pub")]
-#[display(fmt = "{name}")]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
     name: Name,
     /// Params identifying how this rule applies.
     #[getset(skip)]
     params: btree_map::BTreeMap<Name, Value>,
+}
+
+impl core::fmt::Display for PermissionToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}: {{", self.name)?;
+
+        let mut first = true;
+        for (name, value) in &self.params {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            write!(f, "`{}`: `{}`", name, value)?;
+        }
+
+        write!(f, "}}")
+    }
 }
 
 impl PermissionToken {

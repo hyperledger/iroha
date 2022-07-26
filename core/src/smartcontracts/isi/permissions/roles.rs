@@ -24,7 +24,6 @@ pub trait IsGrantAllowed: Display {
     /// because of conflicting trait implementations
     fn into_validator(self) -> IsGrantAllowedAsValidator<Self>
     where
-        // Self: Display + Sized,
         Self: Sized,
     {
         IsGrantAllowedAsValidator {

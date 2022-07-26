@@ -224,10 +224,65 @@ impl From<Result<()>> for ValidatorVerdict {
 pub type DenialReason = String;
 
 /// Trait for hard-coded strongly-typed permission tokens.
+///
+/// # Example
+///
+/// ```
+/// use iroha_core::smartcontracts::isi::permissions::{
+///     PermissionTokenTrait, PredefinedTokenConversionError,
+/// };
+/// use iroha_data_model::prelude::*;
+///
+/// struct ExampleToken {
+///     pub param: String,
+/// }
+///
+/// impl PermissionTokenTrait for ExampleToken {
+///     fn name() -> &'static Name {
+///         static NAME: once_cell::sync::Lazy<Name> =
+///             once_cell::sync::Lazy::new(|| "example_token".parse().expect("Valid"));
+///         &NAME
+///     }
+/// }
+///
+/// impl From<ExampleToken> for PermissionToken {
+///     fn from(example_token: ExampleToken) -> Self {
+///         PermissionToken::new(ExampleToken::name().clone())
+///             .with_params([(
+///                 "param".parse().expect("Valid"),
+///                 Value::String(example_token.param)
+///             )])
+///     }
+/// }
+///
+/// impl TryFrom<PermissionToken> for ExampleToken {
+///     type Error = PredefinedTokenConversionError;
+///
+///     fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+///         static PARAM_NAME: once_cell::sync::Lazy<Name> =
+///             once_cell::sync::Lazy::new(|| "param".parse().expect("Valid"));
+///
+///         if token.name() != Self::name() {
+///             return Err(
+///                 PredefinedTokenConversionError::Name(
+///                     token.name().clone()
+///                 )
+///             );
+///         }
+///         if let Some(Value::String(ref param)) = token.get_param(&PARAM_NAME) {
+///             return Ok(ExampleToken { param: param.clone() });
+///         }
+///
+///         Err(PredefinedTokenConversionError::Param(&PARAM_NAME))
+///     }
+/// }
+/// ```
 pub trait PermissionTokenTrait:
     Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
 {
     /// Name of the permission token.
+    ///
+    /// Can't use an associated constant because [`Name`] can't be created at *const* context.
     fn name() -> &'static Name;
 }
 
@@ -313,23 +368,23 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Serialize)]
-    struct SomeToken;
+    struct TestToken;
 
-    impl PermissionTokenTrait for SomeToken {
+    impl PermissionTokenTrait for TestToken {
         fn name() -> &'static Name {
             static NAME: once_cell::sync::Lazy<Name> =
-                once_cell::sync::Lazy::new(|| "some_token".parse().expect("Valid"));
+                once_cell::sync::Lazy::new(|| "test_token".parse().expect("Valid"));
             &NAME
         }
     }
 
-    impl From<SomeToken> for PermissionToken {
-        fn from(_: SomeToken) -> Self {
-            PermissionToken::new(SomeToken::name().clone())
+    impl From<TestToken> for PermissionToken {
+        fn from(_: TestToken) -> Self {
+            PermissionToken::new(TestToken::name().clone())
         }
     }
 
-    impl TryFrom<PermissionToken> for SomeToken {
+    impl TryFrom<PermissionToken> for TestToken {
         type Error = PredefinedTokenConversionError;
         fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
             if token.name() == Self::name() {
@@ -341,20 +396,20 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Serialize)]
-    struct HasSomeToken;
+    struct HasTestToken;
 
     // TODO: ADD some Revoke tests.
 
-    impl HasToken for HasSomeToken {
-        type Token = SomeToken;
+    impl HasToken for HasTestToken {
+        type Token = TestToken;
 
         fn token(
             &self,
             _authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> std::result::Result<SomeToken, String> {
-            Ok(SomeToken)
+        ) -> std::result::Result<TestToken, String> {
+            Ok(TestToken)
         }
     }
 
@@ -440,10 +495,10 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(SomeToken.into()));
+        assert!(bob_account.add_permission(TestToken.into()));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator = HasSomeToken.into_validator();
+        let validator = HasTestToken.into_validator();
         assert!(validator
             .check(&alice_id, &instruction_burn, &wsv)
             .is_deny());

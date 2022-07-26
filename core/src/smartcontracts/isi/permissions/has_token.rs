@@ -40,19 +40,13 @@ pub trait HasToken {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(
+    fmt = "Allow if signer has the corresponding `{}` permission token",
+    "H::Token::name()"
+)]
 pub struct HasTokenAsValidator<H: HasToken> {
     has_token: H,
-}
-
-impl<H: HasToken> Display for HasTokenAsValidator<H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Allow if signer has the corresponding `{}` permission token",
-            H::Token::name()
-        )
-    }
 }
 
 impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {

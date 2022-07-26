@@ -45,11 +45,11 @@ pub trait Judge {
         wsv: &WorldStateView,
     ) -> Result<()>;
 
-    /// Disable operation description in validation error message
+    /// Disable showing the operation description in the validation error message
     ///
-    /// Useful when one judge is nested in the other judge and we don't want to
-    /// print operation description twice in the error message
-    fn no_display_operation(&mut self);
+    /// Use this when you have one [`Judge`] nested inside another, as it will prevent
+    /// printing the same error message twice.
+    fn disable_display_of_operation_on_error(&mut self);
 
     /// Convert this object to a type implementing [`IsAllowed`] trait
     ///
@@ -67,10 +67,12 @@ pub trait Judge {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(bound = "J: Display")]
+#[display(fmt = "{}", "self.name()")]
 pub struct JudgeAsValidator<O: NeedsPermission, J: Judge<Operation = O>> {
     judge: J,
-    name: Option<String>,
+    name: Option<&'static str>,
 }
 
 impl<O: NeedsPermission, J: Judge<Operation = O>> JudgeAsValidator<O, J> {
@@ -83,25 +85,26 @@ impl<O: NeedsPermission, J: Judge<Operation = O>> JudgeAsValidator<O, J> {
     /// Display `judge` with given `name` instead of default detailed description
     #[must_use]
     #[inline]
-    pub fn display_as(mut self, name: String) -> Self {
+    pub fn display_as(mut self, name: &'static str) -> Self {
         self.name = Some(name);
         self
     }
 }
 
-impl<O: NeedsPermission, J: Judge<Operation = O> + Display> Display for JudgeAsValidator<O, J> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            write!(f, "{}", name)
-        } else {
-            write!(f, "{}", self.judge)
+impl<O: NeedsPermission, J: Judge<Operation = O> + Display> JudgeAsValidator<O, J> {
+    #[inline]
+    fn name(&self) -> std::borrow::Cow<str> {
+        if let Some(name) = self.name {
+            return name.into();
         }
+        self.judge.to_string().into()
     }
 }
 
 impl<O: NeedsPermission, J: Judge<Operation = O> + Display> IsAllowed for JudgeAsValidator<O, J> {
     type Operation = O;
 
+    #[inline]
     fn check(
         &self,
         authority: &AccountId,
@@ -110,6 +113,24 @@ impl<O: NeedsPermission, J: Judge<Operation = O> + Display> IsAllowed for JudgeA
     ) -> ValidatorVerdict {
         self.judge.judge(authority, operation, wsv).into()
     }
+}
+
+fn format_comma_separated<T: Display>(
+    input: impl Iterator<Item = T>,
+    f: &mut core::fmt::Formatter<'_>,
+) -> core::fmt::Result {
+    f.write_str("[")?;
+
+    let mut first = true;
+    for item in input {
+        if !first {
+            f.write_str(", ")?;
+        }
+        f.write_fmt(format_args!("`{}`", item))?;
+        first = false;
+    }
+
+    f.write_str("]")
 }
 
 /// The judge that succeeds only if there is at least one
@@ -136,18 +157,9 @@ impl<O: NeedsPermission> AtLeastOneAllow<O> {
 
 impl<O: NeedsPermission> Display for AtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("At least one allow in: [")?;
+        f.write_str("At least one allow in: ")?;
 
-        let mut first = true;
-        for validator in &self.validators {
-            if !first {
-                f.write_str(", ")?;
-            }
-            f.write_fmt(format_args!("`{}`", validator))?;
-            first = false;
-        }
-
-        f.write_str("]")
+        format_comma_separated(self.validators.iter(), f)
     }
 }
 
@@ -180,7 +192,7 @@ impl<O: NeedsPermission + Display> Judge for AtLeastOneAllow<O> {
         ))
     }
 
-    fn no_display_operation(&mut self) {
+    fn disable_display_of_operation_on_error(&mut self) {
         self.display_operation = false;
     }
 }
@@ -206,18 +218,9 @@ impl<O: NeedsPermission> NoDenies<O> {
 
 impl<O: NeedsPermission> Display for NoDenies<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("No denies in: [")?;
+        f.write_str("No denies in: ")?;
 
-        let mut first = true;
-        for validator in &self.validators {
-            if !first {
-                f.write_str(", ")?;
-            }
-            f.write_fmt(format_args!("`{}`", validator))?;
-            first = false;
-        }
-
-        f.write_str("]")
+        format_comma_separated(self.validators.iter(), f)
     }
 }
 
@@ -242,7 +245,7 @@ impl<O: NeedsPermission + Display> Judge for NoDenies<O> {
         Ok(())
     }
 
-    fn no_display_operation(&mut self) {
+    fn disable_display_of_operation_on_error(&mut self) {
         self.display_operation = false;
     }
 }
@@ -270,18 +273,9 @@ impl<O: NeedsPermission> NoDeniesAndAtLeastOneAllow<O> {
 
 impl<O: NeedsPermission> Display for NoDeniesAndAtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("No denies and at least one allow in: [")?;
+        f.write_str("No denies and at least one allow in: ")?;
 
-        let mut first = true;
-        for validator in &self.validators {
-            if !first {
-                f.write_str(", ")?;
-            }
-            f.write_fmt(format_args!("`{}`", validator))?;
-            first = false;
-        }
-
-        f.write_str("]")
+        format_comma_separated(self.validators.iter(), f)
     }
 }
 
@@ -322,7 +316,7 @@ impl<O: NeedsPermission + Display> Judge for NoDeniesAndAtLeastOneAllow<O> {
         }
     }
 
-    fn no_display_operation(&mut self) {
+    fn disable_display_of_operation_on_error(&mut self) {
         self.display_operation = false;
     }
 }
@@ -364,8 +358,8 @@ impl<O: NeedsPermission> Judge for AllowAll<O> {
         Ok(())
     }
 
-    fn no_display_operation(&mut self) {
-        // do nothing, cause `AllowAll` never displays operation
+    fn disable_display_of_operation_on_error(&mut self) {
+        // [`AllowAll`] never displays operation, hence no-op.
     }
 }
 
@@ -406,8 +400,8 @@ impl<O: NeedsPermission> Judge for DenyAll<O> {
         Err("All operations are denied.".to_owned())
     }
 
-    fn no_display_operation(&mut self) {
-        // do nothing, cause `DenyAll` never displays operation
+    fn disable_display_of_operation_on_error(&mut self) {
+        // [`DenyAll`] never displays operation, hence no-op.
     }
 }
 
@@ -562,13 +556,13 @@ pub mod builder {
             WithValidators::new(self.judge.into_validator()).with_validator(validator)
         }
 
-        /// Disable operation description in validation error message
+        /// Disable showing the operation description in the validation error message
         ///
-        /// Useful when one judge is nested in the other judge and we don't want to
-        /// print operation description twice in the error message
+        /// Use this when you have one [`Judge`] nested inside another, as it will prevent
+        /// printing the same error message twice.
         #[inline]
-        pub fn no_display_operation(mut self) -> Self {
-            self.judge.no_display_operation();
+        pub fn disable_display_of_operation_on_error(mut self) -> Self {
+            self.judge.disable_display_of_operation_on_error();
             self
         }
     }
