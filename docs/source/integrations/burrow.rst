@@ -6,6 +6,8 @@ And to provide them more freedom in fulfilling their business needs, we integrat
 
 .. note:: In the context of Iroha, HL Burrow provides an Ethereum Virtual Machine that can run Solidity smart-contracts.
 	We did our best to provide you with the best user experience possible – and to use it with Iroha, you only need to add a `CMake flag during Iroha build <../build/index.html#cmake-parameters>`_ and it will start working right away.
+	
+	There are official docker images built with `Hyperledger Burrow <https://hyperledger.github.io/burrow/#/>` Integration. Please replace `hyperledger/iroha:latest` with `hyperledger/iroha-burrow:latest` to use them.
 
 You can read about Solidity smart-contract language `here <https://solidity.readthedocs.io/>`_, if you are new to this language.
 
