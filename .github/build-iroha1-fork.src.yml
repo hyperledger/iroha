@@ -33,8 +33,8 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
-          jq . $JSON_github
-          jq . $JSON_needs
+          echo $JSON_github | jq .
+          echo $JSON_needs | jq .
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
