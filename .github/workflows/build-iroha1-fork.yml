@@ -69,8 +69,9 @@ jobs:
           echo "Pull requests from forks are not allowed to change build dependencies script"
           false
   check_workflow_yaml_coressponds_to_src_yaml:
-    needs: check_if_pull_request_comes_from_the_same_repo
+    needs: check_if_pull_request_comes_from_fork
     runs-on: ubuntu-20.04 #ubuntu-latest
+    permissions: read-all
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
