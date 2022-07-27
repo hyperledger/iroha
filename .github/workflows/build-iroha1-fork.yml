@@ -31,8 +31,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -68,6 +68,30 @@ jobs:
         run: |
           echo "Pull requests from forks are not allowed to change build dependencies script"
           false
+  check_workflow_yaml_coressponds_to_src_yaml:
+    needs: check_if_pull_request_comes_from_the_same_repo
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    name: Check if github workflows were properly made from sources
+    steps:
+      - name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+
+            "PR_REF="+.head.ref,
+            "PR_SHA="+.head.sha,
+            "PR_NUM="+(.number|tostring),
+            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository
+      - run: sudo snap install yq
+      - name: Check if .github/workflows/*.yml correspond to *.src.yml
+        run: |
+          set -x
+          [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
   ## This job is to generate build matrixes for build jobs
   ## The matrixes depend on what is requeted to be build
   ## At the moment there are several options:
@@ -79,12 +103,14 @@ jobs:
     environment: test-env
     runs-on: ubuntu-20.04
     permissions: read-all
-    needs: check_if_pull_request_comes_from_fork
+    needs:
+      - check_if_pull_request_comes_from_fork
+      - check_workflow_yaml_coressponds_to_src_yaml
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -173,13 +199,15 @@ jobs:
   ## and conditional tags :edge for development branch, and :latest for git-tags.
   Docker-iroha-builder:
     environment: test-env
-    needs: check_if_pull_request_comes_from_fork
+    needs:
+      - check_if_pull_request_comes_from_fork
+      - check_workflow_yaml_coressponds_to_src_yaml
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -348,8 +376,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -627,8 +655,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -896,15 +924,17 @@ jobs:
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
   ## Just to align picture
   prepare-macos-env:
-    needs: check_if_pull_request_comes_from_fork
+    needs:
+      - check_if_pull_request_comes_from_fork
+      - check_workflow_yaml_coressponds_to_src_yaml
     environment: test-env
     runs-on: macos-latest
     permissions: read-all
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -924,8 +954,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1189,15 +1219,17 @@ jobs:
         timeout-minutes: 70
   ## Just to align picture
   prepare-windows-env:
-    needs: check_if_pull_request_comes_from_fork
+    needs:
+      - check_if_pull_request_comes_from_fork
+      - check_workflow_yaml_coressponds_to_src_yaml
     environment: test-env
     runs-on: windows-latest
     permissions: read-all
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1305,8 +1337,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1474,8 +1506,8 @@ jobs:
     steps:
       - name: Show context
         run: |
-          echo $JSON_github | jq
-          echo $JSON_needs | jq
+          jq . $JSON_github
+          jq . $JSON_needs
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -1639,8 +1671,6 @@ jobs:
     needs:
       - build-UD
       - generate_matrixes
-    # strategy: *strategy_ubuntu_debug
-    # if: *if_ubuntu_debug
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ) }}
