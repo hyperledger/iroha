@@ -4,7 +4,10 @@ use super::*;
 
 /// Trait that checks whether a permission token is needed for a certain action.
 /// The trait should be implemented by the validator.
-pub trait HasToken: Debug {
+pub trait HasToken {
+    /// Type of token to check for.
+    type Token: PermissionTokenTrait;
+
     /// Get the token that `authority` should
     /// possess, given the `instruction` they are planning to execute
     /// on the current state of `wsv`
@@ -19,7 +22,7 @@ pub trait HasToken: Debug {
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String>;
+    ) -> std::result::Result<Self::Token, String>;
 
     /// Convert this object to a type implementing [`IsAllowed`] trait
     ///
@@ -37,7 +40,11 @@ pub trait HasToken: Debug {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(
+    fmt = "Allow if the signer has the corresponding `{}` permission token",
+    "H::Token::name()"
+)]
 pub struct HasTokenAsValidator<H: HasToken> {
     has_token: H,
 }
@@ -52,11 +59,10 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         let permission_token = match self.has_token.token(authority, instruction, wsv) {
-            Ok(permission_token) => permission_token,
+            Ok(concrete_token) => concrete_token.into(),
             Err(err) => {
                 return ValidatorVerdict::Deny(format!(
-                    "Unable to identify corresponding permission token: {}",
-                    err
+                    "Unable to identify the corresponding permission token: {err}",
                 ));
             }
         };
@@ -68,8 +74,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             Ok(contain) => contain,
             Err(err) => {
                 return ValidatorVerdict::Deny(format!(
-                    "Unable to check if account has permission token: {}",
-                    err
+                    "Unable to check if the account has the permission token: {err}",
                 ));
             }
         };
@@ -78,8 +83,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             ValidatorVerdict::Allow
         } else {
             ValidatorVerdict::Deny(format!(
-                "Account does not have the needed permission token: {:?}.",
-                permission_token
+                "Account does not have the needed permission token: {permission_token}",
             ))
         }
     }

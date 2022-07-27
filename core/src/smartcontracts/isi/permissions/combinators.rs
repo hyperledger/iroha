@@ -21,7 +21,8 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>> ValidatorApplyOr<O> for F 
 /// *Or*-combinator for two validators
 ///
 /// `check` succeeds if either `first` or `second` validator succeeds
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Display)]
+#[display(fmt = "`{}` || `{}`", first, second)]
 pub struct Or<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> {
     first: F,
     second: S,
@@ -40,8 +41,11 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
     }
 }
 
-impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O>> IsAllowed
-    for Or<O, F, S>
+impl<O, F, S> IsAllowed for Or<O, F, S>
+where
+    O: NeedsPermission,
+    F: IsAllowed<Operation = O> + Display,
+    S: IsAllowed<Operation = O> + Display,
 {
     type Operation = O;
 
@@ -65,8 +69,8 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
             (&first_verdict, &second_verdict)
         {
             return ValidatorVerdict::Deny(format!(
-                "Nor first validator {:?} succeed: {first_reason}, \
-                 nor second validator {:?} succeed: {second_reason}",
+                "Neither the first validator `{}` succeeded: {first_reason}, \
+                 nor the second validator `{}`: {second_reason}",
                 self.first, self.second
             ));
         }
@@ -79,7 +83,8 @@ impl<O: NeedsPermission, F: IsAllowed<Operation = O>, S: IsAllowed<Operation = O
 ///
 /// Pay attention to wrap only validators
 /// that do not check nested instructions by themselves.
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(fmt = "`{}` with nested checking", validator)]
 pub struct CheckNested<V: IsAllowed<Operation = Instruction>> {
     validator: V,
 }

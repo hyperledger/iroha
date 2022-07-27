@@ -18,6 +18,7 @@ use std::collections::btree_map;
 use derive_more::Display;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
+use operation::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +38,9 @@ pub type ExpressionBox = Box<Expression>;
     Debug, Display, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord,
 )]
 #[serde(transparent)]
-#[display(fmt = "Expressions aren't `fmt::Display` yet :(")] // TODO: implement
+// As this structure exists only for type checking
+// it makes sense to display `expression` directly
+#[display(fmt = "{}", expression)]
 pub struct EvaluatesTo<V: TryFrom<Value>> {
     /// Expression.
     #[serde(flatten)]
@@ -61,6 +64,41 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     pub fn len(&self) -> usize {
         self.expression.len()
     }
+
+    fn operation(&self) -> Operation {
+        use Expression::*;
+
+        match self.expression.as_ref() {
+            Add(_) => Operation::Add,
+            Subtract(_) => Operation::Subtract,
+            Multiply(_) => Operation::Multiply,
+            Divide(_) => Operation::Divide,
+            Mod(_) => Operation::Mod,
+            RaiseTo(_) => Operation::RaiseTo,
+            Greater(_) => Operation::Greater,
+            Less(_) => Operation::Less,
+            Equal(_) => Operation::Equal,
+            Not(_) => Operation::Not,
+            And(_) => Operation::And,
+            Or(_) => Operation::Or,
+            Contains(_) | ContainsAll(_) | ContainsAny(_) => Operation::MethodCall,
+            If(_) | Raw(_) | Query(_) | Where(_) | ContextValue(_) => Operation::Other,
+        }
+    }
+
+    /// Wrap expression into parentheses depending on `operation` and get the resulting string.
+    ///
+    /// # Panics
+    /// - If `operation` has [`Other`](Operation::Other) value.
+    fn parenthesise(&self, operation: Operation) -> String {
+        if self.operation().priority() < operation.priority()
+            && !matches!(self.expression.as_ref(), Expression::Raw(_))
+        {
+            format!("({})", self.expression)
+        } else {
+            format!("{}", self.expression)
+        }
+    }
 }
 
 impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
@@ -83,9 +121,94 @@ impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
     }
 }
 
+mod operation {
+    //! Module containing operations and their priorities.
+
+    /// Type of expression operation.
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum Operation {
+        MethodCall,
+        RaiseTo,
+        Multiply,
+        Divide,
+        Mod,
+        Add,
+        Subtract,
+        Greater,
+        Less,
+        Equal,
+        Not,
+        And,
+        Or,
+        Other,
+    }
+
+    /// Priority of operation.
+    ///
+    /// [`First`](Operation::First) is the highest priority
+    /// and [`Eight`](Operation::Eight) is the lowest.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Priority {
+        First = 1,
+        Second = 2,
+        Third = 3,
+        Fourth = 4,
+        Fifth = 5,
+        Sixth = 6,
+        Seventh = 7,
+        Eighth = 8,
+        Ninth = 9,
+    }
+
+    impl Operation {
+        /// Get the priority of the operation.
+        ///
+        /// Ordering is the same as in Python code.
+        /// See [`here`](https://docs.python.org/3/reference/expressions.html#operator-precedence)
+        /// for more details.
+        pub fn priority(self) -> Priority {
+            use Operation::*;
+
+            match self {
+                MethodCall => Priority::First,
+                RaiseTo => Priority::Second,
+                Multiply | Divide | Mod => Priority::Third,
+                Add | Subtract => Priority::Fourth,
+                Greater | Less | Equal => Priority::Fifth,
+                Not => Priority::Sixth,
+                And => Priority::Seventh,
+                Or => Priority::Eighth,
+                Other => Priority::Ninth,
+            }
+        }
+    }
+
+    impl PartialOrd for Priority {
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for Priority {
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+            use core::cmp::Ordering::*;
+
+            let lhs = *self as u8;
+            let rhs = *other as u8;
+
+            match lhs.cmp(&rhs) {
+                Less => Greater,
+                Equal => Equal,
+                Greater => Less,
+            }
+        }
+    }
+}
+
 /// Represents all possible expressions.
 #[derive(
     Debug,
+    Display,
     Clone,
     PartialEq,
     Eq,
@@ -181,8 +304,20 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
 /// Get a temporary value by name.
 /// The values are brought into [`Context`] by [`Where`] expression.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
+#[display(fmt = "CONTEXT `{}`", value_name)]
 pub struct ContextValue {
     /// Name bound to the value.
     pub value_name: String,
@@ -209,9 +344,25 @@ impl From<ContextValue> for ExpressionBox {
 }
 
 /// Evaluates to the multiplication of right and left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{}*{}", // Keep without spaces
+    "left.parenthesise(Operation::Multiply)",
+    "right.parenthesise(Operation::Multiply)"
 )]
 pub struct Multiply {
     /// Left operand.
@@ -244,7 +395,23 @@ impl From<Multiply> for ExpressionBox {
 /// Evaluates to the division of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{}/{}", // Keep without spaces
+    "left.parenthesise(Operation::Divide)",
+    "right.parenthesise(Operation::Divide)"
 )]
 pub struct Divide {
     /// Left operand.
@@ -277,7 +444,23 @@ impl From<Divide> for ExpressionBox {
 /// Evaluates to the modulus of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{} % {}",
+    "left.parenthesise(Operation::Mod)",
+    "right.parenthesise(Operation::Mod)"
 )]
 pub struct Mod {
     /// Left operand.
@@ -310,7 +493,23 @@ impl From<Mod> for ExpressionBox {
 /// Evaluates to the right expression in power of left expressions.
 /// Works only for `Value::U32`
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{}**{}",
+    "left.parenthesise(Operation::RaiseTo)",
+    "right.parenthesise(Operation::RaiseTo)"
 )]
 pub struct RaiseTo {
     /// Left operand.
@@ -343,7 +542,23 @@ impl From<RaiseTo> for ExpressionBox {
 /// Evaluates to the sum of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{}+{}",
+    "left.parenthesise(Operation::Add)",
+    "right.parenthesise(Operation::Add)"
 )]
 pub struct Add {
     /// Left operand.
@@ -376,8 +591,25 @@ impl From<Add> for ExpressionBox {
 /// Evaluates to the difference of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
+#[display(
+    fmt = "{}-{}",
+    "left.parenthesise(Operation::Subtract)",
+    "right.parenthesise(Operation::Subtract)"
+)]
+
 pub struct Subtract {
     /// Left operand.
     pub left: EvaluatesTo<u32>,
@@ -409,7 +641,23 @@ impl From<Subtract> for ExpressionBox {
 /// Returns whether the `left` expression is greater than the `right`.
 /// Works only for `Value::U32`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{} > {}",
+    "left.parenthesise(Operation::Greater)",
+    "right.parenthesise(Operation::Greater)"
 )]
 pub struct Greater {
     /// Left operand.
@@ -442,7 +690,23 @@ impl From<Greater> for ExpressionBox {
 /// Returns whether the `left` expression is less than the `right`.
 /// Works only for `Value::U32`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{} < {}",
+    "left.parenthesise(Operation::Less)",
+    "right.parenthesise(Operation::Less)"
 )]
 pub struct Less {
     /// Left operand.
@@ -475,8 +739,20 @@ impl From<Less> for ExpressionBox {
 /// Negates the result of the `expression`.
 /// Works only for `Value::Bool`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
+#[display(fmt = "!{}", "expression.parenthesise(Operation::Not)")]
 pub struct Not {
     /// Expression that should evaluate to `Value::Bool`.
     pub expression: EvaluatesTo<bool>,
@@ -504,7 +780,23 @@ impl From<Not> for ExpressionBox {
 
 /// Applies the logical `and` to two `Value::Bool` operands.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{} && {}",
+    "left.parenthesise(Operation::And)",
+    "right.parenthesise(Operation::And)"
 )]
 pub struct And {
     /// Left operand.
@@ -536,7 +828,23 @@ impl From<And> for ExpressionBox {
 
 /// Applies the logical `or` to two `Value::Bool` operands.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{} || {}",
+    "left.parenthesise(Operation::Or)",
+    "right.parenthesise(Operation::Or)"
 )]
 pub struct Or {
     /// Left operand.
@@ -624,7 +932,24 @@ impl IfBuilder {
 /// If expression. Returns either a result of `then_expression`, or a result of `else_expression`
 /// based on the `condition`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "if {} {{ {} }} else {{ {} }}",
+    condition,
+    then_expression,
+    else_expression
 )]
 pub struct If {
     /// Condition expression, which should evaluate to `Value::Bool`.
@@ -668,7 +993,23 @@ impl From<If> for ExpressionBox {
 /// `Contains` expression.
 /// Returns `true` if `collection` contains an `element`, `false` otherwise.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{}.contains({})",
+    "collection.parenthesise(Operation::MethodCall)",
+    "element"
 )]
 pub struct Contains {
     /// Expression, which should evaluate to `Value::Vec`.
@@ -704,8 +1045,25 @@ impl From<Contains> for ExpressionBox {
 /// `Contains` expression.
 /// Returns `true` if `collection` contains all `elements`, `false` otherwise.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
 )]
+#[display(
+    fmt = "{}.contains_all({})",
+    "collection.parenthesise(Operation::MethodCall)",
+    "elements"
+)]
+
 pub struct ContainsAll {
     /// Expression, which should evaluate to `Value::Vec`.
     pub collection: EvaluatesTo<Vec<Value>>,
@@ -740,7 +1098,23 @@ impl From<ContainsAll> for ExpressionBox {
 /// `Contains` expression.
 /// Returns `true` if `collection` contains any element out of the `elements`, `false` otherwise.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{}.contains_any({})",
+    "collection.parenthesise(Operation::MethodCall)",
+    "elements"
 )]
 pub struct ContainsAny {
     /// Expression, which should evaluate to `Value::Vec`.
@@ -775,7 +1149,23 @@ impl From<ContainsAny> for ExpressionBox {
 
 /// Returns `true` if `left` operand is equal to the `right` operand.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+)]
+#[display(
+    fmt = "{} == {}",
+    "left.parenthesise(Operation::Equal)",
+    "right.parenthesise(Operation::Equal)"
 )]
 pub struct Equal {
     /// Left operand.
@@ -856,6 +1246,23 @@ pub struct Where {
     pub expression: EvaluatesTo<Value>,
     /// Context values for the context binded to their `String` names.
     pub values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+}
+
+impl core::fmt::Display for Where {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "`{} where: [", self.expression)?;
+
+        let mut first = true;
+        for (key, value) in &self.values {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            write!(f, "`{}` : `{}`", key, value)?;
+        }
+
+        write!(f, "]")
+    }
 }
 
 impl Where {

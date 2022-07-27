@@ -32,16 +32,22 @@ pub fn default_query_permissions() -> QueryJudgeBoxed {
 /// `Grant` instruction will only be used in genesis to specify
 /// rights. The rationale is that we don't want to be able to create a
 /// super-user in a blockchain.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Prohibit grant")]
 pub struct ProhibitGrant;
 
-impl IsGrantAllowed for ProhibitGrant {
+impl IsAllowed for ProhibitGrant {
+    type Operation = Instruction;
+
     fn check(
         &self,
         _authority: &AccountId,
-        _instruction: &GrantBox,
+        instruction: &Instruction,
         _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        Deny("Granting at runtime is prohibited.".to_owned())
+        if let Instruction::Grant(_) = instruction {
+            return Deny("Granting operation is prohibited.".to_owned());
+        }
+        Skip
     }
 }

@@ -67,7 +67,7 @@ impl From<PredefinedPermissionToken> for PermissionToken {
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_permissions() -> InstructionJudgeBoxed {
     // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
-    let grant_instruction_judge =
+    let grant_instruction_validator =
         JudgeBuilder::with_validator(transfer::GrantMyAssetAccess.into_validator())
             .with_validator(unregister::GrantRegisteredByMeAccess.into_validator())
             .with_validator(mint::GrantRegisteredByMeAccess.into_validator())
@@ -80,9 +80,12 @@ pub fn default_permissions() -> InstructionJudgeBoxed {
             .with_validator(key_value::GrantMyAssetDefinitionSet.into_validator())
             .with_validator(key_value::GrantMyAssetDefinitionRemove.into_validator())
             .no_denies()
-            .build();
+            .disable_display_of_operation_on_error()
+            .build()
+            .into_validator()
+            .display_as("Grant validator");
     Box::new(
-        JudgeBuilder::with_recursive_validator(grant_instruction_judge.into_validator())
+        JudgeBuilder::with_recursive_validator(grant_instruction_validator)
             .with_recursive_validator(
                 transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner.into_validator()),
             )
@@ -129,52 +132,6 @@ pub fn default_permissions() -> InstructionJudgeBoxed {
             .at_least_one_allow()
             .build(),
     )
-}
-
-/// Extracts specialized token from [`GrantBox`]
-///
-/// # Errors
-/// - Cannot evaluate `instruction`
-/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`]
-/// - There is no such role
-/// - Role doesn't contain requested specialized token
-/// - Generic `PermissionToken` can't be converted to requested specialized token.
-pub fn extract_specialized_token<T>(instruction: &GrantBox, wsv: &WorldStateView) -> Result<T>
-where
-    T: TryFrom<PermissionToken, Error = PredefinedTokenConversionError>,
-{
-    let value = instruction
-        .object
-        .evaluate(wsv, &Context::new())
-        .map_err(|e| e.to_string())?;
-
-    match value {
-        Value::Id(IdBox::RoleId(role_id)) => {
-            let role = wsv
-                .roles()
-                .get(&role_id)
-                .ok_or_else(|| format!("Role with id `{role_id}` not found"))?;
-            let specialized_token = role
-                .permissions()
-                .find_map(|permission| T::try_from(permission.clone()).ok())
-                .ok_or_else(|| {
-                    format!(
-                        "Role {} doesn't contain requested permission token",
-                        role.value()
-                    )
-                })?;
-
-            Ok(specialized_token)
-        }
-        Value::PermissionToken(permission_token) => {
-            let specialized_token: T = permission_token
-                .try_into()
-                .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
-
-            Ok(specialized_token)
-        }
-        _ => Err("Provided `Grant` instruction contains unsupported object type".to_owned()),
-    }
 }
 
 /// Checks that asset creator is `authority` in the supplied `definition_id`.

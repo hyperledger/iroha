@@ -6,7 +6,6 @@
 use eyre::WrapErr;
 use iroha_config::wasm::Configuration;
 use iroha_data_model::{prelude::*, ParseError};
-use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,

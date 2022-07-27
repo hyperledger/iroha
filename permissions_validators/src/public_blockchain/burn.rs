@@ -24,7 +24,8 @@ declare_token!(
 );
 
 /// Checks that account can burn only the assets which were registered by this account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow to burn only the assets registered by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -81,12 +82,14 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
 pub struct GrantedByAssetCreator;
 
 impl HasToken for GrantedByAssetCreator {
+    type Token = CanBurnAssetWithDefinition;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         match instruction {
             Instruction::Unregister(unregister) => {
                 if let IdBox::AssetId(asset_id) = unregister
@@ -94,7 +97,7 @@ impl HasToken for GrantedByAssetCreator {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?
                 {
-                    Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+                    Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id))
                 } else {
                     Err("Expected the unregister asset instruction".to_owned())
                 }
@@ -110,7 +113,7 @@ impl HasToken for GrantedByAssetCreator {
                     return Err("Destination is not an Asset.".to_owned());
                 };
 
-                Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+                Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id))
             }
             _ => Err("Expected burn or unregister asset instruction".to_owned()),
         }
@@ -119,25 +122,26 @@ impl HasToken for GrantedByAssetCreator {
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantRegisteredByMeAccess;
 
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
+    type Token = CanBurnAssetWithDefinition;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanBurnAssetWithDefinition =
-            ok_or_skip!(extract_specialized_token(instruction, wsv));
-
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
 /// Checks that account can burn only the assets that he currently owns.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow to burn only the owned assets")]
 pub struct OnlyOwnedAssets;
 
 impl IsAllowed for OnlyOwnedAssets {
@@ -176,12 +180,14 @@ impl IsAllowed for OnlyOwnedAssets {
 pub struct GrantedByAssetOwner;
 
 impl HasToken for GrantedByAssetOwner {
+    type Token = CanBurnUserAssets;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         match instruction {
             Instruction::Unregister(unregister) => {
                 if let IdBox::AssetId(asset_id) = unregister
@@ -189,7 +195,7 @@ impl HasToken for GrantedByAssetOwner {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?
                 {
-                    Ok(CanBurnUserAssets::new(asset_id).into())
+                    Ok(CanBurnUserAssets::new(asset_id))
                 } else {
                     Err("Expected the unregister asset instruction".to_owned())
                 }
@@ -204,7 +210,7 @@ impl HasToken for GrantedByAssetOwner {
                 } else {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
-                Ok(CanBurnUserAssets::new(destination_id).into())
+                Ok(CanBurnUserAssets::new(destination_id))
             }
             _ => Err("Expected burn or unregister asset instruction".to_owned()),
         }
@@ -213,18 +219,19 @@ impl HasToken for GrantedByAssetOwner {
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the asset owner")]
 pub struct GrantMyAssetAccess;
 
 impl IsGrantAllowed for GrantMyAssetAccess {
+    type Token = CanBurnUserAssets;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
-        wsv: &WorldStateView,
+        token: Self::Token,
+        _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanBurnUserAssets = ok_or_skip!(extract_specialized_token(instruction, wsv));
-
         if &token.asset_id.account_id != authority {
             return Deny(
                 "The signer does not own the account specified in the permission token.".to_owned(),

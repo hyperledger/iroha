@@ -2,11 +2,12 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{fmt::Debug, marker::PhantomData, ops::Deref};
+use std::{fmt::Display, marker::PhantomData, ops::Deref};
 
 pub use checks::*;
+use derive_more::Display;
 pub use has_token::*;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, utils::*};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ pub mod roles;
 pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Operation for which the permission should be checked
-pub trait NeedsPermission: Debug {
+pub trait NeedsPermission {
     /// Get the type of validator required to check the operation
     ///
     /// Accepts `self` because of the [`NeedsPermissionBox`]
@@ -71,7 +72,7 @@ impl NeedsPermission for NeedsPermissionBox {
 }
 
 /// Implementation of this trait provides custom permission checks for the Iroha-base
-pub trait IsAllowed: Debug {
+pub trait IsAllowed: Display {
     /// Type of operation to be checked
     type Operation: NeedsPermission;
 
@@ -222,6 +223,85 @@ impl From<Result<()>> for ValidatorVerdict {
 /// Reason for denying the execution of a particular instruction.
 pub type DenialReason = String;
 
+/// Trait for hard-coded strongly-typed permission tokens.
+///
+/// # Example
+///
+/// ```
+/// use iroha_core::smartcontracts::isi::permissions::{
+///     PermissionTokenTrait, PredefinedTokenConversionError,
+/// };
+/// use iroha_data_model::prelude::*;
+///
+/// struct ExampleToken {
+///     pub param: String,
+/// }
+///
+/// impl PermissionTokenTrait for ExampleToken {
+///     #[inline]
+///     fn name() -> &'static Name {
+///         static NAME: once_cell::sync::Lazy<Name> =
+///             once_cell::sync::Lazy::new(|| "example_token".parse().expect("Valid"));
+///         &NAME
+///     }
+/// }
+///
+/// impl From<ExampleToken> for PermissionToken {
+///     fn from(example_token: ExampleToken) -> Self {
+///         PermissionToken::new(ExampleToken::name().clone())
+///             .with_params([(
+///                 "param".parse().expect("Valid"),
+///                 Value::String(example_token.param)
+///             )])
+///     }
+/// }
+///
+/// impl TryFrom<PermissionToken> for ExampleToken {
+///     type Error = PredefinedTokenConversionError;
+///
+///     fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+///         static PARAM_NAME: once_cell::sync::Lazy<Name> =
+///             once_cell::sync::Lazy::new(|| "param".parse().expect("Valid"));
+///
+///         if token.name() != Self::name() {
+///             return Err(
+///                 PredefinedTokenConversionError::Name(
+///                     token.name().clone()
+///                 )
+///             );
+///         }
+///         if let Some(Value::String(ref param)) = token.get_param(&PARAM_NAME) {
+///             return Ok(ExampleToken { param: param.clone() });
+///         }
+///
+///         Err(PredefinedTokenConversionError::Param(&PARAM_NAME))
+///     }
+/// }
+/// ```
+pub trait PermissionTokenTrait:
+    Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
+{
+    /// Name of the permission token.
+    ///
+    /// Cannot use an associated constant because [`Name`] cannot be created at *const* context.
+    fn name() -> &'static Name;
+}
+
+/// Errors that may appear when converting specialized permission tokens
+/// to universal `[PermissionToken]`
+#[derive(Debug, thiserror::Error)]
+pub enum PredefinedTokenConversionError {
+    /// Wrong token name
+    #[error("Wrong token name: {0}")]
+    Name(Name),
+    /// Parameter not present in token parameters
+    #[error("Parameter {0} not found")]
+    Param(&'static Name),
+    /// Unexpected value for parameter
+    #[error("Wrong value for parameter {0}")]
+    Value(&'static Name),
+}
+
 pub mod prelude {
     //! Exports common types for permissions.
 
@@ -247,7 +327,8 @@ mod tests {
     use super::{judge::DenyAll, prelude::*, *};
     use crate::wsv::World;
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Deny all burn operations")]
     struct DenyBurn;
 
     impl IsAllowed for DenyBurn {
@@ -266,7 +347,8 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Deny all Alice's operations")]
     struct DenyAlice;
 
     impl IsAllowed for DenyAlice {
@@ -287,20 +369,49 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Serialize)]
-    struct GrantedToken;
+    struct TestToken;
+
+    impl PermissionTokenTrait for TestToken {
+        #[inline]
+        fn name() -> &'static Name {
+            static NAME: once_cell::sync::Lazy<Name> =
+                once_cell::sync::Lazy::new(|| "test_token".parse().expect("Valid"));
+            &NAME
+        }
+    }
+
+    impl From<TestToken> for PermissionToken {
+        fn from(_: TestToken) -> Self {
+            PermissionToken::new(TestToken::name().clone())
+        }
+    }
+
+    impl TryFrom<PermissionToken> for TestToken {
+        type Error = PredefinedTokenConversionError;
+        fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+            if token.name() == Self::name() {
+                Ok(Self)
+            } else {
+                Err(PredefinedTokenConversionError::Name(token.name().clone()))
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize)]
+    struct HasTestToken;
 
     // TODO: ADD some Revoke tests.
 
-    impl HasToken for GrantedToken {
+    impl HasToken for HasTestToken {
+        type Token = TestToken;
+
         fn token(
             &self,
             _authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> std::result::Result<PermissionToken, String> {
-            Ok(PermissionToken::new(
-                Name::from_str("token").expect("Valid"),
-            ))
+        ) -> std::result::Result<TestToken, String> {
+            Ok(TestToken)
         }
     }
 
@@ -386,12 +497,10 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(PermissionToken::new(
-            Name::from_str("token").expect("Valid")
-        )));
+        assert!(bob_account.add_permission(TestToken.into()));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator = GrantedToken.into_validator();
+        let validator = HasTestToken.into_validator();
         assert!(validator
             .check(&alice_id, &instruction_burn, &wsv)
             .is_deny());
