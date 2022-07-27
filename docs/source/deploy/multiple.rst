@@ -16,7 +16,7 @@ In order to form a block, which includes more than a single peer, or requires cu
 Automated
 ---------
 
-Here is a `community provided tool <https://github.com/kuvaldini/iroha-swarm>`_ to easily deploy Iroha instances.
+`iroha-swarm <https://github.com/kuvaldini/iroha-swarm>`_ produces configuration files for docker-compose to spawn a number of Iroha nodes in a one command-line. You can select database type -- RocksDB or Postgres, -- provide peer keys or use pregenerated ones. Very convenient for basic/first config file generation and for regularly changed environment (different sets of nodes).
 
 
 Here is also `a guide <https://github.com/hyperledger/iroha-deploy/blob/master/ansible/roles/iroha-docker/README.md>`__ that might be outdated but could provide some helpful information.
