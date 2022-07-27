@@ -9,7 +9,8 @@ declare_token!(
 );
 
 /// Prohibits registering domains.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Prohibit register domains")]
 pub struct ProhibitRegisterDomains;
 
 impl IsAllowed for ProhibitRegisterDomains {
@@ -38,12 +39,14 @@ impl IsAllowed for ProhibitRegisterDomains {
 pub struct GrantedAllowedRegisterDomains;
 
 impl HasToken for GrantedAllowedRegisterDomains {
+    type Token = CanRegisterDomains;
+
     fn token(
         &self,
         _authority: &AccountId,
         _instruction: &Instruction,
         _wsv: &WorldStateView,
-    ) -> Result<PermissionToken, String> {
-        Ok(CanRegisterDomains::new().into())
+    ) -> Result<CanRegisterDomains, String> {
+        Ok(CanRegisterDomains::new())
     }
 }

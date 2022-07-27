@@ -13,7 +13,8 @@ declare_token!(
 );
 
 /// Checks that account can mint only the assets which were registered by this account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow to mint only the assets created by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -72,12 +73,14 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
 pub struct GrantedByAssetCreator;
 
 impl HasToken for GrantedByAssetCreator {
+    type Token = CanMintUserAssetDefinitions;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         match instruction {
             Instruction::Register(register) => {
                 if let RegistrableBox::Asset(asset) = register
@@ -85,7 +88,9 @@ impl HasToken for GrantedByAssetCreator {
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?
                 {
-                    Ok(CanMintUserAssetDefinitions::new(asset.id().definition_id.clone()).into())
+                    Ok(CanMintUserAssetDefinitions::new(
+                        asset.id().definition_id.clone(),
+                    ))
                 } else {
                     Err("Expected the register asset instruction".to_owned())
                 }
@@ -100,7 +105,7 @@ impl HasToken for GrantedByAssetCreator {
                 } else {
                     return Err("Destination is not an Asset.".to_owned());
                 };
-                Ok(CanMintUserAssetDefinitions::new(asset_id.definition_id).into())
+                Ok(CanMintUserAssetDefinitions::new(asset_id.definition_id))
             }
             _ => Err("Expected mint or register asset instruction".to_owned()),
         }
@@ -109,18 +114,19 @@ impl HasToken for GrantedByAssetCreator {
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantRegisteredByMeAccess;
 
 impl IsGrantAllowed for GrantRegisteredByMeAccess {
+    type Token = CanMintUserAssetDefinitions;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let token: CanMintUserAssetDefinitions =
-            ok_or_skip!(extract_specialized_token(instruction, wsv));
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }

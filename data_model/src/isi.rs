@@ -88,7 +88,7 @@ impl Instruction {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "SET {key:?} = {value:?} IN {object_id:?}")]
+#[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
 pub struct SetKeyValueBox {
     /// Where to set this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -102,7 +102,7 @@ pub struct SetKeyValueBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "REMOVE {key:?} from {object_id:?}")]
+#[display(fmt = "REMOVE `{key}` from `{object_id}`")]
 pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -114,7 +114,7 @@ pub struct RemoveKeyValueBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "REGISTER {object:?}")] // TODO: Display
+#[display(fmt = "REGISTER `{object}`")]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<RegistrableBox>,
@@ -124,7 +124,7 @@ pub struct RegisterBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "UNREGISTER {object_id:?}")] // TODO: Display
+#[display(fmt = "UNREGISTER `{object_id}`")]
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
@@ -134,7 +134,7 @@ pub struct UnregisterBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "MINT {object:?} TO {destination_id:?}")] // TODO: Display
+#[display(fmt = "MINT `{object}` TO `{destination_id}`")]
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -146,7 +146,7 @@ pub struct MintBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "Burn {object:?} from {destination_id:?}")]
+#[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -158,7 +158,7 @@ pub struct BurnBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "TRANSFER {object:?} FROM {source_id:?} TO {destination_id:?}")]
+#[display(fmt = "TRANSFER `{object}` FROM `{source_id}` TO `{destination_id}`")]
 pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
@@ -172,7 +172,7 @@ pub struct TransferBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "({left_instruction}, {right_instruction})")]
+#[display(fmt = "(`{left_instruction}`, `{right_instruction}`)")]
 pub struct Pair {
     /// Left instruction
     pub left_instruction: Instruction,
@@ -181,22 +181,30 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[display(fmt = "{instructions:?}")] // TODO: map to Display.
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
 
+impl core::fmt::Display for SequenceBox {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "SEQUENCE [")?;
+        let mut first = true;
+        for instruction in &self.instructions {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+
+            write!(f, "`{}`", instruction)?;
+        }
+        write!(f, "]")
+    }
+}
+
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[display(
-    fmt = "IF {condition:?} THEN {then} ELSE {otherwise:?}", // TODO: Display
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -206,11 +214,22 @@ pub struct If {
     pub otherwise: Option<Instruction>,
 }
 
+impl core::fmt::Display for If {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "IF `{}` THEN `{}`", self.condition, self.then)?;
+        if let Some(otherwise) = &self.otherwise {
+            write!(f, " ELSE `{}`", otherwise)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Utilitary instruction to fail execution and submit an error `message`.
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "FAIL {message}")]
+#[display(fmt = "FAIL `{message}`")]
 pub struct FailBox {
     /// Message to submit.
     pub message: String,
@@ -220,7 +239,7 @@ pub struct FailBox {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[display(fmt = "GRANT {object:?} TO {destination_id:?}")]
+#[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
 pub struct GrantBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -232,7 +251,7 @@ pub struct GrantBox {
 #[derive(
     Debug, Display, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema,
 )]
-#[display(fmt = "REVOKE {object:?} FROM {destination_id:?}")]
+#[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
 pub struct RevokeBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -369,7 +388,7 @@ where
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema,
 )]
-#[display(fmt = "Execute {trigger_id}")]
+#[display(fmt = "EXECUTE `{trigger_id}`")]
 pub struct ExecuteTriggerBox {
     /// Id of a trigger to execute
     pub trigger_id: TriggerId,
