@@ -12,19 +12,19 @@ pub trait Arg {
 
 #[derive(Constructor)]
 pub struct Receiver<'ast> {
-    self_ty: &'ast syn::Path,
+    self_ty: Option<&'ast syn::Path>,
     name: Ident,
     type_: Type,
 }
 
 pub struct InputArg<'ast> {
-    self_ty: &'ast syn::Path,
+    self_ty: Option<&'ast syn::Path>,
     name: &'ast Ident,
     type_: &'ast Type,
 }
 
 pub struct ReturnArg<'ast> {
-    self_ty: &'ast syn::Path,
+    self_ty: Option<&'ast syn::Path>,
     name: Ident,
     type_: &'ast Type,
 }
@@ -37,7 +37,7 @@ pub struct ImplDescriptor<'ast> {
 }
 
 impl<'ast> InputArg<'ast> {
-    pub fn new(self_ty: &'ast syn::Path, name: &'ast Ident, type_: &'ast Type) -> Self {
+    pub fn new(self_ty: Option<&'ast syn::Path>, name: &'ast Ident, type_: &'ast Type) -> Self {
         Self {
             self_ty,
             name,
@@ -47,7 +47,7 @@ impl<'ast> InputArg<'ast> {
 }
 
 impl<'ast> ReturnArg<'ast> {
-    pub fn new(self_ty: &'ast syn::Path, name: Ident, type_: &'ast Type) -> Self {
+    pub fn new(self_ty: Option<&'ast syn::Path>, name: Ident, type_: &'ast Type) -> Self {
         Self {
             self_ty,
             name,
@@ -101,14 +101,14 @@ impl Arg for ReturnArg<'_> {
     }
 }
 
-fn resolve_src_type(self_ty: &syn::Path, mut arg_type: Type) -> Type {
+fn resolve_src_type(self_ty: Option<&syn::Path>, mut arg_type: Type) -> Type {
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
     ImplTraitResolver.visit_type_mut(&mut arg_type);
 
     arg_type
 }
 
-fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type, is_output: bool) -> Type {
+fn resolve_ffi_type(self_ty: Option<&syn::Path>, mut arg_type: Type, is_output: bool) -> Type {
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
     ImplTraitResolver.visit_type_mut(&mut arg_type);
 
@@ -135,7 +135,7 @@ fn resolve_ffi_type(self_ty: &syn::Path, mut arg_type: Type, is_output: bool) ->
 
 pub struct FnDescriptor<'ast> {
     /// Resolved type of the `Self` type
-    pub self_ty: &'ast syn::Path,
+    pub self_ty: Option<&'ast syn::Path>,
 
     /// Function documentation
     pub doc: syn::LitStr,
@@ -161,7 +161,7 @@ struct ImplVisitor<'ast> {
 
 struct FnVisitor<'ast> {
     /// Resolved type of the `Self` type
-    self_ty: &'ast syn::Path,
+    self_ty: Option<&'ast syn::Path>,
 
     /// Function documentation
     doc: Option<syn::LitStr>,
@@ -195,7 +195,10 @@ impl<'ast> ImplDescriptor<'ast> {
 }
 
 impl<'ast> FnDescriptor<'ast> {
-    fn from_impl_method(self_ty: &'ast syn::Path, node: &'ast syn::ImplItemMethod) -> Self {
+    pub(crate) fn from_impl_method(
+        self_ty: Option<&'ast syn::Path>,
+        node: &'ast syn::ImplItemMethod,
+    ) -> Self {
         let mut visitor = FnVisitor::new(self_ty);
 
         visitor.visit_impl_item_method(node);
@@ -213,8 +216,8 @@ impl<'ast> FnDescriptor<'ast> {
         }
     }
 
-    pub fn self_ty_name(&self) -> &Ident {
-        get_ident(self.self_ty)
+    pub fn self_ty_name(&self) -> Option<&Ident> {
+        self.self_ty.map(get_ident)
     }
 }
 
@@ -242,7 +245,7 @@ impl<'ast> ImplVisitor<'ast> {
 }
 
 impl<'ast> FnVisitor<'ast> {
-    pub const fn new(self_ty: &'ast syn::Path) -> Self {
+    pub const fn new(self_ty: Option<&'ast syn::Path>) -> Self {
         Self {
             self_ty,
 
@@ -329,7 +332,7 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
                 syn::ImplItem::Method(method) => {
                     let self_ty = self.self_ty.expect_or_abort("Defined");
                     self.fns
-                        .push(FnDescriptor::from_impl_method(self_ty, method))
+                        .push(FnDescriptor::from_impl_method(Some(self_ty), method))
                 }
                 syn::ImplItem::Type(type_) => {
                     self.associated_types.push((&type_.ident, &type_.ty));
@@ -449,11 +452,11 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
 
 /// Visitor replaces all occurrences of `Self` in a path type with a fully qualified type
 struct SelfResolver<'ast> {
-    self_ty: &'ast syn::Path,
+    self_ty: Option<&'ast syn::Path>,
 }
 
 impl<'ast> SelfResolver<'ast> {
-    fn new(self_ty: &'ast syn::Path) -> Self {
+    fn new(self_ty: Option<&'ast syn::Path>) -> Self {
         Self { self_ty }
     }
 }
@@ -468,7 +471,12 @@ impl VisitMut for SelfResolver<'_> {
         }
 
         if node.segments[0].ident == "Self" {
-            let mut node_segments = self.self_ty.segments.clone();
+            #[allow(clippy::expect_used)]
+            let mut node_segments = self
+                .self_ty
+                .expect("Self type path expected")
+                .segments
+                .clone();
 
             for segment in core::mem::take(&mut node.segments).into_iter().skip(1) {
                 node_segments.push(segment);

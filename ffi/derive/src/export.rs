@@ -21,14 +21,28 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     let output_arg = ffi_output_arg(fn_descriptor).map(gen_ffi_fn_out_ptr_arg);
     let ffi_fn_body = gen_fn_body(fn_descriptor);
 
-    let ffi_fn_doc = format!(
-        " FFI function equivalent of [`{}::{}`]\n \
+    let ffi_fn_doc = fn_descriptor.self_ty.map_or_else(
+        || {
+            format!(
+                " FFI function equivalent of [`{}`]\n \
           \n \
           # Safety\n \
           \n \
           All of the given pointers must be valid",
-        fn_descriptor.self_ty.get_ident().expect_or_abort("Defined"),
-        fn_descriptor.method_name
+                fn_descriptor.method_name
+            )
+        },
+        |self_ty| {
+            format!(
+                " FFI function equivalent of [`{}::{}`]\n \
+          \n \
+          # Safety\n \
+          \n \
+          All of the given pointers must be valid",
+                self_ty.get_ident().expect_or_abort("Defined"),
+                fn_descriptor.method_name
+            )
+        },
     );
 
     quote! {
@@ -58,11 +72,19 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
 }
 
 fn gen_ffi_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
-    let self_ty_name = fn_descriptor.self_ty_name();
-
-    Ident::new(
-        &format!("{}__{}", self_ty_name, fn_descriptor.method_name),
-        Span::call_site(),
+    fn_descriptor.self_ty_name().map_or_else(
+        || {
+            Ident::new(
+                &format!("__{}", fn_descriptor.method_name),
+                Span::call_site(),
+            )
+        },
+        |self_ty_name| {
+            Ident::new(
+                &format!("{}__{}", self_ty_name, fn_descriptor.method_name),
+                Span::call_site(),
+            )
+        },
     )
 }
 
@@ -114,7 +136,11 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     });
 
     let fn_arg_names = fn_descriptor.input_args.iter().map(Arg::name);
-    let method_call = quote! {#self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*)};
+    let method_call = if let Some(self_type) = self_type {
+        quote! {#self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*)}
+    } else {
+        quote! {#method_name(#(#self_arg_name,)* #(#fn_arg_names),*)}
+    };
 
     fn_descriptor.output_arg.as_ref().map_or_else(
         || quote! {#method_call;},

@@ -50,16 +50,17 @@ impl FfiStruct {
     }
 }
 
+/// Test
 #[ffi_export]
-fn ffi_func(a: i64, b: i64) -> i64 {
+pub fn ffi_func(a: i64, b: i64) -> i64 {
     a + b
 }
 
-#[ffi_export]
-fn ffi_func2(a: String, b: &[u32]) -> String {
-    format!("{}{}", a, b)
-}
-
+// #[ffi_export]
+// fn ffi_func2(a: String, b: &[u32]) -> String {
+    // format!("{}{}", a, b)
+// }
+// 
 fn main() {
     let name = Name("X");
 
@@ -92,7 +93,7 @@ fn main() {
         __drop(FfiStruct::ID, ffi_struct.into_ffi().cast());
     }
 
-    assert_eq!(5, __ffi_func(3, 2) as i64) ;
-
+    // assert_eq!(5, __ffi_func(3, 2) as i64) ;
+// 
     // dbg!(__ffi_func2("Iroha".into(), &[1,2,3]));
 }
