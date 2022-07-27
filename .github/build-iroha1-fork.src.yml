@@ -762,7 +762,6 @@ jobs:
     env:
       IMAGE_NAME: iroha
     steps:
-      - *step_show_context
       - *step_system_info
       - *step_build_info
       - *step_env_from_buildspec
@@ -821,8 +820,6 @@ jobs:
     needs:
       - build-UD
       - generate_matrixes
-    # strategy: *strategy_ubuntu_debug
-    # if: *if_ubuntu_debug
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ) }}
