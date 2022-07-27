@@ -24,8 +24,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{query::QueryBox, Value, ValueBox};
 
-mod operation;
-
 /// Bound name for a value.
 pub type ValueName = String;
 
@@ -120,6 +118,90 @@ impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
                 }],
             })
         });
+    }
+}
+
+mod operation {
+    //! Module containing operations and their priorities.
+
+    /// Type of expression operation.
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub enum Operation {
+        MethodCall,
+        RaiseTo,
+        Multiply,
+        Divide,
+        Mod,
+        Add,
+        Subtract,
+        Greater,
+        Less,
+        Equal,
+        Not,
+        And,
+        Or,
+        Other,
+    }
+
+    /// Priority of operation.
+    ///
+    /// [`First`](Operation::First) is the highest priority
+    /// and [`Eight`](Operation::Eight) is the lowest.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Priority {
+        First = 1,
+        Second = 2,
+        Third = 3,
+        Fourth = 4,
+        Fifth = 5,
+        Sixth = 6,
+        Seventh = 7,
+        Eighth = 8,
+        Ninth = 9,
+    }
+
+    impl Operation {
+        /// Get the priority of the operation.
+        ///
+        /// Ordering is the same as in Python code.
+        /// See [`here`](https://docs.python.org/3/reference/expressions.html#operator-precedence)
+        /// for more details.
+        pub fn priority(self) -> Priority {
+            use Operation::*;
+
+            match self {
+                MethodCall => Priority::First,
+                RaiseTo => Priority::Second,
+                Multiply | Divide | Mod => Priority::Third,
+                Add | Subtract => Priority::Fourth,
+                Greater | Less | Equal => Priority::Fifth,
+                Not => Priority::Sixth,
+                And => Priority::Seventh,
+                Or => Priority::Eighth,
+                Other => Priority::Ninth,
+            }
+        }
+    }
+
+    impl PartialOrd for Priority {
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for Priority {
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+            use core::cmp::Ordering::*;
+
+            let lhs = *self as u8;
+            let rhs = *other as u8;
+
+            match lhs.cmp(&rhs) {
+                Less => Greater,
+                Equal => Equal,
+                Greater => Less,
+            }
+        }
     }
 }
 
@@ -311,7 +393,7 @@ impl From<Multiply> for ExpressionBox {
 }
 
 /// Evaluates to the division of right and left expressions.
-/// Works only for [`Value::U32`]
+/// Works only for `Value::U32`
 #[derive(
     Debug,
     Display,
@@ -360,7 +442,7 @@ impl From<Divide> for ExpressionBox {
 }
 
 /// Evaluates to the modulus of right and left expressions.
-/// Works only for [`Value::U32`]
+/// Works only for `Value::U32`
 #[derive(
     Debug,
     Display,
@@ -409,7 +491,7 @@ impl From<Mod> for ExpressionBox {
 }
 
 /// Evaluates to the right expression in power of left expressions.
-/// Works only for [`Value::U32`]
+/// Works only for `Value::U32`
 #[derive(
     Debug,
     Display,
@@ -458,7 +540,7 @@ impl From<RaiseTo> for ExpressionBox {
 }
 
 /// Evaluates to the sum of right and left expressions.
-/// Works only for [`Value::U32`]
+/// Works only for `Value::U32`
 #[derive(
     Debug,
     Display,
@@ -507,7 +589,7 @@ impl From<Add> for ExpressionBox {
 }
 
 /// Evaluates to the difference of right and left expressions.
-/// Works only for [`Value::U32`]
+/// Works only for `Value::U32`
 #[derive(
     Debug,
     Display,
@@ -557,7 +639,7 @@ impl From<Subtract> for ExpressionBox {
 }
 
 /// Returns whether the `left` expression is greater than the `right`.
-/// Works only for [`Value::U32`].
+/// Works only for `Value::U32`.
 #[derive(
     Debug,
     Display,
@@ -606,7 +688,7 @@ impl From<Greater> for ExpressionBox {
 }
 
 /// Returns whether the `left` expression is less than the `right`.
-/// Works only for [`Value::U32`].
+/// Works only for `Value::U32`.
 #[derive(
     Debug,
     Display,
@@ -1231,6 +1313,3 @@ pub mod prelude {
         Multiply, Not, Or, RaiseTo, Subtract, ValueName, Where, WhereBuilder,
     };
 }
-
-#[cfg(test)]
-mod tests;
