@@ -55,6 +55,122 @@ pub mod role;
 pub mod transaction;
 pub mod trigger;
 
+pub mod utils {
+    //! Module with useful utilities shared between crates
+
+    use core::fmt::*;
+
+    /// Wrapper for type implementing [`Display`] trait.
+    /// Adds back quotes when item is printed.
+    pub struct BackQuotedWrapper<T: Display>(T);
+
+    impl<T: Display> Display for BackQuotedWrapper<T> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            write!(f, "`{}`", self.0)
+        }
+    }
+
+    /// Iterator which wraps each element in [`BackQuotedWrapper`]
+    /// to display items with back quotes
+    pub struct BackQuotedIterator<T, I>
+    where
+        T: Display,
+        I: Iterator<Item = T>,
+    {
+        iter: I,
+    }
+
+    impl<T, I> Iterator for BackQuotedIterator<T, I>
+    where
+        T: Display,
+        I: Iterator<Item = T>,
+    {
+        type Item = BackQuotedWrapper<T>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.iter.next().map(BackQuotedWrapper)
+        }
+    }
+
+    /// Trait to wrap iterator items in back quotes when displaying.
+    ///
+    /// Auto-implemented for all [`Iterator`]s which [`Item`](Iterator::Item) implements [`Display`].
+    pub trait BackQuoted<T: Display>: Iterator<Item = T> + Sized {
+        /// Function to construct new iterator with back quotes around items.
+        ///
+        /// # Example
+        ///
+        /// ```
+        /// use iroha_data_model::utils::{
+        ///     format_comma_separated,
+        ///     BackQuoted as _,
+        /// };
+        ///
+        /// struct Keys([String; 2]);
+        ///
+        /// impl core::fmt::Display for Keys {
+        ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        ///         format_comma_separated(self.0.iter().back_quoted(), ('{', '}'), f)
+        ///     }
+        /// }
+        ///
+        /// let keys = Keys(["key1".to_owned(), "key2".to_owned()]);
+        /// assert_eq!(keys.to_string(), "{`key1`, `key2`}");
+        /// ```
+        fn back_quoted(self) -> BackQuotedIterator<T, Self>;
+    }
+
+    impl<T, I> BackQuoted<T> for I
+    where
+        T: Display,
+        I: Iterator<Item = T>,
+    {
+        fn back_quoted(self) -> BackQuotedIterator<T, Self> {
+            BackQuotedIterator { iter: self }
+        }
+    }
+
+    /// Format `input` separating items with comma, wrapping every item with apostrophe
+    /// and wrapping the whole output into `[` and `]`
+    ///
+    /// # Errors
+    /// If cannot write to the `f`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use iroha_data_model::utils::format_comma_separated;
+    ///
+    /// struct Array([u8; 3]);
+    ///
+    /// impl core::fmt::Display for Array {
+    ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    ///         format_comma_separated(self.0.iter(), ('[', ']'), f)
+    ///     }
+    /// }
+    ///
+    /// let arr = Array([1, 2, 3]);
+    /// assert_eq!(arr.to_string(), "[1, 2, 3]");
+    /// ```
+    pub fn format_comma_separated<T: Display>(
+        mut input: impl Iterator<Item = T>,
+        (open, close): (char, char),
+        f: &mut Formatter<'_>,
+    ) -> Result {
+        f.write_char(open)?;
+
+        if let Some(item) = input.next() {
+            f.write_fmt(format_args!("{}", item))?;
+        }
+
+        for item in input {
+            f.write_fmt(format_args!(", {}", item))?;
+        }
+
+        f.write_char(close)
+    }
+}
+
 /// Error which occurs when parsing string into a data model entity
 #[derive(Debug, Display, Clone, Copy)]
 pub struct ParseError {

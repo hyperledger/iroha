@@ -60,7 +60,7 @@ declare_token!(
 
 /// Checks that account can set keys for assets only for the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to set asset metadata keys only for assets owned by a signer")]
+#[display(fmt = "Allow only the asset owner to set asset metadata keys")]
 pub struct AssetSetOnlyForSignerAccount;
 
 impl IsAllowed for AssetSetOnlyForSignerAccount {
@@ -147,7 +147,7 @@ impl IsGrantAllowed for GrantMyAssetAccessSet {
 
 /// Checks that account can set keys only the for signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to set account metadata keys only for signer")]
+#[display(fmt = "Allow only the account owner to set account metadata keys")]
 pub struct AccountSetOnlyForSignerAccount;
 
 impl IsAllowed for AccountSetOnlyForSignerAccount {
@@ -232,7 +232,7 @@ impl IsGrantAllowed for GrantMyMetadataAccessSet {
 
 /// Checks that account can remove keys for assets only the for signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to remove asset metadata keys only for signer")]
+#[display(fmt = "Allow only the asset owner to remove asset metadata keys")]
 pub struct AssetRemoveOnlyForSignerAccount;
 
 impl IsAllowed for AssetRemoveOnlyForSignerAccount {
@@ -316,7 +316,7 @@ impl IsGrantAllowed for GrantMyAssetAccessRemove {
 
 /// Checks that account can remove keys only the for signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to remove account metadata keys only for the account owner")]
+#[display(fmt = "Allow only the account owner to remove account metadata keys")]
 pub struct AccountRemoveOnlyForSignerAccount;
 
 impl IsAllowed for AccountRemoveOnlyForSignerAccount {
@@ -399,8 +399,8 @@ impl IsGrantAllowed for GrantMyMetadataAccessRemove {
     }
 }
 
-/// Validator that checks Grant instruction so that the access is granted to the assets definition
-/// registered by signer account.
+/// Validator that checks Grant instruction so that the access to the asset definition
+/// is granted by the asset creator.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
 #[display(fmt = "the signer is the asset creator")]
 pub struct GrantMyAssetDefinitionSet;
@@ -439,7 +439,7 @@ impl IsGrantAllowed for GrantMyAssetDefinitionRemove {
 
 /// Checks that account can set keys for asset definitions only registered by the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to set asset definition metadata keys only for the asset creator")]
+#[display(fmt = "Allow only the asset creator to set asset definition metadata keys")]
 pub struct AssetDefinitionSetOnlyForSignerAccount;
 
 impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
@@ -476,7 +476,7 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
 
 /// Checks that account can set keys for asset definitions only registered by the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to remove asset definition metadata keys only for the asset creator")]
+#[display(fmt = "Allow only the asset creator to remove asset definition metadata keys")]
 pub struct AssetDefinitionRemoveOnlyForSignerAccount;
 
 impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {

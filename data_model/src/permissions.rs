@@ -18,7 +18,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Name, Value};
+use crate::{utils::format_comma_separated, Name, Value};
 
 /// Collection of [`PermissionToken`]s
 pub type Permissions = btree_set::BTreeSet<PermissionToken>;
@@ -51,18 +51,14 @@ pub struct PermissionToken {
 
 impl core::fmt::Display for PermissionToken {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}: {{", self.name)?;
-
-        let mut first = true;
-        for (name, value) in &self.params {
-            if !first {
-                write!(f, ", ")?;
-            }
-            first = false;
-            write!(f, "`{}`: `{}`", name, value)?;
-        }
-
-        write!(f, "}}")
+        write!(f, "{}: ", self.name)?;
+        format_comma_separated(
+            self.params
+                .iter()
+                .map(|(name, value)| format!("`{name}` : `{value}`")),
+            ('{', '}'),
+            f,
+        )
     }
 }
 

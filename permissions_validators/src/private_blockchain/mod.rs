@@ -46,7 +46,7 @@ impl IsAllowed for ProhibitGrant {
         _wsv: &WorldStateView,
     ) -> ValidatorVerdict {
         if let Instruction::Grant(_) = instruction {
-            return Deny("Grant is prohibited.".to_owned());
+            return Deny("Granting operation is prohibited.".to_owned());
         }
         Skip
     }

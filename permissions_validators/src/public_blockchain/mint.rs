@@ -14,7 +14,7 @@ declare_token!(
 
 /// Checks that account can mint only the assets which were registered by this account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow mint only assets created by the signer")]
+#[display(fmt = "Allow to mint only the assets created by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {

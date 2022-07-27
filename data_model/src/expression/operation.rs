@@ -25,15 +25,15 @@ pub enum Operation {
 /// and [`Eight`](Operation::Eight) is the lowest.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Priority {
-    First = 1,
-    Second = 2,
-    Third = 3,
-    Fourth = 4,
-    Fifth = 5,
-    Sixth = 6,
-    Seventh = 7,
-    Eighth = 8,
-    Ninth = 9,
+    First,
+    Second,
+    Third,
+    Fourth,
+    Fifth,
+    Sixth,
+    Seventh,
+    Eighth,
+    Ninth,
 }
 
 impl Operation {
@@ -44,17 +44,18 @@ impl Operation {
     /// for more details.
     pub fn priority(self) -> Priority {
         use Operation::*;
+        use Priority::*;
 
         match self {
-            MethodCall => Priority::First,
-            RaiseTo => Priority::Second,
-            Multiply | Divide | Mod => Priority::Third,
-            Add | Subtract => Priority::Fourth,
-            Greater | Less | Equal => Priority::Fifth,
-            Not => Priority::Sixth,
-            And => Priority::Seventh,
-            Or => Priority::Eighth,
-            Other => Priority::Ninth,
+            MethodCall => First,
+            RaiseTo => Second,
+            Multiply | Divide | Mod => Third,
+            Add | Subtract => Fourth,
+            Greater | Less | Equal => Fifth,
+            Not => Sixth,
+            And => Seventh,
+            Or => Eighth,
+            Other => Ninth,
         }
     }
 }

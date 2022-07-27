@@ -115,24 +115,6 @@ impl<O: NeedsPermission, J: Judge<Operation = O> + Display> IsAllowed for JudgeA
     }
 }
 
-fn format_comma_separated<T: Display>(
-    input: impl Iterator<Item = T>,
-    f: &mut core::fmt::Formatter<'_>,
-) -> core::fmt::Result {
-    f.write_str("[")?;
-
-    let mut first = true;
-    for item in input {
-        if !first {
-            f.write_str(", ")?;
-        }
-        f.write_fmt(format_args!("`{}`", item))?;
-        first = false;
-    }
-
-    f.write_str("]")
-}
-
 /// The judge that succeeds only if there is at least one
 /// [`Allow`](ValidatorVerdict::Allow) verdict from the contained validators.
 ///
@@ -159,7 +141,7 @@ impl<O: NeedsPermission> Display for AtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("At least one allow in: ")?;
 
-        format_comma_separated(self.validators.iter(), f)
+        format_comma_separated(self.validators.iter().back_quoted(), ('[', ']'), f)
     }
 }
 
@@ -220,7 +202,7 @@ impl<O: NeedsPermission> Display for NoDenies<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("No denies in: ")?;
 
-        format_comma_separated(self.validators.iter(), f)
+        format_comma_separated(self.validators.iter().back_quoted(), ('[', ']'), f)
     }
 }
 
@@ -275,7 +257,7 @@ impl<O: NeedsPermission> Display for NoDeniesAndAtLeastOneAllow<O> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("No denies and at least one allow in: ")?;
 
-        format_comma_separated(self.validators.iter(), f)
+        format_comma_separated(self.validators.iter().back_quoted(), ('[', ']'), f)
     }
 }
 
@@ -405,9 +387,9 @@ impl<O: NeedsPermission> Judge for DenyAll<O> {
     }
 }
 
-/// Create string with operation description and
+/// Create a string with an operation description and a
 /// **leading** space if `display_operation` is `true`.
-/// Returns empty string if `display_operation` is `false`.
+/// Return empty string if `display_operation` is `false`.
 fn construct_operation_string<O: Display>(
     operation: &O,
     display_operation: bool,

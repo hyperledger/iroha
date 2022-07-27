@@ -25,7 +25,7 @@ declare_token!(
 
 /// Checks that account can burn only the assets which were registered by this account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow burn only assets registered by a signer")]
+#[display(fmt = "Allow to burn only the assets registered by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -141,7 +141,7 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
 
 /// Checks that account can burn only the assets that he currently owns.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow burn only owned assets")]
+#[display(fmt = "Allow to burn only the owned assets")]
 pub struct OnlyOwnedAssets;
 
 impl IsAllowed for OnlyOwnedAssets {

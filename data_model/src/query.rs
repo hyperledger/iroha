@@ -1423,7 +1423,7 @@ pub mod trigger {
     )]
     #[display(fmt = "Find trigger under `{}` domain", domain_id)]
     pub struct FindTriggersByDomainId {
-        /// [`DomainId`] under which triggers should be found.
+        /// [`DomainId`] specifies the domain in which to search for triggers.
         pub domain_id: EvaluatesTo<DomainId>,
     }
 
@@ -1470,7 +1470,7 @@ pub mod transaction {
         transaction::{TransactionQueryResult, TransactionValue},
     };
 
-    /// [`FindAllTransactions`] Iroha Query lists all transactions included in blockchain
+    /// [`FindAllTransactions`] Iroha Query lists all transactions included in a blockchain
     #[derive(
         Default,
         Debug,
@@ -1501,7 +1501,7 @@ pub mod transaction {
         }
     }
 
-    /// [`FindTransactionsByAccountId`] Iroha Query finds all transaction included in blockchain
+    /// [`FindTransactionsByAccountId`] Iroha Query finds all transactions included in a blockchain
     /// for the account
     #[derive(
         Debug,

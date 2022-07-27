@@ -7,7 +7,7 @@ pub trait IsGrantAllowed: Display {
     /// Type of token to check.
     type Token: PermissionTokenTrait;
 
-    /// Check if authority can grant the permission token.
+    /// Check if the authority can grant the permission token.
     ///
     /// # Reasons to deny
     /// If this validator doesn't approve such Grant instruction.
@@ -36,20 +36,14 @@ pub trait IsGrantAllowed: Display {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(
+    fmt = "Allow to grant `{}` permission token if `{}`",
+    "G::Token::name()",
+    is_grant_allowed
+)]
 pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed + Display> {
     is_grant_allowed: G,
-}
-
-impl<R: IsGrantAllowed + Display> Display for IsGrantAllowedAsValidator<R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Allow to grant `{}` permission token if `{}`",
-            R::Token::name(),
-            self.is_grant_allowed
-        )
-    }
 }
 
 impl<G: IsGrantAllowed + Display> IsAllowed for IsGrantAllowedAsValidator<G> {
@@ -76,7 +70,7 @@ pub trait IsRevokeAllowed {
     /// Type of token to check.
     type Token: PermissionTokenTrait;
 
-    /// Check if authority can Revoke the permission token.
+    /// Check if the authority can Revoke the permission token.
     ///
     /// # Reasons to deny
     /// If this validator doesn't approve such Revoke instruction.
@@ -105,20 +99,14 @@ pub trait IsRevokeAllowed {
 ///
 /// Implements [`IsAllowed`] trait so that
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(
+    fmt = "Allow to revoke `{}` permission token if `{}`",
+    "R::Token::name()",
+    is_revoke_allowed
+)]
 pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed + Display> {
     is_revoke_allowed: R,
-}
-
-impl<R: IsRevokeAllowed + Display> Display for IsRevokeAllowedAsValidator<R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Allow to revoke `{}` permission token if `{}` succeeds",
-            R::Token::name(),
-            self.is_revoke_allowed
-        )
-    }
 }
 
 impl<R: IsRevokeAllowed + Display> IsAllowed for IsRevokeAllowedAsValidator<R> {
@@ -244,14 +232,14 @@ macro_rules! impl_extract_specialized_token {
     }};
 }
 
-/// Extracts specialized token from [`GrantBox`]
+/// Extract the specialized token from [`GrantBox`]
 ///
 /// # Errors
-/// - Cannot evaluate `instruction`
-/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`]
-/// - There is no such role
-/// - Role doesn't contain requested specialized token
-/// - Generic [`PermissionToken`] can't be converted to requested specialized token.
+/// - `instruction` cannot be evaluated;
+/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`];
+/// - There is no such role;
+/// - Role doesn't contain requested specialized token;
+/// - Generic [`PermissionToken`] cannot be converted to requested specialized token.
 fn extract_specialized_token_from_grant<T>(
     instruction: &GrantBox,
     wsv: &WorldStateView,
@@ -265,10 +253,10 @@ where
 /// Extracts specialized token from [`RevokeBox`]
 ///
 /// # Errors
-/// - Cannot evaluate `instruction`
-/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`]
-/// - There is no such role
-/// - Role doesn't contain requested specialized token
+/// - Cannot evaluate `instruction`;
+/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`];
+/// - There is no such role;
+/// - Role doesn't contain requested specialized token;
 /// - Generic [`PermissionToken`] can't be converted to requested specialized token.
 fn extract_specialized_token_from_revoke<T>(
     instruction: &RevokeBox,

@@ -27,7 +27,7 @@ declare_token!(
 
 /// Checks that account transfers only the assets that he owns.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow transfer only assets that are owned by the signer")]
+#[display(fmt = "Allow to transfer only the assets that are owned by the signer")]
 pub struct OnlyOwnedAssets;
 
 impl IsAllowed for OnlyOwnedAssets {
@@ -114,7 +114,7 @@ impl IsGrantAllowed for GrantMyAssetAccess {
 /// Validator that checks that `Transfer` instruction execution count
 /// fits well in some time period
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow transfer if account hasn't exceeded the limit")]
+#[display(fmt = "Allow to transfer if the account hasn't exceeded the limit")]
 pub struct ExecutionCountFitsInLimit;
 
 impl IsAllowed for ExecutionCountFitsInLimit {

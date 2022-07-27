@@ -15,7 +15,7 @@ declare_token!(
 /// Checks that account can un-register only the assets which were
 /// registered by this account in the first place.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow unregister only assets created by the signer")]
+#[display(fmt = "Allow to unregister only the assets created by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -102,7 +102,7 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
 /// revoked and the assets of the signer's account are no longer
 /// accessible.
 #[derive(Debug, Display, Clone, Copy, Serialize)]
-#[display(fmt = "Allow if the asset is created by the signer")]
+#[display(fmt = "the signer is the asset creator")]
 pub struct RevokeRegisteredByMeAccess;
 
 impl IsRevokeAllowed for RevokeRegisteredByMeAccess {

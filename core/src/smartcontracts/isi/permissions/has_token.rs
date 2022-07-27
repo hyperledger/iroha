@@ -42,7 +42,7 @@ pub trait HasToken {
 /// it's possible to use it in [`JudgeBuilder`](super::judge::builder::Builder)
 #[derive(Debug, Display)]
 #[display(
-    fmt = "Allow if signer has the corresponding `{}` permission token",
+    fmt = "Allow if the signer has the corresponding `{}` permission token",
     "H::Token::name()"
 )]
 pub struct HasTokenAsValidator<H: HasToken> {
@@ -62,8 +62,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             Ok(concrete_token) => concrete_token.into(),
             Err(err) => {
                 return ValidatorVerdict::Deny(format!(
-                    "Unable to identify the corresponding permission token: {}",
-                    err
+                    "Unable to identify the corresponding permission token: {err}",
                 ));
             }
         };
@@ -84,7 +83,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
             ValidatorVerdict::Allow
         } else {
             ValidatorVerdict::Deny(format!(
-                "Account does not have the needed permission token: {permission_token:?}",
+                "Account does not have the needed permission token: {permission_token}",
             ))
         }
     }

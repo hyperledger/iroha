@@ -6,7 +6,7 @@ use super::*;
 
 /// Allow queries that only access the data of the domain of the signer.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow queries that only access the data of the domain of the signer")]
+#[display(fmt = "Allow queries that only access the data for the domain of the signer")]
 pub struct OnlyAccountsDomain;
 
 impl IsAllowed for OnlyAccountsDomain {

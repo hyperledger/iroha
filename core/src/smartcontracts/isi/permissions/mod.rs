@@ -7,7 +7,7 @@ use std::{fmt::Display, marker::PhantomData, ops::Deref};
 pub use checks::*;
 use derive_more::Display;
 pub use has_token::*;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, utils::*};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -283,12 +283,12 @@ pub trait PermissionTokenTrait:
 {
     /// Name of the permission token.
     ///
-    /// Can't use an associated constant because [`Name`] can't be created at *const* context.
+    /// Cannot use an associated constant because [`Name`] cannot be created at *const* context.
     fn name() -> &'static Name;
 }
 
-/// Represents error when converting specialized permission tokens
-/// to generic `[PermissionToken]`
+/// Errors that may appear when converting specialized permission tokens
+/// to universal `[PermissionToken]`
 #[derive(Debug, thiserror::Error)]
 pub enum PredefinedTokenConversionError {
     /// Wrong token name
