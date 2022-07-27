@@ -16,7 +16,7 @@ permissions:
 ## This workflow is created for pull requests from forks and has less permissions than build-iroha1 workflow
 on:
   pull_request_target:
-    branches: [ main, support/1.*, edge, develop, fix/iroha-context-print ]
+    branches: [ main, support/1.*, edge, develop ]
 
 env:
   DOCKERHUB_ORG: hyperledger
