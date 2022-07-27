@@ -1,4 +1,4 @@
-FROM archlinux:base-devel-20220612.0.61195
+FROM archlinux:base-devel
 
 RUN set -eux && \
     pacman -Syu rustup mold rust-musl --noconfirm && \
