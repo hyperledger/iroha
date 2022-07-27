@@ -18,7 +18,7 @@ mod display {
         let right = Value::U32(10);
         let div = Divide::new(left, right);
 
-        assert_eq!(div.to_string(), "(12 + 8)/10");
+        assert_eq!(div.to_string(), "(12+8)/10");
     }
 
     #[test]
@@ -53,7 +53,7 @@ mod display {
         let complex_call = Contains::new(collection, complex_element);
         assert_eq!(
             complex_call.to_string(),
-            "[\"1\", \"2\", \"3\"].contains(10 - 7)"
+            "[\"1\", \"2\", \"3\"].contains(10-7)"
         );
     }
 }

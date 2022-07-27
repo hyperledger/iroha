@@ -474,7 +474,7 @@ impl From<RaiseTo> for ExpressionBox {
     Ord,
 )]
 #[display(
-    fmt = "{} + {}",
+    fmt = "{}+{}",
     "left.parenthesise(Operation::Add)",
     "right.parenthesise(Operation::Add)"
 )]
@@ -523,7 +523,7 @@ impl From<Add> for ExpressionBox {
     Ord,
 )]
 #[display(
-    fmt = "{} - {}",
+    fmt = "{}-{}",
     "left.parenthesise(Operation::Subtract)",
     "right.parenthesise(Operation::Subtract)"
 )]
