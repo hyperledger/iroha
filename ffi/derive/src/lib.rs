@@ -6,7 +6,7 @@ use impl_visitor::{FnDescriptor, ImplDescriptor};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::abort;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{parse_macro_input, parse_quote, Attribute, Ident, Item};
 
 mod derive;
@@ -54,19 +54,15 @@ pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             if item.sig.abi.is_some() {
-                abort!(item.sig.unsafety, "You shouldn't specify function ABI");
+                abort!(item.sig.abi, "You shouldn't specify function ABI");
             }
 
             if !item.sig.generics.params.is_empty() {
                 abort!(item.sig.generics, "Generics are not supported");
             }
 
-            #[allow(clippy::expect_used)]
-            let impl_method =
-                syn::parse(item.to_token_stream().into()).expect("Can't parse fn item");
-
-            let impl_descriptor = FnDescriptor::from_impl_method(None, &impl_method);
-            let ffi_fn = gen_ffi_fn(&impl_descriptor);
+            let fn_descriptor = FnDescriptor::from(&item);
+            let ffi_fn = gen_ffi_fn(&fn_descriptor);
             quote! {
                 #item
 

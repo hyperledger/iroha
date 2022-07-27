@@ -195,11 +195,8 @@ impl<'ast> ImplDescriptor<'ast> {
 }
 
 impl<'ast> FnDescriptor<'ast> {
-    pub(crate) fn from_impl_method(
-        self_ty: Option<&'ast syn::Path>,
-        node: &'ast syn::ImplItemMethod,
-    ) -> Self {
-        let mut visitor = FnVisitor::new(self_ty);
+    pub fn from_impl_method(self_ty: &'ast syn::Path, node: &'ast syn::ImplItemMethod) -> Self {
+        let mut visitor = FnVisitor::new(Some(self_ty));
 
         visitor.visit_impl_item_method(node);
         FnDescriptor::from_visitor(visitor)
@@ -218,6 +215,15 @@ impl<'ast> FnDescriptor<'ast> {
 
     pub fn self_ty_name(&self) -> Option<&Ident> {
         self.self_ty.map(get_ident)
+    }
+}
+
+impl<'ast> From<&'ast syn::ItemFn> for FnDescriptor<'ast> {
+    fn from(item: &'ast syn::ItemFn) -> Self {
+        let mut visitor = FnVisitor::new(None);
+
+        visitor.visit_item_fn(item);
+        Self::from_visitor(visitor)
     }
 }
 
@@ -332,7 +338,7 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
                 syn::ImplItem::Method(method) => {
                     let self_ty = self.self_ty.expect_or_abort("Defined");
                     self.fns
-                        .push(FnDescriptor::from_impl_method(Some(self_ty), method))
+                        .push(FnDescriptor::from_impl_method(self_ty, method))
                 }
                 syn::ImplItem::Type(type_) => {
                     self.associated_types.push((&type_.ident, &type_.ty));
@@ -353,6 +359,13 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         }
         if !matches!(node.vis, syn::Visibility::Public(_)) {
             abort!(node.vis, "Methods defined in the impl block must be public");
+        }
+
+        self.visit_signature(&node.sig);
+    }
+    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        for attr in &node.attrs {
+            self.visit_impl_item_method_attribute(attr);
         }
 
         self.visit_signature(&node.sig);

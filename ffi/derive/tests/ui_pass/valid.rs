@@ -6,9 +6,9 @@ use iroha_ffi::{
     TryFromFfi, TryFromReprC,
 };
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
 pub struct Name(&'static str);
-#[derive(Clone, IntoFfi, TryFromFfi)]
+#[derive(Clone, Debug, PartialEq, IntoFfi, TryFromFfi)]
 pub struct Value(&'static str);
 
 #[ffi_export]
@@ -52,15 +52,12 @@ impl FfiStruct {
 
 /// Test
 #[ffi_export]
-pub fn ffi_func(a: i64, b: i64) -> i64 {
-    a + b
+pub fn ffi_duplicate_with_name(a: &FfiStruct, name: Name) -> FfiStruct {
+    let mut result = a.clone();
+    result.name = name;
+    result
 }
 
-// #[ffi_export]
-// fn ffi_func2(a: String, b: &[u32]) -> String {
-    // format!("{}{}", a, b)
-// }
-// 
 fn main() {
     let name = Name("X");
 
@@ -71,7 +68,7 @@ fn main() {
         TryFromReprC::try_from_repr_c(ffi_struct.assume_init(), &mut ()).unwrap()
     };
 
-    let in_params = vec![(Name("Nomen"), Value("Omen"))].into_ffi();
+    let in_params = vec![(Name("Nomen"), Value("Omen"))];
     let mut param: MaybeUninit<*const Value> = MaybeUninit::uninit();
     let mut out_params_data = Vec::with_capacity(2);
     let mut data_len = MaybeUninit::<isize>::uninit();
@@ -82,7 +79,10 @@ fn main() {
     unsafe {
         let name = IntoFfi::into_ffi(name.clone());
 
-        FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), in_params.as_ref());
+        FfiStruct__with_params(
+            IntoFfi::into_ffi(&mut ffi_struct),
+            in_params.clone().into_ffi().as_ref(),
+        );
         FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), name, param.as_mut_ptr());
         FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params);
 
@@ -93,7 +93,20 @@ fn main() {
         __drop(FfiStruct::ID, ffi_struct.into_ffi().cast());
     }
 
-    // assert_eq!(5, __ffi_func(3, 2) as i64) ;
-// 
-    // dbg!(__ffi_func2("Iroha".into(), &[1,2,3]));
+    let ffi_struct = FfiStruct::new(Name("foo")).with_params(in_params.clone());
+    let mut param: MaybeUninit<*mut FfiStruct> = MaybeUninit::uninit();
+
+    unsafe {
+        let dup_name = Name("bar");
+        __ffi_duplicate_with_name(
+            (&ffi_struct).into_ffi(),
+            dup_name.clone().into_ffi(),
+            param.as_mut_ptr(),
+        );
+
+        let result = &mut *param.assume_init();
+
+        assert_eq!(result.name, dup_name);
+        assert_eq!(result.get_param(&Name("Nomen")), Some(&Value("Omen")));
+    }
 }
