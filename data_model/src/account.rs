@@ -2,6 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    boxed::Box,
     collections::{btree_map, btree_set},
     format,
     string::String,
@@ -14,8 +15,9 @@ use std::collections::{btree_map, btree_set};
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+use iroha_ffi::ffi_export;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -89,9 +91,10 @@ impl From<GenesisAccount> for Account {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
 impl SignatureCheckCondition {
@@ -126,13 +129,22 @@ impl Default for SignatureCheckCondition {
 }
 
 /// Builder which should be submitted in a transaction to create a new [`Account`]
-#[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    IdOrdEqHash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "[{id}]")]
 #[id(type = "<Account as Identifiable>::Id")]
+#[allow(clippy::multiple_inherent_impl)]
+#[display(fmt = "[{id}]")]
 pub struct NewAccount {
     /// Identification
     id: <Account as Identifiable>::Id,
@@ -185,7 +197,7 @@ impl NewAccount {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -208,12 +220,13 @@ impl NewAccount {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "({id})")] // TODO: Add more?
 #[id(type = "Id")]
-#[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
@@ -244,7 +257,7 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
@@ -401,9 +414,10 @@ impl FromIterator<Account> for crate::Value {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}@{domain_id}")]
 pub struct Id {
     /// [`Account`]'s name.

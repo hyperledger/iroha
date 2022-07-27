@@ -1,30 +1,32 @@
+#![cfg(not(feature = "client"))]
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
     ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, FfiResult, FfiTuple2,
-    Handle, IntoFfi, TryFromFfi, TryFromReprC,
+    Handle, IntoFfi, TryFromReprC,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Name(String);
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Value(String);
+
+/// FfiStruct
+#[derive(Clone, IntoFfi, TryFromReprC)]
+#[ffi_export]
+pub struct FfiStruct {
+    name: Option<Name>,
+    tokens: Vec<Value>,
+    params: BTreeMap<Name, Value>,
+}
 
 fn get_default_params() -> [(Name, Value); 2] {
     [
         (Name(String::from("Nomen")), Value(String::from("Omen"))),
         (Name(String::from("Nomen2")), Value(String::from("Omen2"))),
     ]
-}
-
-#[ffi_export]
-#[derive(Clone, IntoFfi, TryFromFfi)]
-pub struct FfiStruct {
-    name: Option<Name>,
-    tokens: Vec<Value>,
-    params: BTreeMap<Name, Value>,
 }
 
 handles! {0, FfiStruct}
@@ -119,6 +121,7 @@ fn get_new_struct_with_params() -> FfiStruct {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn constructor() {
     let ffi_struct = get_new_struct();
 
@@ -134,6 +137,7 @@ fn constructor() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn builder_method() {
     let ffi_struct = get_new_struct_with_params();
 
@@ -152,6 +156,7 @@ fn builder_method() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn consume_self() {
     let ffi_struct = get_new_struct();
 
@@ -164,6 +169,7 @@ fn consume_self() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 #[allow(trivial_casts)]
 fn into_iter_item_impl_into() {
     let tokens = vec![
@@ -191,6 +197,7 @@ fn into_iter_item_impl_into() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn return_option() {
     let ffi_struct = get_new_struct_with_params();
 
@@ -227,6 +234,7 @@ fn return_option() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn empty_return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
@@ -247,6 +255,7 @@ fn empty_return_iterator() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
@@ -279,6 +288,7 @@ fn return_iterator() {
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn return_result() {
     let mut output = MaybeUninit::new(0);
 

@@ -1,21 +1,21 @@
-use std::{collections::BTreeMap, mem::MaybeUninit};
+use std::collections::BTreeMap;
 
 use getset::Getters;
-use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle, IntoFfi,
-    TryFromFfi, TryFromReprC,
-};
+use iroha_ffi::{ffi_export, gen_ffi_impl, handles, IntoFfi, TryFromReprC};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Name(&'static str);
-#[derive(Clone, Debug, PartialEq, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, IntoFfi, TryFromReprC)]
 pub struct Value(&'static str);
 
-#[ffi_export]
-#[derive(Clone, Getters, IntoFfi, TryFromFfi)]
+/// FfiStruct
+#[derive(Clone, Getters, IntoFfi, TryFromReprC)]
 #[getset(get = "pub")]
+#[ffi_export]
 pub struct FfiStruct {
+    /// Name
     name: Name,
+    /// Params
     #[getset(skip)]
     params: BTreeMap<Name, Value>,
 }
@@ -58,9 +58,13 @@ pub fn ffi_duplicate_with_name(a: &FfiStruct, name: Name) -> FfiStruct {
     result
 }
 
+#[cfg(not(feature = "client"))]
 fn main() {
-    let name = Name("X");
+    use core::mem::MaybeUninit;
 
+    use iroha_ffi::{AsReprCRef, Handle};
+
+    let name = Name("X");
     let mut ffi_struct: FfiStruct = unsafe {
         let mut ffi_struct = MaybeUninit::<*mut FfiStruct>::uninit();
         let name = IntoFfi::into_ffi(name.clone());
@@ -73,8 +77,10 @@ fn main() {
     let mut out_params_data = Vec::with_capacity(2);
     let mut data_len = MaybeUninit::<isize>::uninit();
 
-    let out_params =
-        OutBoxedSlice::from_uninit_slice(Some(&mut out_params_data[..]), &mut data_len);
+    let out_params = iroha_ffi::slice::OutBoxedSlice::from_uninit_slice(
+        Some(&mut out_params_data[..]),
+        &mut data_len,
+    );
 
     unsafe {
         let name = IntoFfi::into_ffi(name.clone());
@@ -109,4 +115,19 @@ fn main() {
         assert_eq!(result.name, dup_name);
         assert_eq!(result.get_param(&Name("Nomen")), Some(&Value("Omen")));
     }
+}
+
+#[cfg(feature = "client")]
+fn main() {
+    let name = Name("X");
+
+    let mut ffi_struct: FfiStruct::new(name);
+
+    let in_params = vec![(Name("Nomen"), Value("Omen"))];
+    FfiStruct::with_params(&mut ffi_struct, in_params);
+
+    let param: Option<&Value> = FfiStruct::get_param(&ffi_struct, name);
+    let params: Option<Vec<_>> = FfiStruct::params(ffi_struct);
+
+    ffi_duplicate_with_name(&FfiStruct, Name);
 }

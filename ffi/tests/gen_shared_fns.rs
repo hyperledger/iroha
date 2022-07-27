@@ -1,19 +1,20 @@
+#![cfg(not(feature = "client"))]
 #![allow(unsafe_code, clippy::restriction)]
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, FfiResult, Handle, IntoFfi, TryFromFfi, TryFromReprC,
-};
+use iroha_ffi::{ffi, ffi_export, gen_ffi_impl, handles, FfiResult, Handle, IntoFfi, TryFromReprC};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct1 {
-    name: String,
-}
+ffi! {
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+    pub struct FfiStruct1 {
+        name: String,
+    }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct2 {
-    name: String,
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+    pub struct FfiStruct2 {
+        name: String,
+    }
 }
 
 handles! {0, FfiStruct1, FfiStruct2}

@@ -8,8 +8,9 @@ use std::collections::btree_set;
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+use iroha_ffi::ffi_export;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -38,9 +39,10 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct Id {
     /// Role name, should be unique .
     pub name: Name,
@@ -48,10 +50,20 @@ pub struct Id {
 
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    IdOrdEqHash,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 #[display(fmt = "{id}")]
 #[getset(get = "pub")]
 #[id(type = "Id")]
@@ -64,7 +76,7 @@ pub struct Role {
     permissions: Permissions,
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl Role {
     /// Constructor.
     #[inline]
@@ -85,9 +97,19 @@ impl Registered for Role {
 
 /// Builder for [`Role`]
 #[derive(
-    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    IdOrdEqHash,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::multiple_inherent_impl)]
 #[id(type = "<Role as Identifiable>::Id")]
 pub struct NewRole {
@@ -105,7 +127,7 @@ impl crate::Registrable for NewRole {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl NewRole {
     /// Add permission to the [`Role`]
     #[must_use]

@@ -1,36 +1,38 @@
-use std::{cmp::Ordering, mem::MaybeUninit};
+use iroha_ffi::{ffi, ffi_export, gen_ffi_impl, handles, IntoFfi, TryFromReprC};
 
-use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, AsReprCRef, Handle, IntoFfi, TryFromFfi, TryFromReprC,
-};
+ffi! {
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprc)]
+    pub struct FfiStruct1 {
+        name: String,
+    }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct1 {
-    name: String,
-}
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprc)]
+    pub struct FfiStruct2 {
+        name: String,
+    }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct2 {
-    name: String,
-}
+    handles! {0, FfiStruct1, FfiStruct2}
+    gen_ffi_impl! {Drop: FfiStruct1, FfiStruct2}
+    gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
+    gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
+    gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
 
-handles! {0, FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Drop: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
-
-#[ffi_export]
-impl FfiStruct1 {
-    /// New
-    pub fn new(name: String) -> Self {
-        Self { name }
+    #[ffi_export]
+    impl FfiStruct1 {
+        /// New
+        pub fn new(name: String) -> Self {
+            Self { name }
+        }
     }
 }
 
+#[cfg(not(feature = "client"))]
 fn main() {
-    let name = String::from("X");
+    use core::mem::MaybeUninit;
 
+    use iroha_ffi::{AsReprCRef, Handle};
+
+    let name = String::from("X");
     let ffi_struct1: FfiStruct1 = unsafe {
         let mut ffi_struct = MaybeUninit::<*mut FfiStruct1>::uninit();
         let name = IntoFfi::into_ffi(name);
@@ -71,11 +73,20 @@ fn main() {
             ordering.as_mut_ptr(),
         );
         assert_eq!(
-            Ordering::Equal,
+            core::cmp::Ordering::Equal,
             TryFromReprC::try_from_repr_c(ordering.assume_init(), &mut ()).unwrap()
         );
 
         __drop(FfiStruct1::ID, ffi_struct1.into_ffi().cast());
         __drop(FfiStruct1::ID, cloned.into_ffi().cast());
     }
+}
+
+#[cfg(feature = "client")]
+fn main() {
+    let name = String::from("X");
+    let ffi_struct1 = FfiStruct1::new(name);
+    let cloned = Clone::clone(ffi_struct1);
+    assert_eq!(ffi_struct1, cloned);
+    assert!(ffi_struct1.cmp(cloned))
 }

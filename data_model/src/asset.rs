@@ -10,8 +10,9 @@ use std::collections::btree_map;
 use derive_more::Display;
 use getset::{Getters, MutGetters};
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+use iroha_ffi::ffi_export;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -59,12 +60,13 @@ impl std::error::Error for MintabilityError {}
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[cfg_attr(feature = "ffi", ffi_export)]
-#[getset(get = "pub")]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 #[allow(clippy::multiple_inherent_impl)]
+#[getset(get = "pub")]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
@@ -87,7 +89,7 @@ impl Ord for AssetDefinitionEntry {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl AssetDefinitionEntry {
     /// Constructor.
     pub const fn new(
@@ -124,11 +126,12 @@ impl AssetDefinitionEntry {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "{id} {value_type}{mintable}")]
+#[allow(clippy::multiple_inherent_impl)]
 #[id(type = "DefinitionId")]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
@@ -166,9 +169,10 @@ impl HasMetadata for AssetDefinition {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(u8)]
 pub enum Mintable {
     /// Regular asset with elastic supply. Can be minted and burned.
@@ -186,12 +190,22 @@ pub enum Mintable {
 /// Asset represents some sort of commodity or value.
 /// All possible variants of [`Asset`] entity's components.
 #[derive(
-    Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    IdOrdEqHash,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[cfg_attr(feature = "ffi", ffi_export)]
-#[getset(get = "pub")]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 #[display(fmt = "{id}: {value}")]
+#[getset(get = "pub")]
 #[id(type = "Id")]
 pub struct Asset {
     /// Component Identification.
@@ -211,14 +225,15 @@ pub struct Asset {
     Eq,
     PartialOrd,
     Ord,
+    EnumString,
     Decode,
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
-    EnumString,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(u8)]
 pub enum AssetValueType {
     /// Asset's Quantity.
@@ -247,9 +262,10 @@ pub enum AssetValueType {
     Deserialize,
     Serialize,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[repr(u8)]
 pub enum AssetValue {
     /// Asset's Quantity.
@@ -343,9 +359,10 @@ impl_try_as_for_asset_value! {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}#{domain_id}")]
 pub struct DefinitionId {
     /// Asset's name.
@@ -368,9 +385,10 @@ pub struct DefinitionId {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{definition_id}@{account_id}")] // TODO: change this?
 pub struct Id {
     /// Entity Identification.
@@ -380,13 +398,22 @@ pub struct Id {
 }
 
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
-#[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    IdOrdEqHash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "{id} {mintable}{value_type}")]
 #[id(type = "<AssetDefinition as Identifiable>::Id")]
+#[display(fmt = "{id} {mintable}{value_type}")]
+#[allow(clippy::multiple_inherent_impl)]
 pub struct NewAssetDefinition {
     id: <AssetDefinition as Identifiable>::Id,
     value_type: AssetValueType,
@@ -434,7 +461,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl NewAssetDefinition {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
@@ -453,7 +480,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
@@ -501,7 +528,7 @@ impl AssetDefinition {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl Asset {
     /// Constructor
     pub fn new(

@@ -1,6 +1,8 @@
 //! Logic related to the conversion of structures with ownership. Ownership is never transferred
 //! across FFI. This means that contents of these structures are copied into provided containers
 
+use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
+
 use crate::{
     slice::{OutBoxedSlice, SliceRef},
     AsReprCRef, FfiResult, IntoFfi, Output, ReprC, TryFromReprC,
@@ -197,6 +199,7 @@ impl<'slice> IntoFfi for &'slice str {
     }
 }
 
+// NOTE: Arrays must be converted into pointers to be repr(C)
 unsafe impl<T: ReprC, const N: usize> ReprC for [T; N] {}
 impl<T: IntoFfi, const N: usize> IntoFfi for [T; N] {
     type Target = LocalSlice<T::Target>;

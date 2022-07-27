@@ -1,8 +1,11 @@
 #![allow(unsafe_code)]
+#![no_std]
 
 //! Structures, macros related to FFI and generation of FFI bindings.
 //! [Non-robust types](https://anssi-fr.github.io/rust-guide/07_ffi.html#non-robust-types-references-function-pointers-enums)
 //! are strictly avoided in the FFI API
+
+extern crate alloc;
 
 pub use iroha_ffi_derive::*;
 use owned::Local;

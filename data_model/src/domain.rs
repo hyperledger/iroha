@@ -6,15 +6,16 @@
 //! the Genesis block.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::str::FromStr;
 
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+use iroha_ffi::ffi_export;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -73,12 +74,21 @@ impl From<GenesisDomain> for Domain {
 
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(
-    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    IdOrdEqHash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[id(type = "<Domain as Identifiable>::Id")]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
-#[id(type = "<Domain as Identifiable>::Id")]
 pub struct NewDomain {
     /// The identification associated with the domain builder.
     id: <Domain as Identifiable>::Id,
@@ -129,7 +139,7 @@ impl NewDomain {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
@@ -158,10 +168,11 @@ impl NewDomain {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
 #[id(type = "Id")]
@@ -193,7 +204,7 @@ impl Registered for Domain {
     type With = NewDomain;
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
@@ -315,8 +326,20 @@ impl FromIterator<Domain> for crate::Value {
 
 /// Represents path in IPFS. Performs checks to ensure path validity.
 /// Construct using [`FromStr::from_str`] method.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Encode,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
+)]
 pub struct IpfsPath(ConstString);
 
 impl FromStr for IpfsPath {
@@ -418,9 +441,10 @@ impl Decode for IpfsPath {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}")]
 pub struct Id {
     /// [`Name`] unique to a [`Domain`] e.g. company name

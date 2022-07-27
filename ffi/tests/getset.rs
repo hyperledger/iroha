@@ -1,23 +1,28 @@
+#![cfg(not(feature = "client"))]
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
 use std::mem::MaybeUninit;
 
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
 
-#[derive(Debug, Clone, PartialEq, Eq, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, Eq, IntoFfi, TryFromReprC)]
 pub struct Name(String);
 
-#[derive(Clone, Setters, Getters, MutGetters, IntoFfi, TryFromFfi)]
-#[ffi_export]
+/// FfiStruct
+#[derive(Clone, Setters, Getters, MutGetters, IntoFfi, TryFromReprC)]
 #[getset(get = "pub")]
+#[ffi_export]
 pub struct FfiStruct {
+    /// id
     #[getset(set = "pub", get_mut = "pub")]
     id: u32,
+    /// Name
     name: Name,
 }
 
 #[test]
+#[cfg(not(feature = "client"))]
 fn getset_get() {
     let init_name = Name("Name".to_owned());
     let ffi_struct = &mut FfiStruct {

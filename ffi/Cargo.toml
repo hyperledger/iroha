@@ -9,3 +9,6 @@ iroha_ffi_derive = { version = "=2.0.0-pre-rc.7", path = "derive" }
 
 [dev-dependencies]
 getset = "0.1.2"
+
+[features]
+#client = ["iroha_ffi_derive/client"]

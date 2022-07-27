@@ -23,10 +23,9 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
-#[cfg(feature = "ffi")]
-use iroha_ffi::{IntoFfi, TryFromFfi};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_primitives::{fixed, small, small::SmallVec};
+use iroha_primitives::{fixed, small};
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
@@ -408,9 +407,10 @@ pub type ValueBox = Box<Value>;
     Deserialize,
     Serialize,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::enum_variant_names)]
 #[repr(u8)]
 pub enum Value {
@@ -590,11 +590,11 @@ impl From<BlockValue> for Value {
     }
 }
 
-impl<A: small::Array> From<SmallVec<A>> for Value
+impl<A: small::Array> From<small::SmallVec<A>> for Value
 where
     A::Item: Into<Value>,
 {
-    fn from(sv: SmallVec<A>) -> Self {
+    fn from(sv: small::SmallVec<A>) -> Self {
         // This looks inefficient, but `Value` can only hold a
         // heap-allocated `Vec` (it's recursive) and the vector
         // conversions only do a heap allocation (if that).
@@ -909,57 +909,54 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(feature = "ffi")]
-pub(crate) mod ffi {
-    use iroha_ffi::{gen_ffi_impl, handles};
+iroha_ffi::handles! {0,
+    account::Account,
+    asset::Asset,
+    domain::Domain,
+    metadata::Metadata,
+    permissions::PermissionToken,
+    role::Role,
+    Name,
+}
 
-    use super::*;
-
-    handles! {0,
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-
-    gen_ffi_impl! { pub Clone:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-    gen_ffi_impl! { pub Eq:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-    gen_ffi_impl! { pub Ord:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-    gen_ffi_impl! { pub Drop:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { pub Clone:
+    account::Account,
+    asset::Asset,
+    domain::Domain,
+    metadata::Metadata,
+    permissions::PermissionToken,
+    role::Role,
+    Name,
+}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { pub Eq:
+    account::Account,
+    asset::Asset,
+    domain::Domain,
+    metadata::Metadata,
+    permissions::PermissionToken,
+    role::Role,
+    Name,
+}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { pub Ord:
+    account::Account,
+    asset::Asset,
+    domain::Domain,
+    permissions::PermissionToken,
+    role::Role,
+    Name,
+}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { pub Drop:
+    account::Account,
+    asset::Asset,
+    domain::Domain,
+    metadata::Metadata,
+    permissions::PermissionToken,
+    role::Role,
+    Name,
 }
 
 pub mod prelude {

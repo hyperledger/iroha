@@ -12,7 +12,7 @@ mod signature;
 mod varint;
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
@@ -20,8 +20,9 @@ pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+use iroha_ffi::ffi_export;
+use iroha_ffi::{ffi, IntoFfi, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
@@ -64,8 +65,7 @@ pub struct NoSuchAlgorithm;
 impl std::error::Error for NoSuchAlgorithm {}
 
 /// Algorithm for hashing
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, IntoFfi, TryFromReprC)]
 #[repr(u8)]
 pub enum Algorithm {
     /// Ed25519
@@ -164,15 +164,16 @@ impl KeyGenConfiguration {
     }
 }
 
-/// Pair of Public and Private keys.
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize)]
-#[getset(get = "pub")]
-pub struct KeyPair {
-    /// Public Key.
-    public_key: PublicKey,
-    /// Private Key.
-    private_key: PrivateKey,
+ffi! {
+    /// Pair of Public and Private keys.
+    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, IntoFfi, TryFromReprC)]
+    #[getset(get = "pub")]
+    pub struct KeyPair {
+        /// Public Key.
+        public_key: PublicKey,
+        /// Private Key.
+        private_key: PrivateKey,
+    }
 }
 
 /// Error when dealing with cryptographic functions
@@ -363,21 +364,22 @@ impl From<multihash::ConvertError> for KeyParseError {
 #[cfg(feature = "std")]
 impl std::error::Error for KeyParseError {}
 
-/// Public Key used in signatures.
-#[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, IntoSchema)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[debug(
-    fmt = "{{ digest: {digest_function}, payload: {} }}",
-    "hex::encode_upper(payload.as_slice())"
-)]
-pub struct PublicKey {
-    /// Digest function
-    digest_function: ConstString,
-    /// payload of key
-    payload: Vec<u8>,
+ffi! {
+    /// Public Key used in signatures.
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, IntoFfi, TryFromReprC, IntoSchema)]
+    #[debug(
+        fmt = "{{ digest: {digest_function}, payload: {} }}",
+        "hex::encode_upper(payload.as_slice())"
+    )]
+    pub struct PublicKey {
+        /// Digest function
+        digest_function: ConstString,
+        /// payload of key
+        payload: Vec<u8>,
+    }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl PublicKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -494,21 +496,22 @@ impl Decode for PublicKey {
     }
 }
 
-/// Private Key used in signatures.
-#[derive(DebugCustom, Display, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
-#[display(fmt = "{}", "hex::encode(payload)")]
-#[allow(clippy::multiple_inherent_impl)]
-pub struct PrivateKey {
-    /// Digest function
-    digest_function: ConstString,
-    /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
-    #[serde(with = "hex::serde")]
-    payload: Vec<u8>,
+ffi! {
+    /// Private Key used in signatures.
+    #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, IntoFfi, TryFromReprC)]
+    #[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
+    #[display(fmt = "{}", "hex::encode(payload)")]
+    #[allow(clippy::multiple_inherent_impl)]
+    pub struct PrivateKey {
+        /// Digest function
+        digest_function: ConstString,
+        /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
+        #[serde(with = "hex::serde")]
+        payload: Vec<u8>,
+    }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
 impl PrivateKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -574,19 +577,15 @@ impl<'de> Deserialize<'de> for PrivateKey {
     }
 }
 
-#[cfg(feature = "ffi")]
-mod ffi {
-    use iroha_ffi::{gen_ffi_impl, handles};
-
-    use super::{KeyPair, PrivateKey, PublicKey};
-
-    handles! {0, KeyPair, PublicKey, PrivateKey}
-
-    gen_ffi_impl! { Clone: KeyPair, PublicKey, PrivateKey}
-    gen_ffi_impl! { Eq: KeyPair, PublicKey, PrivateKey}
-    gen_ffi_impl! { Ord: PublicKey }
-    gen_ffi_impl! { Drop: KeyPair, PublicKey, PrivateKey}
-}
+iroha_ffi::handles! {0, KeyPair, PublicKey, PrivateKey}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { Clone: KeyPair, PublicKey, PrivateKey}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { Eq: KeyPair, PublicKey, PrivateKey}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { Ord: PublicKey }
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+iroha_ffi::gen_ffi_impl! { Drop: KeyPair, PublicKey, PrivateKey}
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {

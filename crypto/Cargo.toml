@@ -13,12 +13,15 @@ default = ["std"]
 std = ["ursa"]
 # Force static linking
 vendored = ["openssl-sys"]
-# Generate extern functions callable via FFI
-ffi = ["iroha_ffi"]
+## Replace structures and methods with FFI equivalents. Facilitates dynamic linkage
+#ffi = ["iroha_ffi/client"]
+
+# Expose FFI API for dynamic linking (Internal use only)
+ffi_api = ["std"]
 
 [dependencies]
 iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.7", default-features = false }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.7", optional = true }
+iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.7" }
 iroha_schema = { path = "../schema" }
 
 derive_more = { version = "0.99.16", default-features = false, features = ["deref", "deref_mut", "display"] }
