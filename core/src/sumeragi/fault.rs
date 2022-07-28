@@ -158,7 +158,6 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         self.broadcast_msg(TransactionGossip::new(txs), topology);
     }
 
-
     /// Connects or disconnects peers according to the current network topology.
     pub fn connect_peers(&self, topology: &Topology) {
         trace!("Connecting peers...");
