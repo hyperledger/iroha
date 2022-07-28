@@ -134,7 +134,7 @@ jobs:
           ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository
       -
-        run: sudo apt install yq
+        run: sudo snap install yq
       -
         name: Check if .github/workflows/*.yml correspond to *.src.yml
         run: |
