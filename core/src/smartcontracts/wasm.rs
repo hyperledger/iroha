@@ -296,11 +296,7 @@ impl<'wrld> Runtime<'wrld> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
-        // Accessing memory as a byte slice to avoid the use of unsafe
-        let query_mem_range = offset as usize..(offset + len) as usize;
-        let mut query_bytes = &memory.data(&caller)[query_mem_range];
-        let query =
-            QueryBox::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        let query = Self::decode_from_memory(memory, &mut caller, offset, len)?;
 
         if let Some(validator) = &caller.data().validator {
             validator
@@ -352,11 +348,7 @@ impl<'wrld> Runtime<'wrld> {
     ) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
 
-        // Accessing memory as a byte slice to avoid the use of unsafe
-        let isi_mem_range = offset as usize..(offset + len) as usize;
-        let mut isi_bytes = &memory.data(&caller)[isi_mem_range];
-        let instruction =
-            Instruction::decode(&mut isi_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        let instruction = Self::decode_from_memory(memory, &mut caller, offset, len)?;
 
         let account_id = caller.data().account_id.clone();
         if let Some(validator) = &mut caller.data_mut().validator {
@@ -387,9 +379,7 @@ impl<'wrld> Runtime<'wrld> {
     #[allow(clippy::print_stdout)]
     fn dbg(mut caller: Caller<State>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
-        let string_mem_range = offset as usize..(offset + len) as usize;
-        let mut string_bytes = &memory.data(&caller)[string_mem_range];
-        let s = String::decode(&mut string_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        let s: String = Self::decode_from_memory(memory, &mut caller, offset, len)?;
         println!("{s}");
         Ok(())
     }
@@ -543,6 +533,18 @@ impl<'wrld> Runtime<'wrld> {
             .map_err(Error::ExportFnCall)?;
 
         Ok(())
+    }
+
+    fn decode_from_memory<T: Decode>(
+        memory: wasmtime::Memory,
+        caller: &mut Caller<State>,
+        offset: WasmUsize,
+        len: WasmUsize,
+    ) -> Result<T, Trap> {
+        // Accessing memory as a byte slice to avoid the use of unsafe
+        let mem_range = offset as usize..(offset + len) as usize;
+        let mut bytes = &memory.data(&caller)[mem_range];
+        T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
     }
 }
 
