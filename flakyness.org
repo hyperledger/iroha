@@ -10,8 +10,8 @@ how to update the tests, and basic troubleshooting.
 * Test flakyness
 
 A test is considered flaky if its pass/fail is not deterministic. In
-other words, if you ran the test, you're not guaranteed that it will
-always pass or always fail.
+other words, there is no guarantee that it will
+always pass or always fail when you run it.
 
 * Known flaky tests
 
