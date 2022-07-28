@@ -18,7 +18,6 @@ on:
   pull_request_target:
     branches: [ main, support/1.*, edge, develop ]
 
-
 env:
   DOCKERHUB_ORG: hyperledger
 
@@ -34,12 +33,8 @@ jobs:
       - &step_show_context
         name: Show context
         run: |
-          echo "::group::GitHub context"
-          jq <<< $JSON_github
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          jq <<< $JSON_needs
-          echo "::endgroup::"
+          echo $JSON_github | jq .
+          echo $JSON_needs | jq .
         env:
           JSON_github: ${{ toJSON(github) }}
           JSON_needs: ${{ toJson(needs) }}
@@ -82,7 +77,6 @@ jobs:
           echo "Pull requests from forks are not allowed to change build dependencies script"
           false
       
-
   ## This job is to generate build matrixes for build jobs
   ## The matrixes depend on what is requeted to be build
   ## At the moment there are several options:
@@ -826,8 +820,6 @@ jobs:
     needs:
       - build-UD
       - generate_matrixes
-    # strategy: *strategy_ubuntu_debug
-    # if: *if_ubuntu_debug
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ) }}
