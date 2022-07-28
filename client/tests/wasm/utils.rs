@@ -32,10 +32,10 @@ pub fn wasm_template(hex_val: &str) -> String {
                 (i32.add (global.get $mem_size) (local.get $size)))
         )
         "#,
-        memory_name = wasm::WASM_MEMORY_NAME,
-        alloc_fn_name = wasm::WASM_ALLOC_FN,
-        execute_instruction = wasm::EXECUTE_ISI_FN_NAME,
-        execute_query = wasm::EXECUTE_QUERY_FN_NAME,
+        memory_name = wasm::exported::WASM_MEMORY_NAME,
+        alloc_fn_name = wasm::exported::WASM_ALLOC_FN,
+        execute_instruction = wasm::imported::EXECUTE_ISI_FN_NAME,
+        execute_query = wasm::imported::EXECUTE_QUERY_FN_NAME,
         hex_val = escape_hex(hex_val),
         hex_len = hex_val.len() / 2,
     )

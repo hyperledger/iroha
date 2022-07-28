@@ -22,18 +22,29 @@ use crate::{
 
 type WasmUsize = u32;
 
-/// Exported function to allocate memory
-pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
-/// Name of the exported memory
-pub const WASM_MEMORY_NAME: &str = "memory";
-/// Name of the exported entry to smartcontract execution
-pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-/// Name of the imported function to execute instructions
-pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
-/// Name of the imported function to execute queries
-pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
-/// Name of the imported function to debug print object
-pub const DBG_FN_NAME: &str = "dbg";
+pub mod exported {
+    //! Module functions names exported from wasm to iroha
+
+    /// Exported function to allocate memory
+    pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
+    /// Name of the exported memory
+    pub const WASM_MEMORY_NAME: &str = "memory";
+    /// Name of the exported entry to smartcontract (not_trigger) execution
+    pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
+    /// Name of the exported entry to trigger execution
+    pub const TRIGGER_MAIN_FN_NAME: &str = "_iroha_trigger_main";
+}
+
+pub mod imported {
+    //! Module functions names imported from iroha to wasm
+
+    /// Name of the imported function to execute instructions
+    pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
+    /// Name of the imported function to execute queries
+    pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
+    /// Name of the imported function to debug print object
+    pub const DBG_FN_NAME: &str = "dbg";
+}
 
 /// `WebAssembly` execution error type
 #[derive(Debug, thiserror::Error)]
@@ -387,12 +398,22 @@ impl<'wrld> Runtime<'wrld> {
         let mut linker = Linker::new(engine);
 
         linker
-            .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_instruction)
-            .and_then(|l| l.func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query))
+            .func_wrap(
+                "iroha",
+                imported::EXECUTE_ISI_FN_NAME,
+                Self::execute_instruction,
+            )
+            .and_then(|l| {
+                l.func_wrap(
+                    "iroha",
+                    imported::EXECUTE_QUERY_FN_NAME,
+                    Self::execute_query,
+                )
+            })
             .map_err(Error::Initialization)?;
 
         linker
-            .func_wrap("iroha", DBG_FN_NAME, Self::dbg)
+            .func_wrap("iroha", imported::DBG_FN_NAME, Self::dbg)
             .map_err(Error::Initialization)?;
 
         Ok(linker)
@@ -400,20 +421,25 @@ impl<'wrld> Runtime<'wrld> {
 
     fn get_alloc_fn(caller: &mut Caller<State>) -> Result<TypedFunc<WasmUsize, WasmUsize>, Trap> {
         caller
-            .get_export(WASM_ALLOC_FN)
-            .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_ALLOC_FN)))?
+            .get_export(exported::WASM_ALLOC_FN)
+            .ok_or_else(|| Trap::new(format!("{}: export not found", exported::WASM_ALLOC_FN)))?
             .into_func()
-            .ok_or_else(|| Trap::new(format!("{}: not a function", WASM_ALLOC_FN)))?
+            .ok_or_else(|| Trap::new(format!("{}: not a function", exported::WASM_ALLOC_FN)))?
             .typed::<WasmUsize, WasmUsize, _>(caller)
-            .map_err(|_error| Trap::new(format!("{}: unexpected declaration", WASM_ALLOC_FN)))
+            .map_err(|_error| {
+                Trap::new(format!(
+                    "{}: unexpected declaration",
+                    exported::WASM_ALLOC_FN
+                ))
+            })
     }
 
     fn get_memory(caller: &mut Caller<State>) -> Result<wasmtime::Memory, Trap> {
         caller
-            .get_export(WASM_MEMORY_NAME)
-            .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_MEMORY_NAME)))?
+            .get_export(exported::WASM_MEMORY_NAME)
+            .ok_or_else(|| Trap::new(format!("{}: export not found", exported::WASM_MEMORY_NAME)))?
             .into_memory()
-            .ok_or_else(|| Trap::new(format!("{}: not a memory", WASM_MEMORY_NAME)))
+            .ok_or_else(|| Trap::new(format!("{}: not a memory", exported::WASM_MEMORY_NAME)))
     }
 
     /// Validates that the given smartcontract is eligible for execution
@@ -483,7 +509,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let account_offset = {
             let alloc_fn = smart_contract
-                .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, WASM_ALLOC_FN)
+                .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, exported::WASM_ALLOC_FN)
                 .map_err(Error::ExportNotFound)?;
 
             let acc_offset = alloc_fn
@@ -491,11 +517,11 @@ impl<'wrld> Runtime<'wrld> {
                 .map_err(Error::ExportFnCall)?;
 
             smart_contract
-                .get_memory(&mut store, WASM_MEMORY_NAME)
+                .get_memory(&mut store, exported::WASM_MEMORY_NAME)
                 .ok_or_else(|| {
                     Error::ExportNotFound(anyhow::Error::msg(format!(
                         "{}: export not found or not a memory",
-                        WASM_MEMORY_NAME
+                        exported::WASM_MEMORY_NAME
                     )))
                 })?
                 .write(&mut store, acc_offset as usize, &account_bytes)
@@ -505,7 +531,10 @@ impl<'wrld> Runtime<'wrld> {
         };
 
         let main_fn = smart_contract
-            .get_typed_func::<(WasmUsize, WasmUsize), (), _>(&mut store, WASM_MAIN_FN_NAME)
+            .get_typed_func::<(WasmUsize, WasmUsize), (), _>(
+                &mut store,
+                exported::WASM_MAIN_FN_NAME,
+            )
             .map_err(Error::ExportNotFound)?;
 
         // NOTE: This function takes ownership of the pointer
@@ -558,8 +587,8 @@ mod tests {
                 (global.set $mem_size
                     (i32.add (global.get $mem_size) (local.get $size))))
             "#,
-            memory_name = WASM_MEMORY_NAME,
-            alloc_fn_name = WASM_ALLOC_FN,
+            memory_name = exported::WASM_MEMORY_NAME,
+            alloc_fn_name = exported::WASM_ALLOC_FN,
             isi_len = isi_hex.len() / 3,
             isi_hex = isi_hex,
         )
@@ -604,8 +633,8 @@ mod tests {
                 (func (export "{main_fn_name}") (param i32 i32)
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))))
             "#,
-            main_fn_name = WASM_MAIN_FN_NAME,
-            execute_fn_name = EXECUTE_ISI_FN_NAME,
+            main_fn_name = exported::WASM_MAIN_FN_NAME,
+            execute_fn_name = imported::EXECUTE_ISI_FN_NAME,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
@@ -641,8 +670,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = WASM_MAIN_FN_NAME,
-            execute_fn_name = EXECUTE_QUERY_FN_NAME,
+            main_fn_name = exported::WASM_MAIN_FN_NAME,
+            execute_fn_name = imported::EXECUTE_QUERY_FN_NAME,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
         );
@@ -678,8 +707,8 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
                     (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))))
             "#,
-            main_fn_name = WASM_MAIN_FN_NAME,
-            execute_fn_name = EXECUTE_ISI_FN_NAME,
+            main_fn_name = exported::WASM_MAIN_FN_NAME,
+            execute_fn_name = imported::EXECUTE_ISI_FN_NAME,
             // Store two instructions into adjacent memory and execute them
             memory_and_alloc = memory_and_alloc(&isi_hex.repeat(2)),
             isi1_end = isi_hex.len() / 3,
@@ -734,8 +763,8 @@ mod tests {
                 )
             )
             "#,
-            main_fn_name = WASM_MAIN_FN_NAME,
-            execute_fn_name = EXECUTE_ISI_FN_NAME,
+            main_fn_name = exported::WASM_MAIN_FN_NAME,
+            execute_fn_name = imported::EXECUTE_ISI_FN_NAME,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
@@ -787,8 +816,8 @@ mod tests {
                     ;; No use of return value
                     drop))
             "#,
-            main_fn_name = WASM_MAIN_FN_NAME,
-            execute_fn_name = EXECUTE_QUERY_FN_NAME,
+            main_fn_name = exported::WASM_MAIN_FN_NAME,
+            execute_fn_name = imported::EXECUTE_QUERY_FN_NAME,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
         );
