@@ -235,6 +235,7 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
         context->set_deadline(time_provider() + proposal_request_timeout);
         proto::ProposalResponse response;
 
+
         maybe_log->info("Requesting proposal for round {} from peer {}",
                         round,
                         context->peer());
@@ -247,6 +248,7 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
               ProposalEvent{ProposalEvent::ProposalPack{}, round});
           return;
         }
+
 
         /// handle response
         maybe_log->info("RPC succeeded(RequestingProposal)");
