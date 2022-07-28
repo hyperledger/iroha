@@ -169,8 +169,8 @@ fn gen_ffi_derive(item_name: &Ident, field: &syn::Field, derive: Derive) -> syn:
     let (ffi_fn_args, ffi_fn_body) = match derive {
         Derive::Setter => {
             let (handle_arg, field_arg) = (
-                Receiver::new(&self_ty, handle_name, parse_quote! {&mut Self}),
-                InputArg::new(&self_ty, field_name, field_ty),
+                Receiver::new(Some(&self_ty), handle_name, parse_quote! {&mut Self}),
+                InputArg::new(Some(&self_ty), field_name, field_ty),
             );
 
             (
@@ -182,8 +182,8 @@ fn gen_ffi_derive(item_name: &Ident, field: &syn::Field, derive: Derive) -> syn:
             let field_ty = parse_quote! {&#field_ty};
 
             let (handle_arg, field_arg) = (
-                Receiver::new(&self_ty, handle_name, parse_quote! {&Self}),
-                ReturnArg::new(&self_ty, field_name.clone(), &field_ty),
+                Receiver::new(Some(&self_ty), handle_name, parse_quote! {&Self}),
+                ReturnArg::new(Some(&self_ty), field_name.clone(), &field_ty),
             );
 
             (
@@ -195,8 +195,8 @@ fn gen_ffi_derive(item_name: &Ident, field: &syn::Field, derive: Derive) -> syn:
             let field_ty = parse_quote! {&mut #field_ty};
 
             let (handle_arg, field_arg) = (
-                Receiver::new(&self_ty, handle_name, parse_quote! {&mut Self}),
-                ReturnArg::new(&self_ty, field_name.clone(), &field_ty),
+                Receiver::new(Some(&self_ty), handle_name, parse_quote! {&mut Self}),
+                ReturnArg::new(Some(&self_ty), field_name.clone(), &field_ty),
             );
 
             (
