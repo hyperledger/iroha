@@ -3,6 +3,7 @@
 //! to wasm format and submitted in a transaction
 #![allow(clippy::expect_used)]
 
+use anyhow::anyhow;
 use eyre::WrapErr;
 use iroha_config::wasm::Configuration;
 use iroha_data_model::{prelude::*, ParseError};
@@ -435,6 +436,20 @@ impl<'wrld> Runtime<'wrld> {
             .ok_or_else(|| Trap::new(format!("{}: not a memory", exported::WASM_MEMORY_NAME)))
     }
 
+    fn get_smartcontract_memory(
+        smart_contract: &wasmtime::Instance,
+        mut store: &mut Store<State>,
+    ) -> Result<wasmtime::Memory, Error> {
+        smart_contract
+            .get_memory(&mut store, exported::WASM_MEMORY_NAME)
+            .ok_or_else(|| {
+                Error::ExportNotFound(anyhow!(
+                    "{}: export not found or not a memory",
+                    exported::WASM_MEMORY_NAME
+                ))
+            })
+    }
+
     /// Validates that the given smartcontract is eligible for execution
     ///
     /// # Errors
@@ -489,34 +504,22 @@ impl<'wrld> Runtime<'wrld> {
 
         let (account_offset, account_bytes_len) = {
             let alloc_fn = smart_contract
-                .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, exported::WASM_ALLOC_FN)
+                .get_typed_func(&mut store, exported::WASM_ALLOC_FN)
                 .map_err(Error::ExportNotFound)?;
 
-            let memory = smart_contract
-                .get_memory(&mut store, exported::WASM_MEMORY_NAME)
-                .ok_or_else(|| {
-                    Error::ExportNotFound(anyhow::Error::msg(format!(
-                        "{}: export not found or not a memory",
-                        exported::WASM_MEMORY_NAME
-                    )))
-                })?;
+            let memory = Self::get_smartcontract_memory(&smart_contract, &mut store)?;
 
             Self::encode_to_memory(account_id, &memory, &alloc_fn, &mut store)?
         };
 
         let main_fn = smart_contract
-            .get_typed_func::<(WasmUsize, WasmUsize), (), _>(
-                &mut store,
-                exported::WASM_MAIN_FN_NAME,
-            )
+            .get_typed_func(&mut store, exported::WASM_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
         // NOTE: This function takes ownership of the pointer
         main_fn
             .call(&mut store, (account_offset, account_bytes_len))
-            .map_err(Error::ExportFnCall)?;
-
-        Ok(())
+            .map_err(Error::ExportFnCall)
     }
 
     /// Decode object from the given `memory` at the given `offset` with the given `len`
@@ -539,7 +542,9 @@ impl<'wrld> Runtime<'wrld> {
         obj: &T,
         memory: &wasmtime::Memory,
         alloc_fn: &wasmtime::TypedFunc<WasmUsize, WasmUsize>,
-        store: &mut Store<State>,
+        // Mut var of type &mut looks odd,
+        // but we need this for alloc call and memory writing
+        mut store: &mut Store<State>,
     ) -> Result<(WasmUsize, WasmUsize), Error> {
         let bytes = obj.encode();
         let bytes_len = bytes

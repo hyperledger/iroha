@@ -150,7 +150,7 @@ impl WorldStateView {
     }
 
     fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
-        let authority = action.technical_account().clone();
+        let authority = action.technical_account();
 
         match action.executable() {
             Executable::Instructions(instructions) => {
@@ -160,13 +160,13 @@ impl WorldStateView {
                 let mut wasm_runtime =
                     wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
                 wasm_runtime
-                    .execute_trigger(self, &authority, bytes, event)
+                    .execute_trigger(self, authority, bytes, event)
                     .map_err(Into::into)
             }
         }
     }
 
-    fn process_executable(&self, executable: &Executable, authority: AccountId) -> Result<()> {
+    fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
@@ -175,7 +175,7 @@ impl WorldStateView {
                 let mut wasm_runtime =
                     wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
                 wasm_runtime
-                    .execute(self, &authority, bytes)
+                    .execute(self, authority, bytes)
                     .map_err(Into::into)
             }
         }
@@ -184,10 +184,10 @@ impl WorldStateView {
     fn process_instructions(
         &self,
         instructions: impl IntoIterator<Item = Instruction>,
-        authority: AccountId,
+        authority: &AccountId,
     ) -> Result<()> {
         instructions.into_iter().try_for_each(|instruction| {
-            instruction.execute(authority, self)?;
+            instruction.execute(authority.clone(), self)?;
             Ok::<_, eyre::Report>(())
         })
     }
@@ -273,10 +273,7 @@ impl WorldStateView {
     async fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
-            self.process_executable(
-                &tx.as_v1().payload.instructions,
-                tx.payload().account_id.clone(),
-            )?;
+            self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
             self.transactions.insert(tx.hash());
             task::yield_now().await;
         }
