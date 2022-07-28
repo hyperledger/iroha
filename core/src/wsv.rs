@@ -149,7 +149,7 @@ impl WorldStateView {
         tokens
     }
 
-    fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
+    fn process_trigger(&self, action: &dyn ActionTrait, event: &Event) -> Result<()> {
         let authority = action.technical_account();
 
         match action.executable() {
@@ -221,7 +221,7 @@ impl WorldStateView {
         let res = self
             .world
             .triggers
-            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) })
+            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, &event) })
             .await;
 
         if let Err(errors) = res {

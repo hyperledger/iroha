@@ -30,7 +30,7 @@ pub mod exported {
     pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
     /// Name of the exported memory
     pub const WASM_MEMORY_NAME: &str = "memory";
-    /// Name of the exported entry to smartcontract (not_trigger) execution
+    /// Name of the exported entry to smartcontract (not trigger) execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
     /// Name of the exported entry to trigger execution
     pub const TRIGGER_MAIN_FN_NAME: &str = "_iroha_trigger_main";
@@ -473,6 +473,48 @@ impl<'wrld> Runtime<'wrld> {
         );
 
         self.execute_with_state(account_id, bytes, state)
+    }
+
+    /// TODO
+    ///
+    /// # Errors
+    /// TODO
+    pub fn execute_trigger(
+        &mut self,
+        wsv: &WorldStateView,
+        account_id: &AccountId,
+        bytes: impl AsRef<[u8]>,
+        event: &Event,
+    ) -> Result<(), Error> {
+        let state = State::new(wsv, account_id.clone(), self.config);
+        let mut store = self.create_store(state)?;
+        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+        let alloc_fn = smart_contract
+            .get_typed_func(&mut store, exported::WASM_ALLOC_FN)
+            .map_err(Error::ExportNotFound)?;
+        let memory = Self::get_smartcontract_memory(&smart_contract, &mut store)?;
+
+        let (account_offset, account_bytes_len) =
+            Self::encode_to_memory(account_id, &memory, &alloc_fn, &mut store)?;
+        let (event_offset, event_bytes_len) =
+            Self::encode_to_memory(event, &memory, &alloc_fn, &mut store)?;
+
+        let main_fn = smart_contract
+            .get_typed_func(&mut store, exported::TRIGGER_MAIN_FN_NAME)
+            .map_err(Error::ExportNotFound)?;
+
+        // NOTE: This function takes ownership of the pointer
+        main_fn
+            .call(
+                &mut store,
+                (
+                    account_offset,
+                    account_bytes_len,
+                    event_offset,
+                    event_bytes_len,
+                ),
+            )
+            .map_err(Error::ExportFnCall)
     }
 
     /// Executes the given wasm smartcontract
