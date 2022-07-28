@@ -45,7 +45,7 @@ impl Event {
 pub struct EventFilter(pub ExecutionTime);
 
 impl Filter for EventFilter {
-    type EventType = Event;
+    type Event = Event;
 
     /// Isn't useful for time-triggers
     fn matches(&self, event: &Event) -> bool {

@@ -149,13 +149,10 @@ impl WorldStateView {
         tokens
     }
 
-    fn process_trigger(
-        &self,
-        executable: &Executable,
-        authority: AccountId,
-        event: Event,
-    ) -> Result<()> {
-        match executable {
+    fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
+        let authority = action.technical_account().clone();
+
+        match action.executable() {
             Executable::Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
@@ -219,18 +216,12 @@ impl WorldStateView {
 
         self.execute_transactions(block.as_v1()).await?;
 
-        self.world.triggers.handle_time_event(&time_event);
+        self.world.triggers.handle_time_event(time_event);
 
         let res = self
             .world
             .triggers
-            .inspect_matched(|(action, event)| -> Result<()> {
-                self.process_trigger(
-                    action.executable(),
-                    action.technical_account().clone(),
-                    event,
-                )
-            })
+            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) })
             .await;
 
         if let Err(errors) = res {
@@ -420,7 +411,7 @@ impl WorldStateView {
         let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
 
         for event in data_events {
-            self.world.triggers.handle_data_event(&event);
+            self.world.triggers.handle_data_event(event.clone());
             self.produce_event(event);
         }
 
@@ -834,7 +825,9 @@ impl WorldStateView {
     #[allow(clippy::expect_used)]
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
         let event = ExecuteTriggerEvent::new(trigger_id, authority);
-        self.world.triggers.handle_execute_trigger_event(&event);
+        self.world
+            .triggers
+            .handle_execute_trigger_event(event.clone());
         self.produce_event(event);
     }
 }

@@ -34,9 +34,9 @@ pub enum FilterOpt<F: Filter> {
 }
 
 impl<F: Filter> Filter for FilterOpt<F> {
-    type EventType = F::EventType;
+    type Event = F::Event;
 
-    fn matches(&self, item: &Self::EventType) -> bool {
+    fn matches(&self, item: &Self::Event) -> bool {
         match self {
             Self::AcceptAll => true,
             Self::BySome(filter) => filter.matches(item),
@@ -79,7 +79,7 @@ pub enum EntityFilter {
 }
 
 impl Filter for EntityFilter {
-    type EventType = Event;
+    type Event = Event;
 
     fn matches(&self, event: &Event) -> bool {
         match (self, event) {
@@ -124,7 +124,7 @@ where
     <T::Origin as Identifiable>::Id:
         Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
 {
-    type EventType = T;
+    type Event = T;
 
     fn matches(&self, event: &T) -> bool {
         event.origin_id() == self.origin_id()
