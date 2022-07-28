@@ -229,11 +229,13 @@ impl<'wrld> Runtime<'wrld> {
         Engine::new(&Self::create_config()).map_err(Error::Initialization)
     }
 
-    fn create_store(&self, state: State<'wrld>) -> Result<Store<State<'wrld>>, anyhow::Error> {
+    fn create_store(&self, state: State<'wrld>) -> Result<Store<State<'wrld>>, Error> {
         let mut store = Store::new(&self.engine, state);
 
         store.limiter(|stat| &mut stat.store_limits);
-        store.add_fuel(self.config.fuel_limit)?;
+        store
+            .add_fuel(self.config.fuel_limit)
+            .map_err(Error::Instantiation)?;
 
         Ok(store)
     }
@@ -242,9 +244,10 @@ impl<'wrld> Runtime<'wrld> {
         &self,
         store: &mut Store<State<'wrld>>,
         bytes: impl AsRef<[u8]>,
-    ) -> Result<wasmtime::Instance, anyhow::Error> {
-        let module = Module::new(&self.engine, bytes)?;
-        self.linker.instantiate(store, &module)
+    ) -> Result<wasmtime::Instance, Error> {
+        Module::new(&self.engine, bytes)
+            .and_then(|module| self.linker.instantiate(store, &module))
+            .map_err(Error::Instantiation)
     }
 
     /// Encode the given object but also add it's length in front of it. This can be considered
@@ -296,7 +299,7 @@ impl<'wrld> Runtime<'wrld> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
-        let query = Self::decode_from_memory(memory, &mut caller, offset, len)?;
+        let query = Self::decode_from_memory(&memory, &mut caller, offset, len)?;
 
         if let Some(validator) = &caller.data().validator {
             validator
@@ -348,7 +351,7 @@ impl<'wrld> Runtime<'wrld> {
     ) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
 
-        let instruction = Self::decode_from_memory(memory, &mut caller, offset, len)?;
+        let instruction = Self::decode_from_memory(&memory, &mut caller, offset, len)?;
 
         let account_id = caller.data().account_id.clone();
         if let Some(validator) = &mut caller.data_mut().validator {
@@ -379,7 +382,7 @@ impl<'wrld> Runtime<'wrld> {
     #[allow(clippy::print_stdout)]
     fn dbg(mut caller: Caller<State>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
-        let s: String = Self::decode_from_memory(memory, &mut caller, offset, len)?;
+        let s: String = Self::decode_from_memory(&memory, &mut caller, offset, len)?;
         println!("{s}");
         Ok(())
     }
@@ -481,43 +484,24 @@ impl<'wrld> Runtime<'wrld> {
         bytes: impl AsRef<[u8]>,
         state: State,
     ) -> Result<(), Error> {
-        let mut store = self.create_store(state).map_err(Error::Instantiation)?;
+        let mut store = self.create_store(state)?;
+        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        let smart_contract = self
-            .create_smart_contract(&mut store, bytes)
-            .map_err(Error::Instantiation)?;
-
-        let account_bytes = account_id.encode();
-        let account_bytes_len = account_bytes
-            .len()
-            .try_into()
-            .wrap_err(format!(
-                "Encoded account ID has size larger than {}::MAX",
-                std::any::type_name::<WasmUsize>()
-            ))
-            .map_err(Error::Other)?;
-
-        let account_offset = {
+        let (account_offset, account_bytes_len) = {
             let alloc_fn = smart_contract
                 .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, exported::WASM_ALLOC_FN)
                 .map_err(Error::ExportNotFound)?;
 
-            let acc_offset = alloc_fn
-                .call(&mut store, account_bytes_len)
-                .map_err(Error::ExportFnCall)?;
-
-            smart_contract
+            let memory = smart_contract
                 .get_memory(&mut store, exported::WASM_MEMORY_NAME)
                 .ok_or_else(|| {
                     Error::ExportNotFound(anyhow::Error::msg(format!(
                         "{}: export not found or not a memory",
                         exported::WASM_MEMORY_NAME
                     )))
-                })?
-                .write(&mut store, acc_offset as usize, &account_bytes)
-                .map_err(|error| Trap::new(error.to_string()))?;
+                })?;
 
-            acc_offset
+            Self::encode_to_memory(account_id, &memory, &alloc_fn, &mut store)?
         };
 
         let main_fn = smart_contract
@@ -535,8 +519,9 @@ impl<'wrld> Runtime<'wrld> {
         Ok(())
     }
 
+    /// Decode object from the given `memory` at the given `offset` with the given `len`
     fn decode_from_memory<T: Decode>(
-        memory: wasmtime::Memory,
+        memory: &wasmtime::Memory,
         caller: &mut Caller<State>,
         offset: WasmUsize,
         len: WasmUsize,
@@ -545,6 +530,37 @@ impl<'wrld> Runtime<'wrld> {
         let mem_range = offset as usize..(offset + len) as usize;
         let mut bytes = &memory.data(&caller)[mem_range];
         T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
+    }
+
+    /// Encode `obj` to the given `memory` with the given `alloc_fn` and `store`
+    ///
+    /// Returns the offset and length of the encoded object
+    fn encode_to_memory<T: Encode>(
+        obj: &T,
+        memory: &wasmtime::Memory,
+        alloc_fn: &wasmtime::TypedFunc<WasmUsize, WasmUsize>,
+        store: &mut Store<State>,
+    ) -> Result<(WasmUsize, WasmUsize), Error> {
+        let bytes = obj.encode();
+        let bytes_len = bytes
+            .len()
+            .try_into()
+            .wrap_err(format!(
+                "Encoded {} has size larger than {}::MAX",
+                std::any::type_name::<T>(),
+                std::any::type_name::<WasmUsize>(),
+            ))
+            .map_err(Error::Other)?;
+
+        let offset = alloc_fn
+            .call(&mut store, bytes_len)
+            .map_err(Error::ExportFnCall)?;
+
+        memory
+            .write(&mut store, offset as usize, &bytes)
+            .map_err(|error| Trap::new(error.to_string()))?;
+
+        Ok((offset, bytes_len))
     }
 }
 
