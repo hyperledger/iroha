@@ -252,12 +252,6 @@ impl Iroha {
         let mut wsv_mutable =
             WorldStateView::from_configuration(config.wsv, world, events_sender.clone());
 
-        wsv_mutable.init(kura.init()?);
-
-        let wsv = wsv_mutable;
-        let latest_block_hash = wsv.latest_block_hash();
-        let latest_block_height = wsv.height();
-
         let query_judge = Arc::from(query_judge);
 
         let transaction_validator = TransactionValidator::new(
@@ -269,9 +263,15 @@ impl Iroha {
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
             transaction_validator
-                .validate_every(genesis.iter().cloned(), &wsv)
+                .validate_every(genesis.iter().cloned(), &wsv_mutable)
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
+
+        wsv_mutable.init(kura.init()?);
+
+        let wsv = wsv_mutable;
+        let latest_block_hash = wsv.latest_block_hash();
+        let latest_block_height = wsv.height();
 
         let notify_shutdown = Arc::new(Notify::new());
 
