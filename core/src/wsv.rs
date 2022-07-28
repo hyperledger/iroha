@@ -149,21 +149,50 @@ impl WorldStateView {
         tokens
     }
 
-    fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
+    fn process_trigger(
+        &self,
+        executable: &Executable,
+        authority: AccountId,
+        event: Event,
+    ) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
-                instructions.iter().cloned().try_for_each(|instruction| {
-                    instruction.execute(authority.clone(), self)?;
-                    Ok::<_, eyre::Report>(())
-                })?;
+                self.process_instructions(instructions.iter().cloned(), authority)
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime =
                     wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
-                wasm_runtime.execute(self, authority, bytes)?;
+                wasm_runtime
+                    .execute_trigger(self, &authority, bytes, event)
+                    .map_err(Into::into)
             }
         }
-        Ok(())
+    }
+
+    fn process_executable(&self, executable: &Executable, authority: AccountId) -> Result<()> {
+        match executable {
+            Executable::Instructions(instructions) => {
+                self.process_instructions(instructions.iter().cloned(), authority)
+            }
+            Executable::Wasm(bytes) => {
+                let mut wasm_runtime =
+                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
+                wasm_runtime
+                    .execute(self, &authority, bytes)
+                    .map_err(Into::into)
+            }
+        }
+    }
+
+    fn process_instructions(
+        &self,
+        instructions: impl IntoIterator<Item = Instruction>,
+        authority: AccountId,
+    ) -> Result<()> {
+        instructions.into_iter().try_for_each(|instruction| {
+            instruction.execute(authority, self)?;
+            Ok::<_, eyre::Report>(())
+        })
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special
@@ -195,8 +224,12 @@ impl WorldStateView {
         let res = self
             .world
             .triggers
-            .inspect_matched(|action| -> Result<()> {
-                self.process_executable(action.executable(), action.technical_account())
+            .inspect_matched(|(action, event)| -> Result<()> {
+                self.process_trigger(
+                    action.executable(),
+                    action.technical_account().clone(),
+                    event,
+                )
             })
             .await;
 
@@ -249,7 +282,10 @@ impl WorldStateView {
     async fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
-            self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
+            self.process_executable(
+                &tx.as_v1().payload.instructions,
+                tx.payload().account_id.clone(),
+            )?;
             self.transactions.insert(tx.hash());
             task::yield_now().await;
         }
