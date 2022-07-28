@@ -2,7 +2,7 @@
 
 use derive::gen_fns_from_derives;
 use export::gen_ffi_fn;
-use impl_visitor::ImplDescriptor;
+use impl_visitor::{FnDescriptor, ImplDescriptor};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::abort;
@@ -42,6 +42,31 @@ pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 #item
 
                 #( #ffi_fns )*
+            }
+        }
+        Item::Fn(item) => {
+            if item.sig.asyncness.is_some() {
+                abort!(item.sig.asyncness, "Async functions are not supported");
+            }
+
+            if item.sig.unsafety.is_some() {
+                abort!(item.sig.unsafety, "You shouldn't specify function unsafety");
+            }
+
+            if item.sig.abi.is_some() {
+                abort!(item.sig.abi, "You shouldn't specify function ABI");
+            }
+
+            if !item.sig.generics.params.is_empty() {
+                abort!(item.sig.generics, "Generics are not supported");
+            }
+
+            let fn_descriptor = FnDescriptor::from(&item);
+            let ffi_fn = gen_ffi_fn(&fn_descriptor);
+            quote! {
+                #item
+
+                #ffi_fn
             }
         }
         item => abort!(item, "Item not supported"),
