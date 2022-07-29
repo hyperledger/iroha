@@ -73,7 +73,8 @@ mod crypto {
     #[derive(StructOpt, Debug, Clone)]
     #[structopt(group = ArgGroup::new("generate_from").required(false))]
     pub struct Args {
-        /// Algorithm used for generating the key-pair
+        /// Algorithm used for generating the key-pair.
+        /// Options: ed25519, secp256k1, bls_normal, bls_small.
         #[clap(default_value_t, long, short)]
         algorithm: Algorithm,
         /// The `private_key` used to generate the key-pair
