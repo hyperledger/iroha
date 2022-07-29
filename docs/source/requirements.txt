@@ -33,6 +33,6 @@ typing==3.6.2
 urllib3
 watchdog==0.8.3
 yarg==0.1.9
-mistune==2.0.1
+mistune==2.0.3
 pygments-lexer-solidity
 sphinxext-remoteliteralinclude
