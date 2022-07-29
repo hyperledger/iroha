@@ -21,6 +21,7 @@ use data_model::prelude::*;
 pub use debug::*;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
+pub use iroha_wasm_derive::trigger_entrypoint;
 use parity_scale_codec::{Decode, Encode};
 
 #[cfg(feature = "debug")]
