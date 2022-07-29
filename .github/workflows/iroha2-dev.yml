@@ -1,9 +1,8 @@
 name: I2::Dev::Deploy
 
 on:
-  pull_request:
+  push:
     branches: [iroha2-dev]
-    types: [closed]
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,7 +12,6 @@ env:
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
   deploy:
-    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -47,7 +45,7 @@ jobs:
         run: |
           docker build -f Dockerfile -t hyperledger/iroha2:dev .
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -67,26 +65,7 @@ jobs:
           workflow_file_name: load-rs-push-from-dev.yaml
           ref: dev
 
-  upload_coverage:
-    if: github.event.pull_request.merged
-    runs-on: ubuntu-latest
-    container:
-      image: 7272721/i2-ci:latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Download codecov report artifact
-        uses: dawidd6/action-download-artifact@v2.21.1
-        with:
-          workflow: iroha2-dev-pr.yml
-          name: lcov-${{ github.event.pull_request.head.sha }}.info
-          search_artifacts: true
-      - name: Upload to codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: lcov.info
-
   archive-and-publish-schema:
-    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -121,7 +100,6 @@ jobs:
           path: target/schema
 
   print-telemetry:
-    if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
