@@ -1,0 +1,25 @@
+name: I2::Dev::Upload Coverage
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+    types: [closed]
+
+jobs:
+  upload_coverage:
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Download codecov report artifact
+        uses: dawidd6/action-download-artifact@v2.21.1
+        with:
+          workflow: iroha2-dev-pr.yml
+          name: lcov-${{ github.event.pull_request.head.sha }}.info
+          search_artifacts: true
+      - name: Upload to codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
