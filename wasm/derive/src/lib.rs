@@ -53,7 +53,7 @@ fn check_type(ty: &syn::Type, expected_type: &str) {
     if let syn::Type::Path(path) = ty {
         let syn::Path { segments, .. } = &path.path;
 
-        if let Some(type_name) = segments.last().map(|ty| &ty.ident) {
+        if let Some(type_name) = segments.last().map(|seg| &seg.ident) {
             if *type_name == expected_type {
                 return;
             }
