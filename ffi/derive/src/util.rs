@@ -109,7 +109,7 @@ pub fn gen_arg_src_to_ffi(arg: &impl Arg, is_output: bool) -> TokenStream {
                     iroha_ffi::IntoFfi::into_ffi(ok)
                 } else {
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    return Err(FfiResult::ExecutionFail);
+                    return Err(iroha_ffi::FfiReturn::ExecutionFail);
                 };
             };
         }
@@ -130,7 +130,7 @@ pub fn gen_arg_src_to_ffi(arg: &impl Arg, is_output: bool) -> TokenStream {
     }
 }
 
-/// Parses getset attributes to find out which methods it derives
+/// Parses `getset` attributes to find out which methods it derives
 fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
     attrs
         .iter()

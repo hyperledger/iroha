@@ -374,7 +374,7 @@ ffi! {
     pub struct PublicKey {
         /// Digest function
         digest_function: ConstString,
-        /// payload of key
+        /// Key payload
         payload: Vec<u8>,
     }
 }
@@ -505,7 +505,7 @@ ffi! {
     pub struct PrivateKey {
         /// Digest function
         digest_function: ConstString,
-        /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
+        /// Key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
         #[serde(with = "hex::serde")]
         payload: Vec<u8>,
     }
@@ -577,15 +577,17 @@ impl<'de> Deserialize<'de> for PrivateKey {
     }
 }
 
-iroha_ffi::handles! {0, KeyPair, PublicKey, PrivateKey}
 #[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { Clone: KeyPair, PublicKey, PrivateKey}
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { Eq: KeyPair, PublicKey, PrivateKey}
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { Ord: PublicKey }
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { Drop: KeyPair, PublicKey, PrivateKey}
+mod ffi {
+    use super::*;
+
+    iroha_ffi::handles! {KeyPair, PublicKey, PrivateKey}
+
+    iroha_ffi::ffi_fn! { Clone: KeyPair, PublicKey, PrivateKey}
+    iroha_ffi::ffi_fn! { Eq: KeyPair, PublicKey, PrivateKey}
+    iroha_ffi::ffi_fn! { Ord: PublicKey }
+    iroha_ffi::ffi_fn! { Drop: KeyPair, PublicKey, PrivateKey}
+}
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {

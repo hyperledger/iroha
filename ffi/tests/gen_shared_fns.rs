@@ -3,7 +3,7 @@
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{ffi, ffi_export, gen_ffi_impl, handles, FfiResult, Handle, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi, ffi_export, ffi_fn, handles, FfiReturn, Handle, IntoFfi, TryFromReprC};
 
 ffi! {
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
@@ -18,10 +18,10 @@ ffi! {
 }
 
 handles! {0, FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Drop: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
+ffi_fn! {Drop: FfiStruct1, FfiStruct2}
+ffi_fn! {Clone: FfiStruct1, FfiStruct2}
+ffi_fn! {Eq: FfiStruct1, FfiStruct2}
+ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 
 #[ffi_export]
 impl FfiStruct1 {
@@ -37,7 +37,7 @@ fn gen_shared_fns() {
 
     let ffi_struct1 = unsafe {
         let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
-        assert_eq! {FfiResult::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str()), ffi_struct.as_mut_ptr())};
+        assert_eq! {FfiReturn::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str()), ffi_struct.as_mut_ptr())};
         let ffi_struct = ffi_struct.assume_init();
         assert!(!ffi_struct.is_null());
         assert_eq!(FfiStruct1 { name }, *ffi_struct);
@@ -85,9 +85,9 @@ fn gen_shared_fns() {
             TryFromReprC::try_from_repr_c(ordering.assume_init(), &mut ()).unwrap();
         assert_eq!(ordering, Ordering::Equal);
 
-        assert_eq!(FfiResult::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
+        assert_eq!(FfiReturn::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
         assert_eq!(
-            FfiResult::Ok,
+            FfiReturn::Ok,
             __drop(FfiStruct1::ID, cloned.into_ffi().cast())
         );
     }

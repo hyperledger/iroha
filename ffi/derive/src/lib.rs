@@ -29,6 +29,7 @@ impl syn::parse::Parse for FfiItems {
         Ok(Self(items))
     }
 }
+
 impl quote::ToTokens for FfiItems {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let items = &self.0;
@@ -91,6 +92,49 @@ pub fn try_from_repr_c_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Generate FFI functions
+///
+/// # Example:
+/// ```rust
+/// use getset::Getters;
+/// use iroha_ffi::{slice::OutSliceRef, FfiReturn, IntoFfi, TryFromReprC};
+///
+/// // For a struct such as:
+/// #[derive(Clone, Getters, IntoFfi, TryFromReprC)]
+/// #[iroha_ffi::ffi_export]
+/// #[getset(get = "pub")]
+/// pub struct Foo {
+///     /// Id of the struct
+///     id: u8,
+///     #[getset(skip)]
+///     bar: Vec<u8>,
+/// }
+///
+/// #[iroha_ffi::ffi_export]
+/// impl Foo {
+///     /// Construct new type
+///     pub fn new(id: u8) -> Self {
+///         Self {id, bar: Vec::new()}
+///     }
+///     /// Return bar
+///     pub fn bar(&self) -> &[u8] {
+///         &self.bar
+///     }
+/// }
+///
+/// // The following functions will be derived:
+/// extern "C" fn Foo__new(id: u8, output: *mut Foo) -> FfiReturn {
+///     /* function implementation */
+///     FfiReturn::Ok
+/// }
+/// extern "C" fn Foo__bar(handle: *const Foo, output: OutSliceRef<u8>) -> FfiReturn {
+///     /* function implementation */
+///     FfiReturn::Ok
+/// }
+/// extern "C" fn Foo__id(handle: *const Foo, output: *mut u8) -> FfiReturn {
+///     /* function implementation */
+///     FfiReturn::Ok
+/// }
+/// ```
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
 pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {

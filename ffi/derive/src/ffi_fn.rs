@@ -54,14 +54,14 @@ fn gen_fn_definition(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> Token
                     return err;
                 }
 
-                iroha_ffi::FfiResult::Ok
+                iroha_ffi::FfiReturn::Ok
             });
 
             match res {
                 Ok(res) => res,
                 Err(_) => {
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    iroha_ffi::FfiResult::UnrecoverableError
+                    iroha_ffi::FfiReturn::UnrecoverableError
                 },
             }
         }
@@ -105,7 +105,7 @@ fn gen_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStre
     let output_arg = ffi_output_arg(fn_descriptor).map(gen_out_ptr_arg);
 
     quote! {
-        fn #ffi_fn_name<'itm>(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiResult
+        fn #ffi_fn_name<'itm>(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
     }
 }
 
@@ -202,7 +202,7 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             if matches!(src_type, syn::Type::Path(_)) {
                 return quote! {
                     if __out_ptr.is_null() {
-                        return Err(iroha_ffi::FfiResult::ArgIsNull);
+                        return Err(iroha_ffi::FfiReturn::ArgIsNull);
                     }
 
                     __out_ptr.write(#arg_name);

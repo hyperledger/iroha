@@ -1,28 +1,28 @@
-use iroha_ffi::{ffi, ffi_export, gen_ffi_impl, handles, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi, ffi_export, ffi_fn, handles, IntoFfi, TryFromReprC};
 
 ffi! {
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprc)]
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
     pub struct FfiStruct1 {
         name: String,
     }
 
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprc)]
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
     pub struct FfiStruct2 {
         name: String,
     }
+}
 
-    handles! {0, FfiStruct1, FfiStruct2}
-    gen_ffi_impl! {Drop: FfiStruct1, FfiStruct2}
-    gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
-    gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
-    gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
+handles! {0, FfiStruct1, FfiStruct2}
+ffi_fn! {Drop: FfiStruct1, FfiStruct2}
+ffi_fn! {Clone: FfiStruct1, FfiStruct2}
+ffi_fn! {Eq: FfiStruct1, FfiStruct2}
+ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 
-    #[ffi_export]
-    impl FfiStruct1 {
-        /// New
-        pub fn new(name: String) -> Self {
-            Self { name }
-        }
+#[ffi_export]
+impl FfiStruct1 {
+    /// New
+    pub fn new(name: String) -> Self {
+        Self { name }
     }
 }
 

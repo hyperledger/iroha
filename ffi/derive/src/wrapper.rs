@@ -110,7 +110,7 @@ fn gen_return_stmt(arg: &ReturnArg) -> TokenStream {
     quote! {
         #output_arg_conversion
 
-        if __output == iroha_dev::FfiResult::Ok {
+        if __output == iroha_ffi::FfiReturn::Ok {
             TryFromReprC::try_from_repr_c(#arg_name).expect("Must not fail");
         } else {
             panic!("{} returned {}", ffi_fn_name, __output);

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use getset::Getters;
-use iroha_ffi::{ffi_export, gen_ffi_impl, handles, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, ffi_fn, handles, IntoFfi, TryFromReprC};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Name(&'static str);
@@ -21,7 +21,7 @@ pub struct FfiStruct {
 }
 
 handles! {0, FfiStruct}
-gen_ffi_impl! {Drop: FfiStruct}
+ffi_fn! {Drop: FfiStruct}
 
 #[ffi_export]
 impl FfiStruct {

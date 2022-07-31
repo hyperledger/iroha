@@ -5,7 +5,7 @@ use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 
 use crate::{
     slice::{OutBoxedSlice, SliceRef},
-    AsReprCRef, FfiResult, IntoFfi, Output, ReprC, TryFromReprC,
+    AsReprCRef, FfiReturn, IntoFfi, Output, ReprC, TryFromReprC,
 };
 
 /// Wrapper around `T` that is local to the conversion site. This structure carries
@@ -139,9 +139,9 @@ impl<'itm, T: TryFromReprC<'itm>> TryFromReprC<'itm> for Vec<T> {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'itm mut Self::Store,
-    ) -> Result<Self, FfiResult> {
+    ) -> Result<Self, FfiReturn> {
         let prev_store_len = store.len();
-        let slice = source.into_rust().ok_or(FfiResult::ArgIsNull)?;
+        let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
         store.extend(core::iter::repeat_with(Default::default).take(slice.len()));
 
         let mut substore = &mut store[prev_store_len..];
@@ -165,9 +165,9 @@ impl<'itm> TryFromReprC<'itm> for String {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         _: &mut Self::Store,
-    ) -> Result<Self, FfiResult> {
-        String::from_utf8(source.into_rust().ok_or(FfiResult::ArgIsNull)?.to_owned())
-            .map_err(|_e| FfiResult::Utf8Error)
+    ) -> Result<Self, FfiReturn> {
+        String::from_utf8(source.into_rust().ok_or(FfiReturn::ArgIsNull)?.to_owned())
+            .map_err(|_e| FfiReturn::Utf8Error)
     }
 }
 impl<'itm> TryFromReprC<'itm> for &'itm str {
@@ -177,9 +177,9 @@ impl<'itm> TryFromReprC<'itm> for &'itm str {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         _: &mut Self::Store,
-    ) -> Result<Self, FfiResult> {
-        core::str::from_utf8(source.into_rust().ok_or(FfiResult::ArgIsNull)?)
-            .map_err(|_e| FfiResult::Utf8Error)
+    ) -> Result<Self, FfiReturn> {
+        core::str::from_utf8(source.into_rust().ok_or(FfiReturn::ArgIsNull)?)
+            .map_err(|_e| FfiReturn::Utf8Error)
     }
 }
 

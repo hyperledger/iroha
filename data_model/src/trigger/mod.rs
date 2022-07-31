@@ -32,10 +32,10 @@ impl Registered for Trigger<FilterBox> {
     type With = Self;
 }
 
-impl<F: Filter + Eq> PartialOrd for Trigger<F> {
+impl<F: Filter + PartialEq> PartialOrd for Trigger<F> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
+        Some(self.id.cmp(&other.id))
     }
 }
 

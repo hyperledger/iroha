@@ -3,7 +3,7 @@
 use crate::{
     owned::LocalSlice,
     slice::{SliceMut, SliceRef},
-    FfiResult, IntoFfi, ReprC, TryFromReprC,
+    FfiReturn, IntoFfi, ReprC, TryFromReprC,
 };
 
 /// Type with an FFI-compatible representation that supports [`Option::None`] values
@@ -37,9 +37,9 @@ pub trait TryFromReprCOption<'itm>: Sized + 'itm {
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
-    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
     ///
     /// # Safety
     ///
@@ -47,7 +47,7 @@ pub trait TryFromReprCOption<'itm>: Sized + 'itm {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'itm mut Self::Store,
-    ) -> Result<Option<Self>, FfiResult>;
+    ) -> Result<Option<Self>, FfiReturn>;
 }
 
 impl<T> Nullable for *const T {
@@ -98,7 +98,7 @@ impl<'itm, T: TryFromReprCOption<'itm>> TryFromReprC<'itm> for Option<T> {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'itm mut Self::Store,
-    ) -> Result<Self, FfiResult> {
+    ) -> Result<Self, FfiReturn> {
         TryFromReprCOption::try_from_repr_c(source, store)
     }
 }
@@ -113,7 +113,7 @@ where
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'itm mut Self::Store,
-    ) -> Result<Option<Self>, FfiResult> {
+    ) -> Result<Option<Self>, FfiReturn> {
         if source.is_null() {
             return Ok(None);
         }

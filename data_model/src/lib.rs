@@ -909,54 +909,55 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-iroha_ffi::handles! {0,
-    account::Account,
-    asset::Asset,
-    domain::Domain,
-    metadata::Metadata,
-    permissions::PermissionToken,
-    role::Role,
-    Name,
-}
+#[cfg(any(feature = "ffi_api", feature = "ffi"))]
+mod ffi {
+    use super::*;
 
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { pub Clone:
-    account::Account,
-    asset::Asset,
-    domain::Domain,
-    metadata::Metadata,
-    permissions::PermissionToken,
-    role::Role,
-    Name,
-}
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { pub Eq:
-    account::Account,
-    asset::Asset,
-    domain::Domain,
-    metadata::Metadata,
-    permissions::PermissionToken,
-    role::Role,
-    Name,
-}
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { pub Ord:
-    account::Account,
-    asset::Asset,
-    domain::Domain,
-    permissions::PermissionToken,
-    role::Role,
-    Name,
-}
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-iroha_ffi::gen_ffi_impl! { pub Drop:
-    account::Account,
-    asset::Asset,
-    domain::Domain,
-    metadata::Metadata,
-    permissions::PermissionToken,
-    role::Role,
-    Name,
+    iroha_ffi::handles! {
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+    }
+
+    iroha_ffi::ffi_fn! { pub Clone:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+    }
+    iroha_ffi::ffi_fn! { pub Eq:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+    }
+    iroha_ffi::ffi_fn! { pub Ord:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+    }
+    iroha_ffi::ffi_fn! { pub Drop:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+    }
 }
 
 pub mod prelude {
