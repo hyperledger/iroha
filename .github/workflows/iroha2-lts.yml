@@ -45,5 +45,5 @@ jobs:
           owner: soramitsu
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
-          workflow_file_name: load-rs-push-from-release.yaml
-          ref: release
+          workflow_file_name: load-rs-push-from-lts.yaml
+          ref: iroha2-lts

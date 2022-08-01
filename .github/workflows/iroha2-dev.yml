@@ -47,7 +47,7 @@ jobs:
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
           workflow_file_name: load-rs-push-from-dev.yaml
-          ref: dev
+          ref: iroha2-dev
 
   archive-and-publish-schema:
     runs-on: ubuntu-latest
