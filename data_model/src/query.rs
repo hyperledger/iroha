@@ -1015,7 +1015,7 @@ pub mod asset {
     impl FindAllAssets {
         /// Construct [`FindAllAssets`].
         pub const fn new() -> Self {
-            FindAllAssets
+            Self
         }
     }
 
