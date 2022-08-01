@@ -92,4 +92,4 @@ impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     }
 }
 
-generate_endpoints!(2, 3, 4);
+generate_endpoints!(2, 3, 4, 5);

@@ -108,11 +108,12 @@ async fn torii_pagination() {
         .try_into()
         .expect("Failed to verify");
 
-        let pagination = Pagination { start, limit };
+        let pagination = Pagination::new(start, limit);
         handle_queries(
             Arc::clone(&torii.wsv),
             Arc::clone(&torii.query_judge),
             pagination,
+            Sorting::default(),
             query,
         )
         .map(|result| {

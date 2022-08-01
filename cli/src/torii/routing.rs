@@ -119,19 +119,22 @@ pub(crate) async fn handle_queries(
     wsv: Arc<WorldStateView>,
     query_judge: QueryJudgeArc,
     pagination: Pagination,
+    sorting: Sorting,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
     let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
     let original_result = valid_request.execute(&wsv)?;
     let result = filter.filter(original_result);
-    let (total, result) = if let Value::Vec(value) = result {
-        (
-            value.len(),
-            Value::Vec(value.into_iter().paginate(pagination).collect()),
-        )
+
+    let (total, result) = if let Value::Vec(vec_of_val) = result {
+        let len = vec_of_val.len();
+        let vec_of_val = apply_sorting_and_pagination(vec_of_val, &sorting, pagination);
+
+        (len, Value::Vec(vec_of_val))
     } else {
         (1, result)
     };
+
     let total = total
         .try_into()
         .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
@@ -143,6 +146,35 @@ pub(crate) async fn handle_queries(
         total,
     };
     Ok(Scale(paginated_result.into()))
+}
+
+fn apply_sorting_and_pagination(
+    mut vec_of_val: Vec<Value>,
+    sorting: &Sorting,
+    pagination: Pagination,
+) -> Vec<Value> {
+    if let Some(ref key) = sorting.sort_by_metadata_key {
+        let f = |value1: &Value| {
+            if let Value::U128(num) = value1 {
+                *num
+            } else {
+                0
+            }
+        };
+
+        vec_of_val.sort_by_key(|value0| match value0 {
+            Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
+                AssetValue::Store(store) => store.get(key).map_or(0, f),
+                _ => 0,
+            },
+            Value::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
+                .map(|has_metadata| has_metadata.metadata().get(key).map_or(0, f))
+                .unwrap_or(0),
+            _ => 0,
+        });
+    }
+
+    vec_of_val.into_iter().paginate(pagination).collect()
 }
 
 #[derive(serde::Serialize)]
@@ -482,11 +514,12 @@ impl Torii {
                 ))
                 .and(body::versioned()),
         )
-        .or(endpoint4(
+        .or(endpoint5(
             handle_queries,
             warp::path(uri::QUERY)
                 .and(add_state!(self.wsv, self.query_judge))
                 .and(paginate())
+                .and(sorting())
                 .and(body::query()),
         ))
         .or(endpoint2(

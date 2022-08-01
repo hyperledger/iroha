@@ -57,6 +57,7 @@ pub mod permissions;
 pub mod predicate;
 pub mod query;
 pub mod role;
+pub mod sorting;
 pub mod transaction;
 pub mod trigger;
 
@@ -400,6 +401,24 @@ impl IdentifiableBox {
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
             IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
+        }
+    }
+}
+
+impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
+    type Error = ();
+
+    fn try_from(
+        v: &'idbox IdentifiableBox,
+    ) -> Result<&'idbox (dyn HasMetadata + 'idbox), Self::Error> {
+        match v {
+            IdentifiableBox::NewDomain(v) => Ok(v.as_ref()),
+            IdentifiableBox::NewAccount(v) => Ok(v.as_ref()),
+            IdentifiableBox::NewAssetDefinition(v) => Ok(v.as_ref()),
+            IdentifiableBox::Domain(v) => Ok(v.as_ref()),
+            IdentifiableBox::Account(v) => Ok(v.as_ref()),
+            IdentifiableBox::AssetDefinition(v) => Ok(v.as_ref()),
+            _ => Err(()),
         }
     }
 }
@@ -1015,17 +1034,11 @@ pub mod prelude {
     #[cfg(feature = "mutable_api")]
     pub use super::Registrable;
     pub use super::{
-        account::prelude::*,
-        asset::prelude::*,
-        block_value::prelude::*,
-        domain::prelude::*,
-        name::prelude::*,
-        pagination::{prelude::*, Pagination},
-        peer::prelude::*,
-        role::prelude::*,
-        trigger::prelude::*,
-        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
-        PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
+        account::prelude::*, asset::prelude::*, block_value::prelude::*, domain::prelude::*,
+        name::prelude::*, pagination::prelude::*, peer::prelude::*, role::prelude::*,
+        sorting::prelude::*, trigger::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable,
+        IdentifiableBox, Parameter, PredicateTrait, RegistrableBox, TryAsMut, TryAsRef,
+        ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

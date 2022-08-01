@@ -31,13 +31,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     //When
 
     let vec = iroha_client
-        .request_with_pagination(
-            asset::all_definitions(),
-            Pagination {
-                start: Some(5),
-                limit: Some(5),
-            },
-        )
+        .request_with_pagination(asset::all_definitions(), Pagination::new(Some(5), Some(5)))
         .expect("Failed to get assets")
         .only_output();
     assert_eq!(vec.len(), 5);
