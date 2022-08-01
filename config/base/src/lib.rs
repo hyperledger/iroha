@@ -1,7 +1,9 @@
 //! Package for managing iroha configuration
 
+use eyre::WrapErr;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 pub mod derive {
     //! Modules for `Configurable` entities
@@ -13,6 +15,7 @@ pub mod derive {
     /// View contains a subset of the fields that the type has.
     ///
     /// Works only with structs.
+    // TODO: alter as won't be true after yeeting [`Default`]
     /// Type must implement [`Default`].
     ///
     /// ## Container attributes
@@ -122,6 +125,8 @@ pub mod derive {
     /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
     /// ```
     pub use iroha_config_derive::Configurable;
+    // TODO: write doc for new macro
+    pub use iroha_config_derive::Proxy;
 
     /// Error related to deserializing specific field
     #[derive(Debug, Display)]
@@ -139,13 +144,16 @@ pub mod derive {
         }
     }
 
-    /// Derive `Configurable` error
+    /// Derive `Configurable` and `Proxy` error
     #[derive(Debug)]
+    #[allow(clippy::enum_variant_names)]
     pub enum Error {
         /// Got unknown field
         UnknownField(Vec<String>),
         /// Failed to deserialize or serialize a field
         FieldError(FieldError),
+        /// Some of the proxy fields were [`None`] at build stage
+        ProxyError(String),
     }
 
     impl fmt::Display for Error {
@@ -163,6 +171,13 @@ pub mod derive {
                     write!(f, "Failed to deserialize: Unknown field {}", field)
                 }
                 Self::FieldError(_) => write!(f, "Failed to deserialize"),
+                Self::ProxyError(field) => {
+                    write!(
+                        f,
+                        "Proxy structure had at least one uninitialized field: {}",
+                        field
+                    )
+                }
             }
         }
     }
@@ -254,5 +269,61 @@ pub mod view {
     impl<T: HasView> IsHasView<T> {
         /// `T` implements trait [`HasView`]
         pub const IS_HAS_VIEW: bool = true;
+    }
+}
+
+pub mod proxy {
+    //! Module for configuration proxies' traits
+
+    use super::*;
+
+    /// Pseudo-default trait only used for doc generation
+    pub trait DocsDefault {
+        fn default() -> Self;
+    }
+
+    /// Trait used to convert configs from file and env
+    pub trait Combine: Sized + Serialize + DeserializeOwned {
+        /// Which type of [`Configuration`] it builds into
+        type Target;
+
+        /// Build the config, do the necessary checks
+        fn build(self) -> Result<Self::Target, derive::Error>;
+
+        /// If any of the fields in [`other`] are filled, they
+        /// override the values of the fields in [`self`].
+        fn combine(self, other: Self) -> eyre::Result<Self, eyre::Error>;
+
+        /// Construct [`Self`] from a path-like object.
+        ///
+        /// # Errors
+        /// - File not found.
+        /// - File found, but peer configuration parsing failed.
+        /// - The length of the array in raw JSON representation is different
+        /// from the length of the array in
+        /// [`self.sumeragi.trusted_peers.peers`], most likely due to two
+        /// (or more) peers having the same public key.
+        fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> eyre::Result<Self, eyre::Error> {
+            let file =
+                File::open(&path).wrap_err(format!("Failed to open the config file {:?}", path))?;
+            let reader = BufReader::new(file);
+            serde_json::from_reader(reader)
+                .wrap_err(format!("Failed to deserialize json {:?} from reader", path))
+        }
+
+        // fn finalize(&mut self) -> Result<()> {
+        //     self.sumeragi.key_pair =
+        //         KeyPair::new(self.public_key.clone(), self.private_key.clone())?;
+        //     self.sumeragi.peer_id =
+        //         iroha_data_model::peer::Id::new(&self.torii.p2p_addr, &self.public_key.clone());
+
+        //     Ok(())
+        // }
+
+        /// Load configuration from the environment
+        ///
+        /// # Errors
+        /// Fails if Configuration deserialization fails (e.g. if `TrustedPeers` contains entries with duplicate public keys)
+        fn load_environment(&mut self) -> core::result::Result<(), derive::Error>;
     }
 }

@@ -2,7 +2,8 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Configurable};
+use iroha_config_base::derive::{view, Configurable, Proxy};
+use iroha_config_base::proxy::DocsDefault;
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,8 +12,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
-    #[serde(default)]
+    #[derive(Debug, Clone, Deserialize, Serialize, Configurable, Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {
@@ -23,11 +23,14 @@ view! {
         #[view(ignore)]
         pub private_key: PrivateKey,
         /// Disable coloring of the backtrace and error report on panic
+        #[serde(default), config(inner)]
         pub disable_panic_terminal_colors: bool,
         /// Iroha will shutdown on any panic if this option is set to `true`.
+        #[serde(default)]
         pub shutdown_on_panic: bool,
         /// `Kura` configuration
         #[config(inner)]
+        #[serde(default)]
         pub kura: kura::Configuration,
         /// `Sumeragi` configuration
         #[config(inner)]
@@ -38,12 +41,15 @@ view! {
         pub torii: torii::Configuration,
         /// `BlockSynchronizer` configuration
         #[config(inner)]
+        #[serde(default)]
         pub block_sync: block_sync::Configuration,
         /// `Queue` configuration
         #[config(inner)]
+        #[serde(default)]
         pub queue: queue::Configuration,
         /// `Logger` configuration
         #[config(inner)]
+        #[serde(default)]
         pub logger: logger::Configuration,
         /// `GenesisBlock` configuration
         #[config(inner)]
@@ -51,17 +57,20 @@ view! {
         pub genesis: genesis::Configuration,
         /// `WorldStateView` configuration
         #[config(inner)]
+        #[serde(default)]
         pub wsv: wsv::Configuration,
         /// Network configuration
         #[config(inner)]
+        #[serde(default)]
         pub network: network::Configuration,
         /// Telemetry configuration
         #[config(inner)]
+        #[serde(default)]
         pub telemetry: telemetry::Configuration,
     }
 }
 
-impl Default for Configuration {
+impl DocsDefault for Configuration {
     fn default() -> Self {
         let sumeragi_configuration = sumeragi::Configuration::default();
         let (public_key, private_key) = sumeragi_configuration.key_pair.clone().into();

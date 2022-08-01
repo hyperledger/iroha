@@ -3,6 +3,7 @@
 use std::{collections::HashSet, str::FromStr};
 
 use iroha_config::{
+    base::proxy::DocsDefault,
     block_sync::Configuration as BlockSyncConfiguration,
     genesis::Configuration as GenesisConfiguration,
     iroha::Configuration,
@@ -13,6 +14,7 @@ use iroha_config::{
     wasm::Configuration as WasmConfiguration,
     wsv::Configuration as WsvConfiguration,
 };
+
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::peer::Id as PeerId;
 

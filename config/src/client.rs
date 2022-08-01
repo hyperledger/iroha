@@ -3,7 +3,7 @@ use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use derive_more::Display;
 use eyre::{eyre, Result, WrapErr};
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{Configurable, Proxy};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use iroha_primitives::small::SmallStr;
@@ -137,6 +137,7 @@ impl Configuration {
         AccountId::from_str("alice@wonderland").expect("Account ID not valid")
     }
 
+    // TODO: Delete this?
     /// This method will build `Configuration` from a json *pretty* formatted file (without `:` in
     /// key names).
     ///

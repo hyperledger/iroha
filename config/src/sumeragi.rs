@@ -2,7 +2,10 @@
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Configurable};
+use iroha_config_base::{
+    derive::{view, Configurable, Proxy},
+    proxy::DocsDefault,
+};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
@@ -24,12 +27,10 @@ view! {
     /// [`Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and a list of `TRUSTED_PEERS`.
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
-    #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]
     pub struct Configuration {
         /// The key pair consisting of a private and a public key.
-        #[serde(skip)]
         #[view(ignore)]
         pub key_pair: KeyPair,
         /// Current Peer Identification.
@@ -53,7 +54,7 @@ view! {
     }
 }
 
-impl Default for Configuration {
+impl DocsDefault for Configuration {
     fn default() -> Self {
         Self {
             key_pair: Self::placeholder_keypair(),

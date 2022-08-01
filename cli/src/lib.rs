@@ -8,7 +8,8 @@ use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_config::iroha::Configuration;
+use iroha_config::base::proxy::DocsDefault;
+use iroha_config::iroha::{Configuration, ConfigurationProxy};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},

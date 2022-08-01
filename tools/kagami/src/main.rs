@@ -6,6 +6,7 @@ use std::io::{stdout, BufWriter, Write};
 
 use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
+use iroha_config::base::proxy::DocsDefault;
 use iroha_config::iroha::Configuration;
 
 pub type Outcome = color_eyre::Result<()>;
@@ -209,7 +210,7 @@ mod docs {
 
     use super::*;
 
-    impl<E: Debug, C: Configurable<Error = E> + Send + Sync + Default> PrintDocs for C {}
+    impl<E: Debug, C: Configurable<Error = E> + Send + Sync + DocsDefault> PrintDocs for C {}
 
     #[derive(StructOpt, Debug, Clone, Copy)]
     pub struct Args;
@@ -220,7 +221,7 @@ mod docs {
         }
     }
 
-    pub trait PrintDocs: Configurable + Send + Sync + Default
+    pub trait PrintDocs: Configurable + Send + Sync + DocsDefault
     where
         Self::Error: Debug,
     {

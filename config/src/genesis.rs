@@ -1,5 +1,8 @@
 //! Module with genesis configuration logic.
-use iroha_config_base::derive::{view, Configurable};
+use iroha_config_base::{
+    derive::{view, Configurable, Proxy},
+    proxy::DocsDefault,
+};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +14,6 @@ const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 view! {
     /// Configuration of the genesis block and the process of its submission.
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
-    #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_GENESIS_")]
     pub struct Configuration {
@@ -34,7 +36,7 @@ view! {
     }
 }
 
-impl Default for Configuration {
+impl DocsDefault for Configuration {
     fn default() -> Self {
         let (public_key, private_key) = Self::placeholder_keypair().into();
 

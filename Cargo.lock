@@ -1831,6 +1831,7 @@ version = "2.0.0-pre-rc.5"
 dependencies = [
  "crossbeam",
  "derive_more",
+ "eyre",
  "iroha_config_derive",
  "serde",
  "serde_json",
