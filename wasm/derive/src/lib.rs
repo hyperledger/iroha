@@ -10,10 +10,10 @@ use syn::{parse_macro_input, parse_quote};
 mod smartcontract;
 mod trigger;
 
-/// Used to annotate user-defined function which starts the execution of smartcontract.
+/// Used to annotate the user-defined function that starts the execution of a smart contract.
 ///
-/// Should be used for smartcontracts i.e. inside transactions.
-/// For triggers see [`trigger_entrypoint`].
+/// Should be used for smart contracts (inside transactions).
+/// For triggers, see [`trigger_entrypoint`].
 //
 // TODO: Should it be renamed to something like `smartcontract_entrypoint`?
 #[proc_macro_error]
@@ -22,10 +22,10 @@ pub fn entrypoint(attrs: TokenStream, item: TokenStream) -> TokenStream {
     smartcontract::impl_entrypoint(attrs, item)
 }
 
-/// Used to annotate user-defined function which starts the execution of trigger.
+/// Used to annotate the user-defined function that starts the execution of a trigger.
 ///
-/// Should be used for trigger smartcontracts.
-/// For just smartcontract (i.e. for transactions) see [`entrypoint`].
+/// Should be used for trigger smart contracts.
+/// For just smart contract (i.e. for transactions) see [`entrypoint`].
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn trigger_entrypoint(attrs: TokenStream, item: TokenStream) -> TokenStream {

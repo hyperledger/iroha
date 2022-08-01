@@ -337,7 +337,7 @@ impl Set {
         }
     }
 
-    /// Match and insert a [`TriggerId`] into the matched ids set.
+    /// Match and insert a [`TriggerId`] into the set of matched ids.
     ///
     /// Skips insertion:
     /// - If the action's filter doesn't match an event

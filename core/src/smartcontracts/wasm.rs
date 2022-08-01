@@ -30,9 +30,9 @@ pub mod exported {
     pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
     /// Name of the exported memory
     pub const WASM_MEMORY_NAME: &str = "memory";
-    /// Name of the exported entry to smartcontract (not trigger) execution
+    /// Name of the exported entry for smart contract (not trigger) execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-    /// Name of the exported entry to trigger execution
+    /// Name of the exported entry for trigger execution
     pub const TRIGGER_MAIN_FN_NAME: &str = "_iroha_trigger_main";
 }
 
@@ -43,7 +43,7 @@ pub mod imported {
     pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
     /// Name of the imported function to execute queries
     pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
-    /// Name of the imported function to debug print object
+    /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
 }
 
@@ -475,10 +475,15 @@ impl<'wrld> Runtime<'wrld> {
         self.execute_with_state(account_id, bytes, state)
     }
 
-    /// TODO
+    /// Executes the given wasm trigger
     ///
     /// # Errors
-    /// TODO
+    ///
+    /// - if unable to construct wasm module or instance of wasm module
+    /// - if unable to add fuel limit
+    /// - if unable to find expected exports(main, memory, allocator)
+    /// - if unable to write data to the smart contract memory
+    /// - if the execution of the smartcontract fails
     pub fn execute_trigger(
         &mut self,
         wsv: &WorldStateView,
@@ -524,6 +529,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if unable to construct wasm module or instance of wasm module
     /// - if unable to add fuel limit
     /// - if unable to find expected exports(main, memory, allocator)
+    /// - if unable to write data to the smart contract memory
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
@@ -579,7 +585,7 @@ impl<'wrld> Runtime<'wrld> {
 
     /// Encode `obj` to the given `memory` with the given `alloc_fn` and `store`
     ///
-    /// Returns the offset and length of the encoded object
+    /// Return the offset and length of the encoded object
     fn encode_to_memory<T: Encode>(
         obj: &T,
         memory: &wasmtime::Memory,
