@@ -49,12 +49,9 @@ pub struct EvaluatesTo<V: TryFrom<Value>> {
     _value_type: PhantomData<V>,
 }
 
-impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
+impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesTo<V> {
     fn from(expression: E) -> Self {
-        Self {
-            expression: expression.into(),
-            _value_type: PhantomData::default(),
-        }
+        Self::new_unchecked(expression.into())
     }
 }
 
@@ -63,6 +60,21 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     #[inline]
     pub fn len(&self) -> usize {
         self.expression.len()
+    }
+
+    /// Construct new [`EvaluatesTo`] from [`ExpressionBox`] without type checking.
+    ///
+    /// # Warning
+    /// Prefer using [`Into`] conversions rather than this method,
+    /// cause it does not check type at compile-time.
+    ///
+    /// Exists mainly to test unsupported expressions.
+    #[inline]
+    pub fn new_unchecked(expression: ExpressionBox) -> Self {
+        Self {
+            expression,
+            _value_type: PhantomData::default(),
+        }
     }
 
     fn operation(&self) -> Operation {
@@ -98,6 +110,15 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
         } else {
             format!("{}", self.expression)
         }
+    }
+}
+
+impl EvaluatesTo<Value> {
+    /// Construct `EvaluatesTo<Value>` from any `expression`
+    /// because all of them evaluate to [`Value`].
+    #[inline]
+    pub fn new_evaluates_to_value(expression: ExpressionBox) -> Self {
+        Self::new_unchecked(expression)
     }
 }
 
@@ -325,11 +346,13 @@ pub struct ContextValue {
 
 impl ContextValue {
     /// Number of underneath expressions.
+    #[inline]
     pub const fn len(&self) -> usize {
         1
     }
 
     /// Constructs `ContextValue`.
+    #[inline]
     pub fn new(value_name: &str) -> Self {
         Self {
             value_name: String::from(value_name),
@@ -338,6 +361,7 @@ impl ContextValue {
 }
 
 impl From<ContextValue> for ExpressionBox {
+    #[inline]
     fn from(expression: ContextValue) -> Self {
         Expression::ContextValue(expression).into()
     }
@@ -392,8 +416,14 @@ impl From<Multiply> for ExpressionBox {
     }
 }
 
+impl From<Multiply> for EvaluatesTo<u32> {
+    fn from(expression: Multiply) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Evaluates to the division of right and left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
     Debug,
     Display,
@@ -441,8 +471,14 @@ impl From<Divide> for ExpressionBox {
     }
 }
 
+impl From<Divide> for EvaluatesTo<u32> {
+    fn from(expression: Divide) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Evaluates to the modulus of right and left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
     Debug,
     Display,
@@ -490,8 +526,14 @@ impl From<Mod> for ExpressionBox {
     }
 }
 
+impl From<Mod> for EvaluatesTo<u32> {
+    fn from(expression: Mod) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Evaluates to the right expression in power of left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
     Debug,
     Display,
@@ -539,8 +581,14 @@ impl From<RaiseTo> for ExpressionBox {
     }
 }
 
+impl From<RaiseTo> for EvaluatesTo<u32> {
+    fn from(expression: RaiseTo) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Evaluates to the sum of right and left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
     Debug,
     Display,
@@ -588,8 +636,14 @@ impl From<Add> for ExpressionBox {
     }
 }
 
+impl From<Add> for EvaluatesTo<u32> {
+    fn from(expression: Add) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Evaluates to the difference of right and left expressions.
-/// Works only for `Value::U32`
+/// Works only for [`Value::U32`]
 #[derive(
     Debug,
     Display,
@@ -638,8 +692,14 @@ impl From<Subtract> for ExpressionBox {
     }
 }
 
+impl From<Subtract> for EvaluatesTo<u32> {
+    fn from(expression: Subtract) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Returns whether the `left` expression is greater than the `right`.
-/// Works only for `Value::U32`.
+/// Works only for [`Value::U32`].
 #[derive(
     Debug,
     Display,
@@ -687,8 +747,14 @@ impl From<Greater> for ExpressionBox {
     }
 }
 
+impl From<Greater> for EvaluatesTo<bool> {
+    fn from(expression: Greater) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Returns whether the `left` expression is less than the `right`.
-/// Works only for `Value::U32`.
+/// Works only for [`Value::U32`].
 #[derive(
     Debug,
     Display,
@@ -736,6 +802,12 @@ impl From<Less> for ExpressionBox {
     }
 }
 
+impl From<Less> for EvaluatesTo<bool> {
+    fn from(expression: Less) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Negates the result of the `expression`.
 /// Works only for `Value::Bool`.
 #[derive(
@@ -775,6 +847,12 @@ impl Not {
 impl From<Not> for ExpressionBox {
     fn from(expression: Not) -> Self {
         Expression::Not(expression).into()
+    }
+}
+
+impl From<Not> for EvaluatesTo<bool> {
+    fn from(expression: Not) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
     }
 }
 
@@ -826,6 +904,12 @@ impl From<And> for ExpressionBox {
     }
 }
 
+impl From<And> for EvaluatesTo<bool> {
+    fn from(expression: And) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Applies the logical `or` to two `Value::Bool` operands.
 #[derive(
     Debug,
@@ -871,6 +955,12 @@ impl Or {
 impl From<Or> for ExpressionBox {
     fn from(expression: Or) -> Self {
         Expression::Or(expression).into()
+    }
+}
+
+impl From<Or> for EvaluatesTo<bool> {
+    fn from(expression: Or) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
     }
 }
 
@@ -1042,6 +1132,12 @@ impl From<Contains> for ExpressionBox {
     }
 }
 
+impl From<Contains> for EvaluatesTo<bool> {
+    fn from(expression: Contains) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// `Contains` expression.
 /// Returns `true` if `collection` contains all `elements`, `false` otherwise.
 #[derive(
@@ -1092,6 +1188,12 @@ impl ContainsAll {
 impl From<ContainsAll> for ExpressionBox {
     fn from(expression: ContainsAll) -> Self {
         Expression::ContainsAll(expression).into()
+    }
+}
+
+impl From<ContainsAll> for EvaluatesTo<bool> {
+    fn from(expression: ContainsAll) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
     }
 }
 
@@ -1147,6 +1249,12 @@ impl From<ContainsAny> for ExpressionBox {
     }
 }
 
+impl From<ContainsAny> for EvaluatesTo<bool> {
+    fn from(expression: ContainsAny) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
+    }
+}
+
 /// Returns `true` if `left` operand is equal to the `right` operand.
 #[derive(
     Debug,
@@ -1195,6 +1303,12 @@ impl Equal {
 impl From<Equal> for ExpressionBox {
     fn from(equal: Equal) -> Self {
         Expression::Equal(equal).into()
+    }
+}
+
+impl From<Equal> for EvaluatesTo<bool> {
+    fn from(expression: Equal) -> Self {
+        EvaluatesTo::new_unchecked(expression.into())
     }
 }
 

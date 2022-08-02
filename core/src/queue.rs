@@ -330,7 +330,7 @@ mod tests {
             let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
             let mut account = Account::new(account_id, [public_key]).build();
-            account.set_signature_check_condition(SignatureCheckCondition(0_u32.into()));
+            account.set_signature_check_condition(SignatureCheckCondition(false.into()));
             assert!(domain.add_account(account).is_none());
 
             Arc::new(WorldStateView::new(World::with([domain], PeersIds::new())))

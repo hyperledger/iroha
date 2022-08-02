@@ -215,11 +215,12 @@ impl MeasurerUnit {
     }
 
     fn mint_or_burn(&self) -> Instruction {
-        let is_running_out: Expression = Less::new(
-            Expression::Query(FindAssetQuantityById::new(asset_id(self.name)).into()),
-            Value::U32(100),
-        )
-        .into();
+        let is_running_out = Less::new(
+            EvaluatesTo::new_unchecked(
+                Expression::Query(FindAssetQuantityById::new(asset_id(self.name)).into()).into(),
+            ),
+            100_u32,
+        );
         let supply_roses = MintBox::new(Value::U32(100), asset_id(self.name));
         let burn_a_rose = BurnBox::new(Value::U32(1), asset_id(self.name));
 

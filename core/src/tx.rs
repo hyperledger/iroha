@@ -310,17 +310,19 @@ fn check_signature_condition(
     account: &Account,
     signatories: impl IntoIterator<Item = PublicKey>,
 ) -> EvaluatesTo<bool> {
-    WhereBuilder::evaluate(account.signature_check_condition().as_expression().clone())
-        .with_value(
-            String::from(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE),
-            account.signatories().cloned().collect::<Vec<_>>(),
-        )
-        .with_value(
-            String::from(iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE),
-            signatories.into_iter().collect::<Vec<_>>(),
-        )
-        .build()
-        .into()
+    let where_expr = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+        account.signature_check_condition().as_expression().clone(),
+    ))
+    .with_value(
+        String::from(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE),
+        account.signatories().cloned().collect::<Vec<_>>(),
+    )
+    .with_value(
+        String::from(iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE),
+        signatories.into_iter().collect::<Vec<_>>(),
+    )
+    .build();
+    EvaluatesTo::new_unchecked(where_expr.into())
 }
 
 impl Txn for AcceptedTransaction {
