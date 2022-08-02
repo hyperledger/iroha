@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
-use eyre::{Report, Result};
+use eyre::{eyre, Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
@@ -100,8 +100,13 @@ impl Queue {
             return Err(Error::InBlockchain);
         }
 
-        tx.check_signature_condition(&self.wsv)?;
-        Ok(())
+        if tx.check_signature_condition(&self.wsv)? {
+            Ok(())
+        } else {
+            Err(Error::SignatureCondition(eyre!(
+                "Signature condition check failed"
+            )))
+        }
     }
 
     /// Pushes transaction into queue.

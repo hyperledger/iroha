@@ -20,7 +20,7 @@ use crate::{
     prelude::*,
     smartcontracts::{
         permissions::{check_instruction_permissions, judge::InstructionJudgeArc, prelude::*},
-        wasm, Evaluate, Execute, FindError,
+        wasm, Evaluate, Execute,
     },
 };
 
@@ -298,9 +298,8 @@ impl AcceptedTransaction {
         wsv.map_account(account_id, |account| {
             check_signature_condition(account, signatories)
                 .evaluate(wsv, &Context::new())
-                .map_err(|_err| FindError::Account(account_id.clone()))
+                .map_err(Into::into)
         })?
-        .wrap_err("Failed to find the account")
     }
 }
 
