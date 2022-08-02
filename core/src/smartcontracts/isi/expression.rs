@@ -369,7 +369,7 @@ mod tests {
 
     use eyre::Result;
     use iroha_crypto::KeyPair;
-    use iroha_data_model::vec_of_values;
+    use iroha_data_model::val_vec;
     use iroha_macro::error::ErrorTryFromEnum;
     use parity_scale_codec::{Decode, Encode};
 
@@ -634,29 +634,21 @@ mod tests {
             Value::Bool(true)
         );
         assert_eq!(
-            Contains::new(vec_of_values![1_u32, 3_u32, 5_u32], 3_u32)
-                .evaluate(&wsv, &Context::new())?,
+            Contains::new(val_vec![1_u32, 3_u32, 5_u32], 3_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            Contains::new(vec_of_values![1_u32, 3_u32, 5_u32], 7_u32)
-                .evaluate(&wsv, &Context::new())?,
+            Contains::new(val_vec![1_u32, 3_u32, 5_u32], 7_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         assert_eq!(
-            ContainsAll::new(
-                vec_of_values![1_u32, 3_u32, 5_u32],
-                vec_of_values![1_u32, 5_u32]
-            )
-            .evaluate(&wsv, &Context::new())?,
+            ContainsAll::new(val_vec![1_u32, 3_u32, 5_u32], val_vec![1_u32, 5_u32])
+                .evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            ContainsAll::new(
-                vec_of_values![1_u32, 3_u32, 5_u32],
-                vec_of_values![1_u32, 5_u32, 7_u32]
-            )
-            .evaluate(&wsv, &Context::new())?,
+            ContainsAll::new(val_vec![1_u32, 3_u32, 5_u32], val_vec![1_u32, 5_u32, 7_u32])
+                .evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         Ok(())

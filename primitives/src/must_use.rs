@@ -2,7 +2,7 @@
 
 use core::borrow::{Borrow, BorrowMut};
 
-use derive_more::{AsMut, AsRef, Deref, Display};
+use derive_more::{AsMut, AsRef, Constructor, Deref, Display};
 
 /// Wrapper type to annotate types with `must_use` attribute
 ///
@@ -30,17 +30,24 @@ use derive_more::{AsMut, AsRef, Deref, Display};
 /// // is_odd(3).unwrap();
 /// ```
 #[derive(
-    Debug, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, AsMut, Deref,
+    Constructor,
+    Debug,
+    Display,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    AsRef,
+    AsMut,
+    Deref,
 )]
 #[must_use]
 pub struct MustUse<T>(T);
 
 impl<T> MustUse<T> {
-    /// Construct new [`MustUse`] wrapper
-    pub fn new(value: T) -> Self {
-        MustUse(value)
-    }
-
     /// Get inner value
     pub fn into_inner(self) -> T {
         self.0

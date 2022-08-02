@@ -66,9 +66,7 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     ///
     /// # Warning
     /// Prefer using [`Into`] conversions rather than this method,
-    /// cause it does not check type at compile-time.
-    ///
-    /// Exists mainly to test unsupported expressions.
+    /// because it does not check the value type at compile-time.
     #[inline]
     pub fn new_unchecked(expression: ExpressionBox) -> Self {
         Self {
@@ -123,9 +121,11 @@ impl EvaluatesTo<Value> {
 }
 
 impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+    #[inline]
     fn type_name() -> String {
         format!("{}::EvaluatesTo<{}>", module_path!(), V::type_name())
     }
+
     fn schema(map: &mut MetaMap) {
         ExpressionBox::schema(map);
 
@@ -205,6 +205,7 @@ mod operation {
     }
 
     impl PartialOrd for Priority {
+        #[inline]
         fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
             Some(self.cmp(other))
         }
@@ -317,6 +318,7 @@ impl Expression {
 }
 
 impl<T: Into<Value>> From<T> for ExpressionBox {
+    #[inline]
     fn from(value: T) -> Self {
         Expression::Raw(Box::new(value.into())).into()
     }
@@ -397,11 +399,13 @@ pub struct Multiply {
 
 impl Multiply {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Multiply` expression.
+    #[inline]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -411,12 +415,14 @@ impl Multiply {
 }
 
 impl From<Multiply> for ExpressionBox {
+    #[inline]
     fn from(expression: Multiply) -> Self {
         Expression::Multiply(expression).into()
     }
 }
 
 impl From<Multiply> for EvaluatesTo<u32> {
+    #[inline]
     fn from(expression: Multiply) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -452,11 +458,13 @@ pub struct Divide {
 
 impl Divide {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Multiply` expression.
+    #[inline]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -466,12 +474,14 @@ impl Divide {
 }
 
 impl From<Divide> for ExpressionBox {
+    #[inline]
     fn from(expression: Divide) -> Self {
         Expression::Divide(expression).into()
     }
 }
 
 impl From<Divide> for EvaluatesTo<u32> {
+    #[inline]
     fn from(expression: Divide) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -507,11 +517,13 @@ pub struct Mod {
 
 impl Mod {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Mod` expression.
+    #[inline]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -521,12 +533,14 @@ impl Mod {
 }
 
 impl From<Mod> for ExpressionBox {
+    #[inline]
     fn from(expression: Mod) -> Self {
         Expression::Mod(expression).into()
     }
 }
 
 impl From<Mod> for EvaluatesTo<u32> {
+    #[inline]
     fn from(expression: Mod) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -562,11 +576,13 @@ pub struct RaiseTo {
 
 impl RaiseTo {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `RaiseTo` expression.
+    #[inline]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -576,12 +592,14 @@ impl RaiseTo {
 }
 
 impl From<RaiseTo> for ExpressionBox {
+    #[inline]
     fn from(expression: RaiseTo) -> Self {
         Expression::RaiseTo(expression).into()
     }
 }
 
 impl From<RaiseTo> for EvaluatesTo<u32> {
+    #[inline]
     fn from(expression: RaiseTo) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -617,11 +635,13 @@ pub struct Add {
 
 impl Add {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Add` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -631,12 +651,14 @@ impl Add {
 }
 
 impl From<Add> for ExpressionBox {
+    #[inline]
     fn from(expression: Add) -> Self {
         Expression::Add(expression).into()
     }
 }
 
 impl From<Add> for EvaluatesTo<u32> {
+    #[inline]
     fn from(expression: Add) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -673,11 +695,13 @@ pub struct Subtract {
 
 impl Subtract {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Subtract` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -687,12 +711,14 @@ impl Subtract {
 }
 
 impl From<Subtract> for ExpressionBox {
+    #[inline]
     fn from(expression: Subtract) -> Self {
         Expression::Subtract(expression).into()
     }
 }
 
 impl From<Subtract> for EvaluatesTo<u32> {
+    #[inline]
     fn from(expression: Subtract) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -728,11 +754,13 @@ pub struct Greater {
 
 impl Greater {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Greater` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -742,12 +770,14 @@ impl Greater {
 }
 
 impl From<Greater> for ExpressionBox {
+    #[inline]
     fn from(expression: Greater) -> Self {
         Expression::Greater(expression).into()
     }
 }
 
 impl From<Greater> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: Greater) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -783,11 +813,13 @@ pub struct Less {
 
 impl Less {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Less` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -797,12 +829,14 @@ impl Less {
 }
 
 impl From<Less> for ExpressionBox {
+    #[inline]
     fn from(expression: Less) -> Self {
         Expression::Less(expression).into()
     }
 }
 
 impl From<Less> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: Less) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -832,11 +866,13 @@ pub struct Not {
 
 impl Not {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.expression.len() + 1
     }
 
     /// Constructs `Not` expression.
+    #[inline]
     pub fn new<E: Into<EvaluatesTo<bool>>>(expression: E) -> Self {
         Self {
             expression: expression.into(),
@@ -845,12 +881,14 @@ impl Not {
 }
 
 impl From<Not> for ExpressionBox {
+    #[inline]
     fn from(expression: Not) -> Self {
         Expression::Not(expression).into()
     }
 }
 
 impl From<Not> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: Not) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -885,11 +923,13 @@ pub struct And {
 
 impl And {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `And` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -899,12 +939,14 @@ impl And {
 }
 
 impl From<And> for ExpressionBox {
+    #[inline]
     fn from(expression: And) -> Self {
         Expression::And(expression).into()
     }
 }
 
 impl From<And> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: And) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -939,11 +981,13 @@ pub struct Or {
 
 impl Or {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Or` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -953,12 +997,14 @@ impl Or {
 }
 
 impl From<Or> for ExpressionBox {
+    #[inline]
     fn from(expression: Or) -> Self {
         Expression::Or(expression).into()
     }
 }
 
 impl From<Or> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: Or) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -979,6 +1025,7 @@ pub struct IfBuilder {
 
 impl IfBuilder {
     ///Sets the `condition`.
+    #[inline]
     pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
         IfBuilder {
             condition: condition.into(),
@@ -988,6 +1035,7 @@ impl IfBuilder {
     }
 
     /// Sets `then_expression`.
+    #[inline]
     pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
         IfBuilder {
             then_expression: Some(expression.into()),
@@ -996,6 +1044,7 @@ impl IfBuilder {
     }
 
     /// Sets `else_expression`.
+    #[inline]
     pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
         IfBuilder {
             else_expression: Some(expression.into()),
@@ -1052,11 +1101,13 @@ pub struct If {
 
 impl If {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.condition.len() + self.then_expression.len() + self.else_expression.len() + 1
     }
 
     /// Constructs `If` expression.
+    #[inline]
     pub fn new<
         C: Into<EvaluatesTo<bool>>,
         T: Into<EvaluatesTo<Value>>,
@@ -1110,11 +1161,13 @@ pub struct Contains {
 
 impl Contains {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.collection.len() + self.element.len() + 1
     }
 
     /// Constructs `Contains` expression.
+    #[inline]
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Value>>>(
         collection: C,
         element: E,
@@ -1127,12 +1180,14 @@ impl Contains {
 }
 
 impl From<Contains> for ExpressionBox {
+    #[inline]
     fn from(expression: Contains) -> Self {
         Expression::Contains(expression).into()
     }
 }
 
 impl From<Contains> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: Contains) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -1169,11 +1224,13 @@ pub struct ContainsAll {
 
 impl ContainsAll {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.collection.len() + self.elements.len() + 1
     }
 
     /// Constructs `Contains` expression.
+    #[inline]
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
         collection: C,
         elements: E,
@@ -1186,12 +1243,14 @@ impl ContainsAll {
 }
 
 impl From<ContainsAll> for ExpressionBox {
+    #[inline]
     fn from(expression: ContainsAll) -> Self {
         Expression::ContainsAll(expression).into()
     }
 }
 
 impl From<ContainsAll> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: ContainsAll) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -1227,11 +1286,13 @@ pub struct ContainsAny {
 
 impl ContainsAny {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.collection.len() + self.elements.len() + 1
     }
 
     /// Constructs `Contains` expression.
+    #[inline]
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
         collection: C,
         elements: E,
@@ -1244,12 +1305,14 @@ impl ContainsAny {
 }
 
 impl From<ContainsAny> for ExpressionBox {
+    #[inline]
     fn from(expression: ContainsAny) -> Self {
         Expression::ContainsAny(expression).into()
     }
 }
 
 impl From<ContainsAny> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: ContainsAny) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -1284,11 +1347,13 @@ pub struct Equal {
 
 impl Equal {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Or` expression.
+    #[inline]
     pub fn new<L: Into<EvaluatesTo<Value>>, R: Into<EvaluatesTo<Value>>>(
         left: L,
         right: R,
@@ -1301,12 +1366,14 @@ impl Equal {
 }
 
 impl From<Equal> for ExpressionBox {
+    #[inline]
     fn from(equal: Equal) -> Self {
         Expression::Equal(equal).into()
     }
 }
 
 impl From<Equal> for EvaluatesTo<bool> {
+    #[inline]
     fn from(expression: Equal) -> Self {
         EvaluatesTo::new_unchecked(expression.into())
     }
@@ -1323,6 +1390,7 @@ pub struct WhereBuilder {
 
 impl WhereBuilder {
     /// Sets the `expression` to be evaluated.
+    #[inline]
     #[must_use]
     pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> Self {
         Self {
@@ -1332,6 +1400,7 @@ impl WhereBuilder {
     }
 
     /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
+    #[inline]
     #[must_use]
     pub fn with_value<E: Into<EvaluatesTo<Value>>>(
         mut self,
@@ -1389,6 +1458,7 @@ impl Where {
 
     /// Constructs `Or` expression.
     #[must_use]
+    #[inline]
     pub fn new<E: Into<EvaluatesTo<Value>>>(
         expression: E,
         values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
@@ -1401,6 +1471,7 @@ impl Where {
 }
 
 impl From<Where> for ExpressionBox {
+    #[inline]
     fn from(where_expression: Where) -> Self {
         Expression::Where(where_expression).into()
     }
@@ -1408,12 +1479,14 @@ impl From<Where> for ExpressionBox {
 
 impl QueryBox {
     /// Number of underneath expressions.
+    #[inline]
     pub const fn len(&self) -> usize {
         1
     }
 }
 
 impl From<QueryBox> for ExpressionBox {
+    #[inline]
     fn from(query: QueryBox) -> Self {
         Expression::Query(query).into()
     }

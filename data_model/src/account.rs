@@ -118,7 +118,7 @@ impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
 }
 
 /// Default signature condition check for accounts.
-/// Returns true if any of the signatories have signed a transaction.
+/// Returns true if any of the signatories have signed the transaction.
 impl Default for SignatureCheckCondition {
     #[inline]
     fn default() -> Self {
