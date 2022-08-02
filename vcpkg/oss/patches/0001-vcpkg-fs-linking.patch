@@ -1,0 +1,35 @@
+From f4c2deee9ab8385e51d294353ea2e600925d0611 Mon Sep 17 00:00:00 2001
+From: Mikhail Boldyrev <miboldyrev@gmail.com>
+Date: Sun, 9 Feb 2020 18:45:17 +0300
+Subject: [PATCH] vcpkg-fs-linking
+
+---
+ toolsrc/CMakeLists.txt | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/toolsrc/CMakeLists.txt b/toolsrc/CMakeLists.txt
+index 9106204b2..7f83c8bfd 100644
+--- a/toolsrc/CMakeLists.txt
++++ b/toolsrc/CMakeLists.txt
+@@ -64,10 +64,14 @@ if(CLANG AND NOT MSVC)
+     endif()
+ endif()
+ 
+-if(GCC OR (CLANG AND USES_LIBSTDCXX))
+-    link_libraries(stdc++fs)
+-elseif(CLANG AND NOT MSVC AND NOT NO_LIBCXXFS)
+-    link_libraries(c++fs)
++if(GCC)
++    target_link_libraries(vcpkg PRIVATE stdc++fs)
++elseif(CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9")
++    if (USES_LIBSTDCXX)
++        target_link_libraries(vcpkg PRIVATE stdc++fs)
++    else()
++        target_link_libraries(vcpkg PRIVATE c++fs)
++    endif()
+ endif()
+ 
+ if(MSVC)
+-- 
+2.24.1
+

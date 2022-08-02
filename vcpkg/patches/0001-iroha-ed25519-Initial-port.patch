@@ -1,0 +1,95 @@
+From f4c07b52668b03f33ff460053f95230169d4e4ec Mon Sep 17 00:00:00 2001
+From: Andrei Lebedev <lebdron@gmail.com>
+Date: Wed, 11 Mar 2020 10:38:21 +0300
+Subject: [PATCH] [iroha-ed25519] Initial port
+
+Signed-off-by: Andrei Lebedev <lebdron@gmail.com>
+---
+ ...dd-check-for-amd64-64-24k-pic-target.patch | 26 ++++++++++++++++
+ ports/iroha-ed25519/CONTROL                   |  3 ++
+ ports/iroha-ed25519/portfile.cmake            | 30 +++++++++++++++++++
+ 3 files changed, 59 insertions(+)
+ create mode 100644 ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
+ create mode 100644 ports/iroha-ed25519/CONTROL
+ create mode 100644 ports/iroha-ed25519/portfile.cmake
+
+diff --git a/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch b/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
+new file mode 100644
+index 000000000..70d3edcc0
+--- /dev/null
++++ b/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
+@@ -0,0 +1,26 @@
++From 6afefd3224c2ab3da80564ef2be2259a4b0c620c Mon Sep 17 00:00:00 2001
++From: Andrei Lebedev <lebdron@gmail.com>
++Date: Wed, 11 Mar 2020 10:18:14 +0300
++Subject: [PATCH] Add check for amd64-64-24k-pic target
++
++Signed-off-by: Andrei Lebedev <lebdron@gmail.com>
++---
++ cmake/ed25519_merge_libraries.cmake | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/cmake/ed25519_merge_libraries.cmake b/cmake/ed25519_merge_libraries.cmake
++index f6ad14b..f2a61cd 100644
++--- a/cmake/ed25519_merge_libraries.cmake
+++++ b/cmake/ed25519_merge_libraries.cmake
++@@ -46,7 +46,7 @@ function(ed25519_merge_libraries TARGET LIBTYPE)
++ 
++       else()
++         # it is shared library
++-        if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+++        if (${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND TARGET amd64-64-24k-pic)
++           ed25519_target_link_libraries(amd64-64-24k-pic
++             "-Wl,--version-script=${CMAKE_SOURCE_DIR}/linker_exportmap"
++             )
++-- 
++2.25.1
++
+diff --git a/ports/iroha-ed25519/CONTROL b/ports/iroha-ed25519/CONTROL
+new file mode 100644
+index 000000000..1313b8ccc
+--- /dev/null
++++ b/ports/iroha-ed25519/CONTROL
+@@ -0,0 +1,3 @@
++Source: iroha-ed25519
++Version: 2.0.1
++Description: RFC8032 compatible Ed25519 implementation with pluggable hash (sha2-512, sha3-512).
+diff --git a/ports/iroha-ed25519/portfile.cmake b/ports/iroha-ed25519/portfile.cmake
+new file mode 100644
+index 000000000..675b9226d
+--- /dev/null
++++ b/ports/iroha-ed25519/portfile.cmake
+@@ -0,0 +1,30 @@
++include(vcpkg_common_functions)
++
++vcpkg_from_github(
++    OUT_SOURCE_PATH SOURCE_PATH
++    REPO hyperledger/iroha-ed25519
++    REF 2.0.1
++    SHA512 dd873b5d13d9665ae0d97204a4769f744e7d35d3e6739c1a515ea5c1a9ed6ca27c570f118e5aa009b469ae4a8574515bfced4a3ece82113439630b28e8cbfac8
++    HEAD_REF master
++    PATCHES 0001-Add-check-for-amd64-64-24k-pic-target.patch
++)
++
++vcpkg_configure_cmake(
++    SOURCE_PATH ${SOURCE_PATH}
++    PREFER_NINJA
++    OPTIONS
++        -DEDIMPL=ref10
++        -DHASH=sha3_brainhub
++        -DHUNTER_ENABLED=OFF
++)
++
++vcpkg_install_cmake()
++
++vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/ed25519 TARGET_PATH share/ed25519)
++
++file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
++
++#vcpkg_copy_pdbs()
++
++file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/iroha-ed25519 RENAME copyright)
+-- 
+2.25.1
+
