@@ -13,6 +13,7 @@ use std::sync::Arc;
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
 pub use iroha_data_model::prelude::*;
+use iroha_primitives::must_use::MustUse;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
@@ -180,8 +181,13 @@ impl TransactionValidator {
         }
 
         let option_reason = match tx.check_signature_condition(&self.wsv) {
-            Ok(true) => None,
-            Ok(false) => Some("Signature condition not satisfied.".to_owned()),
+            Ok(must_use_bool) => {
+                if *must_use_bool {
+                    None
+                } else {
+                    Some("Signature condition not satisfied.".to_owned())
+                }
+            }
             Err(reason) => Some(reason.to_string()),
         }
         .map(|reason| UnsatisfiedSignatureConditionFail { reason })
@@ -233,7 +239,7 @@ impl VersionedAcceptedTransaction {
     ///
     /// # Errors
     /// Can fail if signature condition account fails or if account is not found
-    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
+    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
         self.as_v1().check_signature_condition(wsv)
     }
 }
@@ -286,7 +292,7 @@ impl AcceptedTransaction {
     /// # Errors
     /// - Account not found
     /// - Signature verification fails
-    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
+    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
         let account_id = &self.payload.account_id;
 
         let signatories = self
@@ -298,6 +304,7 @@ impl AcceptedTransaction {
         wsv.map_account(account_id, |account| {
             check_signature_condition(account, signatories)
                 .evaluate(wsv, &Context::new())
+                .map(MustUse::new)
                 .map_err(Into::into)
         })?
     }

@@ -100,7 +100,7 @@ impl Queue {
             return Err(Error::InBlockchain);
         }
 
-        if tx.check_signature_condition(&self.wsv)? {
+        if *tx.check_signature_condition(&self.wsv)? {
             Ok(())
         } else {
             Err(Error::SignatureCondition(eyre!(
@@ -184,7 +184,7 @@ impl Queue {
             }
 
             seen.push(hash);
-            if entry
+            if *entry
                 .get()
                 .check_signature_condition(&self.wsv)
                 .expect("Checked in `check_tx` just above")

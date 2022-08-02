@@ -526,7 +526,10 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
             "Forwarding tx to leader"
         );
         // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
-        if let Ok(true) = tx.check_signature_condition(&self.wsv) {
+        if matches!(
+            tx.check_signature_condition(&self.wsv),
+            Ok(must_use_bool) if *must_use_bool
+        ) {
             self.txs_awaiting_receipts.insert(tx.hash(), Instant::now());
         }
         let no_tx_receipt = view_change::Proof::no_transaction_receipt_received(
