@@ -36,6 +36,7 @@ pub fn impl_entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
             )
         }
 
+        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block
