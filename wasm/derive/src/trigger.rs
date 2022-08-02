@@ -41,7 +41,6 @@ pub fn impl_entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
             #fn_name(_account_id, _event)
         }
 
-        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block
@@ -61,6 +60,4 @@ fn verify_function_signature(sig: &syn::Signature) {
              the first of type `AccountId` and the second of type `Event`"
         );
     }
-
-    check_types(&sig.inputs, ["AccountId", "Event"].into_iter());
 }

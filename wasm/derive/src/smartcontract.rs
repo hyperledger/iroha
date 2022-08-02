@@ -36,7 +36,6 @@ pub fn impl_entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
             )
         }
 
-        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block
@@ -55,6 +54,4 @@ fn verify_function_signature(sig: &syn::Signature) {
             "Exported function must have one argument of type `AccountId`"
         );
     }
-
-    check_types(&sig.inputs, std::iter::once("AccountId"));
 }

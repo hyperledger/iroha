@@ -277,7 +277,6 @@ impl Set {
         for entry in self.data_triggers.iter() {
             let id = entry.key();
 
-            // Skip if trigger is domain scoped and event is from another domain
             if id.domain_id.is_some() && id.domain_id.as_ref() != event.domain_id() {
                 continue;
             }

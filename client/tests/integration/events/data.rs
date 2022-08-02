@@ -83,7 +83,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
             (func (export "{main_fn_name}") (param i32 i32)
                 {isi_calls}))
         "#,
-        main_fn_name = wasm::exported::WASM_MAIN_FN_NAME,
+        main_fn_name = wasm::export::WASM_MAIN_FN_NAME,
         wasm_template = wasm_template(&isi_hex.concat()),
         isi_calls = isi_calls
     );
