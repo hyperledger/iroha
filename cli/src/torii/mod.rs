@@ -9,7 +9,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
+    smartcontracts::isi::query,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -24,7 +24,6 @@ use warp::{
 
 #[macro_use]
 pub(crate) mod utils;
-pub mod config;
 pub mod routing;
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -33,8 +32,7 @@ pub struct Torii {
     wsv: Arc<WorldStateView>,
     queue: Arc<Queue>,
     events: EventsSender,
-    query_validator: Arc<IsQueryAllowedBoxed>,
-    #[allow(dead_code)] // False positive
+    query_judge: QueryJudgeArc,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
 }
@@ -75,7 +73,7 @@ pub enum Error {
     Status(#[from] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed")]
-    ConfigurationReload(#[from] iroha_config::runtime_upgrades::ReloadError),
+    ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     #[error("Failed to produce Prometheus metrics: {0}")]
