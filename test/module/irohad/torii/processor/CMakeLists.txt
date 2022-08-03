@@ -10,6 +10,8 @@ target_link_libraries(transaction_processor_test
     processors
     shared_model_stateless_validation
     test_logger
+    shared_model_proto_backend
+    shared_model_interfaces_factories
     )
 
 # Testing of query processor

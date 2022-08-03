@@ -6,11 +6,13 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 #define IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 
+#include <chrono>
 #include <unordered_set>
 
 #include "consensus/round.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "ordering/ordering_types.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -29,11 +31,6 @@ namespace iroha {
      public:
       virtual ~OnDemandOrderingService() = default;
 
-      /**
-       * Type of stored proposals
-       */
-      using ProposalType = shared_model::interface::Proposal;
-
       struct BatchPointerHasher {
         shared_model::crypto::Hash::Hasher hasher_;
         size_t operator()(
@@ -43,10 +40,9 @@ namespace iroha {
         }
       };
 
-      using BatchesSetType = std::unordered_set<
-          std::shared_ptr<shared_model::interface::TransactionBatch>,
-          BatchPointerHasher,
-          shared_model::interface::BatchHashEquality>;
+      using BatchesSetType =
+          std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
+                   shared_model::interface::BatchHashLess>;
 
       /**
        * Type of stored transaction batches
@@ -65,8 +61,7 @@ namespace iroha {
        */
       virtual void onBatches(CollectionType batches) = 0;
 
-      virtual std::optional<std::shared_ptr<const ProposalType>>
-      onRequestProposal(consensus::Round round) = 0;
+      virtual PackedProposalData onRequestProposal(consensus::Round round) = 0;
 
       using HashesSetType =
           std::unordered_set<shared_model::crypto::Hash,
@@ -91,6 +86,15 @@ namespace iroha {
       virtual void onDuplicates(const HashesSetType &hashes) = 0;
 
       /**
+       * Method to wait until proposal become available.
+       * @param round which proposal to wait
+       * @param delay time to wait
+       */
+      virtual PackedProposalData waitForLocalProposal(
+          consensus::Round const &round,
+          std::chrono::milliseconds const &delay) = 0;
+
+      /**
        * Method to get betches under lock
        * @param f - callback function
        */
@@ -98,6 +102,8 @@ namespace iroha {
           std::function<void(BatchesSetType &)> const &f) = 0;
 
       virtual bool isEmptyBatchesCache() = 0;
+
+      virtual uint32_t availableTxsCountBatchesCache() = 0;
 
       virtual bool hasEnoughBatchesInCache() const = 0;
 

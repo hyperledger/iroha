@@ -1,1 +1,5 @@
 system_irohad_test
+fake_peer_example_test
+get_engine_receipts_test
+integration_add_peer_test
+integration_remove_peer_test

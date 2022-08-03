@@ -30,13 +30,19 @@ namespace iroha::consensus::yac {
      * Naming is confusing, because this is rpc call that
      * perform on another machine;
      */
-    grpc::Status SendState(::grpc::ServerContext *context,
-                           const ::iroha::consensus::yac::proto::State *request,
-                           ::google::protobuf::Empty *response) override;
+    grpc::Status SendState(
+        ::grpc::ServerContext *context,
+        ::grpc::ServerReader< ::iroha::consensus::yac::proto::State> *reader,
+        ::google::protobuf::Empty *response) override;
+
+    /**
+     * Handles state;
+     */
+    grpc::Status HandleState(::grpc::ServerContext *context,
+                             ::iroha::consensus::yac::proto::State &request);
 
    private:
     std::function<void(std::vector<VoteMessage>)> callback_;
-
     logger::LoggerPtr log_;
   };
 }  // namespace iroha::consensus::yac

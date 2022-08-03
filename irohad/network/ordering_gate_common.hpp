@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <tuple>
 
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"

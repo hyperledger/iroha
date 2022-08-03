@@ -8,8 +8,6 @@
 namespace integration_framework {
   namespace fake_peer {
 
-    void EmptyBehaviour::processMstMessage(
-        std::shared_ptr<MstMessage> message) {}
     void EmptyBehaviour::processYacMessage(
         std::shared_ptr<const YacMessage> message) {}
     void EmptyBehaviour::processOsBatch(

@@ -263,13 +263,13 @@ The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you 
 
 .. code-block:: shell
 
-  cmake --build . --target irohad
+  cmake --build ./build --target irohad
 
 .. warning:: If you want to use tests later, instead of building `irohad` target, you need to use this:
 
 .. code-block:: shell
 
-  cmake --build . --target all 
+  cmake --build ./build --target all 
 
 
 3. Check the result by running the help: 

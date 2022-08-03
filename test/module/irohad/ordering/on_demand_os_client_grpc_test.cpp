@@ -42,7 +42,14 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   using MockProtoProposalValidator =
       shared_model::validation::MockValidator<iroha::protocol::Proposal>;
 
+  void TearDown() override {
+    proposals_subscription_->unsubscribe();
+    proposals_subscription_.reset();
+    subscription->dispose();
+  }
+
   void SetUp() override {
+    subscription = iroha::getSubscription();
     auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();
     stub = ustub.get();
     auto validator = std::make_unique<MockProposalValidator>();
@@ -64,15 +71,20 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
     std::shared_ptr<Peer> pk[] = {std::make_shared<Peer>("123")};
     exec_keeper->syncronize(&pk[0], &pk[1]);
 
-    client = std::make_shared<OnDemandOsClientGrpc>(
-        std::move(ustub),
-        proposal_factory,
-        [&] { return timepoint; },
-        timeout,
-        getTestLogger("OdOsClientGrpc"),
-        [this](ProposalEvent event) { received_event = event; },
-        exec_keeper,
-        "123");
+    proposals_subscription_ =
+        SubscriberCreator<bool, ProposalEvent>::template create<
+            EventTypes::kOnProposalResponse>(
+            iroha::SubscriptionEngineHandlers::kYac,
+            [this](auto, auto event) { received_event = event; });
+
+    client =
+        std::make_shared<OnDemandOsClientGrpc>(std::move(ustub),
+                                               proposal_factory,
+                                               [&] { return timepoint; },
+                                               timeout,
+                                               getTestLogger("OdOsClientGrpc"),
+                                               exec_keeper,
+                                               "123");
   }
 
   proto::MockOnDemandOrderingStub *stub;
@@ -81,6 +93,8 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   std::shared_ptr<OnDemandOsClientGrpc> client;
   consensus::Round round{1, 2};
   ProposalEvent received_event;
+  std::shared_ptr<BaseSubscriber<bool, ProposalEvent>> proposals_subscription_;
+  std::shared_ptr<iroha::Subscription> subscription;
 
   MockProposalValidator *proposal_validator;
   MockProtoProposalValidator *proto_proposal_validator;
@@ -160,25 +174,29 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
   proto::ProposalRequest request;
   auto creator = "test";
   proto::ProposalResponse response;
-  response.mutable_proposal()
-      ->add_transactions()
+  auto prop = response.add_proposal();
+  prop->add_transactions()
       ->mutable_payload()
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
+#if USE_BLOOM_FILTER
+  prop->set_proposal_hash("hash_1");
+#endif  // USE_BLOOM_FILTER
   EXPECT_CALL(*stub, RequestProposal(_, _, _))
       .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
                       SaveArg<1>(&request),
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round);
+  client->onRequestProposal(round, std::nullopt);
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_TRUE(received_event.proposal);
+  ASSERT_TRUE(!received_event.proposal_pack.empty());
+  ASSERT_TRUE(received_event.proposal_pack[0]);
   ASSERT_EQ(
-      received_event.proposal.value()->transactions()[0].creatorAccountId(),
+      received_event.proposal_pack[0]->transactions()[0].creatorAccountId(),
       creator);
 }
 
@@ -199,10 +217,10 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round);
+  client->onRequestProposal(round, std::nullopt);
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_FALSE(received_event.proposal);
+  ASSERT_TRUE(received_event.proposal_pack.empty());
 }

@@ -69,12 +69,12 @@ You can also `learn more about Add Peer command <../../maintenance/add_peer.html
 Schema
 ^^^^^^
 
+.. literalinclude:: ../../../../shared_model/schema/primitive.proto
+    :language: proto
+    :start-at: message Peer {
+    :end-before: message AccountDetailRecordId {
+    
 .. code-block:: proto
-
-    message Peer {
-        string address = 1;
-        bytes peer_key = 2; // hex string
-    }
 
     message AddPeer {
         Peer peer = 1;

@@ -50,11 +50,6 @@ namespace integration_framework {
       using iroha::operator|;
 
       // subscribe for all messages
-      fake_peer->getMstStatesObservable().subscribe(
-          subscription, [locker](std::shared_ptr<MstMessage> const &message) {
-            locker.protect() |
-                [&](auto protector) { protector->processMstMessage(message); };
-          });
       fake_peer->getYacStatesObservable().subscribe(
           subscription,
           [locker](std::shared_ptr<const YacMessage> const &message) {

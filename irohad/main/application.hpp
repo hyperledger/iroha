@@ -24,7 +24,6 @@
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
-#include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
@@ -65,7 +64,6 @@ namespace iroha {
     class ChannelPool;
     class GenericClientFactory;
     class ConsensusGate;
-    class MstTransport;
     class OrderingGate;
     class PeerCommunicationService;
     class PeerTlsCertificatesProvider;
@@ -112,6 +110,7 @@ namespace shared_model {
     class QueryResponseFactory;
     class TransactionBatchFactory;
     class TransactionBatchParser;
+    class TransactionBatch;
   }  // namespace interface
   namespace validation {
     struct Settings;
@@ -149,8 +148,6 @@ class Irohad {
          iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
          std::optional<std::shared_ptr<const iroha::network::GrpcChannelParams>>
              maybe_grpc_channel_params,
-         const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params,
          boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
              boost::none);
 
@@ -229,8 +226,6 @@ class Irohad {
 
   virtual RunResult initStatusBus();
 
-  virtual RunResult initMstProcessor();
-
   virtual RunResult initPendingTxsStorage();
 
   virtual RunResult initTransactionCommandService();
@@ -257,8 +252,6 @@ class Irohad {
   iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy_;
   std::optional<std::shared_ptr<const iroha::network::GrpcChannelParams>>
       maybe_grpc_channel_params_;
-  boost::optional<iroha::GossipPropagationStrategyParams>
-      opt_mst_gossip_params_;
   boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
 
   boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
@@ -383,11 +376,6 @@ class Irohad {
   // status bus
   std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
-  // mst
-  std::shared_ptr<iroha::MstStorage> mst_storage;
-  std::shared_ptr<iroha::network::MstTransport> mst_transport;
-  std::shared_ptr<iroha::MstProcessor> mst_processor;
-
   // transaction service
   std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor;
   std::shared_ptr<iroha::torii::CommandService> command_service;
@@ -395,6 +383,13 @@ class Irohad {
       command_service_transport;
 
   // subscriptions
+  using MstStateSubscriber = iroha::BaseSubscriber<
+      bool,
+      std::shared_ptr<shared_model::interface::TransactionBatch>>;
+  std::shared_ptr<MstStateSubscriber> mst_state_update_;
+  std::shared_ptr<MstStateSubscriber> mst_state_prepared_;
+  std::shared_ptr<MstStateSubscriber> mst_state_expired_;
+
   std::shared_ptr<iroha::BaseSubscriber<
       iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
       iroha::IrohaStatus>>

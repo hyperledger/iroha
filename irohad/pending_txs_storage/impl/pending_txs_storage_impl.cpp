@@ -9,7 +9,6 @@
 
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "interfaces/transaction.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
 
 using iroha::PendingTransactionStorageImpl;
 
@@ -102,44 +101,42 @@ PendingTransactionStorageImpl::batchCreators(const TransactionBatch &batch) {
 }
 
 void PendingTransactionStorageImpl::updatedBatchesHandler(
-    const SharedState &updated_batches) {
+    std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
   // need to test performance somehow - where to put the lock
   std::unique_lock<std::shared_timed_mutex> lock(mutex_);
-  updated_batches->iterateBatches([this](const auto &batch) {
-    if (isReplay(*batch)) {
-      return;
+  if (isReplay(*batch)) {
+    return;
+  }
+
+  auto first_tx_hash = batch->transactions().front()->hash();
+  auto batch_creators = batchCreators(*batch);
+  auto batch_size = batch->transactions().size();
+  for (const auto &creator : batch_creators) {
+    auto account_batches_iterator = storage_.find(creator);
+    if (storage_.end() == account_batches_iterator) {
+      auto insertion_result = storage_.emplace(
+          creator, PendingTransactionStorageImpl::AccountBatches{});
+      BOOST_ASSERT(insertion_result.second);
+      account_batches_iterator = insertion_result.first;
     }
 
-    auto first_tx_hash = batch->transactions().front()->hash();
-    auto batch_creators = batchCreators(*batch);
-    auto batch_size = batch->transactions().size();
-    for (const auto &creator : batch_creators) {
-      auto account_batches_iterator = storage_.find(creator);
-      if (storage_.end() == account_batches_iterator) {
-        auto insertion_result = storage_.emplace(
-            creator, PendingTransactionStorageImpl::AccountBatches{});
-        BOOST_ASSERT(insertion_result.second);
-        account_batches_iterator = insertion_result.first;
+    auto &account_batches = account_batches_iterator->second;
+    auto index_iterator = account_batches.index.find(first_tx_hash);
+    if (index_iterator == account_batches.index.end()) {
+      // inserting the batch
+      account_batches.all_transactions_quantity += batch_size;
+      account_batches.batches.push_back(batch);
+      auto inserted_batch_iterator = std::prev(account_batches.batches.end());
+      account_batches.index.emplace(first_tx_hash, inserted_batch_iterator);
+      for (auto &tx : batch->transactions()) {
+        account_batches.txs_to_batches.insert({tx->hash(), batch});
       }
-
-      auto &account_batches = account_batches_iterator->second;
-      auto index_iterator = account_batches.index.find(first_tx_hash);
-      if (index_iterator == account_batches.index.end()) {
-        // inserting the batch
-        account_batches.all_transactions_quantity += batch_size;
-        account_batches.batches.push_back(batch);
-        auto inserted_batch_iterator = std::prev(account_batches.batches.end());
-        account_batches.index.emplace(first_tx_hash, inserted_batch_iterator);
-        for (auto &tx : batch->transactions()) {
-          account_batches.txs_to_batches.insert({tx->hash(), batch});
-        }
-      } else {
-        // updating batch
-        auto &account_batch = index_iterator->second;
-        *account_batch = batch;
-      }
+    } else {
+      // updating batch
+      auto &account_batch = index_iterator->second;
+      *account_batch = batch;
     }
-  });
+  }
 }
 
 bool PendingTransactionStorageImpl::isReplay(

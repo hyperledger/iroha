@@ -8,8 +8,7 @@ Hyperledger Iroha can be deployed in different ways, depending on the perspectiv
 There can be either a single node deployed, or multiple nodes running in several containers on a local machine or spread across the network — so pick any case you need.
 This page describes different scenarios and is intended to act as a how-to guide for users, primarily trying out Iroha for the first time.
 
-Security notice
-===============
+.. rubric:: Security notice
 
 Due to a known issue with `gRPC <https://github.com/grpc/grpc/issues/20418>`_ it might not be safe to deploy Iroha in production natively on MacOS or on older versions of Linux.
 

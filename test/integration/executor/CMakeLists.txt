@@ -26,6 +26,7 @@ target_link_libraries(executor_fixture_param_postgres
 add_library(executor_fixture_param_rocksdb executor_fixture_param_rocksdb.cpp)
 target_link_libraries(executor_fixture_param_rocksdb
     ametsuchi_rocksdb
+    rocksdb_burrow_storage
     executor_fixture_param
     GTest::gmock
     rocksdb_indexer
