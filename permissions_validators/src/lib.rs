@@ -57,7 +57,7 @@ macro_rules! declare_token {
                 $param_name:ident ($param_string:literal): $param_typ:ty
              ),* $(,)? // allow trailing comma
         },
-        $string:tt // Token name
+        $string:tt // Token id
     ) => {
 
         // For tokens with no parameters
@@ -108,12 +108,14 @@ macro_rules! declare_token {
         }
 
         impl iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait for $ident {
-            fn name() -> &'static Name {
-                static NAME: once_cell::sync::Lazy<Name> =
-                    once_cell::sync::Lazy::new(|| $string.parse().expect("Tested. Works."));
-                &NAME
+            /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition).
+            fn definition() -> &'static PermissionTokenDefinition {
+                static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
+                    once_cell::sync::Lazy::new(|| {
+                        PermissionTokenDefinition::new($string.parse().expect("Tested. Works."))
+                    });
+                &DEFINITION
             }
-
         }
 
         impl From<$ident> for iroha_data_model::permissions::PermissionToken {
@@ -123,7 +125,7 @@ macro_rules! declare_token {
                     <
                         $ident as
                         iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
-                    >::name().clone()
+                    >::definition_id().clone()
                 )
                 .with_params([
                     $(($ident::$param_name().clone(), value.$param_name.into())),*
@@ -138,11 +140,11 @@ macro_rules! declare_token {
             fn try_from(
                 token: iroha_data_model::permissions::PermissionToken
             ) -> std::result::Result<Self, Self::Error> {
-                if token.name() != <
+                if token.definition_id() != <
                     Self as
                     iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
-                >::name() {
-                    return Err(Self::Error::Name(token.name().clone()))
+                >::definition_id() {
+                    return Err(Self::Error::Id(token.definition_id().clone()))
                 }
                 let mut params = token.params().collect::<std::collections::HashMap<_, _>>();
                 Ok(Self::new($(

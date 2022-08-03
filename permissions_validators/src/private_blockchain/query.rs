@@ -41,6 +41,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 Deny("Only access to roles of the same domain is permitted.".to_owned())
             }
             FindAllRoleIds(_) => Allow, // In case you need to debug the permissions.
+            FindAllPermissionTokenDefinitions(_) => Allow, // Same
             FindRoleByRoleId(_) => {
                 Deny("Only access to roles of the same domain is permitted.".to_owned())
             }
@@ -453,6 +454,7 @@ impl IsAllowed for OnlyAccountsData {
                     Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
+            FindAllPermissionTokenDefinitions(_) => Deny("Only the access to the permission tokens of your own account is permitted.".to_owned()),
             FindPermissionTokensByAccountId(query) => {
                 let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {

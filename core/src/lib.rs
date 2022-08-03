@@ -13,6 +13,7 @@ pub mod wsv;
 
 use std::time::Duration;
 
+use dashmap::{DashMap, DashSet};
 use iroha_data_model::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
@@ -29,13 +30,17 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 
 /// Ids of peers.
-pub type PeersIds = dashmap::DashSet<<Peer as Identifiable>::Id>;
+pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
 
 /// Provides an API to work with collection of key([`DomainId`]) - value([`Domain`]) pairs.
-pub type DomainsMap = dashmap::DashMap<<Domain as Identifiable>::Id, Domain>;
+pub type DomainsMap = DashMap<<Domain as Identifiable>::Id, Domain>;
 
-/// `RolesMap` provides an API to work with collection of key(`PeerId`) - value(`Role`) pairs.
-pub type RolesMap = dashmap::DashMap<<Role as Identifiable>::Id, Role>;
+/// `RolesMap` provides an API to work with collection of key(`RoleId`) - value(`Role`) pairs.
+pub type RolesMap = DashMap<<Role as Identifiable>::Id, Role>;
+
+/// `PermissionTokenDefinitionsMap` provides an API to work with collection of key(`PermissionTokenDefinitionId`) - value(`PermissionTokenDefinition`) pairs.
+pub type PermissionTokenDefinitionsMap =
+    DashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;

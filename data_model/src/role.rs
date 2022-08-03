@@ -95,6 +95,20 @@ impl Role {
     pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.permissions.iter()
     }
+
+    /// Remove permission tokens with specified id from `Role`
+    // TODO: rewrite with drain_filter when stabilized
+    // https://github.com/rust-lang/rust/issues/70530
+    pub fn remove_permissions(&mut self, definition_id: &crate::permissions::Id) {
+        let new_permissions = self
+            .permissions
+            .iter()
+            .filter(|token| token.definition_id() != definition_id)
+            .cloned()
+            .collect();
+
+        self.permissions = new_permissions;
+    }
 }
 
 impl Registered for Role {

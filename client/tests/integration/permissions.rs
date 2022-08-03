@@ -20,6 +20,40 @@ fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
 }
 
 #[test]
+fn permissions_require_registration_before_grant() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new()
+        .with_instruction_judge(public_blockchain::default_permissions())
+        .start_with_runtime();
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+
+    // Given
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let token = PermissionToken::new("can_do_stuff".parse().expect("valid"));
+
+    let grant_permission = GrantBox::new(token.clone(), alice_id);
+    let register_role = RegisterBox::new(
+        Role::new("staff_that_does_stuff".parse().unwrap()).add_permission(token.clone()),
+    );
+
+    // We shouldn't be able to grant unregistered permission tokens
+    // or roles containing unregistered permission tokens
+    assert!(iroha_client
+        .submit_blocking(grant_permission.clone())
+        .is_err());
+    assert!(iroha_client.submit_blocking(register_role.clone()).is_err());
+
+    let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
+        token.definition_id().clone(),
+    ));
+
+    iroha_client.submit_blocking(register_permission).unwrap();
+
+    // Should be okay after registering the token id.
+    assert!(iroha_client.submit_blocking(grant_permission).is_ok());
+    assert!(iroha_client.submit_blocking(register_role).is_ok());
+}
+
+#[test]
 fn permissions_disallow_asset_transfer() {
     let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
         .with_instruction_judge(public_blockchain::default_permissions())

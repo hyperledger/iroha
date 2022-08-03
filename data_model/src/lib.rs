@@ -312,6 +312,8 @@ pub enum IdBox {
     TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
     RoleId(<role::Role as Identifiable>::Id),
+    /// [`PermissionTokenId`](`permissions::Id`) variant.
+    PermissionTokenDefinitionId(<permissions::PermissionTokenDefinition as Identifiable>::Id),
 }
 
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
@@ -333,6 +335,8 @@ pub enum RegistrableBox {
     Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<<role::Role as Registered>::With>),
+    /// [`PermissionTokenId`](`permissions::Id`) variant.
+    PermissionTokenDefinition(Box<<permissions::PermissionTokenDefinition as Registered>::With>),
 }
 
 /// Sized container for all possible entities.
@@ -374,6 +378,8 @@ pub enum IdentifiableBox {
     Trigger(Box<trigger::Trigger<FilterBox>>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<role::Role>),
+    /// [`PermissionTokenDefinition`](`permissions::PermissionTokenDefinition`) variant.
+    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
 }
 
 // TODO: think of a way to `impl Identifiable for IdentifiableBox`.
@@ -393,6 +399,7 @@ impl IdentifiableBox {
             IdentifiableBox::Asset(a) => a.id().clone().into(),
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
+            IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
         }
     }
 }
@@ -708,6 +715,7 @@ from_and_try_from_value_identifiablebox!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
+    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
 );
 
 from_and_try_from_value_identifiable!(
@@ -720,6 +728,7 @@ from_and_try_from_value_identifiable!(
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
+    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
 );
 
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
@@ -755,7 +764,12 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             Peer(peer) => Ok(RegistrableBox::Peer(peer)),
             NewDomain(domain) => Ok(RegistrableBox::Domain(domain)),
             NewAccount(account) => Ok(RegistrableBox::Account(account)),
-            NewAssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
+            NewAssetDefinition(asset_definition) => {
+                Ok(RegistrableBox::AssetDefinition(asset_definition))
+            }
+            PermissionTokenDefinition(token_definition) => {
+                Ok(RegistrableBox::PermissionTokenDefinition(token_definition))
+            }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
@@ -772,10 +786,15 @@ impl From<RegistrableBox> for IdentifiableBox {
             Peer(peer) => IdentifiableBox::Peer(peer),
             Domain(domain) => IdentifiableBox::NewDomain(domain),
             Account(account) => IdentifiableBox::NewAccount(account),
-            AssetDefinition(asset) => IdentifiableBox::NewAssetDefinition(asset),
+            AssetDefinition(asset_definition) => {
+                IdentifiableBox::NewAssetDefinition(asset_definition)
+            }
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(trigger),
+            PermissionTokenDefinition(token_definition) => {
+                IdentifiableBox::PermissionTokenDefinition(token_definition)
+            }
         }
     }
 }

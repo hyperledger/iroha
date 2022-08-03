@@ -161,8 +161,9 @@ mod schema {
 mod genesis {
     use iroha_core::{
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
-        tx::{AssetValueType, MintBox},
+        tx::{AssetValueType, MintBox, RegisterBox},
     };
+    use iroha_permissions_validators::public_blockchain;
 
     use super::*;
 
@@ -193,6 +194,12 @@ mod genesis {
                 "rose#wonderland".parse()?,
                 "alice@wonderland".parse()?,
             )),
+        );
+
+        result.transactions[0].isi.extend(
+            public_blockchain::default_permission_token_definitions()
+                .into_iter()
+                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
         );
         result.transactions[0].isi.push(mint.into());
         Ok(result)

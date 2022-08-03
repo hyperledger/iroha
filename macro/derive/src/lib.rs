@@ -211,3 +211,46 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
     };
     gen.into()
 }
+
+/// [`VariantCount`] derives a function `const fn variant_count() -> usize` for enums
+/// that returns the count of variants in enum. E.g.
+/// ```
+/// #[derive(VariantCount)]
+/// enum MyEnum {
+///   First,
+///   Second(i32),
+///   Third {
+///     some: str,
+///     stuff: usize
+///   }
+/// }
+///
+/// assert_eq!(MyEnum::variant_count(), 3)
+/// ```
+///
+/// # Panics
+/// When derive attribute target is not an enum
+//
+// TODO: remove when https://github.com/rust-lang/rust/issues/73662
+// or alternative stabilizes
+#[proc_macro_derive(VariantCount)]
+pub fn variant_count_derive(input: TokenStream) -> TokenStream {
+    let ast: syn::DeriveInput = syn::parse(input).expect("Failed to parse input Token Stream.");
+
+    let name = ast.ident;
+    let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
+    let variant_count = match ast.data {
+        syn::Data::Enum(data_enum) => data_enum.variants.len(),
+        _ => panic!("Only enums are supported"),
+    };
+
+    quote! {
+        impl #impl_generics #name #type_generics
+            #where_clause
+        {
+            /// Count of enum variants.
+            const VARIANT_COUNT: usize = #variant_count;
+        }
+    }
+    .into()
+}
