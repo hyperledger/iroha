@@ -86,7 +86,8 @@ fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
 }
 
 fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
-    let opaque_item_slice_into_ffi_derive = derive_try_from_repr_c_for_opaque_item_slice(name);
+    let opaque_item_slice_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_slice(name);
+    let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
 
     quote! {
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for #name {
@@ -139,12 +140,14 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
             }
         }
 
-        #opaque_item_slice_into_ffi_derive
+        #opaque_item_slice_try_from_repr_c_derive
+        #opaque_item_vec_try_from_repr_c_derive
     }
 }
 
 fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
-    let opaque_item_slice_into_ffi_derive = derive_try_from_repr_c_for_opaque_item_slice(name);
+    let opaque_item_slice_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_slice(name);
+    let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
 
     quote! {
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for #name {
@@ -187,7 +190,8 @@ fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
             }
         }
 
-        #opaque_item_slice_into_ffi_derive
+        #opaque_item_slice_try_from_repr_c_derive
+        #opaque_item_vec_try_from_repr_c_derive
     }
 }
 
@@ -208,6 +212,29 @@ fn derive_try_from_repr_c_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
                 }
 
                 Ok(store)
+            }
+        }
+    }
+}
+
+fn derive_try_from_repr_c_for_opaque_item_vec(name: &Ident) -> TokenStream2 {
+    quote! {
+        impl<'itm> iroha_ffi::owned::TryFromReprCVec<'itm> for #name {
+            type Source = iroha_ffi::slice::SliceRef<'itm, <Self as iroha_ffi::TryFromReprC<'itm>>::Source>;
+            type Store = ();
+
+            unsafe fn try_from_repr_c(
+                source: Self::Source,
+                _: &'itm mut <Self as iroha_ffi::owned::TryFromReprCVec<'itm>>::Store,
+            ) -> iroha_ffi::Result<Vec<Self>> {
+                let slice = source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
+                let mut res = Vec::with_capacity(slice.len());
+
+                for elem in slice {
+                    res.push(iroha_ffi::TryFromReprC::try_from_repr_c(*elem, &mut ())?);
+                }
+
+                Ok(res)
             }
         }
     }
@@ -248,14 +275,16 @@ fn derive_try_from_repr_c_for_fieldless_enum(
 
     quote! {
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for #enum_name {
-            type Source = #ffi_type;
+            type Source = <#ffi_type as iroha_ffi::TryFromReprC<'itm>>::Source;
             type Store = ();
 
             unsafe fn try_from_repr_c(
                 source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                store: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
+
+                let source: #ffi_type = iroha_ffi::TryFromReprC::try_from_repr_c(source, store)?;
 
                 match source {
                     #( #discriminant_names => Ok(#enum_name::#variant_names), )*
@@ -323,6 +352,7 @@ fn derive_try_from_repr_c_for_fieldless_enum(
 
 fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
     let opaque_item_slice_into_ffi_derive = derive_into_ffi_for_opaque_item_slice(name);
+    let opaque_item_vec_into_ffi_derive = derive_into_ffi_for_opaque_item_vec(name);
 
     quote! {
         impl iroha_ffi::IntoFfi for #name {
@@ -350,11 +380,13 @@ fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
         }
 
         #opaque_item_slice_into_ffi_derive
+        #opaque_item_vec_into_ffi_derive
     }
 }
 
 fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     let opaque_item_slice_into_ffi_derive = derive_into_ffi_for_opaque_item_slice(name);
+    let opaque_item_vec_into_ffi_derive = derive_into_ffi_for_opaque_item_vec(name);
 
     quote! {
         impl iroha_ffi::IntoFfi for #name {
@@ -388,6 +420,7 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
         }
 
         #opaque_item_slice_into_ffi_derive
+        #opaque_item_vec_into_ffi_derive
     }
 }
 
@@ -398,6 +431,18 @@ fn derive_into_ffi_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
 
             fn into_ffi(source: &[Self]) -> Self::Target {
                 source.iter().map(iroha_ffi::IntoFfi::into_ffi).collect()
+            }
+        }
+    }
+}
+
+fn derive_into_ffi_for_opaque_item_vec(name: &Ident) -> TokenStream2 {
+    quote! {
+        impl iroha_ffi::owned::IntoFfiVec for #name {
+            type Target = iroha_ffi::owned::LocalSlice<<#name as iroha_ffi::IntoFfi>::Target>;
+
+            fn into_ffi(source: Vec<Self>) -> Self::Target {
+                source.into_iter().map(IntoFfi::into_ffi).collect()
             }
         }
     }
@@ -414,10 +459,10 @@ fn derive_into_ffi_for_fieldless_enum(enum_name: &Ident, repr: &[syn::NestedMeta
 
     quote! {
         impl iroha_ffi::IntoFfi for #enum_name {
-            type Target = #ffi_type;
-
+            type Target = <#ffi_type as iroha_ffi::IntoFfi>::Target;
+    
             fn into_ffi(self) -> Self::Target {
-                self as #ffi_type
+                (self as #ffi_type).into_ffi()
             }
         }
 

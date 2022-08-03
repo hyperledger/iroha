@@ -1,6 +1,10 @@
+//! Logic related to the conversion of primitive types.
 #![allow(trivial_casts)]
 
+use alloc::vec::Vec;
+
 use crate::{
+    owned::{IntoFfiVec, LocalSlice, TryFromReprCVec},
     slice::{
         IntoFfiSliceMut, IntoFfiSliceRef, SliceMut, SliceRef, TryFromReprCSliceMut,
         TryFromReprCSliceRef,
@@ -64,7 +68,7 @@ impl<'slice> TryFromReprCSliceRef<'slice> for bool {
 }
 
 impl IntoFfi for bool {
-    type Target = u8;
+    type Target = <u8 as IntoFfi>::Target;
 
     fn into_ffi(self) -> Self::Target {
         u8::from(self).into_ffi()
@@ -139,10 +143,10 @@ impl<'slice> TryFromReprCSliceRef<'slice> for core::cmp::Ordering {
 }
 
 impl IntoFfi for core::cmp::Ordering {
-    type Target = i8;
+    type Target = <i8 as IntoFfi>::Target;
 
     fn into_ffi(self) -> Self::Target {
-        self as i8
+        (self as i8).into_ffi()
     }
 }
 impl IntoFfi for &core::cmp::Ordering {
@@ -169,16 +173,43 @@ impl<'itm> IntoFfiSliceRef<'itm> for core::cmp::Ordering {
     }
 }
 
+/// Trait for replacing unsupported types with supported ones when crossing FFI-boundary (for example in case of wasm)
+pub trait PrimitiveRepr {
+    /// Type used to represent [`Self`] when crossing FFI-boundry
+    type Repr;
+}
+
+macro_rules! primitive_repr_impls {
+    ($($source:ty => $target:ty),+ $(,)?) => {$(
+        impl PrimitiveRepr for $source {
+            type Repr = $target;
+        }
+    )+};
+}
+macro_rules! primitive_repr_self_impls {
+    ($($source:ty),+ $(,)?) => {
+        primitive_repr_impls! {
+            $($source => $source),*
+        }
+    };
+}
+
+#[cfg(feature = "wasm")]
+primitive_repr_impls! {u8 => u32, u16 => u32, i8 => i32, i16 => i32}
+#[cfg(not(feature = "wasm"))]
+primitive_repr_self_impls! {u8, u16, i8, i16}
+primitive_repr_self_impls! {u32, u64, u128, i32, i64, i128}
+
 macro_rules! primitive_impls {
     ( $( $ty:ty ),+ $(,)? ) => { $(
         unsafe impl ReprC for $ty {}
 
         impl TryFromReprC<'_> for $ty {
-            type Source = Self;
+            type Source = <$ty as PrimitiveRepr>::Repr;
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
-                Ok(source)
+                source.try_into().map_err(|_| FfiReturn::TrapRepresentation)
             }
         }
 
@@ -201,10 +232,10 @@ macro_rules! primitive_impls {
         }
 
         impl IntoFfi for $ty {
-            type Target = Self;
+            type Target = <$ty as PrimitiveRepr>::Repr;
 
             fn into_ffi(self) -> Self::Target {
-                self
+                self.into()
             }
         }
 
@@ -221,8 +252,29 @@ macro_rules! primitive_impls {
             fn into_ffi(source: &mut [Self]) -> Self::Target {
                 SliceMut::from_slice(source)
             }
-        } )+
-    };
+        }
+
+        impl IntoFfiVec for $ty
+        {
+            type Target = LocalSlice<$ty>;
+
+            fn into_ffi(source: Vec<$ty>) -> Self::Target {
+                source.into_iter().collect()
+            }
+        }
+
+        impl<'itm> TryFromReprCVec<'itm> for $ty {
+            type Source = SliceRef<'itm, $ty>;
+            type Store = ();
+
+            unsafe fn try_from_repr_c(
+                source: Self::Source,
+                _: &'itm mut Self::Store,
+            ) -> Result<Vec<Self>> {
+                source.into_rust().ok_or(FfiReturn::ArgIsNull).map(alloc::borrow::ToOwned::to_owned)
+            }
+        }
+    )+};
 }
 
 primitive_impls! {u8, u16, u32, u64, u128, i8, i16, i32, i64}

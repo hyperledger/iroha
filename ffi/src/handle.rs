@@ -113,7 +113,7 @@ macro_rules! def_ffi_fn {
             handle_id: $crate::handle::Id,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
-            output_ptr: *mut u8,
+            output_ptr: *mut <bool as $crate::IntoFfi>::Target,
         ) -> $crate::FfiReturn {
             $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
@@ -152,7 +152,7 @@ macro_rules! def_ffi_fn {
             handle_id: $crate::handle::Id,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
-            output_ptr: *mut i8,
+            output_ptr: *mut <core::cmp::Ordering as $crate::IntoFfi>::Target,
         ) -> $crate::FfiReturn {
             $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;

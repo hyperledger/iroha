@@ -5,8 +5,44 @@ use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 
 use crate::{
     slice::{OutBoxedSlice, SliceRef},
-    AsReprCRef, FfiReturn, IntoFfi, Output, ReprC, TryFromReprC,
+    AsReprCRef, FfiReturn, IntoFfi, Output, ReprC, TryFromReprC, Result
 };
+
+/// Trait that facilitates the implementation of [`IntoFfi`] for vectors of foreign types
+pub trait IntoFfiVec: Sized {
+    /// Immutable vec equivalent of [`IntoFfi::Target`]
+    type Target: ReprC;
+
+    /// Convert from `&[Self]` into [`Self::Target`]
+    fn into_ffi(source: Vec<Self>) -> Self::Target;
+}
+
+/// Trait that facilitates the implementation of [`TryFromReprC`] for vector of foreign types
+pub trait TryFromReprCVec<'slice>: Sized {
+    /// Vec equivalent of [`TryFromReprC::Source`]
+    type Source: ReprC + Copy;
+
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
+
+    /// Convert from [`Self::Source`] into `&[Self]`
+    ///
+    /// # Errors
+    ///
+    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
+    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'slice mut Self::Store,
+    ) -> Result<Vec<Self>>;
+}
 
 /// Wrapper around `T` that is local to the conversion site. This structure carries
 /// ownership and care must be taken not to let it transfer ownership into an FFI function
@@ -121,40 +157,34 @@ impl<T: ReprC> LocalSlice<T> {
     }
 }
 
-impl<T: IntoFfi> IntoFfi for Vec<T>
+impl<'itm, T> IntoFfiVec for &'itm T
 where
-    T::Target: ReprC,
+    &'itm T: IntoFfi,
 {
-    type Target = LocalSlice<T::Target>;
+    type Target = LocalSlice<<Self as IntoFfi>::Target>;
 
-    fn into_ffi(self) -> Self::Target {
-        self.into_iter().map(IntoFfi::into_ffi).collect()
+    fn into_ffi(source: Vec<Self>) -> Self::Target {
+        source.into_iter().map(IntoFfi::into_ffi).collect()
     }
 }
 
-impl<'itm, T: TryFromReprC<'itm>> TryFromReprC<'itm> for Vec<T> {
-    type Source = SliceRef<'itm, T::Source>;
-    type Store = Vec<T::Store>;
+impl<T: IntoFfiVec> IntoFfi for Vec<T> {
+    type Target = T::Target;
+
+    fn into_ffi(self) -> Self::Target {
+        <T as IntoFfiVec>::into_ffi(self)
+    }
+}
+
+impl<'slice, T: TryFromReprCVec<'slice> + 'slice> TryFromReprC<'slice> for Vec<T> {
+    type Source = T::Source;
+    type Store = T::Store;
 
     unsafe fn try_from_repr_c(
         source: Self::Source,
-        store: &'itm mut Self::Store,
-    ) -> Result<Self, FfiReturn> {
-        let prev_store_len = store.len();
-        let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
-        store.extend(core::iter::repeat_with(Default::default).take(slice.len()));
-
-        let mut substore = &mut store[prev_store_len..];
-        let mut res = Vec::with_capacity(slice.len());
-
-        let mut i = 0;
-        while let Some((first, rest)) = substore.split_first_mut() {
-            res.push(<T as TryFromReprC<'itm>>::try_from_repr_c(slice[i], first)?);
-            substore = rest;
-            i += 1;
-        }
-
-        Ok(res)
+        store: &'slice mut Self::Store,
+    ) -> Result<Self> {
+        <T as TryFromReprCVec>::try_from_repr_c(source, store)
     }
 }
 
@@ -165,7 +195,7 @@ impl<'itm> TryFromReprC<'itm> for String {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         _: &mut Self::Store,
-    ) -> Result<Self, FfiReturn> {
+    ) -> Result<Self> {
         String::from_utf8(source.into_rust().ok_or(FfiReturn::ArgIsNull)?.to_owned())
             .map_err(|_e| FfiReturn::Utf8Error)
     }
@@ -177,7 +207,7 @@ impl<'itm> TryFromReprC<'itm> for &'itm str {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         _: &mut Self::Store,
-    ) -> Result<Self, FfiReturn> {
+    ) -> Result<Self> {
         core::str::from_utf8(source.into_rust().ok_or(FfiReturn::ArgIsNull)?)
             .map_err(|_e| FfiReturn::Utf8Error)
     }

@@ -286,12 +286,12 @@ fn return_result() {
     unsafe {
         assert_eq!(
             FfiReturn::ExecutionFail,
-            FfiStruct__fallible_int_output(u8::from(false), output.as_mut_ptr())
+            FfiStruct__fallible_int_output(From::from(false), output.as_mut_ptr())
         );
         assert_eq!(0, output.assume_init());
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__fallible_int_output(u8::from(true), output.as_mut_ptr())
+            FfiStruct__fallible_int_output(From::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
     }
