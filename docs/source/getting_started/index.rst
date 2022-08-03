@@ -91,7 +91,7 @@ from Github or copy them manually (cloning is faster, though).
 
 .. code-block:: shell
 
-  git clone -b master https://github.com/hyperledger/iroha --depth=1
+  git clone -b main https://github.com/hyperledger/iroha --depth=1
 
 .. hint:: ``--depth=1`` option allows us to download only the latest commit and
   save some time and bandwidth. If you want to get a full commit history, you

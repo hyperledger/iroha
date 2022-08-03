@@ -40,14 +40,17 @@ class OnDemandOsTest : public ::testing::Test {
  public:
   std::shared_ptr<OnDemandOrderingService> os;
   const uint64_t transaction_limit = 20;
+  const uint32_t max_proposal_pack = 10;
   const uint32_t proposal_limit = 5;
   const consensus::Round initial_round = {2, kFirstRejectRound},
                          commit_round = {3, kFirstRejectRound},
                          target_round = nextCommitRound(commit_round),
                          reject_round = nextRejectRound(initial_round);
   NiceMock<iroha::ametsuchi::MockTxPresenceCache> *mock_cache;
+  std::shared_ptr<iroha::Subscription> subscription;
 
   void SetUp() override {
+    subscription = iroha::getSubscription();
     // TODO: nickaleks IR-1811 use mock factory
     auto factory = std::make_unique<
         shared_model::proto::ProtoProposalFactory<MockProposalValidator>>(
@@ -66,10 +69,15 @@ class OnDemandOsTest : public ::testing::Test {
 
     os = std::make_shared<OnDemandOrderingServiceImpl>(
         transaction_limit,
+        max_proposal_pack,
         std::move(factory),
         std::move(tx_cache),
         getTestLogger("OdOrderingService"),
         proposal_limit);
+  }
+
+  void TearDown() override {
+    subscription->dispose();
   }
 
   /**
@@ -154,8 +162,13 @@ TEST_F(OnDemandOsTest, OverflowRound) {
   os->onCollaborationOutcome(commit_round);
 
   ASSERT_TRUE(os->onRequestProposal(target_round));
+  ASSERT_TRUE(os->onRequestProposal(target_round)->size() == 1);
   ASSERT_EQ(transaction_limit,
-            (*os->onRequestProposal(target_round))->transactions().size());
+            os->onRequestProposal(target_round)
+                ->
+                operator[](0)
+                .first->transactions()
+                .size());
 }
 
 /**
@@ -209,6 +222,7 @@ TEST_F(OnDemandOsTest, UseFactoryForProposal) {
       }));
   os = std::make_shared<OnDemandOrderingServiceImpl>(
       transaction_limit,
+      max_proposal_pack,
       std::move(factory),
       std::move(tx_cache),
       getTestLogger("OdOrderingService"),
@@ -302,7 +316,7 @@ TEST_F(OnDemandOsTest, SeveralTransactionsOneCommited) {
   os->onCollaborationOutcome(commit_round);
 
   auto proposal = os->onRequestProposal(target_round);
-  const auto &txs = proposal->get()->transactions();
+  const auto &txs = proposal->operator[](0).first->transactions();
   auto &batch2_tx = *batch2.transactions().at(0);
 
   EXPECT_TRUE(proposal);
@@ -326,7 +340,9 @@ TEST_F(OnDemandOsTest, DuplicateTxTest) {
   os->onCollaborationOutcome(commit_round);
   auto proposal = os->onRequestProposal(target_round);
 
-  ASSERT_EQ(1, boost::size((*proposal)->transactions()));
+  ASSERT_TRUE(proposal);
+  ASSERT_TRUE(!proposal->empty());
+  ASSERT_EQ(1, boost::size(proposal->operator[](0).first->transactions()));
 }
 
 /**
@@ -348,10 +364,12 @@ TEST_F(OnDemandOsTest, RejectCommit) {
   auto proposal = os->onRequestProposal(
       {initial_round.block_round, initial_round.reject_round + 3});
 
-  ASSERT_EQ(2, boost::size((*proposal)->transactions()));
+  ASSERT_TRUE(proposal);
+  ASSERT_TRUE(!proposal->empty());
+  ASSERT_EQ(2, boost::size(proposal->operator[](0).first->transactions()));
 
   proposal = os->onRequestProposal(commit_round);
-  ASSERT_EQ(2, boost::size((*proposal)->transactions()));
+  ASSERT_FALSE(proposal);
 }
 
 /**

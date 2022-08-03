@@ -126,9 +126,6 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
   auto new_peer = itf.addFakePeer(boost::none);
   ASSERT_TRUE(new_peer);
 
-  auto mst_states_observable = new_peer->getMstStatesObservable().replay();
-  mst_states_observable.connect();
-
   itf.unbind_guarded_port(new_peer->getPort());
   auto new_peer_server = new_peer->run(true);
 
@@ -146,19 +143,6 @@ TEST_P(AddPeerTest, MstStatePropagtesToNewPeer) {
       checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------
-  mst_states_observable
-      .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
-      .take(1)
-      .as_blocking()
-      .subscribe([](const auto &) {},
-                 [](std::exception_ptr ep) {
-                   try {
-                     std::rethrow_exception(ep);
-                   } catch (const std::exception &e) {
-                     FAIL() << "Error waiting for MST state: " << e.what();
-                   }
-                 });
-
   new_peer_server->shutdown();
 }
 

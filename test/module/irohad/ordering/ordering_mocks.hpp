@@ -20,6 +20,7 @@ namespace iroha::ordering::transport {
                 create,
                 (const shared_model::interface::Peer &),
                 (override));
+    MOCK_CONST_METHOD0(getRequestDelay, std::chrono::milliseconds());
   };
 }  // namespace iroha::ordering::transport
 
@@ -27,11 +28,12 @@ namespace iroha::ordering {
   struct MockOnDemandOrderingService : public OnDemandOrderingService {
     MOCK_METHOD(void, onBatches, (CollectionType), (override));
 
-    MOCK_METHOD((std::optional<std::shared_ptr<const ProposalType>>),
+    MOCK_METHOD(PackedProposalData,
                 onRequestProposal,
                 (consensus::Round),
                 (override));
 
+    MOCK_METHOD0(availableTxsCountBatchesCache, uint32_t());
     MOCK_METHOD(void, onCollaborationOutcome, (consensus::Round), (override));
     MOCK_METHOD(void, onTxsCommitted, (const HashesSetType &), (override));
     MOCK_METHOD(void, onDuplicates, (const HashesSetType &), (override));
@@ -42,6 +44,10 @@ namespace iroha::ordering {
     MOCK_METHOD(bool, hasEnoughBatchesInCache, (), (const, override));
     MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
     MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));
+
+    MOCK_METHOD2(waitForLocalProposal,
+                 PackedProposalData(consensus::Round const &,
+                                    std::chrono::milliseconds const &));
   };
 }  // namespace iroha::ordering
 

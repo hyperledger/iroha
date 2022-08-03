@@ -50,7 +50,7 @@ static const EvmDataHexString kData1{"Ann has spilt the oil."};
 static const EvmDataHexString kTopic1_1{"wasted"};
 static const EvmDataHexString kTopic1_2{"fate"};
 
-static const EvmAddressHexString kAddress2{"302A Sadovaya Street"};
+static const EvmAddressHexString kAddress2{"302a sadovaya street  "};
 static const EvmDataHexString kData2{"Primus is being repared."};
 
 static const EvmAddressHexString kAddress3{"satan's ball"};
@@ -130,8 +130,6 @@ const Matcher<shared_model::interface::EngineReceipt const &> receiptIs(
   using namespace testing;
   using namespace shared_model::interface;
   return AllOf(
-      Property(&EngineReceipt::getCommandIndex, cmd_index),
-      Property(&EngineReceipt::getCaller, cmd.caller),
       Property(&EngineReceipt::getPayloadType,
                cmd.created_address
                    ? EngineReceipt::PayloadType::kPayloadTypeContractAddress
@@ -149,8 +147,6 @@ const Matcher<shared_model::interface::EngineReceipt const &> receiptIs(
 struct GetEngineReceiptsTest : public ExecutorTestBase {
   void SetUp() {
     ExecutorTestBase::SetUp();
-    if (type_ == ExecutorTestParam::ExecutorType::kRocksDb)
-      GTEST_SKIP();
   }
 
   QueryExecutorResult getEngineReceipts(std::string const &tx_hash,

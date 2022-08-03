@@ -1,5 +1,10 @@
 name: Iroha1
 
+## IMPORTANT
+## This workflow does not run for forks, check build-iroha1-fork for pull requests from forks 
+
+
+## TODO IMPORTANT DISALLOW deploying tags and main and develop builds where skip_testing was set.
 ## TODO 1. [vcpkg,optimization-space,optimization-speed]
 ##         Build only Debug or only Release - reduce vcpkg build duration and output size 2times
 ##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
@@ -15,19 +20,13 @@ name: Iroha1
 ##                                                         and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started when build often
 ## TODO 5. [speed,optimization,resources] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## TODO [prettify,documentation] update status badges in README.md
+## TODO [prettify,documentation] update status badges in /README.md
 ## TODO [minor] windows
 ## TODO actions/create-release for main branch and tags
 ## TODO [cmake,dockerimage,iroha-builder] To improve speed of vcpkg step install to iroha-builder
 ##      docker image cmake 3.20.1 or later and ninja 1.10.1 or later.
 ## TODO actions/create-release for tags
-## TODO use event pull_request_target to handle PRs from authorized forks,
-##      assert they do not change workflow.yml because it is not applied.
 
-## CHEAT SHEET
-## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
-## check if PR is from other repo: ${{ github.event.pull_request.head.repo == github.event.pull_request.base.repo }} in this case secrets are empty
-## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
 ## PITFAILS
 ##  * checkout issue on self-hosted runner with Docker, see https://github.com/actions/runner/issues/434
@@ -41,34 +40,79 @@ name: Iroha1
 ##  * AWS-hosted runners could respond slowly, it often takes about 1 minute or more to prepare runner, if it was not idling.
 ##  * AWS-hosted runners has maximum active runners quote, ask @bulat5 or @Sofiane_bnh to increase if required.
 ##  * Our AWS-hosted runners are shared with Iroha2
-##  * Secrets are inaccessable for PRs from public forks. GH-token is read-only. No way to push dockerimages when PR is from fork.
 ##  * Docker containers must run as root, see checkout issue https://github.com/actions/runner/issues/434
 
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
-    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
+    branches: [ main, support/1.*, edge, develop]
     tags: '**'
   pull_request:
-    branches: [ main, support/1.*, edge, develop ]  ## target branches
+    branches: [ main, support/1.*, edge, develop]  ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
       build_spec:
-        description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
-        required: false
-        default: '/build'
+        description: |
+          See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"
+          EXAMPLE build_spec:
+            /build ubuntu release gcc10
+            /build macos llvm release; /build macos clang ursa release
+            /build all
+            /build ubuntu all              ## build all possible configurations on Ubuntu
+            /build ubuntu burrow all       ## build release and debug on Ubuntu with Burrow
+          AVAILABLE build_spec keywords:
+            ubuntu|linux
+            macos
+            windows
+            normal
+            burrow
+            ursa
+            release|Release
+            debug|Debug
+            gcc|gcc-9|gcc9
+            gcc-10|gcc10
+            clang|clang-10|clang10
+            llvm
+            skip-testing|skip_testing
+            all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge
+        required: true
+        default: '/build skip_testing '
   # issue_comment:
   #   types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 
 jobs:
+
+  ## This workflow is created for everything except pull requests from forks
+  ## This job allows to skip the workflow completely for pull_requests from forks
+  check_if_pull_request_comes_from_the_same_repo:
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    name: Pull requests from forks should use other workflow
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
+    steps:
+      - &step_show_context
+        name: Show context
+        run: |
+          echo "::group::GitHub context"
+          cat <<'END'
+          ${{ toJson(github) }}
+          END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat <<'END'
+          ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
+
+
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
+    needs: check_if_pull_request_comes_from_the_same_repo
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Check if github workflows were properly made from sources
     steps:
@@ -88,7 +132,7 @@ jobs:
         uses: actions/checkout@v2
         with: &step_checkout_with
           ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository
       -
         run: sudo snap install yq
       -
@@ -105,19 +149,7 @@ jobs:
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') }}
     steps:
-      - &step_show_context
-        name: Show context
-        run: |
-          echo "::group::GitHub context"
-          cat <<'END'
-          ${{ toJson(github) }}
-          END
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          cat <<'END'
-          ${{ toJson(needs) }}
-          END
-          echo "::endgroup::"
+      - *step_show_context
       -
         name: Reaction
         run: |
@@ -136,6 +168,7 @@ jobs:
   ## - on workflow_dispatch according to its build_spec
   ## - on schedule '/build all'
   generate_matrixes:
+    needs: check_if_pull_request_comes_from_the_same_repo
     runs-on: ubuntu-20.04 #ubuntu-latest
     #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
@@ -234,7 +267,6 @@ jobs:
   ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge for development branch, and :latest for git-tags.
-  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks.
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
@@ -365,33 +397,7 @@ jobs:
         id: dockertag_already
         run: |
           echo "::set-output name=container::$DOCKERHUB_ORG/iroha-builder:$dockertag"
-      -
-        name: Possible ERROR, Dockerfile edited but image cannot be pushed
-        if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
-        env:
-          container: ${{steps.dockertag_already.outputs.container}}
-          dockertag: ${{env.dockertag}}
-        run: |
-          cat <<END
-            ::error::CHANGES TO Dockerfile.builder WERE NOT APPLYED.
-
-            It seems container with tag '$dockertag' was not pushed to registry and does not exist remotely.
-            The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
-
-            $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
-              && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
-
-            **Consider to open PR from the same organization.**
-
-            What we know about this build:
-              - PR URL is ${{github.event.pull_request.html_url}}
-              - head repo is '${{github.event.pull_request.head.repo.full_name}}'
-              - base repo is '${{github.event.pull_request.base.repo.full_name}}'
-              - See more information in previous step 'Show context'
-
-            Please ask @kuvaldini on GitHub or in Telegram if you need help.
-          END
-          false
+          docker pull "$DOCKERHUB_ORG/iroha-builder:$dockertag"
     outputs:
       ## WARN secret dropped from output!, output may not contain secret,
       ## and secret cannot be used in job:container directly, and there is no github non-secret variables...
@@ -447,6 +453,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
       - *step_detect_commented_pr
       - &step_checkout_full
         <<: *step_checkout
@@ -511,8 +518,8 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ env.BuildType }}
           -GNinja
           $CMAKE_USE
-          -DTESTING=ON
-          -DBENCHMARKING=ON
+          -DTESTING=$(      test "$skip_testing" = skip_testing && echo OFF || echo ON )
+          -DBENCHMARKING=$( test "$skip_testing" = skip_testing && echo OFF || echo ON )
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON  ## Note: use for debug
       - &step_cmake_build
@@ -574,6 +581,7 @@ jobs:
             build/test_data/**
       - &step_ctest
         timeout-minutes: 40
+        if: env.skip_testing == ''
         name: CTest
         run: |
           echo ::group::'boilerplate'
@@ -817,7 +825,6 @@ jobs:
   ## Those docker image tags could be extended with suffixes with compiler and build type like
   ## -gcc10, -clang, -debug, -gcc10-debug. Like :latest-debug, :main-debug, :1.3.0-gcc10-debug.
   ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha:nightly.
-  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   docker-R: &job_docker_image_release
     needs:
       - build-UR

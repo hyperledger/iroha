@@ -32,7 +32,6 @@ add_library(integration_framework
     integration_framework/fake_peer/behaviour/empty.cpp
     integration_framework/fake_peer/behaviour/honest.cpp
     integration_framework/fake_peer/network/loader_grpc.cpp
-    integration_framework/fake_peer/network/mst_network_notifier.cpp
     integration_framework/fake_peer/network/on_demand_os_network_notifier.cpp
     integration_framework/fake_peer/network/ordering_service_network_notifier.cpp
     integration_framework/fake_peer/network/ordering_gate_network_notifier.cpp
@@ -53,7 +52,6 @@ target_link_libraries(integration_framework
     ordering_gate_common
     shared_model_cryptography_model
     server_runner
-    mst_transport
     test_logger
     pg_connection_init
     rdb_connection_init

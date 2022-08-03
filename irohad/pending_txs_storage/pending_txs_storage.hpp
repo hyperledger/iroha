@@ -73,7 +73,7 @@ namespace iroha {
      * @param page_size - requested page size
      * @param first_tx_hash - an optional hash of the first transaction in the
      * batch that will be the starting point of returned transactions sequence
-     * @param first_tx_time - an optional timestamp of first transaction that 
+     * @param first_tx_time - an optional timestamp of first transaction that
      * will be included
      * @param last_tx_time - an optional timestamp of last transaction that
      * will be included
@@ -94,7 +94,8 @@ namespace iroha {
         shared_model::interface::types::HashType const &hash) = 0;
 
     virtual void updatedBatchesHandler(
-        std::shared_ptr<MstState> const &updated_batches) = 0;
+        std::shared_ptr<shared_model::interface::TransactionBatch> const
+            &batch) = 0;
 
     virtual void removeBatch(
         std::shared_ptr<shared_model::interface::TransactionBatch> const

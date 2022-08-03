@@ -23,7 +23,6 @@ The purpose of this documentation is to convey design and architecture aspects o
 ### Build steps
 
 1. `cd docs/source`
-1. `make permissions`
 1. `make html`
 
 After that, the documentation is generated in html format in `_build` folder. You can check another formats on Sphinx website or just by typing `make`. In order to get familiar with the syntax of theme used in the project please go to their [demo website](https://sphinx-rtd-theme.readthedocs.io/en/latest/demo/demo.html)

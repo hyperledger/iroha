@@ -6,8 +6,9 @@
 #include <gtest/gtest.h>
 
 #include <boost/variant.hpp>
+#include <chrono>
+#include <thread>
 
-#include "test/integration/acceptance/instantiate_test_suite.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
@@ -16,8 +17,8 @@
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
-#include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "test/integration/acceptance/instantiate_test_suite.hpp"
 
 using namespace shared_model;
 using namespace common_constants;
@@ -33,6 +34,30 @@ using ::testing::Values;
 using ::testing::WithParamInterface;
 
 using shared_model::interface::types::PublicKeyHexStringView;
+
+template <typename Batch, typename... KeyPairs>
+auto addSignaturesFromKeyPairs(Batch &&batch,
+                               int tx_number,
+                               KeyPairs... keypairs) {
+  auto create_signature = [&](auto &&key_pair) {
+    auto &payload = batch->transactions().at(tx_number)->payload();
+    auto signed_blob = shared_model::crypto::CryptoSigner::sign(
+        shared_model::crypto::Blob(payload), key_pair);
+    using namespace shared_model::interface::types;
+    batch->addSignature(tx_number,
+                        SignedHexStringView{signed_blob},
+                        PublicKeyHexStringView{key_pair.publicKey()});
+  };
+
+  // pack expansion trick:
+  // an ellipsis operator applies insert_signatures to each signature, operator
+  // comma returns the rightmost argument, which is 0
+  int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};
+  // use unused variable
+  (void)temp;
+
+  return std::forward<Batch>(batch);
+}
 
 struct BatchPipelineTestBase : AcceptanceFixture {
   /**
@@ -336,31 +361,18 @@ TEST_P(BatchPipelineTest, InvalidAtomicBatch) {
       {signedTx(batch_transactions[0], kFirstUserKeypair),
        signedTx(batch_transactions[1], kSecondUserKeypair)});
 
-  IntegrationTestFramework itf(2, std::get<StorageType>(GetParam()));
+  IntegrationTestFramework itf(2,
+                               std::get<StorageType>(GetParam()),
+                               boost::none,
+                               iroha::StartupWsvDataPolicy::kDrop,
+                               true,
+                               false,
+                               boost::none,
+                               milliseconds(20000),
+                               milliseconds(20000),
+                               milliseconds(20000));
   prepareState(itf, "1.0", "1.0")
-      .sendTxSequence(
-          transaction_sequence,
-          [](const auto &statuses) {
-            for (const auto &status : statuses) {
-              EXPECT_NO_THROW(
-                  boost::get<const shared_model::interface::
-                                 StatelessValidTxResponse &>(status.get()));
-            }
-          })
-      .checkStatus(batch_transactions[0]->hash(), CHECK_STATELESS_VALID)
-      .checkStatus(batch_transactions[0]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATELESS_VALID)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATEFUL_INVALID)
-      .checkProposal([&transaction_sequence](const auto proposal) {
-        ASSERT_THAT(
-            proposal->transactions(),
-            Pointwise(RefAndPointerEq(), transaction_sequence.transactions()));
-      })
-      .checkVerifiedProposal([](const auto verified_proposal) {
-        ASSERT_THAT(verified_proposal->transactions(), IsEmpty());
-      })
-      .checkBlock([](const auto block) {
+      .sendTxSequenceAwait(transaction_sequence, [](const auto block) {
         ASSERT_THAT(block->transactions(), IsEmpty());
       });
 }

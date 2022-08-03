@@ -6,8 +6,10 @@
 #include "integration/executor/executor_fixture_param_rocksdb.hpp"
 
 #include <boost/filesystem.hpp>
+#include <utility>
 
 #include "ametsuchi/impl/block_index_impl.hpp"
+#include "ametsuchi/impl/rocksdb_burrow_storage.hpp"
 #include "ametsuchi/impl/rocksdb_command_executor.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_indexer.hpp"
@@ -32,7 +34,8 @@ using namespace iroha::integration_framework;
 namespace fs = boost::filesystem;
 
 namespace {
-  ExecutorItfTarget createRocksDBExecutorItfTarget(
+  std::pair<ExecutorItfTarget, std::shared_ptr<RocksDBContext>>
+  createRocksDBExecutorItfTarget(
       std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port, VmCaller &);
 }  // namespace
 
@@ -41,7 +44,11 @@ RocksDBExecutorTestParam::RocksDBExecutorTestParam() {
   db_port_ = std::make_shared<RocksDBPort>();
   db_port_->initialize(db_name_);
 
-  executor_itf_target_ = createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
+  auto const &[executor_itf_target, db] =
+      createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
+  executor_itf_target_ = executor_itf_target;
+  db_context_ = db;
+  common_ = std::make_unique<iroha::ametsuchi::RocksDbCommon>(db_context_);
 
   block_indexer_ = std::make_shared<BlockIndexImpl>(
       std::make_unique<RocksDBIndexer>(
@@ -62,7 +69,11 @@ void RocksDBExecutorTestParam::clearBackendState() {
   db_port_ = std::make_shared<RocksDBPort>();
   db_port_->initialize(db_name_);
 
-  executor_itf_target_ = createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
+  auto const &[executor_itf_target, db] =
+      createRocksDBExecutorItfTarget(db_port_, *vm_caller_);
+  executor_itf_target_ = executor_itf_target;
+  db_context_ = db;
+  common_ = std::make_unique<iroha::ametsuchi::RocksDbCommon>(db_context_);
 
   block_indexer_ = std::make_shared<BlockIndexImpl>(
       std::make_unique<RocksDBIndexer>(
@@ -78,7 +89,7 @@ std::unique_ptr<iroha::ametsuchi::BurrowStorage>
 RocksDBExecutorTestParam::makeBurrowStorage(
     std::string const &tx_hash,
     shared_model::interface::types::CommandIndexType cmd_index) const {
-  return std::unique_ptr<iroha::ametsuchi::BurrowStorage>{};
+  return std::make_unique<RocksdbBurrowStorage>(*common_, tx_hash, cmd_index);
 }
 
 std::shared_ptr<iroha::ametsuchi::BlockIndex>
@@ -119,7 +130,8 @@ namespace {
     std::unique_ptr<BlockStorage> block_storage_;
   };
 
-  ExecutorItfTarget createRocksDBExecutorItfTarget(
+  std::pair<ExecutorItfTarget, std::shared_ptr<RocksDBContext>>
+  createRocksDBExecutorItfTarget(
       std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port,
       VmCaller &vm_caller) {
     ExecutorItfTarget target;
@@ -133,9 +145,10 @@ namespace {
     target.command_executor = std::make_shared<RocksDbCommandExecutor>(
         db_context,
         std::make_shared<shared_model::proto::ProtoPermissionToString>(),
+        query_executor,
         vm_caller);
     target.query_executor = std::move(query_executor);
-    return target;
+    return std::make_pair(target, db_context);
   }
 
 }  // namespace

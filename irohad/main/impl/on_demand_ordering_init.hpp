@@ -14,6 +14,7 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/subscription_fwd.hpp"
+#include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/round_switch.hpp"
 
 namespace grpc {
@@ -103,6 +104,7 @@ namespace iroha::ordering {
      */
     auto createService(
         size_t max_number_of_transactions,
+        uint32_t max_proposal_pack,
         std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
             proposal_factory,
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
@@ -132,6 +134,7 @@ namespace iroha::ordering {
      */
     std::shared_ptr<network::OrderingGate> initOrderingGate(
         size_t max_number_of_transactions,
+        uint32_t max_proposal_pack,
         std::chrono::milliseconds delay,
         std::shared_ptr<shared_model::interface::AbstractTransportFactory<
             shared_model::interface::Transaction,
@@ -171,6 +174,8 @@ namespace iroha::ordering {
     std::shared_ptr<OnDemandOrderingGate> ordering_gate_;
     std::shared_ptr<BaseSubscriber<bool, ProposalEvent>>
         proposals_subscription_;
+    std::shared_ptr<BaseSubscriber<bool, SingleProposalEvent>>
+        single_proposal_event_subscription_;
     std::shared_ptr<ExecutorKeeper> os_execution_keepers_;
   };
 }  // namespace iroha::ordering

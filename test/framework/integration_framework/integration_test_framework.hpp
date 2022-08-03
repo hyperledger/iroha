@@ -69,7 +69,6 @@ namespace iroha {
   }  // namespace consensus
   namespace network {
     class GenericClientFactory;
-    class MstTransportGrpc;
     struct OrderingEvent;
     class ServerRunner;
     template <typename Response>
@@ -195,11 +194,6 @@ namespace integration_framework {
      */
     IntegrationTestFramework &setInitialState(
         const shared_model::crypto::Keypair &keypair);
-
-    /// Set Gossip MST propagation parameters.
-    IntegrationTestFramework &setMstGossipParams(
-        std::chrono::milliseconds mst_gossip_emitting_period,
-        uint32_t mst_gossip_amount_per_once);
 
     /**
      * Initialize Iroha instance with provided genesis block and signing key
@@ -335,17 +329,6 @@ namespace integration_framework {
      * @param mst_state - the MST state to send
      * @return this
      */
-    IntegrationTestFramework &sendMstState(
-        shared_model::interface::types::PublicKeyHexStringView src_key,
-        const iroha::MstState &mst_state);
-
-    /**
-     * Send MST state message to this peer.
-     * @param src_key - the key of the peer which the message appears to come
-     * from
-     * @param mst_state - the MST state to send
-     * @return this
-     */
     IntegrationTestFramework &sendYacState(
         const std::vector<iroha::consensus::yac::VoteMessage> &yac_state);
 
@@ -400,17 +383,6 @@ namespace integration_framework {
      * @return this
      */
     IntegrationTestFramework &skipBlock();
-
-    rxcpp::observable<std::shared_ptr<iroha::MstState>>
-    getMstStateUpdateObservable();
-
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionBatch>>
-    getMstPreparedBatchesObservable();
-
-    rxcpp::observable<
-        std::shared_ptr<shared_model::interface::TransactionBatch>>
-    getMstExpiredBatchesObservable();
 
     /// Get block query for iroha block storage.
     std::shared_ptr<iroha::ametsuchi::BlockQuery> getBlockQuery();
@@ -481,6 +453,8 @@ namespace integration_framework {
                         const WaitTime &wait,
                         const std::string &error_reason);
 
+    std::shared_ptr<iroha::Subscription> subscription;
+
     logger::LoggerPtr log_;
     logger::LoggerManagerTreePtr log_manager_;
 
@@ -542,7 +516,6 @@ namespace integration_framework {
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
 
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
-    std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
     std::optional<shared_model::crypto::Keypair> my_key_;

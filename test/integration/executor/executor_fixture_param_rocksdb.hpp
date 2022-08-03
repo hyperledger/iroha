@@ -11,7 +11,9 @@
 
 namespace iroha::ametsuchi {
   struct RocksDBPort;
-}
+  struct RocksDBContext;
+  class RocksDbCommon;
+}  // namespace iroha::ametsuchi
 
 namespace executor_testing {
 
@@ -48,6 +50,8 @@ namespace executor_testing {
    private:
     std::string db_name_;
     std::shared_ptr<iroha::ametsuchi::RocksDBPort> db_port_;
+    std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;
+    std::unique_ptr<iroha::ametsuchi::RocksDbCommon> common_;
 
     iroha::integration_framework::ExecutorItfTarget executor_itf_target_;
     std::shared_ptr<iroha::ametsuchi::BlockIndex> block_indexer_;
