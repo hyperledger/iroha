@@ -28,7 +28,7 @@ jobs:
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}          
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push iroha2:dev image
         uses: docker/build-push-action@v3
         with:
@@ -47,7 +47,7 @@ jobs:
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
           workflow_file_name: update-dependencies.yaml
-          ref: iroha2-dev       
+          ref: iroha2-dev
 
       - name: Build and push docker image (load-rs:dev)
         run: |

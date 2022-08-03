@@ -27,7 +27,7 @@ jobs:
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}       
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push iroha2-ci:dev image
         uses: docker/build-push-action@v3
         with:
@@ -49,7 +49,7 @@ jobs:
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}       
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push iroha2-ci:stable image
         uses: docker/build-push-action@v3
         with:
@@ -71,11 +71,11 @@ jobs:
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}       
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push iroha2-ci:lts image
         uses: docker/build-push-action@v3
         with:
           push: true
           tags: hyperledger/iroha2-ci:lts
           context: ${{ env.REPOSITORY_URL }}#iroha2-lts
-          file: Dockerfile.base                              
+          file: Dockerfile.base
