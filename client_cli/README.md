@@ -10,7 +10,7 @@ It is a "thin" wrapper around functionality exposed in the `iroha_client` crate.
 
 ## Installation
 
-**Requirements:** a working [Rust toolchain](https://www.rust-lang.org/learn/get-started) (version 1.60), installed and configured.
+**Requirements:** a working [Rust toolchain](https://www.rust-lang.org/learn/get-started) (version 1.62.1), installed and configured.
 
 Build Iroha and its binaries:
 

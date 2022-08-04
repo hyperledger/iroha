@@ -163,10 +163,10 @@ body_process = strip | ReSub(r'((^|\n)[A-Z]\w+(-\w+)*: .*(\n\s+.*)*)+$',
 ## be used in the changelog.
 ##
 ## Available constructs are those listed in ``body_process`` doc.
-subject_process = (strip | ReSub(r'^\[.*\]', r'') | strip | ReSub(r'^\#((\d+)((, #)(\d+))*:)', r'\2')
+subject_process = (strip | ReSub(r'^\[.*\]', r'') | strip | ReSub(r'^\#((\d+)((, #)(\d+))*:)', r'hyperledger#\2')
                    | ReSub(r'^: ', '')
                    | ReSub(r'\s\(#\d+\)', r'')
-                   | SetIfEmpty("No commit message.") | ucfirst | final_dot)
+                   | SetIfEmpty("No commit message.") | strip | final_dot) 
 
 ## ``tag_filter_regexp`` is a regexp
 ##
