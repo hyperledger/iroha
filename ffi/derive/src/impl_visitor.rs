@@ -3,27 +3,8 @@ use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
 use syn::{parse_quote, visit::Visit, visit_mut::VisitMut, Ident, Type};
 
-pub trait Arg {
-    fn name(&self) -> &Ident;
-    fn src_type(&self) -> &Type;
-    fn src_type_resolved(&self) -> Type;
-    fn ffi_type_resolved(&self) -> Type;
-}
-
 #[derive(Constructor)]
-pub struct Receiver {
-    self_ty: Option<syn::Path>,
-    name: Ident,
-    type_: Type,
-}
-
-pub struct InputArg {
-    self_ty: Option<syn::Path>,
-    name: Ident,
-    type_: Type,
-}
-
-pub struct ReturnArg {
+pub struct Arg {
     self_ty: Option<syn::Path>,
     name: Ident,
     type_: Type,
@@ -36,68 +17,43 @@ pub struct ImplDescriptor<'ast> {
     pub fns: Vec<FnDescriptor>,
 }
 
-impl InputArg {
-    pub fn new(self_ty: Option<syn::Path>, name: Ident, type_: Type) -> Self {
-        Self {
-            self_ty,
-            name,
-            type_,
+impl Arg {
+    pub fn name(&self) -> &Ident {
+        &self.name
+    }
+    pub fn src_type(&self) -> &Type {
+        &self.type_
+    }
+    pub fn src_type_resolved(&self) -> Type {
+        resolve_src_type(self.self_ty.as_ref(), self.type_.clone())
+    }
+    pub fn ffi_type_resolved(&self, is_output: bool) -> Type {
+        let mut arg_type = self.type_.clone();
+
+        ImplTraitResolver.visit_type_mut(&mut arg_type);
+        if let Some(self_ty) = self.self_ty.as_ref() {
+            SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
         }
-    }
-}
 
-impl ReturnArg {
-    pub fn new(self_ty: Option<syn::Path>, name: Ident, type_: Type) -> Self {
-        Self {
-            self_ty,
-            name,
-            type_,
+        if is_output {
+            if let Some(result_type) = unwrap_result_type(&arg_type) {
+                return parse_quote! {<#result_type as iroha_ffi::IntoFfi>::Target};
+            }
+
+            return parse_quote! {<#arg_type as iroha_ffi::IntoFfi>::Target};
         }
-    }
-}
 
-impl Arg for Receiver {
-    fn name(&self) -> &Ident {
-        &self.name
-    }
-    fn src_type(&self) -> &Type {
-        &self.type_
-    }
-    fn src_type_resolved(&self) -> Type {
-        resolve_src_type(self.self_ty.as_ref(), self.type_.clone())
-    }
-    fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty.as_ref(), self.type_.clone(), false)
-    }
-}
+        if let Type::Reference(ref_type) = &arg_type {
+            let elem = &ref_type.elem;
 
-impl Arg for InputArg {
-    fn name(&self) -> &Ident {
-        &self.name
-    }
-    fn src_type(&self) -> &Type {
-        &self.type_
-    }
-    fn src_type_resolved(&self) -> Type {
-        resolve_src_type(self.self_ty.as_ref(), self.type_.clone())
-    }
-    fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty.as_ref(), self.type_.clone(), false)
-    }
-}
+            return if ref_type.mutability.is_some() {
+                parse_quote! {<&'itm mut #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+            } else {
+                parse_quote! {<&'itm #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+            };
+        }
 
-impl Arg for ReturnArg {
-    fn name(&self) -> &Ident {
-        &self.name
-    }
-    fn src_type(&self) -> &Type {
-        &self.type_
-    }
-    fn src_type_resolved(&self) -> Type {
-        resolve_src_type(self.self_ty.as_ref(), self.type_.clone())
-    }
-    fn ffi_type_resolved(&self) -> Type {
-        resolve_ffi_type(self.self_ty.as_ref(), self.type_.clone(), true)
+        parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'itm>>::Source}
     }
 }
 
@@ -111,34 +67,6 @@ fn resolve_src_type(self_type: Option<&syn::Path>, mut arg_type: Type) -> Type {
     arg_type
 }
 
-fn resolve_ffi_type(self_type: Option<&syn::Path>, mut arg_type: Type, is_output: bool) -> Type {
-    ImplTraitResolver.visit_type_mut(&mut arg_type);
-
-    if let Some(self_ty) = self_type {
-        SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
-    }
-
-    if is_output {
-        if let Some(result_type) = unwrap_result_type(&arg_type) {
-            return parse_quote! {<#result_type as iroha_ffi::IntoFfi>::Target};
-        }
-
-        return parse_quote! {<#arg_type as iroha_ffi::IntoFfi>::Target};
-    }
-
-    if let Type::Reference(ref_type) = &arg_type {
-        let elem = &ref_type.elem;
-
-        return if ref_type.mutability.is_some() {
-            parse_quote! {<&'itm mut #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
-        } else {
-            parse_quote! {<&'itm #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
-        };
-    }
-
-    parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'itm>>::Source}
-}
-
 pub struct FnDescriptor {
     /// Resolved type of the `Self` type
     pub self_ty: Option<syn::Path>,
@@ -149,11 +77,11 @@ pub struct FnDescriptor {
     pub sig: syn::Signature,
 
     /// Receiver argument, i.e. `self`
-    pub receiver: Option<Receiver>,
+    pub receiver: Option<Arg>,
     /// Input fn arguments
-    pub input_args: Vec<InputArg>,
+    pub input_args: Vec<Arg>,
     /// Output fn argument
-    pub output_arg: Option<ReturnArg>,
+    pub output_arg: Option<Arg>,
 }
 
 struct ImplVisitor<'ast> {
@@ -176,11 +104,11 @@ struct FnVisitor<'ast> {
     sig: Option<&'ast syn::Signature>,
 
     /// Receiver argument, i.e. `self`
-    receiver: Option<Receiver>,
+    receiver: Option<Arg>,
     /// Input fn arguments
-    input_args: Vec<InputArg>,
+    input_args: Vec<Arg>,
     /// Output fn argument
-    output_arg: Option<ReturnArg>,
+    output_arg: Option<Arg>,
 
     /// Name of the argument being visited
     curr_arg_name: Option<&'ast Ident>,
@@ -277,7 +205,7 @@ impl<'ast> FnVisitor<'ast> {
 
     fn add_input_arg(&mut self, src_type: &'ast Type) {
         let arg_name = self.curr_arg_name.take().expect_or_abort("Defined").clone();
-        self.input_args.push(InputArg::new(
+        self.input_args.push(Arg::new(
             self.self_ty.map(Clone::clone),
             arg_name,
             src_type.clone(),
@@ -296,7 +224,7 @@ impl<'ast> FnVisitor<'ast> {
                     // NOTE: `Self` is first consumed and then returned in the same method
                     let name = core::mem::replace(&mut receiver.name, parse_quote! {irrelevant});
 
-                    *receiver = Receiver::new(
+                    *receiver = Arg::new(
                         self.self_ty.map(Clone::clone),
                         name,
                         parse_quote! {#self_src_ty},
@@ -314,7 +242,7 @@ impl<'ast> FnVisitor<'ast> {
         assert!(self.curr_arg_name.is_none());
         assert!(self.output_arg.is_none());
 
-        self.output_arg = Some(ReturnArg::new(
+        self.output_arg = Some(Arg::new(
             self.self_ty.map(Clone::clone),
             self.gen_output_arg_name(src_type),
             src_type.clone(),
@@ -424,7 +352,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         );
 
         let handle_name = Ident::new("__handle", Span::call_site());
-        self.receiver = Some(Receiver::new(
+        self.receiver = Some(Arg::new(
             self.self_ty.map(Clone::clone),
             handle_name,
             src_type,
@@ -583,7 +511,7 @@ pub fn unwrap_result_type(node: &Type) -> Option<&Type> {
     None
 }
 
-pub fn ffi_output_arg(fn_descriptor: &FnDescriptor) -> Option<&crate::impl_visitor::ReturnArg> {
+pub fn ffi_output_arg(fn_descriptor: &FnDescriptor) -> Option<&Arg> {
     fn_descriptor.output_arg.as_ref().and_then(|output_arg| {
         if let Some(receiver) = &fn_descriptor.receiver {
             if receiver.name() == output_arg.name() {

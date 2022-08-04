@@ -1,4 +1,6 @@
-use iroha_ffi::{ffi, ffi_export, ffi_fn, handles, IntoFfi, TryFromReprC};
+use std::alloc::alloc;
+
+use iroha_ffi::{def_ffi_fn, ffi, ffi_export, handles, IntoFfi, TryFromReprC};
 
 ffi! {
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
@@ -13,10 +15,10 @@ ffi! {
 }
 
 handles! {0, FfiStruct1, FfiStruct2}
-ffi_fn! {Drop: FfiStruct1, FfiStruct2}
-ffi_fn! {Clone: FfiStruct1, FfiStruct2}
-ffi_fn! {Eq: FfiStruct1, FfiStruct2}
-ffi_fn! {Ord: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Drop: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Clone: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Eq: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 
 #[ffi_export]
 impl FfiStruct1 {
@@ -26,7 +28,6 @@ impl FfiStruct1 {
     }
 }
 
-#[cfg(not(feature = "client"))]
 fn main() {
     use core::mem::MaybeUninit;
 
@@ -80,13 +81,4 @@ fn main() {
         __drop(FfiStruct1::ID, ffi_struct1.into_ffi().cast());
         __drop(FfiStruct1::ID, cloned.into_ffi().cast());
     }
-}
-
-#[cfg(feature = "client")]
-fn main() {
-    let name = String::from("X");
-    let ffi_struct1 = FfiStruct1::new(name);
-    let cloned = Clone::clone(ffi_struct1);
-    assert_eq!(ffi_struct1, cloned);
-    assert!(ffi_struct1.cmp(cloned))
 }

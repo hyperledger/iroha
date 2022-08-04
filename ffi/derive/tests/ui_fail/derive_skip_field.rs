@@ -1,4 +1,4 @@
-use core::mem::MaybeUninit;
+use std::{alloc::alloc, mem::MaybeUninit};
 
 use getset::{Getters, Setters};
 use iroha_ffi::{ffi, ffi_export, IntoFfi, TryFromReprC};

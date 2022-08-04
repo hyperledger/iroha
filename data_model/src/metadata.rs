@@ -2,10 +2,10 @@
 //! transactions and assets.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_map, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, collections::btree_map, format, string::String, vec::Vec};
 use core::borrow::Borrow;
 #[cfg(feature = "std")]
-use std::collections::btree_map;
+use std::{alloc::alloc, collections::btree_map};
 
 use derive_more::Display;
 use iroha_ffi::{IntoFfi, TryFromReprC};

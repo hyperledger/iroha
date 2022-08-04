@@ -12,17 +12,17 @@ mod signature;
 mod varint;
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 #[cfg(feature = "base64")]
 pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-use iroha_ffi::ffi_export;
-use iroha_ffi::{ffi, IntoFfi, TryFromReprC};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
@@ -64,22 +64,24 @@ pub struct NoSuchAlgorithm;
 #[cfg(feature = "std")]
 impl std::error::Error for NoSuchAlgorithm {}
 
-/// Algorithm for hashing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, IntoFfi, TryFromReprC)]
-#[repr(u8)]
-pub enum Algorithm {
-    /// Ed25519
-    #[display(fmt = "{}", "ED_25519")]
-    Ed25519,
-    /// Secp256k1
-    #[display(fmt = "{}", "SECP_256_K1")]
-    Secp256k1,
-    /// BlsNormal
-    #[display(fmt = "{}", "BLS_NORMAL")]
-    BlsNormal,
-    /// BlsSmall
-    #[display(fmt = "{}", "BLS_SMALL")]
-    BlsSmall,
+ffi::ffi_item! {
+    /// Algorithm for hashing
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, IntoFfi, TryFromReprC)]
+    #[repr(u8)]
+    pub enum Algorithm {
+        /// Ed25519
+        #[display(fmt = "{}", "ED_25519")]
+        Ed25519,
+        /// Secp256k1
+        #[display(fmt = "{}", "SECP_256_K1")]
+        Secp256k1,
+        /// BlsNormal
+        #[display(fmt = "{}", "BLS_NORMAL")]
+        BlsNormal,
+        /// BlsSmall
+        #[display(fmt = "{}", "BLS_SMALL")]
+        BlsSmall,
+    }
 }
 
 impl Default for Algorithm {
@@ -164,7 +166,7 @@ impl KeyGenConfiguration {
     }
 }
 
-ffi! {
+ffi::ffi_item! {
     /// Pair of Public and Private keys.
     #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, IntoFfi, TryFromReprC)]
     #[getset(get = "pub")]
@@ -364,7 +366,7 @@ impl From<multihash::ConvertError> for KeyParseError {
 #[cfg(feature = "std")]
 impl std::error::Error for KeyParseError {}
 
-ffi! {
+ffi::ffi_item! {
     /// Public Key used in signatures.
     #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, IntoFfi, TryFromReprC, IntoSchema)]
     #[debug(
@@ -379,7 +381,11 @@ ffi! {
     }
 }
 
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl PublicKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -496,7 +502,7 @@ impl Decode for PublicKey {
     }
 }
 
-ffi! {
+ffi::ffi_item! {
     /// Private Key used in signatures.
     #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, IntoFfi, TryFromReprC)]
     #[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
@@ -511,7 +517,11 @@ ffi! {
     }
 }
 
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl PrivateKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -577,16 +587,39 @@ impl<'de> Deserialize<'de> for PrivateKey {
     }
 }
 
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-mod ffi {
+pub mod ffi {
+    //! Definitions and implementations of FFI related functionalities
+
     use super::*;
+
+    macro_rules! ffi_item {
+        ($it: item) => {
+            #[cfg(not(feature = "ffi_import"))]
+            $it
+
+            #[cfg(feature = "ffi_import")]
+            iroha_ffi::ffi! { $it }
+        };
+    }
+
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+    macro_rules! ffi_fn {
+        ($macro_name: ident) => {
+            iroha_ffi::$macro_name! { Clone: KeyPair, PublicKey, PrivateKey }
+            iroha_ffi::$macro_name! { Eq: KeyPair, PublicKey, PrivateKey }
+            iroha_ffi::$macro_name! { Ord: PublicKey }
+            iroha_ffi::$macro_name! { Drop: KeyPair, PublicKey, PrivateKey }
+        };
+    }
 
     iroha_ffi::handles! {KeyPair, PublicKey, PrivateKey}
 
-    iroha_ffi::ffi_fn! { Clone: KeyPair, PublicKey, PrivateKey}
-    iroha_ffi::ffi_fn! { Eq: KeyPair, PublicKey, PrivateKey}
-    iroha_ffi::ffi_fn! { Ord: PublicKey }
-    iroha_ffi::ffi_fn! { Drop: KeyPair, PublicKey, PrivateKey}
+    #[cfg(feature = "ffi_import")]
+    ffi_fn! {decl_ffi_fn}
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    ffi_fn! {def_ffi_fn}
+
+    pub(crate) use ffi_item;
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

@@ -6,15 +6,15 @@
 //! the Genesis block.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
 use core::str::FromStr;
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-use iroha_ffi::ffi_export;
 use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     account::{Account, AccountsMap},
     asset::AssetDefinitionsMap,
+    ffi::ffi_item,
     metadata::Metadata,
     prelude::{AssetDefinition, AssetDefinitionEntry},
     HasMetadata, Identifiable, Name, ParseError, Registered,
@@ -72,30 +73,32 @@ impl From<GenesisDomain> for Domain {
     }
 }
 
-/// Builder which can be submitted in a transaction to create a new [`Domain`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    IdOrdEqHash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoFfi,
-    TryFromReprC,
-    IntoSchema,
-)]
-#[id(type = "<Domain as Identifiable>::Id")]
-#[allow(clippy::multiple_inherent_impl)]
-#[display(fmt = "[{id}]")]
-pub struct NewDomain {
-    /// The identification associated with the domain builder.
-    id: <Domain as Identifiable>::Id,
-    /// The (IPFS) link to the logo of this domain.
-    logo: Option<IpfsPath>,
-    /// Metadata associated with the domain builder.
-    metadata: Metadata,
+ffi_item! {
+    /// Builder which can be submitted in a transaction to create a new [`Domain`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[id(type = "<Domain as Identifiable>::Id")]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "[{id}]")]
+    pub struct NewDomain {
+        /// The identification associated with the domain builder.
+        id: <Domain as Identifiable>::Id,
+        /// The (IPFS) link to the logo of this domain.
+        logo: Option<IpfsPath>,
+        /// Metadata associated with the domain builder.
+        metadata: Metadata,
+    }
 }
 
 #[cfg(feature = "mutable_api")]
@@ -139,7 +142,11 @@ impl NewDomain {
     }
 }
 
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
@@ -156,41 +163,44 @@ impl NewDomain {
     }
 }
 
-/// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    IdOrdEqHash,
-    Getters,
-    MutGetters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoFfi,
-    TryFromReprC,
-    IntoSchema,
-)]
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
-#[allow(clippy::multiple_inherent_impl)]
-#[display(fmt = "[{id}]")]
-#[id(type = "Id")]
-pub struct Domain {
-    /// Identification of this [`Domain`].
-    id: <Self as Identifiable>::Id,
-    /// [`Account`]s of the domain.
-    accounts: AccountsMap,
-    /// [`Asset`](AssetDefinition)s defined of the `Domain`.
-    asset_definitions: AssetDefinitionsMap,
-    /// IPFS link to the `Domain` logo
-    // FIXME: Getter implemented manually because `getset`
-    // returns &Option<T> when it should return Option<&T>
-    logo: Option<IpfsPath>,
-    /// [`Metadata`] of this `Domain` as a key-value store.
-    #[getset(get = "pub")]
-    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    metadata: Metadata,
+ffi_item! {
+    /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Getters,
+        MutGetters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
+    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "[{id}]")]
+    #[id(type = "Id")]
+    pub struct Domain {
+        /// Identification of this [`Domain`].
+        id: <Self as Identifiable>::Id,
+        /// [`Account`]s of the domain.
+        accounts: AccountsMap,
+        /// [`Asset`](AssetDefinition)s defined of the `Domain`.
+        asset_definitions: AssetDefinitionsMap,
+        /// IPFS link to the `Domain` logo
+        // FIXME: Getter implemented manually because `getset`
+        // returns &Option<T> when it should return Option<&T>
+        logo: Option<IpfsPath>,
+        /// [`Metadata`] of this `Domain` as a key-value store.
+        #[getset(get = "pub")]
+        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
+        metadata: Metadata,
+    }
 }
 
 impl HasMetadata for Domain {
@@ -204,7 +214,11 @@ impl Registered for Domain {
     type With = NewDomain;
 }
 
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {

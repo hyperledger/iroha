@@ -1,9 +1,8 @@
-#![cfg(not(feature = "client"))]
 #![allow(unsafe_code, clippy::restriction)]
 
-use std::{cmp::Ordering, mem::MaybeUninit};
+use std::{alloc::alloc, cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{ffi, ffi_export, ffi_fn, handles, FfiReturn, Handle, IntoFfi, TryFromReprC};
+use iroha_ffi::{def_ffi_fn, ffi, ffi_export, handles, FfiReturn, Handle, IntoFfi, TryFromReprC};
 
 ffi! {
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
@@ -18,10 +17,10 @@ ffi! {
 }
 
 handles! {0, FfiStruct1, FfiStruct2}
-ffi_fn! {Drop: FfiStruct1, FfiStruct2}
-ffi_fn! {Clone: FfiStruct1, FfiStruct2}
-ffi_fn! {Eq: FfiStruct1, FfiStruct2}
-ffi_fn! {Ord: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Drop: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Clone: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Eq: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 
 #[ffi_export]
 impl FfiStruct1 {

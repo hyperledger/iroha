@@ -2,6 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    alloc::alloc,
     boxed::Box,
     collections::{btree_map, btree_set},
     format,
@@ -9,46 +10,50 @@ use alloc::{
     vec::Vec,
 };
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::{
+    alloc::alloc,
+    collections::{btree_map, btree_set},
+};
 
 use getset::Getters;
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-use iroha_ffi::ffi_export;
 use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{utils::format_comma_separated, Name, Value};
+use crate::{ffi::ffi_item, utils::format_comma_separated, Name, Value};
 
 /// Collection of [`PermissionToken`]s
 pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
-/// Stored proof of the account having a permission for a certain action.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoFfi,
-    TryFromReprC,
-    IntoSchema,
-)]
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
-#[getset(get = "pub")]
-pub struct PermissionToken {
-    /// Name of the permission rule given to account.
-    name: Name,
-    /// Params identifying how this rule applies.
-    #[getset(skip)]
-    params: btree_map::BTreeMap<Name, Value>,
+ffi_item! {
+    /// Stored proof of the account having a permission for a certain action.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
+    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+    #[getset(get = "pub")]
+    pub struct PermissionToken {
+        /// Name of the permission rule given to account.
+        name: Name,
+        /// Params identifying how this rule applies.
+        #[getset(skip)]
+        params: btree_map::BTreeMap<Name, Value>,
+    }
 }
 
 impl core::fmt::Display for PermissionToken {

@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::{alloc::alloc, collections::BTreeMap};
 
 use getset::Getters;
-use iroha_ffi::{ffi_export, ffi_fn, handles, IntoFfi, TryFromReprC};
+use iroha_ffi::{def_ffi_fn, ffi_export, handles, IntoFfi, TryFromReprC};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Name(&'static str);
@@ -21,7 +21,7 @@ pub struct FfiStruct {
 }
 
 handles! {0, FfiStruct}
-ffi_fn! {Drop: FfiStruct}
+def_ffi_fn! {Drop: FfiStruct}
 
 #[ffi_export]
 impl FfiStruct {
@@ -58,7 +58,6 @@ pub fn ffi_duplicate_with_name(a: &FfiStruct, name: Name) -> FfiStruct {
     result
 }
 
-#[cfg(not(feature = "client"))]
 fn main() {
     use core::mem::MaybeUninit;
 
@@ -115,19 +114,4 @@ fn main() {
         assert_eq!(result.name, dup_name);
         assert_eq!(result.get_param(&Name("Nomen")), Some(&Value("Omen")));
     }
-}
-
-#[cfg(feature = "client")]
-fn main() {
-    let name = Name("X");
-
-    let mut ffi_struct: FfiStruct::new(name);
-
-    let in_params = vec![(Name("Nomen"), Value("Omen"))];
-    FfiStruct::with_params(&mut ffi_struct, in_params);
-
-    let param: Option<&Value> = FfiStruct::get_param(&ffi_struct, name);
-    let params: Option<Vec<_>> = FfiStruct::params(ffi_struct);
-
-    ffi_duplicate_with_name(&FfiStruct, Name);
 }

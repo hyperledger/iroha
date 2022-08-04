@@ -240,6 +240,23 @@ where
     type OutPtr = *mut Self;
 }
 
+/// Wrapper around struct/enum opaque pointer. When wrapped with the [`ffi`] macro in the
+/// crate linking dynamically to some `cdylib`, it replaces struct/enum body definition
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct Opaque {
+    __data: [u8; 0],
+
+    // Required for !Send & !Sync & !Unpin.
+    //
+    // - `*mut u8` is !Send & !Sync. It must be in `PhantomData` to not
+    //   affect alignment.
+    //
+    // - `PhantomPinned` is !Unpin. It must be in `PhantomData` because
+    //   its memory representation is not considered FFI-safe.
+    __marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
+}
+
 macro_rules! impl_tuple {
     ( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ) => {
         /// FFI-compatible tuple with n elements

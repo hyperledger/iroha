@@ -1,11 +1,10 @@
-#![cfg(not(feature = "client"))]
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::{collections::BTreeMap, mem::MaybeUninit};
+use std::{alloc::alloc, collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
-    ffi_export, ffi_fn, handles, slice::OutBoxedSlice, AsReprCRef, FfiReturn, FfiTuple2, Handle,
-    IntoFfi, TryFromReprC,
+    def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, AsReprCRef, FfiReturn, FfiTuple2,
+    Handle, IntoFfi, TryFromReprC,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
@@ -30,7 +29,7 @@ fn get_default_params() -> [(Name, Value); 2] {
 }
 
 handles! {0, FfiStruct}
-ffi_fn! {Drop: FfiStruct}
+def_ffi_fn! {Drop: FfiStruct}
 
 #[ffi_export]
 impl FfiStruct {
@@ -121,7 +120,6 @@ fn get_new_struct_with_params() -> FfiStruct {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn constructor() {
     let ffi_struct = get_new_struct();
 
@@ -137,7 +135,6 @@ fn constructor() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn builder_method() {
     let ffi_struct = get_new_struct_with_params();
 
@@ -156,7 +153,6 @@ fn builder_method() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn consume_self() {
     let ffi_struct = get_new_struct();
 
@@ -169,7 +165,6 @@ fn consume_self() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 #[allow(trivial_casts)]
 fn into_iter_item_impl_into() {
     let tokens = vec![
@@ -197,7 +192,6 @@ fn into_iter_item_impl_into() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn return_option() {
     let ffi_struct = get_new_struct_with_params();
 
@@ -234,7 +228,6 @@ fn return_option() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn empty_return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
@@ -255,7 +248,6 @@ fn empty_return_iterator() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
@@ -288,7 +280,6 @@ fn return_iterator() {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn return_result() {
     let mut output = MaybeUninit::new(0);
 

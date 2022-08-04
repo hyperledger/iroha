@@ -1,21 +1,20 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, collections::btree_set, format, string::String, vec::Vec};
 #[cfg(feature = "std")]
-use std::collections::btree_set;
+use std::{alloc::alloc, collections::btree_set};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(any(feature = "ffi_api", feature = "ffi"))]
-use iroha_ffi::ffi_export;
 use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    ffi::ffi_item,
     permissions::{PermissionToken, Permissions},
     Identifiable, Name, Registered,
 };
@@ -48,35 +47,42 @@ pub struct Id {
     pub name: Name,
 }
 
-/// Role is a tag for a set of permission tokens.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    IdOrdEqHash,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoFfi,
-    TryFromReprC,
-    IntoSchema,
-)]
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
-#[display(fmt = "{id}")]
-#[getset(get = "pub")]
-#[id(type = "Id")]
-pub struct Role {
-    /// Unique name of the role.
-    #[getset(skip)]
-    id: <Self as Identifiable>::Id,
-    /// Permission tokens.
-    #[getset(skip)]
-    permissions: Permissions,
+ffi_item! {
+    /// Role is a tag for a set of permission tokens.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
+    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+    #[display(fmt = "{id}")]
+    #[getset(get = "pub")]
+    #[id(type = "Id")]
+    pub struct Role {
+        /// Unique name of the role.
+        #[getset(skip)]
+        id: <Self as Identifiable>::Id,
+        /// Permission tokens.
+        #[getset(skip)]
+        permissions: Permissions,
+    }
 }
 
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl Role {
     /// Constructor.
     #[inline]
@@ -127,7 +133,11 @@ impl crate::Registrable for NewRole {
     }
 }
 
-#[cfg_attr(any(feature = "ffi_api", feature = "ffi"), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewRole {
     /// Add permission to the [`Role`]
     #[must_use]

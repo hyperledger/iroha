@@ -23,18 +23,10 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
         syn::Data::Enum(_) | syn::Data::Struct(_) => {
             quote! {
                 #(#attrs)*
-                #vis #item_type #ident{
-                    ptr: [u8; 0],
-
-                    // Required for !Send & !Sync & !Unpin.
-                    //
-                    // - `*mut u8` is !Send & !Sync. It must be in `PhantomData` to not
-                    //   affect alignment.
-                    //
-                    // - `PhantomPinned` is !Unpin. It must be in `PhantomData` because
-                    //   its memory representation is not considered FFI-safe.
-                    marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
-                }
+                #[repr(transparent)]
+                #vis #item_type #ident {
+                    __opaque_ptr: *mut iroha_ffi::Opaque
+                };
             }
         }
         syn::Data::Union(_) => {

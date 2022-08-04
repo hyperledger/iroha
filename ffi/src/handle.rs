@@ -3,7 +3,7 @@
 /// Type of the handle id
 pub type Id = u8;
 
-/// Implement [`$crate::Handle`] for given types with the given initial handle id. Ids are
+/// Implement [`crate::Handle`] for given types with the given initial handle id. Ids are
 /// assigned incrementally to every type in the macro invocation. Check the following example:
 ///
 /// ```rust
@@ -12,9 +12,9 @@ pub type Id = u8;
 /// struct Bar1;
 /// struct Bar2;
 ///
-/// handles! {0, Foo, Bar}
+/// iroha_ffi::handles! {0, Foo1, Foo2, Bar1, Bar2}
 ///
-/// will produce:
+/// /* will produce:
 /// impl Handle for Foo1 {
 ///     const ID: Id = 0;
 /// }
@@ -26,7 +26,7 @@ pub type Id = u8;
 /// }
 /// impl Handle for Bar2 {
 ///     const ID: Id = 3;
-/// }
+/// } */
 /// ```
 #[macro_export]
 macro_rules! handles {
@@ -52,8 +52,7 @@ macro_rules! handles {
 
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
-#[cfg(not(feature = "client"))]
-macro_rules! ffi_fn {
+macro_rules! def_ffi_fn {
     (@catch_unwind $block:block ) => {
         match std::panic::catch_unwind(|| $block) {
             Ok(res) => match res {
@@ -79,7 +78,7 @@ macro_rules! ffi_fn {
             handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut *mut core::ffi::c_void
         ) -> $crate::FfiReturn {
-            $crate::ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
 
                 // False positive - doesn't compile otherwise
@@ -116,7 +115,7 @@ macro_rules! ffi_fn {
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut u8,
         ) -> $crate::FfiReturn {
-            $crate::ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
 
                 // False positive - doesn't compile otherwise
@@ -155,7 +154,7 @@ macro_rules! ffi_fn {
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut i8,
         ) -> $crate::FfiReturn {
-            $crate::ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
 
                 // False positive - doesn't compile otherwise
@@ -192,7 +191,7 @@ macro_rules! ffi_fn {
             handle_id: $crate::handle::Id,
             handle_ptr: *mut core::ffi::c_void,
         ) -> $crate::FfiReturn {
-            $crate::ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fn!(@catch_unwind {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
@@ -210,8 +209,7 @@ macro_rules! ffi_fn {
 
 /// Generate the declaration of FFI functions for the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
-#[cfg(feature = "client")]
-macro_rules! ffi_fn {
+macro_rules! decl_ffi_fn {
     ( $vis:vis Clone: $( $other:ty ),+ $(,)? ) => {
         extern {
             /// FFI function equivalent of [`Clone::clone`]

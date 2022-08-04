@@ -1,7 +1,6 @@
-#![cfg(not(feature = "client"))]
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::mem::MaybeUninit;
+use std::{alloc::alloc, mem::MaybeUninit};
 
 use getset::{Getters, MutGetters, Setters};
 use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
@@ -22,7 +21,6 @@ pub struct FfiStruct {
 }
 
 #[test]
-#[cfg(not(feature = "client"))]
 fn getset_get() {
     let init_name = Name("Name".to_owned());
     let ffi_struct = &mut FfiStruct {

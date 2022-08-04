@@ -1,8 +1,10 @@
 //! This module contains [`Name`](`crate::name::Name`) structure
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use derive_more::{DebugCustom, Display};
 use iroha_ffi::{IntoFfi, TryFromReprC};
@@ -100,9 +102,9 @@ impl FromStr for Name {
 ///
 /// All of the given pointers must be valid
 #[no_mangle]
-#[cfg(feature = "ffi_api")]
 #[allow(non_snake_case, unsafe_code)]
-unsafe extern "C" fn Name__from_str<'itm>(
+#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+pub unsafe extern "C" fn Name__from_str<'itm>(
     candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
     out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
 ) -> iroha_ffi::FfiReturn {
@@ -195,7 +197,7 @@ mod tests {
 
     #[test]
     #[allow(unsafe_code)]
-    #[cfg(feature = "ffi_api")]
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     fn ffi_name_from_str() -> Result<(), ParseError> {
         use iroha_ffi::Handle;
         let candidate = "Name";

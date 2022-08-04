@@ -5,9 +5,7 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::{parse_quote, Ident, Type};
 
-use crate::impl_visitor::{
-    find_doc_attr, unwrap_result_type, Arg, FnDescriptor, InputArg, Receiver, ReturnArg,
-};
+use crate::impl_visitor::{find_doc_attr, unwrap_result_type, Arg, FnDescriptor};
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,7 +38,7 @@ pub fn gen_derived_methods(item: &syn::ItemStruct) -> Vec<FnDescriptor> {
     ffi_derives
 }
 
-pub fn gen_arg_ffi_to_src(arg: &impl Arg, is_output: bool) -> TokenStream {
+pub fn gen_arg_ffi_to_src(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
 
     if is_output {
@@ -75,7 +73,7 @@ pub fn gen_arg_ffi_to_src(arg: &impl Arg, is_output: bool) -> TokenStream {
 }
 
 #[allow(clippy::expect_used)]
-pub fn gen_arg_src_to_ffi(arg: &impl Arg, is_output: bool) -> TokenStream {
+pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
 
     let mut resolve_impl_trait = None;
@@ -130,7 +128,7 @@ pub fn gen_arg_src_to_ffi(arg: &impl Arg, is_output: bool) -> TokenStream {
     }
 }
 
-/// Parses `getset` attributes to find out which methods it derives
+/// Parse `getset` attributes to find out which methods it derives
 fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
     attrs
         .iter()
@@ -189,19 +187,19 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
 
     let (receiver, input_args, output_arg) = match derive {
         Derive::Setter => (
-            Receiver::new(self_ty.clone(), handle_name, parse_quote! {&mut Self}),
-            vec![InputArg::new(self_ty.clone(), field_name, field_ty)],
+            Arg::new(self_ty.clone(), handle_name, parse_quote! {&mut Self}),
+            vec![Arg::new(self_ty.clone(), field_name, field_ty)],
             None,
         ),
         Derive::Getter => (
-            Receiver::new(self_ty.clone(), handle_name, parse_quote! {&Self}),
+            Arg::new(self_ty.clone(), handle_name, parse_quote! {&Self}),
             Vec::new(),
-            Some(ReturnArg::new(self_ty.clone(), field_name, field_ty)),
+            Some(Arg::new(self_ty.clone(), field_name, field_ty)),
         ),
         Derive::MutGetter => (
-            Receiver::new(self_ty.clone(), handle_name, parse_quote! {&mut Self}),
+            Arg::new(self_ty.clone(), handle_name, parse_quote! {&mut Self}),
             Vec::new(),
-            Some(ReturnArg::new(self_ty.clone(), field_name, field_ty)),
+            Some(Arg::new(self_ty.clone(), field_name, field_ty)),
         ),
     };
 
