@@ -173,39 +173,47 @@ impl<'itm> IntoFfiSliceRef<'itm> for core::cmp::Ordering {
     }
 }
 
-/// Trait for replacing unsupported types with supported ones when crossing FFI-boundary (for example in case of wasm)
-pub trait PrimitiveRepr {
+/// Trait for replacing unsupported types with supported when crossing WASM FFI-boundary
+#[cfg(feature = "wasm")]
+pub trait WasmRepr {
     /// Type used to represent [`Self`] when crossing FFI-boundry
-    type Repr;
+    type Repr: ReprC;
 }
 
-macro_rules! primitive_repr_impls {
-    ($($source:ty => $target:ty),+ $(,)?) => {$(
-        impl PrimitiveRepr for $source {
-            type Repr = $target;
+#[cfg(feature = "wasm")]
+macro_rules! wasm_repr_impls {
+    ($src:ty = $dst:ty, $($tail:tt)+) => {
+        wasm_repr_impls! { $src = $dst }
+        wasm_repr_impls! { $($tail)+ }
+    };
+    ($src:ty, $($tail:tt)+) => {
+        wasm_repr_impls! { $src }
+        wasm_repr_impls! { $($tail)+ }
+    };
+    ($src:ty = $dst:ty) => {
+        impl WasmRepr for $src {
+            type Repr = $dst;
         }
-    )+};
-}
-macro_rules! primitive_repr_self_impls {
-    ($($source:ty),+ $(,)?) => {
-        primitive_repr_impls! {
-            $($source => $source),*
+    };
+    ($src:ty) => {
+        impl WasmRepr for $src {
+            type Repr = Self;
         }
     };
 }
 
 #[cfg(feature = "wasm")]
-primitive_repr_impls! {u8 => u32, u16 => u32, i8 => i32, i16 => i32}
-#[cfg(not(feature = "wasm"))]
-primitive_repr_self_impls! {u8, u16, i8, i16}
-primitive_repr_self_impls! {u32, u64, u128, i32, i64, i128}
+wasm_repr_impls! {u8 = u32, u16 = u32, i8 = i32, i16 = i32, u32, u64, i32, i64}
 
 macro_rules! primitive_impls {
     ( $( $ty:ty ),+ $(,)? ) => { $(
         unsafe impl ReprC for $ty {}
 
         impl TryFromReprC<'_> for $ty {
-            type Source = <$ty as PrimitiveRepr>::Repr;
+            #[cfg(feature = "wasm")]
+            type Source = <$ty as WasmRepr>::Repr;
+            #[cfg(not(feature = "wasm"))]
+            type Source = Self;
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
@@ -232,7 +240,10 @@ macro_rules! primitive_impls {
         }
 
         impl IntoFfi for $ty {
-            type Target = <$ty as PrimitiveRepr>::Repr;
+            #[cfg(feature = "wasm")]
+            type Target = <$ty as WasmRepr>::Repr;
+            #[cfg(not(feature = "wasm"))]
+            type Target = Self;
 
             fn into_ffi(self) -> Self::Target {
                 self.into()
@@ -277,4 +288,4 @@ macro_rules! primitive_impls {
     )+};
 }
 
-primitive_impls! {u8, u16, u32, u64, u128, i8, i16, i32, i64}
+primitive_impls! {u8, u16, u32, u64, i8, i16, i32, i64}
