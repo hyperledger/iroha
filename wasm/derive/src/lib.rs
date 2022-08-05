@@ -78,9 +78,11 @@ fn construct_args(
     }
     if let Some(_event_arg) = args_iter.next() {
         args.push(parse_quote! {{
+            use ::iroha_wasm::debug::DebugExpectExt as _;
+
             let top_event = ::iroha_wasm::query_triggering_event();
             ::core::convert::TryInto::try_into(top_event)
-                .expect("Failed to convert top-level event to the concrete one")
+                .dbg_expect("Failed to convert top-level event to the concrete one")
         }});
     }
 

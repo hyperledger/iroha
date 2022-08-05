@@ -17,14 +17,12 @@ use alloc::{boxed::Box, format, vec::Vec};
 use core::ops::RangeFrom;
 
 use data_model::prelude::*;
-#[cfg(feature = "debug")]
 pub use debug::*;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
 use parity_scale_codec::{Decode, Encode};
 
-#[cfg(feature = "debug")]
-mod debug;
+pub mod debug;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
