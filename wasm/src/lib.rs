@@ -82,9 +82,29 @@ impl Execute for data_model::query::QueryBox {
         use tests::_iroha_wasm_execute_query_mock as host_execute_query;
 
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
-        //         - ownership of the returned result is transfered into `_decode_from_raw`
+        //         - ownership of the returned result is transferred into `_decode_from_raw`
         unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
     }
+}
+
+pub fn query_authority() -> <Account as Identifiable>::Id {
+    #[cfg(not(test))]
+    use host::query_authority as host_query_authority;
+    #[cfg(test)]
+    use tests::_iroha_wasm_query_authority_mock as host_query_authority;
+
+    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(host_query_authority()) }
+}
+
+pub fn query_triggering_event() -> Event {
+    #[cfg(not(test))]
+    use host::query_triggering_event as host_query_triggering_event;
+    #[cfg(test)]
+    use tests::_iroha_wasm_query_triggering_event_mock as host_query_triggering_event;
+
+    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(host_query_triggering_event()) }
 }
 
 /// Host exports
@@ -92,7 +112,7 @@ impl Execute for data_model::query::QueryBox {
 mod host {
     #[link(wasm_import_module = "iroha")]
     extern "C" {
-        /// Executes encoded query by providing offset and length
+        /// Execute encoded query by providing offset and length
         /// into WebAssembly's linear memory where query is stored
         ///
         /// # Warning
@@ -101,7 +121,7 @@ mod host {
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_query(ptr: *const u8, len: usize) -> *const u8;
 
-        /// Executes encoded instruction by providing offset and length
+        /// Execute encoded instruction by providing offset and length
         /// into WebAssembly's linear memory where instruction is stored
         ///
         /// # Warning
@@ -109,6 +129,18 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: *const u8, len: usize);
+
+        /// Get the authority account id
+        ///
+        /// # Warning
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn query_authority() -> *const u8;
+
+        /// Get the authority account id
+        ///
+        /// # Warning
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn query_triggering_event() -> *const u8;
     }
 }
 
@@ -216,14 +248,14 @@ mod tests {
 
     const QUERY_RESULT: Value = Value::U32(1234);
 
-    fn encode_query_result(res: Value) -> Vec<u8> {
+    fn encode_as_vec<T: Encode>(val: &T) -> Vec<u8> {
         let len_size_bytes = core::mem::size_of::<usize>();
 
-        let mut r = Vec::with_capacity(len_size_bytes + res.size_hint());
+        let mut r = Vec::with_capacity(len_size_bytes + val.size_hint());
 
         // Reserve space for length
         r.resize(len_size_bytes, 0);
-        res.encode_to(&mut r);
+        val.encode_to(&mut r);
 
         // Store length of encoded object as byte array at the beginning of the vec
         for (i, byte) in r.len().to_le_bytes().into_iter().enumerate() {
@@ -263,7 +295,26 @@ mod tests {
         let query = QueryBox::decode(&mut &*bytes).unwrap();
         assert_eq!(query, get_test_query());
 
-        ManuallyDrop::new(encode_query_result(QUERY_RESULT).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_as_vec(&QUERY_RESULT).into_boxed_slice()).as_ptr()
+    }
+
+    #[no_mangle]
+    pub(super) unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
+        let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+
+        ManuallyDrop::new(encode_as_vec(&account_id).into_boxed_slice()).as_ptr()
+    }
+
+    #[no_mangle]
+    pub(super) unsafe extern "C" fn _iroha_wasm_query_triggering_event_mock() -> *const u8 {
+        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
+            "rose#wonderland".parse().expect("Valid");
+        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
+        let event: Event =
+            DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(alice_rose_id))).into();
+
+        ManuallyDrop::new(encode_as_vec(&event).into_boxed_slice()).as_ptr()
     }
 
     #[webassembly_test]
