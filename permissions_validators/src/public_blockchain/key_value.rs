@@ -1,4 +1,4 @@
-//! Module with permission for burning
+//! Module with permission for setting and removing key values
 
 use iroha_data_model::asset::DefinitionId;
 
