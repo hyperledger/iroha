@@ -109,6 +109,8 @@ pub trait Output: Sized {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i8)]
 pub enum FfiReturn {
+    /// The input argument provided to FFI function can't be converted into inner rust representation.
+    ConversionFailed = -7,
     /// The input argument provided to FFI function has a trap representation.
     TrapRepresentation = -6,
     /// FFI function execution panicked.

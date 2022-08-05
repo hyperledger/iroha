@@ -72,7 +72,6 @@ fn gen_shared_fns() {
             TryFromReprC::try_from_repr_c(is_equal.assume_init(), &mut ()).unwrap();
         assert!(is_equal);
 
-        // TODO: Fix
         let mut ordering = MaybeUninit::new(1);
         __ord(
             FfiStruct1::ID,

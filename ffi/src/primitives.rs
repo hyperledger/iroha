@@ -217,7 +217,7 @@ macro_rules! primitive_impls {
             type Store = ();
 
             unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
-                source.try_into().map_err(|_| FfiReturn::TrapRepresentation)
+                source.try_into().map_err(|_| FfiReturn::ConversionFailed)
             }
         }
 

@@ -5,7 +5,7 @@ use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 
 use crate::{
     slice::{OutBoxedSlice, SliceRef},
-    AsReprCRef, FfiReturn, IntoFfi, Output, ReprC, TryFromReprC, Result
+    AsReprCRef, FfiReturn, IntoFfi, Output, ReprC, Result, TryFromReprC,
 };
 
 /// Trait that facilitates the implementation of [`IntoFfi`] for vectors of foreign types
@@ -31,9 +31,9 @@ pub trait TryFromReprCVec<'slice>: Sized {
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
-    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
     ///
     /// # Safety
     ///
@@ -192,10 +192,7 @@ impl<'itm> TryFromReprC<'itm> for String {
     type Source = <Vec<u8> as TryFromReprC<'itm>>::Source;
     type Store = ();
 
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        _: &mut Self::Store,
-    ) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
         String::from_utf8(source.into_rust().ok_or(FfiReturn::ArgIsNull)?.to_owned())
             .map_err(|_e| FfiReturn::Utf8Error)
     }
@@ -204,10 +201,7 @@ impl<'itm> TryFromReprC<'itm> for &'itm str {
     type Source = <&'itm [u8] as TryFromReprC<'itm>>::Source;
     type Store = ();
 
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        _: &mut Self::Store,
-    ) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
         core::str::from_utf8(source.into_rust().ok_or(FfiReturn::ArgIsNull)?)
             .map_err(|_e| FfiReturn::Utf8Error)
     }

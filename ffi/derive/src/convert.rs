@@ -86,7 +86,8 @@ fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
 }
 
 fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
-    let opaque_item_slice_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_slice(name);
+    let opaque_item_slice_try_from_repr_c_derive =
+        derive_try_from_repr_c_for_opaque_item_slice(name);
     let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
 
     quote! {
@@ -146,7 +147,8 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
 }
 
 fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
-    let opaque_item_slice_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_slice(name);
+    let opaque_item_slice_try_from_repr_c_derive =
+        derive_try_from_repr_c_for_opaque_item_slice(name);
     let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
 
     quote! {
@@ -460,7 +462,7 @@ fn derive_into_ffi_for_fieldless_enum(enum_name: &Ident, repr: &[syn::NestedMeta
     quote! {
         impl iroha_ffi::IntoFfi for #enum_name {
             type Target = <#ffi_type as iroha_ffi::IntoFfi>::Target;
-    
+
             fn into_ffi(self) -> Self::Target {
                 (self as #ffi_type).into_ffi()
             }

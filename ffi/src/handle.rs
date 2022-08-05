@@ -113,6 +113,7 @@ macro_rules! def_ffi_fn {
             handle_id: $crate::handle::Id,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
+            // Pointer to FFI-safe representation of `bool` (u8 or u32 if `wasm` feature is active)
             output_ptr: *mut <bool as $crate::IntoFfi>::Target,
         ) -> $crate::FfiReturn {
             $crate::def_ffi_fn!(@catch_unwind {
@@ -152,6 +153,7 @@ macro_rules! def_ffi_fn {
             handle_id: $crate::handle::Id,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
+            // Pointer to FFI-safe representation of `Ordering` (i8 or i32 if `wasm` feature is active)
             output_ptr: *mut <core::cmp::Ordering as $crate::IntoFfi>::Target,
         ) -> $crate::FfiReturn {
             $crate::def_ffi_fn!(@catch_unwind {

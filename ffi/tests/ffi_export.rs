@@ -89,6 +89,12 @@ impl FfiStruct {
     }
 }
 
+#[ffi_export]
+/// Return byte
+pub fn simple(byte: u8) -> u8 {
+    byte
+}
+
 fn get_new_struct() -> FfiStruct {
     let name = Name(String::from("X"));
 
@@ -294,5 +300,19 @@ fn return_result() {
             FfiStruct__fallible_int_output(From::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[test]
+fn conversion_failed() {
+    let byte: u32 = u32::MAX;
+    let mut output = MaybeUninit::new(0);
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::ConversionFailed,
+            __simple(byte, output.as_mut_ptr())
+        )
     }
 }
