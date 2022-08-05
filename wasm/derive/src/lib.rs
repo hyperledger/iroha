@@ -7,6 +7,83 @@ use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
 use syn::{parse_macro_input, parse_quote, punctuated::Punctuated};
 
+mod kw {
+    syn::custom_keyword!(params);
+
+    pub mod param_types {
+        syn::custom_keyword!(authority);
+        syn::custom_keyword!(triggering_event);
+    }
+}
+
+enum Attr {
+    Params(ParamsAttr),
+    Empty,
+}
+
+impl syn::parse::Parse for Attr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        if input.is_empty() {
+            return Ok(Attr::Empty);
+        }
+
+        Ok(Attr::Params(input.parse()?))
+    }
+}
+
+struct ParamsAttr {
+    _params_kw: kw::params,
+    _equal: syn::token::Eq,
+    params: Params,
+}
+
+impl syn::parse::Parse for ParamsAttr {
+    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
+        let params_kw = input.parse()?;
+        let equal = input.parse()?;
+        let params_str: syn::LitStr = input.parse()?;
+        let params = syn::parse_str(&params_str.value())?;
+        Ok(ParamsAttr {
+            _params_kw: params_kw,
+            _equal: equal,
+            params,
+        })
+    }
+}
+
+struct Params {
+    _bracket_token: syn::token::Bracket,
+    types: Punctuated<ParamType, syn::token::Comma>,
+}
+
+impl syn::parse::Parse for Params {
+    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
+        let content;
+
+        Ok(Params {
+            _bracket_token: syn::bracketed!(content in input),
+            types: content.parse_terminated(ParamType::parse)?,
+        })
+    }
+}
+
+enum ParamType {
+    Authority,
+    TriggeringEvent,
+}
+
+impl syn::parse::Parse for ParamType {
+    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
+        if let Ok(_) = input.parse::<kw::param_types::authority>() {
+            Ok(ParamType::Authority)
+        } else if let Ok(_) = input.parse::<kw::param_types::triggering_event>() {
+            Ok(ParamType::TriggeringEvent)
+        } else {
+            Err(input.error("expected `authority` or `triggering_event`"))
+        }
+    }
+}
+
 /// Use to annotate the user-defined function that starts the execution of a smart contract.
 ///
 /// Should be used for smart contracts (inside transactions).
@@ -14,7 +91,7 @@ use syn::{parse_macro_input, parse_quote, punctuated::Punctuated};
 //
 #[proc_macro_error]
 #[proc_macro_attribute]
-pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
+pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
@@ -26,7 +103,10 @@ pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
         abort!(sig.output, "Exported function must not have a return type");
     }
 
-    let args = construct_args(&sig.inputs);
+    let args = match syn::parse_macro_input!(attr as Attr) {
+        Attr::Params(param_attr) => construct_args(&param_attr.params.types),
+        Attr::Empty => Punctuated::new()
+    };
     let fn_name = &sig.ident;
 
     block.stmts.insert(
@@ -51,7 +131,6 @@ pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
             #fn_name(#args)
         }
 
-        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block
@@ -60,31 +139,24 @@ pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn construct_args(
-    inputs: &Punctuated<syn::FnArg, syn::token::Comma>,
+    types: &Punctuated<ParamType, syn::token::Comma>,
 ) -> Punctuated<syn::Expr, syn::token::Comma> {
-    let mut args = Punctuated::new();
+    types.iter().map(|param_type| -> syn::Expr {
+        match param_type {
+            ParamType::Authority => {
+                parse_quote!{
+                    ::iroha_wasm::query_authority()
+                }
+            }
+            ParamType::TriggeringEvent => {
+                parse_quote! {{
+                    use ::iroha_wasm::debug::DebugExpectExt as _;
 
-    let mut args_iter = inputs.iter().filter_map(|input| {
-        if let syn::FnArg::Typed(typed) = input {
-            Some(typed)
-        } else {
-            None
+                    let top_event = ::iroha_wasm::query_triggering_event();
+                    ::core::convert::TryInto::try_into(top_event)
+                        .dbg_expect("Failed to convert top-level event to the concrete one")
+                }}
+            }
         }
-    });
-    if let Some(_account_arg) = args_iter.next() {
-        args.push(parse_quote! {
-            ::iroha_wasm::query_authority()
-        });
-    }
-    if let Some(_event_arg) = args_iter.next() {
-        args.push(parse_quote! {{
-            use ::iroha_wasm::debug::DebugExpectExt as _;
-
-            let top_event = ::iroha_wasm::query_triggering_event();
-            ::core::convert::TryInto::try_into(top_event)
-                .dbg_expect("Failed to convert top-level event to the concrete one")
-        }});
-    }
-
-    args
+    }).collect()
 }
