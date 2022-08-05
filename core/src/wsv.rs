@@ -149,7 +149,7 @@ impl WorldStateView {
         tokens
     }
 
-    fn process_trigger(&self, action: &dyn ActionTrait, event: &Event) -> Result<()> {
+    fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
         let authority = action.technical_account();
 
         match action.executable() {
@@ -166,10 +166,10 @@ impl WorldStateView {
         }
     }
 
-    fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
+    fn process_executable(&self, executable: &Executable, authority: AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
-                self.process_instructions(instructions.iter().cloned(), authority)
+                self.process_instructions(instructions.iter().cloned(), &authority)
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime =
@@ -221,7 +221,7 @@ impl WorldStateView {
         let res = self
             .world
             .triggers
-            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, &event) })
+            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) })
             .await;
 
         if let Err(errors) = res {
@@ -273,7 +273,10 @@ impl WorldStateView {
     async fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
-            self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
+            self.process_executable(
+                &tx.as_v1().payload.instructions,
+                tx.payload().account_id.clone(),
+            )?;
             self.transactions.insert(tx.hash());
             task::yield_now().await;
         }
