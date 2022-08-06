@@ -1,9 +1,8 @@
-//! Macros for writing smartcontracts
+//! Macros for writing smart contracts
 
 #![allow(clippy::str_to_string)]
 
 use proc_macro::TokenStream;
-use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
 use syn::{parse_macro_input, parse_quote, punctuated::Punctuated};
 
@@ -155,7 +154,6 @@ impl syn::parse::Parse for ParamType {
 ///     ));
 /// }
 /// ```
-#[proc_macro_error]
 #[proc_macro_attribute]
 pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
@@ -166,7 +164,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     } = parse_macro_input!(item);
 
     if syn::ReturnType::Default != sig.output {
-        abort!(sig.output, "Exported function must not have a return type");
+        panic!("Exported function must not have a return type");
     }
 
     let args = match syn::parse_macro_input!(attr as Attr) {

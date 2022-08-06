@@ -1,5 +1,6 @@
 use core::fmt::Debug;
 
+#[cfg(feature = "debug")]
 use super::*;
 
 #[cfg(not(test))]
