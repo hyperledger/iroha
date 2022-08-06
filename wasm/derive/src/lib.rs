@@ -61,9 +61,10 @@ struct Params {
 impl syn::parse::Parse for Params {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
         let content;
+        let bracket_token = syn::bracketed!(content in input);
 
         Ok(Params {
-            _bracket_token: syn::bracketed!(content in input),
+            _bracket_token: bracket_token,
             types: content.parse_terminated(ParamType::parse)?,
         })
     }
@@ -80,9 +81,9 @@ enum ParamType {
 
 impl syn::parse::Parse for ParamType {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
-        if let Ok(_) = input.parse::<kw::param_types::authority>() {
+        if input.parse::<kw::param_types::authority>().is_ok() {
             Ok(ParamType::Authority)
-        } else if let Ok(_) = input.parse::<kw::param_types::triggering_event>() {
+        } else if input.parse::<kw::param_types::triggering_event>().is_ok() {
             Ok(ParamType::TriggeringEvent)
         } else {
             Err(input.error("expected `authority` or `triggering_event`"))
@@ -119,6 +120,11 @@ impl syn::parse::Parse for ParamType {
 ///
 /// If conversion will fail in runtime then an error message will be printed,
 /// if `debug` feature is enabled.
+///
+/// # Panics
+///
+/// - If got unexpected syntax of attribute
+/// - If function has a return type
 ///
 /// # Example
 ///
@@ -163,13 +169,14 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         mut block,
     } = parse_macro_input!(item);
 
-    if syn::ReturnType::Default != sig.output {
-        panic!("Exported function must not have a return type");
-    }
+    assert!(
+        syn::ReturnType::Default == sig.output,
+        "Exported function must not have a return type"
+    );
 
     let args = match syn::parse_macro_input!(attr as Attr) {
         Attr::Params(param_attr) => construct_args(&param_attr.params.types),
-        Attr::Empty => Punctuated::new()
+        Attr::Empty => Punctuated::new(),
     };
     let fn_name = &sig.ident;
 
@@ -198,22 +205,25 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn construct_args(
     types: &Punctuated<ParamType, syn::token::Comma>,
 ) -> Punctuated<syn::Expr, syn::token::Comma> {
-    types.iter().map(|param_type| -> syn::Expr {
-        match param_type {
-            ParamType::Authority => {
-                parse_quote!{
-                    ::iroha_wasm::query_authority()
+    types
+        .iter()
+        .map(|param_type| -> syn::Expr {
+            match param_type {
+                ParamType::Authority => {
+                    parse_quote! {
+                        ::iroha_wasm::query_authority()
+                    }
+                }
+                ParamType::TriggeringEvent => {
+                    parse_quote! {{
+                        use ::iroha_wasm::debug::DebugExpectExt as _;
+
+                        let top_event = ::iroha_wasm::query_triggering_event();
+                        ::core::convert::TryInto::try_into(top_event)
+                            .dbg_expect("Failed to convert top-level event to the concrete one")
+                    }}
                 }
             }
-            ParamType::TriggeringEvent => {
-                parse_quote! {{
-                    use ::iroha_wasm::debug::DebugExpectExt as _;
-
-                    let top_event = ::iroha_wasm::query_triggering_event();
-                    ::core::convert::TryInto::try_into(top_event)
-                        .dbg_expect("Failed to convert top-level event to the concrete one")
-                }}
-            }
-        }
-    }).collect()
+        })
+        .collect()
 }

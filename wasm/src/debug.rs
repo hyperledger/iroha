@@ -30,6 +30,7 @@ pub fn dbg<T: Debug + ?Sized>(_obj: &T) {
         #[cfg(test)]
         use tests::_dbg_mock as host_dbg;
 
+        #[allow(clippy::used_underscore_binding)]
         let s = format!("{:?}", _obj);
         // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
         unsafe { encode_and_execute(&s, host_dbg) }
@@ -54,6 +55,7 @@ impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
     #[allow(clippy::panic)]
     fn dbg_unwrap(self) -> Self::Output {
         #[cfg(not(feature = "debug"))]
+        #[allow(clippy::unwrap_used)]
         return self.unwrap();
 
         #[cfg(feature = "debug")]
@@ -77,6 +79,7 @@ impl<T> DebugUnwrapExt for Option<T> {
     #[allow(clippy::panic)]
     fn dbg_unwrap(self) -> Self::Output {
         #[cfg(not(feature = "debug"))]
+        #[allow(clippy::unwrap_used)]
         return self.unwrap();
 
         #[cfg(feature = "debug")]
@@ -110,6 +113,7 @@ impl<T, E: Debug> DebugExpectExt for Result<T, E> {
     #[allow(clippy::panic)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
+        #[allow(clippy::expect_used)]
         return self.expect(msg);
 
         #[cfg(feature = "debug")]
@@ -131,6 +135,7 @@ impl<T> DebugExpectExt for Option<T> {
     #[allow(clippy::panic)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
+        #[allow(clippy::expect_used)]
         return self.expect(msg);
 
         #[cfg(feature = "debug")]
