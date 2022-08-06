@@ -16,6 +16,7 @@ mod kw {
     }
 }
 
+/// Enum representing possible attributes for [`entrypoint`] macro
 enum Attr {
     Params(ParamsAttr),
     Empty,
@@ -31,6 +32,7 @@ impl syn::parse::Parse for Attr {
     }
 }
 
+/// Attribute with expected parameters for smart contract entrypoint function
 struct ParamsAttr {
     _params_kw: kw::params,
     _equal: syn::token::Eq,
@@ -51,6 +53,7 @@ impl syn::parse::Parse for ParamsAttr {
     }
 }
 
+/// Collection of types of parameters that smart contract entrypoint function is expecting
 struct Params {
     _bracket_token: syn::token::Bracket,
     types: Punctuated<ParamType, syn::token::Comma>,
@@ -67,6 +70,10 @@ impl syn::parse::Parse for Params {
     }
 }
 
+/// Type of smart contract entrypoint function parameter.
+///
+/// *Type* here means not just *Rust* type but also a purpose of a parameter.
+/// So that it uses [`Authority`](ParamType::Authority) instead of `account::Id`.
 enum ParamType {
     Authority,
     TriggeringEvent,
@@ -86,9 +93,68 @@ impl syn::parse::Parse for ParamType {
 
 /// Use to annotate the user-defined function that starts the execution of a smart contract.
 ///
-/// Should be used for smart contracts (inside transactions).
-/// For triggers, see [`trigger_entrypoint`].
+/// # Attributes
+///
+/// This macro can have an attribute describing entrypoint parameters.
+///
+/// The syntax is:
+/// `#[iroha_wasm::entrypoint(params = "[<type>,*]")]`, where `<type>` is one of:
+/// - `authority` - an account id of the smart contract authority
+/// - `triggering_event` - an event that triggers the execution of the smart contract
+///
+/// None, one or both parameters in any order can be specified.
+/// Parameters will be passed to the entrypoint function in the order they are specified.
+///
+/// ## Authority
+///
+/// A real function parameter type corresponding to the `authority` should have
+/// `iroha_wasm::iroha_data_model::prelude::AccountId` type.
+///
+/// ## Triggering event
+///
+/// A real function parameter type corresponding to the `triggering_event` should have
+/// type implementing `TryFrom<iroha_data_model::prelude::Event>`.
+///
+/// So any subtype of `Event` can be specified, i.e. `TimeEvent` or `DataEvent`.
+/// For details see `iroha_wasm::iroha_data_model::prelude::Event`.
+///
+/// If conversion will fail in runtime then an error message will be printed,
+/// if `debug` feature is enabled.
+///
+/// # Example
+///
+// `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
+/// Using without parameters:
+/// ```ignore
+/// #[iroha_wasm::entrypoint]
+/// fn trigger_entrypoint() {
+///     // do stuff
+/// }
+/// ```
+///
+/// Using only `authority` parameter:
+/// ```ignore
+/// use iroha_wasm::{data_model::prelude::*, dbg};
+///
+/// #[iroha_wasm::entrypoint(params = "[authority]")]
+/// fn trigger_entrypoint(authority: <Account as Identifiable>::Id) {
+///     dbg(&format!("Trigger authority: {authority}"));
+/// }
+/// ```
+///
+/// Using both `authority` and `triggering_event` parameters:
+/// ```ignore
+/// use iroha_wasm::{data_model::prelude::*, dbg};
+///
+/// #[iroha_wasm::entrypoint(params = "[authority, triggering_event]")]
+/// fn trigger_entrypoint(authority: <Account as Identifiable>::Id, event: DataEvent) {
+///     dbg(&format!(
+///         "Trigger authority: {authority};\n\
+///          Triggering event: {event:?}"
+///     ));
+/// }
+/// ```
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -117,14 +183,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     quote! {
-        // NOTE: The size of the `_len` parameters is defined by the target architecture
-        // which is `wasm32-unknown-unknown` and therefore not dependent by the architecture
-        // smart contract is compiled on or the architecture smart contract is run on
         /// Smart contract entry point
-        ///
-        /// # Safety
-        ///
-        /// Given pointers and lengths must comprise a valid memory slice
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_trigger_main(
         ) {
