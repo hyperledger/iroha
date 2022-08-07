@@ -26,6 +26,7 @@ pub trait IntoMetric {
     fn into_metric(self) -> f64;
 }
 
+// TODO: this should be a blanket impl.
 impl IntoMetric for u128 {
     #[inline]
     #[allow(clippy::cast_precision_loss)]

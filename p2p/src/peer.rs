@@ -133,7 +133,9 @@ where
     fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher.decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+            Some(cipher) => Ok(cipher
+                .decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .unwrap()),
         }
     }
 
@@ -141,7 +143,9 @@ where
     fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+            Some(cipher) => Ok(cipher
+                .encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .expect("Valid")),
         }
     }
 
@@ -154,7 +158,8 @@ where
         let encryptor = {
             let key: &[u8] = shared.0.as_slice();
             SymmetricEncryptor::<E>::new_with_key(key)
-        }?;
+        }
+        .expect("Valid");
         self.cipher = Some(encryptor);
         Ok(self)
     }
@@ -539,14 +544,14 @@ where
                         Ok(data) => data,
                         Err(error) => {
                             warn!(%error, "Error decrypting message!");
-                            let mut new_self = Self::Error(id.clone(), Error::from(error));
+                            let mut new_self = Self::Error(id.clone(), Error::Keys);
                             std::mem::swap(&mut new_self, self);
                             return;
                         }
                     }
                 }
             };
-            let mut decoded: Result<T, _> = DecodeAll::decode_all(data.as_slice());
+            let mut decoded: Result<T, _> = DecodeAll::decode_all(&mut data.as_slice());
             if decoded.is_err() {
                 warn!("Error parsing message using all bytes");
                 decoded = Decode::decode(&mut data.as_slice());
@@ -588,7 +593,7 @@ where
                     Ok(data) => data,
                     Err(error) => {
                         warn!(%error, "Error encrypting message!");
-                        let mut new_self = Self::Error(id.clone(), Error::from(error));
+                        let mut new_self = Self::Error(id.clone(), Error::Keys);
                         std::mem::swap(&mut new_self, self);
                         return;
                     }
