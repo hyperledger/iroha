@@ -37,28 +37,28 @@ iroha_version = { path = "../version", version = "=2.0.0-pre-rc.7", default-feat
 iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.7" }
 iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.7", optional = true }
 
-dashmap = { version = "4.0", optional = true}
-tokio = { version = "1.6.0", features = ["sync", "rt-multi-thread"], optional = true}
-parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-derive_more = { version = "0.99.16", default-features = false, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.59", default-features = false }
-warp = { version = "0.3", default-features = false, optional = true }
-thiserror = { version = "1.0.28", optional = true }
+dashmap = { version = "5.3.4", optional = true }
+tokio = { version = "1.20.1", features = ["sync", "rt-multi-thread"], optional = true }
+parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
+derive_more = { version = "0.99.17", default-features = false, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
+serde = { version = "1.0.142", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.83", default-features = false }
+warp = { version = "0.3.2", default-features = false, optional = true }
+thiserror = { version = "1.0.32", optional = true }
 getset = "0.1.2"
-strum = { version = "0.24.0", default-features = false, features = ["derive"] }
+strum = { version = "0.24.1", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.7" }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.7" }
 iroha = { path = "../cli" }
-hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde"] }
+hex = { version = "0.4.3", default-features = false, features = ["alloc", "serde"] }
 
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.7" }
 
-tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
-trybuild = "1.0.53"
-criterion = "0.3"
+tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread"] }
+trybuild = "1.0.64"
+criterion = "0.3.6"
 
 [[bench]]
 name = "time_event_filter"

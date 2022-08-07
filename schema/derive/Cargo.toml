@@ -10,10 +10,10 @@ proc-macro = true
 
 [dependencies]
 syn = { version = "1.0.99", features = ["full"] }
-proc-macro2 = "1.0.39"
+proc-macro2 = "1.0.43"
 quote = "1.0.21"
 
 [dev-dependencies]
 iroha_schema = { path = "../"}
 
-trybuild = "1.0.63"
+trybuild = "1.0.64"

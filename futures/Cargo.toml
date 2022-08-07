@@ -15,10 +15,10 @@ telemetry = ["iroha_futures_derive/telemetry"]
 iroha_futures_derive = { version = "=2.0.0-pre-rc.7", path = "derive" }
 iroha_logger = { version = "=2.0.0-pre-rc.7", path = "../logger" }
 
-rand = "0.8"
-serde_json = "1"
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
+rand = "0.8.5"
+serde_json = "1.0.83"
+serde = { version = "1.0.142", features = ["derive"] }
+tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread", "macros"] }
 
 [dev-dependencies]
-tokio-stream = { version = "0.1.6" }
+tokio-stream = "0.1.9"
