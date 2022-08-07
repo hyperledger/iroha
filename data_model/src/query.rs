@@ -3,7 +3,7 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 
 use derive_more::Display;
 use iroha_crypto::SignatureOf;

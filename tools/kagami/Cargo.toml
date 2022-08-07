@@ -33,6 +33,6 @@ iroha_schema_gen = { version = "=2.0.0-pre-rc.7", path = "../../schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.7", path = "../../schema" }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.7", path = "../../permissions_validators" }
 
-color-eyre = "0.5.11"
-clap = { version = "3.1.10",  features = ["derive"] }
-serde_json = "1"
+color-eyre = "0.6.2"
+clap = { version = "3.2.16", features = ["derive"] }
+serde_json = "1.0.83"

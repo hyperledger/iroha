@@ -276,7 +276,10 @@ mod tests {
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(ptr: *const u8, len: usize) {
+    pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(
+        ptr: *const u8,
+        len: usize,
+    ) {
         let bytes = slice::from_raw_parts(ptr, len);
         let instruction = Instruction::decode(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
