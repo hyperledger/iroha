@@ -45,12 +45,12 @@ iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 
 test_network = { version = "=2.0.0-pre-rc.7", path = "../core/test_network" }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
-criterion = { version = "0.3.5", features = ["html_reports"] }
-color-eyre = "0.5.11"
+criterion = { version = "0.3.6", features = ["html_reports"] }
+color-eyre = "0.6.2"
 tempfile = "3"
 hex = "0.4.0"
 
-tracing-subscriber = { version = "0.3.0", default-features = false, features = ["fmt", "ansi"] }
+tracing-subscriber = { version = "0.3.15", default-features = false, features = ["fmt", "ansi"] }
 tracing-flame = { version = "0.2.0" }
 
 [[bench]]

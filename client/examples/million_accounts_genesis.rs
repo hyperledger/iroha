@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
-use std::{thread, time::Duration};
+use std::{thread, time::Duration, collections::HashSet};
 
 use iroha::samples::get_config;
 use iroha_core::genesis::{
@@ -85,3 +85,4 @@ fn main() {
     create_million_accounts_directly();
     main_genesis();
 }
+
