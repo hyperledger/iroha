@@ -39,6 +39,12 @@ pub enum Error {
     Addr(#[source] AddrParseError),
 }
 
+impl From<aead::Error> for Error {
+    fn from(_: aead::Error) -> Self {
+        Self::Keys
+    }
+}
+
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Self::Io(std::sync::Arc::new(e))
@@ -53,12 +59,6 @@ impl From<parity_scale_codec::Error> for Error {
 
 impl From<CryptoError> for Error {
     fn from(_: CryptoError) -> Self {
-        Self::Keys
-    }
-}
-
-impl From<aead::Error> for Error {
-    fn from(_: aead::Error) -> Self {
         Self::Keys
     }
 }

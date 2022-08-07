@@ -10,17 +10,17 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = {version = "1", features = ["full"] }
-quote = "1.0"
-proc-macro2 = "1.0"
-proc-macro-error = "1.0"
+syn = { version = "1.0.99", features = ["full"] }
+quote = "1.0.21"
+proc-macro2 = "1.0.43"
+proc-macro-error = "1.0.4"
 
 [dev-dependencies]
 iroha_version = { version = "=2.0.0-pre-rc.7", path = "..", features = ["scale", "json"]}
 iroha_macro = { version = "=2.0.0-pre-rc.7", path = "../../macro" }
 
-parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.59", default-features = false, features = ["alloc"] }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
+parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.83", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.142", default-features = false, features = ["derive"] }
 
-trybuild = "1.0.53"
+trybuild = "1.0.64"

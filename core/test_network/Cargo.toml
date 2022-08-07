@@ -21,13 +21,13 @@ iroha_logger = { version = "=2.0.0-pre-rc.7", path = "../../logger" }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.7", path = "../../permissions_validators" }
 
 
-eyre = "0.6.5"
-futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
-once_cell = "1.8.0"
-rand = "0.8"
-tempfile = "3"
-tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
+eyre = "0.6.8"
+futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
+once_cell = "1.13.0"
+rand = "0.8.5"
+tempfile = "3.3.0"
+tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread", "macros"] }
 unique_port = "0.2.1"
 
 [dev-dependencies]
-async-trait = "0.1"
+async-trait = "0.1.57"

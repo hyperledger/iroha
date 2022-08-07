@@ -58,7 +58,7 @@ fn main() {
             .env("CARGO_TARGET_DIR", out_dir)
             .current_dir(smartcontract_path)
             .args(&[
-                "+nightly-2022-04-20",
+                "+nightly-2022-08-09",
                 "build",
                 "--release",
                 "-Z",

@@ -24,14 +24,14 @@ iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.7", defaul
 iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.7" }
 iroha_schema = { path = "../schema" }
 
-derive_more = { version = "0.99.16", default-features = false, features = ["deref", "deref_mut", "display"] }
-parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive", "full"] }
-serde = { version = "1.0.130", default-features = false, features = ["derive"] }
-hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde"] }
-openssl-sys = { version = "0.9.72", features = ["vendored"], optional = true }
-ursa = { version = "=0.3.7", optional = true }
+derive_more = { version = "0.99.17", default-features = false, features = ["deref", "deref_mut", "display"] }
+parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive", "full"] }
+serde = { version = "1.0.142", default-features = false, features = ["derive"] }
+hex = { version = "0.4.3", default-features = false, features = ["alloc", "serde"] }
+openssl-sys = { version = "0.9.75", features = ["vendored"], optional = true }
+ursa = { version = "0.3.7", optional = true }
 getset = "0.1.2"
 
 [dev-dependencies]
 hex-literal = "0.3.4"
-serde_json = "1.0.59"
+serde_json = "1.0.83"

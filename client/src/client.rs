@@ -74,7 +74,7 @@ where
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND => {
-                    let mut res = QueryError::decode_all(resp.body().as_ref());
+                    let mut res = QueryError::decode_all(&mut resp.body().as_ref());
                     if res.is_err() {
                         warn!("Can't decode query error, not all bytes were consumed");
                         res = QueryError::decode(&mut resp.body().as_ref());
@@ -569,25 +569,39 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use eyre::Result;
     /// use iroha_client::{
     ///     client::{Client, ResponseHandler},
-    ///     http::{RequestBuilder, Response},
+    ///     http::{RequestBuilder, Response, Method},
     /// };
-    /// use iroha_data_model::prelude::{Account, FindAllAccounts, Pagination};
+    /// use iroha_data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}};
     ///
     /// struct YourAsyncRequest;
     ///
     /// impl YourAsyncRequest {
     ///     async fn send(self) -> Response<Vec<u8>> {
-    ///         // do the stuff
+    ///         todo!()
     ///     }
     /// }
     ///
     /// // Implement builder for this request
     /// impl RequestBuilder for YourAsyncRequest {
-    ///     // ...
+    ///     fn new(_: Method, url: impl AsRef<str>) -> Self {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn param<K: AsRef<str>, V: ToString>(self, _: K, _: V) -> Self  {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn header<N: AsRef<str>, V: ToString>(self, _: N, _: V) -> Self {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn body(self, data: Vec<u8>) -> Self {
+    ///          todo!()
+    ///     }
     /// }
     ///
     /// async fn fetch_accounts(client: &Client) -> Result<Vec<Account>> {
@@ -596,6 +610,7 @@ impl Client {
     ///     let (req, resp_handler) = client.prepare_query_request::<_, YourAsyncRequest>(
     ///         FindAllAccounts::new(),
     ///         Pagination::default(),
+    ///         PredicateBox::default(),
     ///     )?;
     ///
     ///     // Do what you need to send the request and to get the response

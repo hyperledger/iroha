@@ -12,11 +12,11 @@ iroha_data_model = { version = "=2.0.0-pre-rc.7", path = "../data_model", defaul
 iroha_macro = { version = "=2.0.0-pre-rc.7", path = "../macro" }
 iroha_schema = { version = "=2.0.0-pre-rc.7", path = "../schema" }
 
-serde = { version = "1.0", features = ["derive"] }
-derive_more = { version = "0.99.16", default-features = false, features = ["display"] }
-parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-once_cell = "1.8.0"
-thiserror = "1.0.28"
+serde = { version = "1.0.142", features = ["derive"] }
+derive_more = { version = "0.99.17", default-features = false, features = ["display"] }
+parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
+once_cell = "1.13.0"
+thiserror = "1.0.32"
 
 [dev-dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.7", path = "../data_model", default-features = false }
