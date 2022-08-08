@@ -3,6 +3,7 @@
 #![feature(alloc_error_handler)]
 // Required because of `unsafe` code and `no_mangle` use
 #![allow(unsafe_code)]
+#![allow(clippy::pub_use)]
 #![no_std]
 
 #[cfg(all(not(test), not(target_pointer_width = "32")))]
@@ -275,7 +276,7 @@ mod tests {
     }
 
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(
+    pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(
         ptr: *const u8,
         len: usize,
     ) {
@@ -285,7 +286,7 @@ mod tests {
     }
 
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _iroha_wasm_execute_query_mock(
+    pub unsafe extern "C" fn _iroha_wasm_execute_query_mock(
         ptr: *const u8,
         len: usize,
     ) -> *const u8 {
@@ -297,14 +298,14 @@ mod tests {
     }
 
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
+    pub unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
         let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
 
         ManuallyDrop::new(encode_as_vec(&account_id).into_boxed_slice()).as_ptr()
     }
 
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _iroha_wasm_query_triggering_event_mock() -> *const u8 {
+    pub unsafe extern "C" fn _iroha_wasm_query_triggering_event_mock() -> *const u8 {
         let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
         let rose_definition_id: <AssetDefinition as Identifiable>::Id =
             "rose#wonderland".parse().expect("Valid");
