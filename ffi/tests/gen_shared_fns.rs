@@ -1,26 +1,26 @@
 #![allow(unsafe_code, clippy::restriction)]
 
-use std::{cmp::Ordering, mem::MaybeUninit};
+use std::{alloc::alloc, cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, FfiResult, Handle, IntoFfi, TryFromFfi, TryFromReprC,
-};
+use iroha_ffi::{def_ffi_fn, ffi, ffi_export, handles, FfiReturn, Handle, IntoFfi, TryFromReprC};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct1 {
-    name: String,
-}
+ffi! {
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+    pub struct FfiStruct1 {
+        name: String,
+    }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct2 {
-    name: String,
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+    pub struct FfiStruct2 {
+        name: String,
+    }
 }
 
 handles! {0, FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Drop: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Drop: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Clone: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Eq: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 
 #[ffi_export]
 impl FfiStruct1 {
@@ -36,7 +36,7 @@ fn gen_shared_fns() {
 
     let ffi_struct1 = unsafe {
         let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
-        assert_eq! {FfiResult::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str()), ffi_struct.as_mut_ptr())};
+        assert_eq! {FfiReturn::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str()), ffi_struct.as_mut_ptr())};
         let ffi_struct = ffi_struct.assume_init();
         assert!(!ffi_struct.is_null());
         assert_eq!(FfiStruct1 { name }, *ffi_struct);
@@ -84,9 +84,9 @@ fn gen_shared_fns() {
             TryFromReprC::try_from_repr_c(ordering.assume_init(), &mut ()).unwrap();
         assert_eq!(ordering, Ordering::Equal);
 
-        assert_eq!(FfiResult::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
+        assert_eq!(FfiReturn::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
         assert_eq!(
-            FfiResult::Ok,
+            FfiReturn::Ok,
             __drop(FfiStruct1::ID, cloned.into_ffi().cast())
         );
     }

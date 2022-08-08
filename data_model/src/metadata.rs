@@ -2,14 +2,13 @@
 //! transactions and assets.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, collections::btree_map, format, string::String, vec::Vec};
 use core::borrow::Borrow;
 #[cfg(feature = "std")]
-use std::collections::btree_map;
+use std::{alloc::alloc, collections::btree_map};
 
 use derive_more::Display;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{IntoFfi, TryFromFfi};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -86,9 +85,10 @@ impl Limits {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "Metadata")]

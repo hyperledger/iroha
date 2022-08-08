@@ -1,24 +1,24 @@
-use std::{cmp::Ordering, mem::MaybeUninit};
+use std::alloc::alloc;
 
-use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, AsReprCRef, Handle, IntoFfi, TryFromFfi, TryFromReprC,
-};
+use iroha_ffi::{def_ffi_fn, ffi, ffi_export, handles, IntoFfi, TryFromReprC};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct1 {
-    name: String,
-}
+ffi! {
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+    pub struct FfiStruct1 {
+        name: String,
+    }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
-pub struct FfiStruct2 {
-    name: String,
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+    pub struct FfiStruct2 {
+        name: String,
+    }
 }
 
 handles! {0, FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Drop: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
-gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Drop: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Clone: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Eq: FfiStruct1, FfiStruct2}
+def_ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 
 #[ffi_export]
 impl FfiStruct1 {
@@ -29,8 +29,11 @@ impl FfiStruct1 {
 }
 
 fn main() {
-    let name = String::from("X");
+    use core::mem::MaybeUninit;
 
+    use iroha_ffi::{AsReprCRef, Handle};
+
+    let name = String::from("X");
     let ffi_struct1: FfiStruct1 = unsafe {
         let mut ffi_struct = MaybeUninit::<*mut FfiStruct1>::uninit();
         let name = IntoFfi::into_ffi(name);
@@ -71,7 +74,7 @@ fn main() {
             ordering.as_mut_ptr(),
         );
         assert_eq!(
-            Ordering::Equal,
+            core::cmp::Ordering::Equal,
             TryFromReprC::try_from_repr_c(ordering.assume_init(), &mut ()).unwrap()
         );
 

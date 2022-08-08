@@ -361,7 +361,7 @@ impl Drop for BoxedString {
     fn drop(&mut self) {
         // SAFETY: created from `Box<[u8]>`.
         unsafe {
-            Box::<[_]>::from_raw(from_raw_parts_mut(self.ptr.as_ptr(), self.len));
+            let _dropped = Box::<[_]>::from_raw(from_raw_parts_mut(self.ptr.as_ptr(), self.len));
         }
     }
 }
@@ -383,7 +383,7 @@ unsafe impl Sync for BoxedString {}
 struct InlinedString {
     #[cfg(target_endian = "little")]
     payload: [u8; MAX_INLINED_STRING_LEN],
-    /// MSB is always 1 to distinguish inlined variant.  
+    /// MSB is always 1 to distinguish inlined variant.
     len: u8,
     #[cfg(target_endian = "big")]
     payload: [u8; MAX_INLINED_STRING_LEN],

@@ -3,9 +3,43 @@
 /// Type of the handle id
 pub type Id = u8;
 
-/// Implement [`$crate::Handle`] for given types with the given initial handle id.
+/// Implement [`crate::Handle`] for given types with the given initial handle id. Ids are
+/// assigned incrementally to every type in the macro invocation. Check the following example:
+///
+/// ```rust
+/// struct Foo1;
+/// struct Foo2;
+/// struct Bar1;
+/// struct Bar2;
+///
+/// iroha_ffi::handles! {0, Foo1, Foo2, Bar1, Bar2}
+///
+/// /* will produce:
+/// impl Handle for Foo1 {
+///     const ID: Id = 0;
+/// }
+/// impl Handle for Foo2 {
+///     const ID: Id = 1;
+/// }
+/// impl Handle for Bar1 {
+///     const ID: Id = 2;
+/// }
+/// impl Handle for Bar2 {
+///     const ID: Id = 3;
+/// } */
+/// ```
 #[macro_export]
 macro_rules! handles {
+    ( $($other:ty),* $(,)? ) => {
+        $crate::handles! {0, $( $other, )*}
+    };
+    ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
+        unsafe impl $crate::Handle for $ty {
+            const ID: $crate::handle::Id = $id;
+        }
+
+        $crate::handles! {$id + 1, $( $other, )*}
+    };
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
         unsafe impl $crate::Handle for $ty {
             const ID: $crate::handle::Id = $id;
@@ -18,16 +52,16 @@ macro_rules! handles {
 
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
-macro_rules! gen_ffi_impl {
+macro_rules! def_ffi_fn {
     (@catch_unwind $block:block ) => {
         match std::panic::catch_unwind(|| $block) {
             Ok(res) => match res {
-                Ok(()) => $crate::FfiResult::Ok,
+                Ok(()) => $crate::FfiReturn::Ok,
                 Err(err) => err.into(),
             },
             Err(_) => {
                 // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                $crate::FfiResult::UnrecoverableError
+                $crate::FfiReturn::UnrecoverableError
             },
         }
     };
@@ -43,8 +77,8 @@ macro_rules! gen_ffi_impl {
             handle_id: $crate::handle::Id,
             handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut *mut core::ffi::c_void
-        ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
+        ) -> $crate::FfiReturn {
+            $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
 
                 // False positive - doesn't compile otherwise
@@ -60,7 +94,7 @@ macro_rules! gen_ffi_impl {
                         output_ptr.cast::<*mut $other>().write(new_handle_ptr);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return Err($crate::FfiResult::UnknownHandle),
+                    _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
                 Ok(())
@@ -80,8 +114,8 @@ macro_rules! gen_ffi_impl {
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut u8,
-        ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
+        ) -> $crate::FfiReturn {
+            $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
 
                 // False positive - doesn't compile otherwise
@@ -99,7 +133,7 @@ macro_rules! gen_ffi_impl {
                         output_ptr.write($crate::IntoFfi::into_ffi(lhandle == rhandle).into());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return Err($crate::FfiResult::UnknownHandle),
+                    _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
                 Ok(())
@@ -119,8 +153,8 @@ macro_rules! gen_ffi_impl {
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut i8,
-        ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
+        ) -> $crate::FfiReturn {
+            $crate::def_ffi_fn!(@catch_unwind {
                 use core::borrow::Borrow;
 
                 // False positive - doesn't compile otherwise
@@ -138,7 +172,7 @@ macro_rules! gen_ffi_impl {
                         output_ptr.write($crate::IntoFfi::into_ffi(lhandle.cmp(rhandle)).into());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return Err($crate::FfiResult::UnknownHandle),
+                    _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
                 Ok(())
@@ -156,19 +190,89 @@ macro_rules! gen_ffi_impl {
         $vis unsafe extern "C" fn __drop(
             handle_id: $crate::handle::Id,
             handle_ptr: *mut core::ffi::c_void,
-        ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
+        ) -> $crate::FfiReturn {
+            $crate::def_ffi_fn!(@catch_unwind {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
                         let handle: $other = $crate::TryFromReprC::try_from_repr_c(handle_ptr, &mut ())?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return Err($crate::FfiResult::UnknownHandle),
+                    _ => return Err($crate::FfiReturn::UnknownHandle),
                 }
 
                 Ok(())
             })
+        }
+    };
+}
+
+/// Generate the declaration of FFI functions for the requested trait method (e.g. Clone, Eq, Ord)
+#[macro_export]
+macro_rules! decl_ffi_fn {
+    ( $vis:vis Clone: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Clone::clone`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __clone(
+                handle_id: $crate::handle::Id,
+                handle_ptr: *const core::ffi::c_void,
+                output_ptr: *mut *mut core::ffi::c_void
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( $vis:vis Eq: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Eq::eq`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __eq(
+                handle_id: $crate::handle::Id,
+                left_handle_ptr: *const core::ffi::c_void,
+                right_handle_ptr: *const core::ffi::c_void,
+                output_ptr: *mut u8,
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( $vis:vis Ord: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Ord::ord`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __ord(
+                handle_id: $crate::handle::Id,
+                left_handle_ptr: *const core::ffi::c_void,
+                right_handle_ptr: *const core::ffi::c_void,
+                output_ptr: *mut i8,
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( $vis:vis Drop: $( $other:ty ),+ $(,)? ) => {
+        extern {
+            /// FFI function equivalent of [`Drop::drop`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[no_mangle]
+            $vis fn __drop(
+                handle_id: $crate::handle::Id,
+                handle_ptr: *mut core::ffi::c_void,
+            ) -> $crate::FfiReturn;
         }
     };
 }
