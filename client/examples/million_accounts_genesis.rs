@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
-use std::{collections::HashSet, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use iroha::samples::get_config;
 use iroha_core::genesis::{

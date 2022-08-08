@@ -163,9 +163,6 @@ impl PartialEq for ConstString {
 }
 
 macro_rules! impl_eq {
-    ($($ty:ty,)*) => {
-        impl_eq!($($ty),*);
-    };
     ($($ty:ty),*) => {$(
         impl PartialEq<$ty> for ConstString {
             // Not possible to write macro uniformly for different types otherwise.

@@ -1,6 +1,10 @@
 //! Module which is used for deadlock detection of actors
 
-#![allow(clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::declare_interior_mutable_const
+)]
 
 use std::{future::Future, time::Duration};
 
