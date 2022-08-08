@@ -5,7 +5,7 @@ use crate::{
         IntoFfiSliceMut, IntoFfiSliceRef, SliceMut, SliceRef, TryFromReprCSliceMut,
         TryFromReprCSliceRef,
     },
-    FfiResult, IntoFfi, ReprC, TryFromReprC,
+    FfiReturn, IntoFfi, ReprC, Result, TryFromReprC,
 };
 
 #[inline]
@@ -17,11 +17,11 @@ impl<'itm> TryFromReprC<'itm> for bool {
     type Source = <u8 as TryFromReprC<'itm>>::Source;
     type Store = ();
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
         let source: u8 = TryFromReprC::try_from_repr_c(source, &mut ())?;
 
         if !is_valid_bool(source) {
-            return Err(FfiResult::TrapRepresentation);
+            return Err(FfiReturn::TrapRepresentation);
         }
 
         Ok(source != 0)
@@ -33,12 +33,12 @@ impl<'itm> TryFromReprC<'itm> for &'itm bool {
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
         let mut store = ();
         let source: &u8 = TryFromReprC::try_from_repr_c(source, &mut store)?;
 
         if !is_valid_bool(*source) {
-            return Err(FfiResult::TrapRepresentation);
+            return Err(FfiReturn::TrapRepresentation);
         }
 
         Ok(&*(source as *const u8).cast::<bool>())
@@ -51,12 +51,12 @@ impl<'slice> TryFromReprCSliceRef<'slice> for bool {
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<&[Self], FfiResult> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<&[Self]> {
         let mut store = ();
         let source: &[u8] = TryFromReprC::try_from_repr_c(source, &mut store)?;
 
         if !source.iter().all(|item| is_valid_bool(*item)) {
-            return Err(FfiResult::TrapRepresentation);
+            return Err(FfiReturn::TrapRepresentation);
         }
 
         Ok(&*(source as *const _ as *const _))
@@ -91,14 +91,14 @@ impl<'itm> TryFromReprC<'itm> for core::cmp::Ordering {
     type Source = <i8 as TryFromReprC<'itm>>::Source;
     type Store = ();
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
         let source: i8 = TryFromReprC::try_from_repr_c(source, &mut ())?;
 
         match source {
             -1 => Ok(core::cmp::Ordering::Less),
             0 => Ok(core::cmp::Ordering::Equal),
             1 => Ok(core::cmp::Ordering::Greater),
-            _ => Err(FfiResult::TrapRepresentation),
+            _ => Err(FfiReturn::TrapRepresentation),
         }
     }
 }
@@ -108,12 +108,12 @@ impl<'itm> TryFromReprC<'itm> for &'itm core::cmp::Ordering {
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
         let mut store = ();
         let source: &i8 = TryFromReprC::try_from_repr_c(source, &mut store)?;
 
         if !(*source == -1 || *source == 0 || *source == 1) {
-            return Err(FfiResult::TrapRepresentation);
+            return Err(FfiReturn::TrapRepresentation);
         }
 
         Ok(&*(source as *const i8).cast::<core::cmp::Ordering>())
@@ -126,12 +126,12 @@ impl<'slice> TryFromReprCSliceRef<'slice> for core::cmp::Ordering {
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<&[Self], FfiResult> {
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<&[Self]> {
         let mut store = ();
         let source: &[i8] = TryFromReprC::try_from_repr_c(source, &mut store)?;
 
         if !source.iter().all(|e| *e == -1 || *e == 0 || *e == 1) {
-            return Err(FfiResult::TrapRepresentation);
+            return Err(FfiReturn::TrapRepresentation);
         }
 
         Ok(&*(source as *const _ as *const _))
@@ -177,7 +177,7 @@ macro_rules! primitive_impls {
             type Source = Self;
             type Store = ();
 
-            unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self, FfiResult> {
+            unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
                 Ok(source)
             }
         }
@@ -186,8 +186,8 @@ macro_rules! primitive_impls {
             type Source = SliceRef<'itm, $ty>;
             type Store = ();
 
-            unsafe fn try_from_repr_c(source: Self::Source, _: &'itm mut Self::Store) -> Result<&[Self], FfiResult> {
-                source.into_rust().ok_or(FfiResult::ArgIsNull)
+            unsafe fn try_from_repr_c(source: Self::Source, _: &'itm mut Self::Store) -> Result<&[Self]> {
+                source.into_rust().ok_or(FfiReturn::ArgIsNull)
             }
         }
 
@@ -195,8 +195,8 @@ macro_rules! primitive_impls {
             type Source = SliceMut<'slice, $ty>;
             type Store = ();
 
-            unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<&'slice mut [Self], FfiResult> {
-                source.into_rust().ok_or(FfiResult::ArgIsNull)
+            unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<&'slice mut [Self]> {
+                source.into_rust().ok_or(FfiReturn::ArgIsNull)
             }
         }
 

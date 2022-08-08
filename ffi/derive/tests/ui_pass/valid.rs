@@ -1,27 +1,27 @@
-use std::{collections::BTreeMap, mem::MaybeUninit};
+use std::{alloc::alloc, collections::BTreeMap};
 
 use getset::Getters;
-use iroha_ffi::{
-    ffi_export, gen_ffi_impl, handles, slice::OutBoxedSlice, AsReprCRef, Handle, IntoFfi,
-    TryFromFfi, TryFromReprC,
-};
+use iroha_ffi::{def_ffi_fn, ffi_export, handles, IntoFfi, TryFromReprC};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Name(&'static str);
-#[derive(Clone, Debug, PartialEq, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, IntoFfi, TryFromReprC)]
 pub struct Value(&'static str);
 
-#[ffi_export]
-#[derive(Clone, Getters, IntoFfi, TryFromFfi)]
+/// FfiStruct
+#[derive(Clone, Getters, IntoFfi, TryFromReprC)]
 #[getset(get = "pub")]
+#[ffi_export]
 pub struct FfiStruct {
+    /// Name
     name: Name,
+    /// Params
     #[getset(skip)]
     params: BTreeMap<Name, Value>,
 }
 
 handles! {0, FfiStruct}
-gen_ffi_impl! {Drop: FfiStruct}
+def_ffi_fn! {Drop: FfiStruct}
 
 #[ffi_export]
 impl FfiStruct {
@@ -59,8 +59,11 @@ pub fn ffi_duplicate_with_name(a: &FfiStruct, name: Name) -> FfiStruct {
 }
 
 fn main() {
-    let name = Name("X");
+    use core::mem::MaybeUninit;
 
+    use iroha_ffi::{AsReprCRef, Handle};
+
+    let name = Name("X");
     let mut ffi_struct: FfiStruct = unsafe {
         let mut ffi_struct = MaybeUninit::<*mut FfiStruct>::uninit();
         let name = IntoFfi::into_ffi(name.clone());
@@ -73,8 +76,10 @@ fn main() {
     let mut out_params_data = Vec::with_capacity(2);
     let mut data_len = MaybeUninit::<isize>::uninit();
 
-    let out_params =
-        OutBoxedSlice::from_uninit_slice(Some(&mut out_params_data[..]), &mut data_len);
+    let out_params = iroha_ffi::slice::OutBoxedSlice::from_uninit_slice(
+        Some(&mut out_params_data[..]),
+        &mut data_len,
+    );
 
     unsafe {
         let name = IntoFfi::into_ffi(name.clone());

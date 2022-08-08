@@ -9,6 +9,7 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    alloc::alloc,
     borrow::ToOwned as _,
     boxed::Box,
     format,
@@ -16,6 +17,8 @@ use alloc::{
     vec::Vec,
 };
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
@@ -23,10 +26,12 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
-#[cfg(feature = "ffi")]
-use iroha_ffi::{IntoFfi, TryFromFfi};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_primitives::{fixed, small, small::SmallVec};
+use iroha_primitives::{
+    fixed,
+    small::{Array as SmallArray, SmallVec},
+};
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
@@ -408,9 +413,10 @@ pub type ValueBox = Box<Value>;
     Deserialize,
     Serialize,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[allow(clippy::enum_variant_names)]
 #[repr(u8)]
 pub enum Value {
@@ -590,7 +596,7 @@ impl From<BlockValue> for Value {
     }
 }
 
-impl<A: small::Array> From<SmallVec<A>> for Value
+impl<A: SmallArray> From<SmallVec<A>> for Value
 where
     A::Item: Into<Value>,
 {
@@ -811,7 +817,7 @@ impl TryFrom<Value> for BlockValue {
     }
 }
 
-impl<A: small::Array> TryFrom<Value> for small::SmallVec<A>
+impl<A: SmallArray> TryFrom<Value> for SmallVec<A>
 where
     Value: TryInto<A::Item>,
 {
@@ -822,7 +828,7 @@ where
             return vec
                 .into_iter()
                 .map(TryInto::try_into)
-                .collect::<Result<small::SmallVec<_>, _>>()
+                .collect::<Result<SmallVec<_>, _>>()
                 .map_err(|_e| Self::Error::default());
         }
         Err(Self::Error::default())
@@ -909,13 +915,63 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(feature = "ffi")]
-pub(crate) mod ffi {
-    use iroha_ffi::{gen_ffi_impl, handles};
+pub mod ffi {
+    //! Definitions and implementations of FFI related functionalities
 
     use super::*;
 
-    handles! {0,
+    macro_rules! ffi_item {
+        ($it: item) => {
+            #[cfg(not(feature = "ffi_import"))]
+            $it
+
+            #[cfg(feature = "ffi_import")]
+            iroha_ffi::ffi! { $it }
+        };
+    }
+
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+    macro_rules! ffi_fn {
+        ($macro_name: ident) => {
+            iroha_ffi::$macro_name! { pub Clone:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                metadata::Metadata,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+            iroha_ffi::$macro_name! { pub Eq:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                metadata::Metadata,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+            iroha_ffi::$macro_name! { pub Ord:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+            iroha_ffi::$macro_name! { pub Drop:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                metadata::Metadata,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+        };
+    }
+
+    iroha_ffi::handles! {
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -925,41 +981,12 @@ pub(crate) mod ffi {
         Name,
     }
 
-    gen_ffi_impl! { pub Clone:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-    gen_ffi_impl! { pub Eq:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-    gen_ffi_impl! { pub Ord:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
-    gen_ffi_impl! { pub Drop:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-    }
+    #[cfg(feature = "ffi_import")]
+    ffi_fn! {decl_ffi_fn}
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    ffi_fn! {def_ffi_fn}
+
+    pub(crate) use ffi_item;
 }
 
 pub mod prelude {

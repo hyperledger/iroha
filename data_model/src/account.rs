@@ -2,6 +2,8 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    alloc::alloc,
+    boxed::Box,
     collections::{btree_map, btree_set},
     format,
     string::String,
@@ -9,13 +11,15 @@ use alloc::{
 };
 use core::str::FromStr;
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::{
+    alloc::alloc,
+    collections::{btree_map, btree_set},
+};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
-#[cfg(feature = "ffi")]
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -26,6 +30,7 @@ use crate::{
     asset::{prelude::AssetId, AssetsMap},
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
+    ffi::ffi_item,
     metadata::Metadata,
     permissions::{PermissionToken, Permissions},
     prelude::Asset,
@@ -89,9 +94,10 @@ impl From<GenesisAccount> for Account {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
 impl SignatureCheckCondition {
@@ -125,21 +131,32 @@ impl Default for SignatureCheckCondition {
     }
 }
 
-/// Builder which should be submitted in a transaction to create a new [`Account`]
-#[allow(clippy::multiple_inherent_impl)]
-#[derive(
-    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "[{id}]")]
-#[id(type = "<Account as Identifiable>::Id")]
-pub struct NewAccount {
-    /// Identification
-    id: <Account as Identifiable>::Id,
-    /// Signatories, i.e. signatures attached to this message.
-    signatories: Signatories,
-    /// Metadata that should be submitted with the builder
-    metadata: Metadata,
+ffi_item! {
+    /// Builder which should be submitted in a transaction to create a new [`Account`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[id(type = "<Account as Identifiable>::Id")]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "[{id}]")]
+    pub struct NewAccount {
+        /// Identification
+        id: <Account as Identifiable>::Id,
+        /// Signatories, i.e. signatures attached to this message.
+        signatories: Signatories,
+        /// Metadata that should be submitted with the builder
+        metadata: Metadata,
+    }
 }
 
 #[cfg(feature = "mutable_api")]
@@ -185,7 +202,11 @@ impl NewAccount {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -195,43 +216,46 @@ impl NewAccount {
     }
 }
 
-/// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    IdOrdEqHash,
-    Getters,
-    MutGetters,
-    Setters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
-#[display(fmt = "({id})")] // TODO: Add more?
-#[id(type = "Id")]
-#[allow(clippy::multiple_inherent_impl)]
-pub struct Account {
-    /// An Identification of the [`Account`].
-    id: <Self as Identifiable>::Id,
-    /// Asset's in this [`Account`].
-    assets: AssetsMap,
-    /// [`Account`]'s signatories.
-    signatories: Signatories,
-    /// Permissions tokens of this account
-    permission_tokens: Permissions,
-    /// Condition which checks if the account has the right signatures.
-    #[getset(get = "pub")]
-    #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
-    signature_check_condition: SignatureCheckCondition,
-    /// Metadata of this account as a key-value store.
-    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    metadata: Metadata,
-    /// Roles of this account, they are tags for sets of permissions stored in `World`.
-    roles: RoleIds,
+ffi_item! {
+    /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Getters,
+        MutGetters,
+        Setters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "({id})")] // TODO: Add more?
+    #[id(type = "Id")]
+    pub struct Account {
+        /// An Identification of the [`Account`].
+        id: <Self as Identifiable>::Id,
+        /// Assets in this [`Account`].
+        assets: AssetsMap,
+        /// [`Account`]'s signatories.
+        signatories: Signatories,
+        /// Permission tokens of this account
+        permission_tokens: Permissions,
+        /// Condition which checks if the account has the right signatures.
+        #[getset(get = "pub")]
+        #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
+        signature_check_condition: SignatureCheckCondition,
+        /// Metadata of this account as a key-value store.
+        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
+        metadata: Metadata,
+        /// Roles of this account, they are tags for sets of permissions stored in `World`.
+        roles: RoleIds,
+    }
 }
 
 impl HasMetadata for Account {
@@ -244,7 +268,11 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-#[cfg_attr(feature = "ffi", ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
@@ -401,9 +429,10 @@ impl FromIterator<Account> for crate::Value {
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 #[display(fmt = "{name}@{domain_id}")]
 pub struct Id {
     /// [`Account`]'s name.

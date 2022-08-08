@@ -3,7 +3,8 @@
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{
-    owned::LocalSlice, AsReprCRef, FfiResult, IntoFfi, OutPtrOf, Output, ReprC, TryFromReprC,
+    owned::LocalSlice, AsReprCRef, FfiReturn, IntoFfi, OutPtrOf, Output, ReprC, Result,
+    TryFromReprC,
 };
 
 /// Trait that facilitates the implementation of [`IntoFfi`] for immutable slices of foreign types
@@ -45,9 +46,9 @@ pub trait TryFromReprCSliceRef<'slice>: Sized {
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
-    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
     ///
     /// # Safety
     ///
@@ -55,7 +56,7 @@ pub trait TryFromReprCSliceRef<'slice>: Sized {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'slice mut Self::Store,
-    ) -> Result<&'slice [Self], FfiResult>;
+    ) -> Result<&'slice [Self]>;
 }
 
 /// Trait that facilitates the implementation of [`TryFromReprC`] for mutable slices of foreign types
@@ -72,9 +73,9 @@ pub trait TryFromReprCSliceMut<'slice>: Sized {
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
-    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
     ///
     /// # Safety
     ///
@@ -82,7 +83,7 @@ pub trait TryFromReprCSliceMut<'slice>: Sized {
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'slice mut Self::Store,
-    ) -> Result<&'slice mut [Self], FfiResult>;
+    ) -> Result<&'slice mut [Self]>;
 }
 
 /// Immutable slice with a defined C ABI layout. Consists of data pointer and length
@@ -279,7 +280,7 @@ impl<'slice, T: TryFromReprCSliceRef<'slice>> TryFromReprC<'slice> for &'slice [
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'slice mut Self::Store,
-    ) -> Result<Self, FfiResult> {
+    ) -> Result<Self> {
         TryFromReprCSliceRef::try_from_repr_c(source, store)
     }
 }
@@ -290,7 +291,7 @@ impl<'slice, T: TryFromReprCSliceMut<'slice>> TryFromReprC<'slice> for &'slice m
     unsafe fn try_from_repr_c(
         source: Self::Source,
         store: &'slice mut Self::Store,
-    ) -> Result<Self, FfiResult> {
+    ) -> Result<Self> {
         TryFromReprCSliceMut::try_from_repr_c(source, store)
     }
 }
@@ -331,9 +332,9 @@ impl<'slice, T: IntoFfiSliceRef<'slice>> IntoFfiSliceRef<'slice> for &'slice mut
 }
 
 impl<'data, T> OutPtrOf<SliceRef<'data, T>> for OutSliceRef<T> {
-    unsafe fn write(self, source: SliceRef<'data, T>) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: SliceRef<'data, T>) -> Result<()> {
         if self.1.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         if self.0.is_null() {
@@ -347,9 +348,9 @@ impl<'data, T> OutPtrOf<SliceRef<'data, T>> for OutSliceRef<T> {
     }
 }
 impl<'data, T> OutPtrOf<SliceMut<'data, T>> for OutSliceMut<T> {
-    unsafe fn write(self, source: SliceMut<'data, T>) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: SliceMut<'data, T>) -> Result<()> {
         if self.1.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         if self.0.is_null() {
@@ -363,9 +364,9 @@ impl<'data, T> OutPtrOf<SliceMut<'data, T>> for OutSliceMut<T> {
     }
 }
 impl<T: ReprC + Copy> OutPtrOf<LocalSlice<T>> for OutBoxedSlice<T> {
-    unsafe fn write(self, source: LocalSlice<T>) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: LocalSlice<T>) -> Result<()> {
         if self.2.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         // slice len is never larger than `isize::MAX`
