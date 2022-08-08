@@ -1,19 +1,22 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::mem::MaybeUninit;
+use std::{alloc::alloc, mem::MaybeUninit};
 
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
+use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
 
-#[derive(Debug, Clone, PartialEq, Eq, IntoFfi, TryFromFfi)]
+#[derive(Debug, Clone, PartialEq, Eq, IntoFfi, TryFromReprC)]
 pub struct Name(String);
 
-#[derive(Clone, Setters, Getters, MutGetters, IntoFfi, TryFromFfi)]
-#[ffi_export]
+/// FfiStruct
+#[derive(Clone, Setters, Getters, MutGetters, IntoFfi, TryFromReprC)]
 #[getset(get = "pub")]
+#[ffi_export]
 pub struct FfiStruct {
+    /// id
     #[getset(set = "pub", get_mut = "pub")]
     id: u32,
+    /// Name
     name: Name,
 }
 

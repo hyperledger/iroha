@@ -1,8 +1,11 @@
 #![allow(unsafe_code)]
+#![no_std]
 
 //! Structures, macros related to FFI and generation of FFI bindings.
 //! [Non-robust types](https://anssi-fr.github.io/rust-guide/07_ffi.html#non-robust-types-references-function-pointers-enums)
 //! are strictly avoided in the FFI API
+
+extern crate alloc;
 
 pub use iroha_ffi_derive::*;
 use owned::Local;
@@ -12,6 +15,9 @@ pub mod option;
 pub mod owned;
 mod primitives;
 pub mod slice;
+
+/// A specialized `Result` type for FFI operations
+pub type Result<T> = core::result::Result<T, FfiReturn>;
 
 /// Represents the handle in an FFI context
 ///
@@ -57,17 +63,14 @@ pub trait TryFromReprC<'itm>: Sized + 'itm {
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`]          - given pointer is null
-    /// * [`FfiResult::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiResult::TrapRepresentation`] - given value contains trap representation
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
     ///
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        store: &'itm mut Self::Store,
-    ) -> Result<Self, FfiResult>;
+    unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self>;
 }
 
 /// Conversion into a type that can be converted to an FFI-compatible [`ReprC`] type
@@ -86,12 +89,12 @@ pub trait OutPtrOf<T>: ReprC {
     ///
     /// # Errors
     ///
-    /// * [`FfiResult::ArgIsNull`] - if any of the out-pointers in [`Self`] is set to null
+    /// * [`FfiReturn::ArgIsNull`] - if any of the out-pointers in [`Self`] is set to null
     ///
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn write(self, source: T) -> Result<(), FfiResult>;
+    unsafe fn write(self, source: T) -> Result<()>;
 }
 
 /// Type that can be returned from an FFI function via out-pointer function argument
@@ -103,7 +106,7 @@ pub trait Output: Sized {
 /// Result of execution of an FFI function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i8)]
-pub enum FfiResult {
+pub enum FfiReturn {
     /// The input argument provided to FFI function has a trap representation.
     TrapRepresentation = -6,
     /// FFI function execution panicked.
@@ -145,16 +148,16 @@ impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm T {
     type Source = *const T;
     type Store = ();
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
-        source.as_ref().ok_or(FfiResult::ArgIsNull)
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
+        source.as_ref().ok_or(FfiReturn::ArgIsNull)
     }
 }
 impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
     type Source = *mut T;
     type Store = ();
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self, FfiResult> {
-        source.as_mut().ok_or(FfiResult::ArgIsNull)
+    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
+        source.as_mut().ok_or(FfiReturn::ArgIsNull)
     }
 }
 
@@ -180,9 +183,9 @@ where
 }
 
 impl<T> OutPtrOf<*mut T> for *mut *mut T {
-    unsafe fn write(self, source: *mut T) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: *mut T) -> Result<()> {
         if self.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         self.write(source);
@@ -190,9 +193,9 @@ impl<T> OutPtrOf<*mut T> for *mut *mut T {
     }
 }
 impl<T> OutPtrOf<*const T> for *mut *const T {
-    unsafe fn write(self, source: *const T) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: *const T) -> Result<()> {
         if self.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         self.write(source);
@@ -203,9 +206,9 @@ impl<T: ReprC> OutPtrOf<T> for *mut T
 where
     T: IntoFfi<Target = T>,
 {
-    unsafe fn write(self, source: T) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: T) -> Result<()> {
         if self.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         self.write(source);
@@ -213,9 +216,9 @@ where
     }
 }
 impl<T: ReprC + Copy> OutPtrOf<Local<T>> for *mut T {
-    unsafe fn write(self, source: Local<T>) -> Result<(), FfiResult> {
+    unsafe fn write(self, source: Local<T>) -> Result<()> {
         if self.is_null() {
-            return Err(FfiResult::ArgIsNull);
+            return Err(FfiReturn::ArgIsNull);
         }
 
         self.write(source.0);
@@ -235,6 +238,23 @@ where
     *mut Self: OutPtrOf<Self>,
 {
     type OutPtr = *mut Self;
+}
+
+/// Wrapper around struct/enum opaque pointer. When wrapped with the [`ffi`] macro in the
+/// crate linking dynamically to some `cdylib`, it replaces struct/enum body definition
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct Opaque {
+    __data: [u8; 0],
+
+    // Required for !Send & !Sync & !Unpin.
+    //
+    // - `*mut u8` is !Send & !Sync. It must be in `PhantomData` to not
+    //   affect alignment.
+    //
+    // - `PhantomPinned` is !Unpin. It must be in `PhantomData` because
+    //   its memory representation is not considered FFI-safe.
+    __marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
 }
 
 macro_rules! impl_tuple {
@@ -267,7 +287,7 @@ macro_rules! impl_tuple {
             type Store = ($( $ty::Store, )*);
 
             #[allow(non_snake_case)]
-            unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self, FfiResult> {
+            unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self> {
                 impl_tuple! {@decl_priv_mod $($ty),+}
 
                 let $ffi_ty($($ty,)+) = source;

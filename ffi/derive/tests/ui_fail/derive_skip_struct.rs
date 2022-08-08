@@ -1,12 +1,14 @@
-use core::mem::MaybeUninit;
+use std::{alloc::alloc, mem::MaybeUninit};
 
 use getset::{MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
 
-#[derive(Clone, Setters, MutGetters, IntoFfi, TryFromFfi)]
-#[ffi_export]
+/// FfiStruct
+#[derive(Clone, Setters, MutGetters, IntoFfi, TryFromReprC)]
 #[getset(skip)]
+#[ffi_export]
 pub struct FfiStruct {
+    /// a
     #[getset(set = "pub", get_mut = "pub")]
     a: u32,
     b: i32,
