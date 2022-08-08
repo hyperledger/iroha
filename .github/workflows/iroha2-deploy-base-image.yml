@@ -1,10 +1,11 @@
 name: I2::Base Image Deploy
 
 on:
+  workflow_dispatch:
   push:
     branches: 
       - iroha2-dev
-      - iroha2
+      - iroha2-stable
       - iroha2-lts
     paths:
       - 'Dockerfile.base'
@@ -13,8 +14,11 @@ env:
   REPOSITORY_URL: '${{ github.server_url }}/${{ github.repository }}.git'
 
 jobs:
-  base_image_deploy_iroha2-dev:
-    if: github.ref == 'refs/heads/iroha2-dev'
+  base_image_deploy:
+    strategy:
+      matrix:
+        tag: [dev, stable, lts]
+    if: github.ref == 'refs/heads/iroha2-${{ matrix.tag }}'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -28,54 +32,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-ci:dev image
+      - name: Build and push iroha2-ci:${{ matrix.tag }} image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2-ci:dev
-          context: ${{ env.REPOSITORY_URL }}#iroha2-dev
+          tags: hyperledger/iroha2-ci:${{ matrix.tag }}
+          context: ${{ env.REPOSITORY_URL }}#iroha2-${{ matrix.tag }}
           file: Dockerfile.base
-
-  base_image_deploy_iroha2:
-    if: github.ref == 'refs/heads/iroha2'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up buildx
-        uses: docker/setup-buildx-action@v2
-        id: buildx
-        with:
-          install: true
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-ci:stable image
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          tags: hyperledger/iroha2-ci:stable
-          context: ${{ env.REPOSITORY_URL }}#iroha2
-          file: Dockerfile.base
-
-  base_image_deploy_iroha2-lts:
-    if: github.ref == 'refs/heads/iroha2-lts'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up buildx
-        uses: docker/setup-buildx-action@v2
-        id: buildx
-        with:
-          install: true
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-ci:lts image
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          tags: hyperledger/iroha2-ci:lts
-          context: ${{ env.REPOSITORY_URL }}#iroha2-lts
-          file: Dockerfile.base
+          build-args: TAG=${{ matrix.tag }}

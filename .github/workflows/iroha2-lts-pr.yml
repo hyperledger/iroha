@@ -17,7 +17,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Build Client CLI
         run: mold --run cargo build
@@ -52,7 +52,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Set up Docker Buildx
         id: buildx
@@ -82,7 +82,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Run benchmarks
         run: mold --run cargo bench --workspace --quiet
@@ -94,7 +94,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Set up JDK 11
         uses: actions/setup-java@v1
         with:
@@ -139,6 +139,6 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run long tests
         run: mold --run cargo test --workspace --no-fail-fast -- --ignored --test-threads=1 long

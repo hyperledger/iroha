@@ -66,7 +66,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Build
         run: mold --run cargo build --release --verbose
@@ -100,7 +100,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Run debug tests and save telemetry
         env:
