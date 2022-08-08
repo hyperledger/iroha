@@ -1,6 +1,6 @@
 [package]
 name = "test_network"
-version = "2.0.0-pre-rc.5"
+version = "2.0.0-pre-rc.7"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -11,14 +11,15 @@ query = []
 
 [dependencies]
 iroha = { path = "../../cli", features = ["test-network"] }
-iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
-iroha_client = { version = "=2.0.0-pre-rc.5", path = "../../client" }
-iroha_config = { version = "=2.0.0-pre-rc.5", path = "../../config" }
-iroha_core = { version = "=2.0.0-pre-rc.5", path = "../../core" }
-iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../../data_model" }
-iroha_primitives = { version = "=2.0.0-pre-rc.5", path = "../../primitives" }
-iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../../logger" }
-iroha_permissions_validators = { version = "=2.0.0-pre-rc.5", path = "../../permissions_validators" }
+iroha_actor = { version = "=2.0.0-pre-rc.7", path = "../../actor" }
+iroha_client = { version = "=2.0.0-pre-rc.7", path = "../../client" }
+iroha_core = { version = "=2.0.0-pre-rc.7", path = "../../core" }
+iroha_config = { version = "=2.0.0-pre-rc.7", path = "../../config" }
+iroha_data_model = { version = "=2.0.0-pre-rc.7", path = "../../data_model" }
+iroha_primitives = { version = "=2.0.0-pre-rc.7", path = "../../primitives" }
+iroha_logger = { version = "=2.0.0-pre-rc.7", path = "../../logger" }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.7", path = "../../permissions_validators" }
+
 
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }

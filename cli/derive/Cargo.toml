@@ -1,6 +1,6 @@
 [package]
 name = "iroha_cli_derive"
-version = "2.0.0-pre-rc.5"
+version = "2.0.0-pre-rc.7"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,6 +9,9 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = {version = "1", default-features = false, features = ["parsing", "printing", "extra-traits"] }
+syn = {version = "1", features = ["parsing", "printing", "extra-traits"] }
 quote = "1.0"
 proc-macro2 = "1.0"
+
+[dev-dependencies]
+warp = "0.3"
