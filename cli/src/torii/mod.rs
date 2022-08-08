@@ -2,7 +2,12 @@
 //! is used to receive, accept and route incoming instructions,
 //! queries and messages.
 
-use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
+use std::{
+    convert::Infallible,
+    fmt::{Debug, Write as _},
+    net::ToSocketAddrs,
+    sync::Arc,
+};
 
 use eyre::eyre;
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -137,7 +142,7 @@ impl Error {
         let mut idx = 0_i32;
         let mut err_opt = Some(err);
         while let Some(e) = err_opt {
-            s += &format!("    {}: {}\n", idx, &e.to_string());
+            write!(s, "    {idx}: {}", &e.to_string()).expect("Valid");
             idx += 1_i32;
             err_opt = e.source()
         }

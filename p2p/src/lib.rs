@@ -11,6 +11,7 @@ pub use network::{ConnectPeer, DisconnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
+pub mod handshake;
 /// Network is a main p2p start point.
 pub mod network;
 /// Peer is an endpoint to another node.
@@ -20,46 +21,67 @@ pub mod peer;
 pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 
 /// Errors used in [`crate`].
-#[derive(Clone, Debug, iroha_macro::FromVariant, Error, iroha_actor::Message)]
+#[derive(Debug, Error, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
     #[error("Failed IO operation.")]
     Io(#[source] std::sync::Arc<io::Error>),
     /// Failed to read or write
-    #[error("{0}: Failed handshake")]
-    Handshake(u32),
+    #[error("Failed handshake")]
+    Handshake(#[from] HandshakeError),
     /// Failed to read or write
     #[error("Message improperly formatted")]
     Format,
+    /// Field is not defined for a peer at this stage
+    #[error("Field is not defined for a peer at this stage")]
+    Field,
+    /// Parity Scale codec error
+    #[error("Parity Scale codec error")]
+    ParityScale(#[from] parity_scale_codec::Error),
     /// Failed to create keys
     #[error("Failed to create session key")]
-    Keys,
+    Keys(#[source] CryptographicError),
     /// Failed to parse address
     #[error("Failed to parse socket address.")]
-    Addr(#[source] AddrParseError),
+    Addr(#[from] AddrParseError),
 }
 
-impl From<aead::Error> for Error {
-    fn from(_: aead::Error) -> Self {
-        Self::Keys
+/// Error during handshake process.
+#[derive(Debug, Error, Clone)]
+pub enum HandshakeError {
+    /// Peer was in an incorrect state
+    #[error("Peer was in an incorrect state. {0}")]
+    State(String),
+    /// Handshake Length
+    #[error("Handshake Length {0} exceeds maximum: {}", peer::MAX_HANDSHAKE_LENGTH)]
+    Length(usize),
+}
+
+/// Error in the cryptographic processes.
+#[derive(derive_more::From, Debug, Error)]
+pub enum CryptographicError {
+    /// Decryption failed
+    #[error("Decryption failed")]
+    #[from(ignore)]
+    Decrypt(aead::Error),
+    /// Encryption failed
+    #[error("Encryption failed")]
+    #[from(ignore)]
+    Encrypt(aead::Error),
+    /// Ursa Cryptography error
+    #[error("Ursa Cryptography error")]
+    Ursa(CryptoError),
+}
+
+impl<T: Into<CryptographicError>> From<T> for Error {
+    fn from(err: T) -> Self {
+        Self::Keys(err.into())
     }
 }
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Self::Io(std::sync::Arc::new(e))
-    }
-}
-
-impl From<parity_scale_codec::Error> for Error {
-    fn from(_: parity_scale_codec::Error) -> Self {
-        Self::Keys
-    }
-}
-
-impl From<CryptoError> for Error {
-    fn from(_: CryptoError) -> Self {
-        Self::Keys
     }
 }
 

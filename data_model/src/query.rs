@@ -1,9 +1,9 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
-#![allow(clippy::missing_inline_in_public_items)]
+#![allow(clippy::missing_inline_in_public_items, unused_imports)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use derive_more::Display;
 use iroha_crypto::SignatureOf;
