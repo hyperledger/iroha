@@ -12,14 +12,14 @@ use syn::{
     Attribute, Generics, Ident, Token, Variant, Visibility,
 };
 
-pub(super) struct EventEnum {
+pub struct EventEnum {
     vis: Visibility,
     ident: Ident,
     generics: Generics,
     variants: Punctuated<EventVariant, Token![,]>,
 }
 
-pub(super) enum EventVariant {
+pub enum EventVariant {
     EventField { variant: Ident, field: Ident },
     IdField(Ident),
 }
@@ -173,7 +173,7 @@ impl Parse for EventVariant {
 
 /// Generates the filter for the event. E.g. for `AccountEvent`, `AccountFilter`
 /// and its `impl Filter` are generated.
-pub(super) fn impl_filter(event: &EventEnum) -> TokenStream {
+pub fn impl_filter(event: &EventEnum) -> TokenStream {
     let EventEnum {
         vis,
         ident: event_ident,

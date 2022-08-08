@@ -215,6 +215,8 @@ fn into_iter_item_impl_into() {
 
 #[test]
 fn return_option() {
+    #![allow(clippy::let_unit_value)]
+
     let ffi_struct = get_new_struct_with_params();
 
     let mut param1 = MaybeUninit::new(core::ptr::null());

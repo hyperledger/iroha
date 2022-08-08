@@ -333,6 +333,8 @@ where
         Ok(false)
     }
 
+    // Which raises the question: does it make sense to enable `nursery` lints?
+    #[allow(clippy::redundant_pub_crate)]
     fn start_listening_signal(notify_shutdown: Arc<Notify>) -> Result<task::JoinHandle<()>> {
         let (mut sigint, mut sigterm) = signal::unix::signal(signal::unix::SignalKind::interrupt())
             .and_then(|sigint| {
