@@ -190,7 +190,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         /// Smart contract entry point
         #[no_mangle]
-        pub unsafe extern "C" fn _iroha_trigger_main(
+        pub unsafe extern "C" fn _iroha_wasm_main(
         ) {
             #fn_name(#args)
         }

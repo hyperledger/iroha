@@ -3,6 +3,7 @@
 //! to wasm format and submitted in a transaction
 #![allow(clippy::expect_used)]
 
+use eyre::Context;
 use iroha_config::wasm::Configuration;
 use iroha_data_model::{prelude::*, ParseError};
 use parity_scale_codec::{Decode, Encode};
@@ -30,8 +31,6 @@ pub mod export {
     pub const WASM_MEMORY_NAME: &str = "memory";
     /// Name of the exported entry for smart contract (not trigger) execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-    /// Name of the exported entry for trigger execution
-    pub const TRIGGER_MAIN_FN_NAME: &str = "_iroha_trigger_main";
 }
 
 pub mod import {
@@ -350,37 +349,26 @@ impl<'wrld> Runtime<'wrld> {
     fn query_authority(mut caller: Caller<State>) -> Result<WasmUsize, Trap> {
         let memory = Self::get_memory(&mut caller)?;
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
-        let authority = {
-            let state = caller.data();
-            // Cloning `account_id` because we can't borrow `caller` as immutable to keep `state`
-            // as we have to borrow `caller` as mutable in `encode_with_length_prefix_into_memory()` call
-            state.account_id.clone()
-        };
+        let state = caller.data();
+        let authority = &state.account_id;
 
-        let authority_offset = Self::encode_with_length_prefix_into_memory(
-            &authority,
-            &memory,
-            &alloc_fn,
-            &mut caller,
-        )?;
+        let bytes = Self::encode_with_length_prefix(authority)?;
+        let authority_offset =
+            Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
         Ok(authority_offset)
     }
 
     fn query_triggering_event(mut caller: Caller<State>) -> Result<WasmUsize, Trap> {
         let memory = Self::get_memory(&mut caller)?;
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
-        let event = {
-            let state = caller.data();
-            // Cloning `triggering_event` because we can't borrow `caller` as immutable to keep `state`
-            // as we have to borrow `caller` as mutable in `encode_with_length_prefix_into_memory()` call
-            state
-                .triggering_event
-                .clone()
-                .ok_or_else(|| Trap::new("There is no triggering event".to_owned()))
-        }?;
+        let state = caller.data();
+        let event = state
+            .triggering_event
+            .as_ref()
+            .ok_or_else(|| Trap::new("There is no triggering event".to_owned()))?;
 
-        let event_offset =
-            Self::encode_with_length_prefix_into_memory(&event, &memory, &alloc_fn, &mut caller)?;
+        let bytes = Self::encode_with_length_prefix(event)?;
+        let event_offset = Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
         Ok(event_offset)
     }
 
@@ -496,15 +484,7 @@ impl<'wrld> Runtime<'wrld> {
         event: Event,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id.clone(), self.config).with_triggering_event(event);
-        let mut store = self.create_store(state)?;
-        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
-
-        let main_fn = smart_contract
-            .get_typed_func(&mut store, export::TRIGGER_MAIN_FN_NAME)
-            .map_err(Error::ExportNotFound)?;
-
-        // NOTE: This function takes ownership of the pointer
-        main_fn.call(&mut store, ()).map_err(Error::ExportFnCall)
+        self.execute_with_state(bytes, state)
     }
 
     /// Executes the given wasm smartcontract
@@ -551,36 +531,31 @@ impl<'wrld> Runtime<'wrld> {
         T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
     }
 
-    /// Encode `obj` to the given `memory` with the given `alloc_fn` and `context`
-    /// using [`encode_with_length_and_prefix()`]
+    /// Encode `bytes` to the given `memory` with the given `alloc_fn` and `context`
     ///
     /// Return the offset of the encoded object
-    fn encode_with_length_prefix_into_memory<T: Encode>(
-        obj: &T,
+    fn encode_bytes_into_memory(
+        bytes: &[u8],
         memory: &wasmtime::Memory,
         alloc_fn: &wasmtime::TypedFunc<WasmUsize, WasmUsize>,
         mut context: impl wasmtime::AsContextMut,
     ) -> Result<WasmUsize, Trap> {
-        let res_bytes = Self::encode_with_length_prefix(obj)?;
+        let mut encode = || -> eyre::Result<WasmUsize> {
+            bytes
+                .len()
+                .try_into()
+                .wrap_err("Bytes length is too big and can't be represented as `WasmUsize`")
+                .and_then(|len| alloc_fn.call(&mut context, len).map_err(Into::into))
+                .and_then(|offset| {
+                    let offset_usize = offset
+                        .try_into()
+                        .wrap_err("Offset is too big and can't be represented as `usize`")?;
+                    memory.write(&mut context, offset_usize, bytes)?;
 
-        let res_bytes_len: WasmUsize = {
-            let res_bytes_len: Result<WasmUsize, _> = res_bytes.len().try_into();
-            res_bytes_len.map_err(|error| Trap::new(error.to_string()))?
+                    Ok(offset)
+                })
         };
-
-        let res_offset = {
-            let res_offset = alloc_fn
-                .call(&mut context, res_bytes_len)
-                .map_err(|e| Trap::new(e.to_string()))?;
-
-            memory
-                .write(&mut context, res_offset as usize, &res_bytes)
-                .map_err(|error| Trap::new(error.to_string()))?;
-
-            res_offset
-        };
-
-        Ok(res_offset)
+        encode().map_err(|error| Trap::new(error.to_string()))
     }
 
     /// Encode the given object but also add it's length in front of it. This can be considered
@@ -698,7 +673,7 @@ mod tests {
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param i32 i32)
+                (func (export "{main_fn_name}") (param)
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))))
             "#,
             main_fn_name = export::WASM_MAIN_FN_NAME,
@@ -707,7 +682,9 @@ mod tests {
             isi_len = isi_hex.len() / 3,
         );
         let mut runtime = Runtime::new()?;
-        assert!(runtime.execute(&wsv, account_id, wat).is_ok());
+        runtime
+            .execute(&wsv, account_id, wat)
+            .expect("Execution failed");
 
         Ok(())
     }
@@ -732,7 +709,7 @@ mod tests {
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
-                (func (export "{main_fn_name}") (param i32 i32)
+                (func (export "{main_fn_name}") (param)
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
                     ;; No use of return values
@@ -745,7 +722,9 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        assert!(runtime.execute(&wsv, account_id, wat).is_ok());
+        runtime
+            .execute(&wsv, account_id, wat)
+            .expect("Execution failed");
 
         Ok(())
     }
@@ -793,8 +772,7 @@ mod tests {
             Arc::new(AllowAll::new()),
         );
 
-        assert!(res.is_err());
-        if let Error::ExportFnCall(trap) = res.unwrap_err() {
+        if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
                 .display_reason()
                 .to_string()
@@ -847,8 +825,7 @@ mod tests {
             Arc::new(AllowAll::new()),
         );
 
-        assert!(res.is_err());
-        if let Error::ExportFnCall(trap) = res.unwrap_err() {
+        if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
                 .display_reason()
                 .to_string()
@@ -900,8 +877,7 @@ mod tests {
             Arc::new(DenyAll::new()),
         );
 
-        assert!(res.is_err());
-        if let Error::ExportFnCall(trap) = res.unwrap_err() {
+        if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
                 .display_reason()
                 .to_string()
