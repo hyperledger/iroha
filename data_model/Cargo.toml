@@ -61,7 +61,6 @@ test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.7" }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 trybuild = "1.0.53"
 criterion = "0.3"
-trybuild = "1.0.53"
 
 [[bench]]
 name = "time_event_filter"
