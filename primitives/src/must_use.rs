@@ -44,23 +44,27 @@ use derive_more::{AsMut, AsRef, Constructor, Deref, Display};
     AsMut,
     Deref,
 )]
+#[repr(transparent)]
 #[must_use]
-pub struct MustUse<T>(T);
+pub struct MustUse<T>(pub T);
 
 impl<T> MustUse<T> {
     /// Get inner value
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
 impl<T> Borrow<T> for MustUse<T> {
+    #[inline]
     fn borrow(&self) -> &T {
         &self.0
     }
 }
 
 impl<T> BorrowMut<T> for MustUse<T> {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut T {
         &mut self.0
     }

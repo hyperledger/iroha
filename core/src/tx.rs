@@ -181,13 +181,8 @@ impl TransactionValidator {
         }
 
         let option_reason = match tx.check_signature_condition(&self.wsv) {
-            Ok(must_use_bool) => {
-                if *must_use_bool {
-                    None
-                } else {
-                    Some("Signature condition not satisfied.".to_owned())
-                }
-            }
+            Ok(MustUse(true)) => None,
+            Ok(MustUse(false)) => Some("Signature condition not satisfied.".to_owned()),
             Err(reason) => Some(reason.to_string()),
         }
         .map(|reason| UnsatisfiedSignatureConditionFail { reason })

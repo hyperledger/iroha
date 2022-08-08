@@ -425,7 +425,7 @@ impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
 
 /// Create a [`Vec`] containing the arguments, which should satisfy `Into<Value>` bound.
 ///
-/// Syntax is the same as [`vec`](macro@vec)
+/// Syntax is the same as in [`vec`](macro@vec)
 #[macro_export]
 macro_rules! val_vec {
     () => { Vec::new() };

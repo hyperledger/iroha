@@ -99,14 +99,13 @@ impl Queue {
         if tx.is_in_blockchain(&self.wsv) {
             return Err(Error::InBlockchain);
         }
-
-        if *tx.check_signature_condition(&self.wsv)? {
-            Ok(())
-        } else {
-            Err(Error::SignatureCondition(eyre!(
+        if !*tx.check_signature_condition(&self.wsv)? {
+            return Err(Error::SignatureCondition(eyre!(
                 "Signature condition check failed"
-            )))
+            )));
         }
+
+        Ok(())
     }
 
     /// Pushes transaction into queue.
