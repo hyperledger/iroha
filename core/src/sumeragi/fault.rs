@@ -103,6 +103,8 @@ pub struct SumeragiStateMachineData {
     pub latest_block_hash: HashOf<VersionedCommittedBlock>,
     pub latest_block_height: u64,
     pub current_topology: Topology,
+
+    pub sumeragi_thread_should_exit: bool,
 }
 
 impl<F: FaultInjection> SumeragiWithFault<F> {
@@ -626,6 +628,10 @@ pub fn run_sumeragi_main_loop<F>(
                     let voting_block = voting_block_option.take().expect("take voting block");
                     let voting_block_hash = voting_block.block.hash();
                     loop {
+                        if state_machine_guard.sumeragi_thread_should_exit {
+                            info!("Sumeragi Thread has Shutdown");
+                            return;
+                        }
                         match incoming_message_receiver.try_recv() {
                             Ok(msg) => match msg {
                                 Message::BlockSigned(block_signed) => {
@@ -764,6 +770,10 @@ pub fn run_sumeragi_main_loop<F>(
                     }
                 } else {
                     loop {
+                        if state_machine_guard.sumeragi_thread_should_exit {
+                            info!("Sumeragi Thread has Shutdown");
+                            return;
+                        }
                         match incoming_message_receiver.try_recv() {
                             Ok(msg) => match msg {
                                 Message::BlockCommitted(block_committed) => {
@@ -886,6 +896,11 @@ pub fn run_sumeragi_main_loop<F>(
                 should_sleep = false;
             }
             let mut state_machine_guard = sumeragi.sumeragi_state_machine_data.lock().unwrap();
+            if state_machine_guard.sumeragi_thread_should_exit {
+                info!("Sumeragi Thread has Shutdown");
+                return;
+            }
+
             let mut wsv_guard = sumeragi.wsv.lock().unwrap();
 
             if maybe_incoming_message.is_some() {
