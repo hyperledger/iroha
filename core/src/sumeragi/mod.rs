@@ -23,7 +23,7 @@ use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use network_topology::{Role, Topology};
 use rand::prelude::SliceRandom;
 
-use crate::{genesis::GenesisNetwork};
+use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
 use iroha_config::sumeragi::Configuration;
 
 pub mod fault;
@@ -92,6 +92,8 @@ impl Sumeragi {
             latest_block_hash: Hash::zeroed().typed(),
             latest_block_height: 0,
             current_topology: network_topology,
+
+            sumeragi_thread_should_exit: false,
         };
 
         let (incoming_message_sender, incoming_message_receiver) = std::sync::mpsc::channel();
@@ -210,18 +212,31 @@ impl Sumeragi {
         self.internal.wsv.lock().unwrap().clone()
     }
 
+    /// Start the Kura thread
     pub fn initialize_and_start_thread(
         sumeragi: Arc<Self>,
         latest_block_hash: HashOf<VersionedCommittedBlock>,
         latest_block_height: u64,
-    ) {
-        std::thread::spawn(move || {
+    ) -> ThreadHandler {
+        let sumeragi2 = sumeragi.clone();
+        let thread_handle = std::thread::spawn(move || {
             fault::run_sumeragi_main_loop(
                 &sumeragi.internal,
                 latest_block_hash,
                 latest_block_height,
-            )
+            );
         });
+
+        let shutdown = move || {
+            sumeragi2
+                .internal
+                .sumeragi_state_machine_data
+                .lock()
+                .expect("lock to stop sumeragi thread")
+                .sumeragi_thread_should_exit = true;
+        };
+
+        ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
 
     pub fn update_online_peers(&self, online_peers: Vec<PublicKey>) {
