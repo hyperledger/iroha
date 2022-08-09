@@ -304,7 +304,7 @@ impl Iroha {
         .await
         .expect_running();
 
-        Sumeragi::initialize_and_start_thread(
+        let sumeragi_thread_handler = Sumeragi::initialize_and_start_thread(
             sumeragi.clone(),
             latest_block_hash,
             latest_block_height,
@@ -341,7 +341,7 @@ impl Iroha {
             kura,
             block_sync,
             torii,
-            thread_handlers: vec![kura_thread_handler],
+            thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
             sumeragi_relay,
         })
     }
