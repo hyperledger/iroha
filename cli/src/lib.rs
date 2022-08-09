@@ -79,6 +79,12 @@ pub struct Iroha {
     sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>,
 }
 
+impl Drop for Iroha {
+    fn drop(&mut self) {
+        self.sumeragi.stop_thread();
+    }
+}
+
 use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
 struct FromNetworkBaseRelay {
     sumeragi: Arc<Sumeragi>,
