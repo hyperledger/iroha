@@ -1,5 +1,7 @@
 //! Logic related to the conversion of structures with ownership. Ownership is never transferred
 //! across FFI. This means that contents of these structures are copied into provided containers
+#![allow(clippy::undocumented_unsafe_blocks, clippy::arithmetic)]
+
 use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 
 use crate::{

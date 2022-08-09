@@ -1,7 +1,11 @@
 //! Iroha is a quite dynamic system so many events can happen.
 //! This module contains descriptions of such an events and
 //! utility Iroha Special Instructions to work with them.
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use futures::TryStreamExt;
 use iroha_data_model::events::prelude::*;
 use iroha_macro::error::ErrorTryFromEnum;

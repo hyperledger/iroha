@@ -1,4 +1,9 @@
-#![allow(clippy::str_to_string, missing_docs)]
+#![allow(
+    clippy::str_to_string,
+    missing_docs,
+    clippy::arithmetic,
+    clippy::std_instead_of_core
+)]
 
 use impl_visitor::{FnDescriptor, ImplDescriptor};
 use proc_macro::TokenStream;
@@ -279,7 +284,7 @@ fn find_attr(attrs: &[syn::Attribute], name: &str) -> Vec<NestedMeta> {
         .iter()
         .filter_map(|attr| {
             if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
-                return meta_list.path.is_ident(name).then(|| meta_list.nested);
+                return meta_list.path.is_ident(name).then_some(meta_list.nested);
             }
 
             None

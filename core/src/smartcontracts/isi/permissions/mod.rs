@@ -1,8 +1,12 @@
+//! This module contains permissions related Iroha functionality.
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 #![allow(clippy::module_name_repetitions)]
 
-//! This module contains permissions related Iroha functionality.
-
-use std::{fmt::Display, marker::PhantomData, ops::Deref};
+use core::{fmt::Display, marker::PhantomData, ops::Deref};
 
 pub use checks::*;
 use derive_more::Display;
@@ -21,7 +25,7 @@ pub mod judge;
 pub mod roles;
 
 /// Result type associated with permission validators
-pub type Result<T> = std::result::Result<T, DenialReason>;
+pub type Result<T> = core::result::Result<T, DenialReason>;
 
 /// Operation for which the permission should be checked
 pub trait NeedsPermission {
@@ -125,14 +129,14 @@ pub enum ValidatorVerdict {
 
 impl PartialOrd for ValidatorVerdict {
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(Ord::cmp(self, other))
     }
 }
 
 // Deny < Skip < Allow
 impl Ord for ValidatorVerdict {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         let lhs: u8 = **self;
         let rhs: u8 = **other;
         lhs.cmp(&rhs)
@@ -176,7 +180,7 @@ impl ValidatorVerdict {
     #[must_use]
     #[inline]
     pub fn least_permissive(self, other: Self) -> Self {
-        std::cmp::min(self, other)
+        core::cmp::min(self, other)
     }
 
     /// Similar to [`least_permissive`](Self::least_permissive)
@@ -196,7 +200,7 @@ impl ValidatorVerdict {
     #[must_use]
     #[inline]
     pub fn most_permissive(self, other: Self) -> Self {
-        std::cmp::max(self, other)
+        core::cmp::max(self, other)
     }
 
     /// Similar to [`most_permissive`](Self::most_permissive)
@@ -259,7 +263,7 @@ pub type DenialReason = String;
 /// impl TryFrom<PermissionToken> for ExampleToken {
 ///     type Error = PredefinedTokenConversionError;
 ///
-///     fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+///     fn try_from(token: PermissionToken) -> core::result::Result<Self, Self::Error> {
 ///         static PARAM_NAME: once_cell::sync::Lazy<Name> =
 ///             once_cell::sync::Lazy::new(|| "param".parse().expect("Valid"));
 ///
@@ -417,7 +421,7 @@ mod tests {
             _authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> std::result::Result<TestToken, String> {
+        ) -> core::result::Result<TestToken, String> {
             Ok(TestToken)
         }
     }

@@ -1,5 +1,5 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-
+#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]

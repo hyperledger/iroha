@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use core::borrow::Borrow;
 
 use eyre::{eyre, Result};
 pub use http::{Method, Response, StatusCode};

@@ -1,6 +1,11 @@
 //! This module contains enumeration of all possible Iroha Special
 //! Instructions `Instruction`, generic instruction types and related
 //! implementations.
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 pub mod account;
 pub mod asset;
 pub mod block;

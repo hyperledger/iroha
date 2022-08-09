@@ -1,7 +1,8 @@
 #![allow(
     clippy::expect_used,
     clippy::eval_order_dependence,
-    clippy::unwrap_in_result
+    clippy::unwrap_in_result,
+    clippy::arithmetic
 )]
 
 use proc_macro::TokenStream;

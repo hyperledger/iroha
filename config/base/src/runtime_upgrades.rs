@@ -1,4 +1,5 @@
 //! Module handling runtime upgrade logic.
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 
 use std::{
     fmt::Debug,
@@ -8,7 +9,7 @@ use std::{
 pub use serde::{Deserialize, Serialize};
 use thiserror::*;
 
-type Result<T, E = ReloadError> = std::result::Result<T, E>;
+type Result<T, E = ReloadError> = core::result::Result<T, E>;
 
 /// Error which occurs when reloading a configuration fails.
 #[derive(Clone, Copy, Debug, Error)]
@@ -199,7 +200,7 @@ pub mod handle {
     }
 
     impl<T: Debug + Send + Sync> Debug for Singleton<T> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("Handle with side effect").finish()
         }
     }
@@ -324,7 +325,7 @@ pub mod handle {
     }
 
     impl<T: Clone + Copy + Debug, H: Reload<T> + Debug> Debug for SyncValue<T, H> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
             f.debug_tuple("Reconfigure")
                 .field(&self.0)
                 .field(&self.1)

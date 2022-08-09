@@ -59,7 +59,7 @@ fn main() {
             .env("CARGO_TARGET_DIR", out_dir)
             .current_dir(smartcontract_path)
             .args(&[
-                "+nightly-2022-08-09",
+                "+nightly-2022-08-15",
                 "build",
                 "--release",
                 "-Z",
@@ -71,6 +71,8 @@ fn main() {
             ])
             .status()
             .expect("Failed to run `cargo build` on smartcontract");
-        assert!(build.success(), "Can't build smartcontract")
+        if !build.success() {
+            println!("cargo:warning=Compiling the smartcontract exited with status")
+        }
     }
 }

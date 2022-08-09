@@ -1,5 +1,4 @@
-//! Logic related to the conversion of primitive types.
-#![allow(trivial_casts)]
+#![allow(trivial_casts, clippy::undocumented_unsafe_blocks)]
 
 use alloc::vec::Vec;
 

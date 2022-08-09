@@ -1,3 +1,5 @@
+#![allow(clippy::std_instead_of_alloc)]
+
 #[derive(iroha_schema::IntoSchema)]
 struct Foo<V> {
     _value: Option<V>,

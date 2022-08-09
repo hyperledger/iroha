@@ -1,5 +1,5 @@
 //! [`Transaction`] structures and related implementations.
-
+#![allow(clippy::std_instead_of_core)]
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::{

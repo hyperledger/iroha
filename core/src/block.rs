@@ -3,8 +3,12 @@
 //! implementations. `Block`s are organised into a linear sequence
 //! over time (also known as the block chain).  A Block's life-cycle
 //! starts from `PendingBlock`.
-
-#![allow(clippy::module_name_repetitions)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 
 use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 

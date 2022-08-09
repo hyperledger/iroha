@@ -60,7 +60,7 @@ impl HasToken for GrantedByAssetCreator {
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<Self::Token, String> {
+    ) -> core::result::Result<Self::Token, String> {
         let unregister_box = if let Instruction::Unregister(unregister) = instruction {
             unregister
         } else {

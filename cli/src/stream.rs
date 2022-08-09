@@ -2,8 +2,7 @@
 //! Adds support for sending custom Iroha messages over the stream, taking care
 //! of encoding/decoding as well as timeouts
 
-use core::result::Result;
-use std::time::Duration;
+use core::{result::Result, time::Duration};
 
 use futures::{SinkExt, StreamExt};
 use iroha_logger::prelude::*;

@@ -1,4 +1,5 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
+#![allow(clippy::std_instead_of_core)]
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};

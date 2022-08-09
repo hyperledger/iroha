@@ -1,5 +1,5 @@
 //! Module with telemetry future telemetry processing
-
+#![allow(clippy::std_instead_of_core)]
 use std::{collections::HashMap, marker::Unpin, time::Duration};
 
 use iroha_futures::FuturePollTelemetry;

@@ -374,7 +374,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
 
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if there is a change in WSV peers, otherwise leaves the order unchanged.
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used, clippy::unused_async)]
     pub async fn update_network_topology(&mut self) {
         let wsv_peers: HashSet<_> = self.wsv.trusted_peers_ids().clone().into_iter().collect();
         let topology_peers: HashSet<_> = self.topology.sorted_peers().iter().cloned().collect();
@@ -390,6 +390,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
     }
 
     /// Returns `true` if some block is in discussion, `false` otherwise.
+    #[allow(clippy::unused_async)]
     pub async fn voting_in_progress(&self) -> bool {
         self.voting_block.is_some()
     }
@@ -558,6 +559,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
     /// `false` - otherwise
     ///
     /// And the actual Proof as it is contained in `votes_for_view_change` with merged votes.
+    #[allow(clippy::unused_async)]
     pub(crate) async fn merge_view_change_votes(&mut self, proof: Proof) -> (bool, Proof) {
         match self.votes_for_view_change.entry(proof.hash()) {
             Entry::Occupied(mut occupied) => {

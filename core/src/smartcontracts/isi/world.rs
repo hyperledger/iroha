@@ -272,16 +272,15 @@ pub mod isi {
         }
 
         for role_id in roles_containing_token {
-            wsv.modify_world(|world| match world.roles.get_mut(&role_id) {
-                Some(mut role) => {
+            wsv.modify_world(|world| {
+                if let Some(mut role) = world.roles.get_mut(&role_id) {
                     role.remove_permissions(target_definition_id);
                     Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
                         role_id,
                         permission_definition_id: target_definition_id.clone(),
                     })
                     .into())
-                }
-                None => {
+                } else {
                     error!(%role_id, "role not found - this is a bug");
                     Err(FindError::Role(role_id.clone()).into())
                 }

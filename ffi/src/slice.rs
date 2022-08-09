@@ -1,5 +1,5 @@
 //! Logic related to the conversion of slices to and from FFI-compatible representation
-
+#![allow(clippy::undocumented_unsafe_blocks)]
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{

@@ -1,4 +1,5 @@
 //! Module for `Queue`-related configuration and structs.
+#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
 use iroha_config_base::derive::{Combine, Documented};
 use serde::{Deserialize, Serialize};
 

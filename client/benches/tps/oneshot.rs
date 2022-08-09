@@ -27,16 +27,16 @@ fn main() {
     let config = lib::Config::from_path("benches/tps/config.json").expect("Failed to configure");
     let tps = config.measure().expect("Failed to measure");
 
-    match flush_guard {
-        Some(guard) => {
+    flush_guard.map_or_else(
+        || {
+            iroha_logger::info!(?config);
+            iroha_logger::info!(%tps);
+        },
+        |guard| {
             guard.flush().expect("Flushed data without errors");
             println!("Tracing data outputted to file: {}", &args[1]);
             println!("TPS was {}", tps);
             println!("Config was {:?}", config);
-        }
-        None => {
-            iroha_logger::info!(?config);
-            iroha_logger::info!(%tps);
-        }
-    }
+        },
+    )
 }

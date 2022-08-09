@@ -1,5 +1,9 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
-
+#![allow(
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_actor::{broker::*, prelude::*, Context};
