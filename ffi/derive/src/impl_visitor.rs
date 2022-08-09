@@ -73,7 +73,7 @@ pub struct FnDescriptor {
     pub trait_name: Option<syn::Path>,
 
     /// Function documentation
-    pub doc: syn::Attribute,
+    pub doc: Option<syn::Attribute>,
     /// Original signature of the method
     pub sig: syn::Signature,
 
@@ -157,7 +157,7 @@ impl FnDescriptor {
             self_ty: visitor.self_ty.map(Clone::clone),
             trait_name: visitor.trait_name.map(Clone::clone),
 
-            doc: visitor.doc.expect_or_abort("Missing doc"),
+            doc: visitor.doc,
             sig: visitor.sig.expect_or_abort("Missing signature").clone(),
 
             receiver: visitor.receiver,

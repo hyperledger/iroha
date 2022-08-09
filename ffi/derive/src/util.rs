@@ -174,9 +174,7 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
     let self_ty = Some(parse_quote! {#item_name});
 
     let sig = gen_derived_method_sig(field, derive);
-    let doc = find_doc_attr(&field.attrs)
-        .cloned()
-        .expect_or_abort("Missing documentation");
+    let doc = find_doc_attr(&field.attrs).cloned();
 
     let field_ty = &field.ty;
     let field_ty = match derive {

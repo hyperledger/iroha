@@ -105,7 +105,6 @@ pub trait Target {
 impl Target for FfiStruct {
     type Target = Option<Name>;
 
-    /// Return [`Self::Target`]
     fn target(self) -> <Self as Target>::Target {
         self.name
     }
