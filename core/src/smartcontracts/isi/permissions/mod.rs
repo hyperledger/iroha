@@ -2,105 +2,317 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{fmt::Display, marker::PhantomData, ops::Deref};
 
 pub use checks::*;
-pub use combinators::ValidatorApplyOr as _;
-use error::*;
+use derive_more::Display;
 pub use has_token::*;
-use iroha_data_model::prelude::*;
-use iroha_macro::FromVariant;
+use iroha_data_model::{prelude::*, utils::*};
 use iroha_schema::IntoSchema;
-pub use is_allowed::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::wsv::WorldStateView;
 
-pub mod builder;
 mod checks;
 pub mod combinators;
 mod has_token;
-mod is_allowed;
+pub mod judge;
 pub mod roles;
 
-/// Result type for permission validators
+/// Result type associated with permission validators
 pub type Result<T> = std::result::Result<T, DenialReason>;
 
-/// Operation for which the permission should be checked.
-pub trait NeedsPermission: Debug {}
+/// Operation for which the permission should be checked
+pub trait NeedsPermission {
+    /// Get the type of validator required to check the operation
+    ///
+    /// Accepts `self` because of the [`NeedsPermissionBox`]
+    fn required_validator_type(&self) -> ValidatorType;
+}
 
-impl NeedsPermission for Instruction {}
+impl NeedsPermission for Instruction {
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Instruction
+    }
+}
 
-impl NeedsPermission for QueryBox {}
+impl NeedsPermission for QueryBox {
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Query
+    }
+}
 
 // Expression might contain a query, therefore needs to be checked.
-impl NeedsPermission for Expression {}
+impl NeedsPermission for Expression {
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Expression
+    }
+}
 
-/// Type of object validator can check
+/// Boxed version of [`NeedsPermission`]
+#[derive(Debug, derive_more::From, derive_more::TryInto)]
+pub enum NeedsPermissionBox {
+    /// [`Instruction`] operation
+    Instruction(Instruction),
+    /// [`QueryBox`] operation
+    Query(QueryBox),
+    /// [`Expression`] operation
+    Expression(Expression),
+}
+
+impl NeedsPermission for NeedsPermissionBox {
+    fn required_validator_type(&self) -> ValidatorType {
+        match self {
+            NeedsPermissionBox::Instruction(_) => ValidatorType::Instruction,
+            NeedsPermissionBox::Query(_) => ValidatorType::Query,
+            NeedsPermissionBox::Expression(_) => ValidatorType::Expression,
+        }
+    }
+}
+
+/// Implementation of this trait provides custom permission checks for the Iroha-base
+pub trait IsAllowed: Display {
+    /// Type of operation to be checked
+    type Operation: NeedsPermission;
+
+    /// Check if the `authority` is allowed to perform `instruction`
+    /// given the current state of `wsv`.
+    ///
+    /// # Reasons to deny
+    /// If the execution of `instruction` under given `authority` with
+    /// the current state of `wsv` is disallowed.
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Self::Operation,
+        wsv: &WorldStateView,
+    ) -> ValidatorVerdict;
+}
+
+/// Box with dyn type implementing [`IsAllowed`]
+pub type IsOperationAllowedBoxed<O> = Box<dyn IsAllowed<Operation = O> + Send + Sync>;
+
+/// Type of validator
 #[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
 pub enum ValidatorType {
-    /// [`Instruction`] variant
+    /// Validator checking [`Instruction`]
     Instruction,
-    /// [`QueryBox`] variant
+    /// Validator checking [`QueryBox`]
     Query,
-    /// [`Expression`] variant
+    /// Validator checking [`Expression`]
     Expression,
 }
-pub mod error {
-    //! Contains errors structures
 
-    use std::{convert::Infallible, str::FromStr};
-
-    use super::{Decode, Encode, IntoSchema, ValidatorType};
-    use crate::smartcontracts::Mismatch;
-
-    /// Wrong validator expectation error
+/// Verdict returned by validators
+#[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
+pub enum ValidatorVerdict {
+    /// Deny the execution of an operation and provide the [`DenialReason`].
     ///
-    /// I.e. used when user tries to validate [`QueryBox`](super::QueryBox) with
-    /// [`IsAllowedBoxed`](super::IsAllowedBoxed) containing
-    /// [`IsAllowedBoxed::Instruction`](super::IsAllowedBoxed::Instruction) variant
-    pub type ValidatorTypeMismatch = Mismatch<ValidatorType>;
+    /// Something went wrong and the validator voted to deny the execution of the instruction.
+    Deny(DenialReason),
+    /// Skip an operation.
+    ///
+    /// The validator votes to skip an operation if it is not supported by the validator
+    /// or has no meaning in a particular context.
+    Skip,
+    /// Allow the execution of an instruction.
+    ///
+    /// The validator allows an instruction to be executed if
+    /// the operation is correct from its point of view.
+    Allow,
+}
 
-    /// Reason for prohibiting the execution of the particular instruction.
-    #[derive(Debug, Clone, thiserror::Error, Decode, Encode, IntoSchema)]
-    #[allow(variant_size_differences)]
-    pub enum DenialReason {
-        /// [`ValidatorTypeMismatch`] variant
-        #[error("Wrong validator type: {0}")]
-        ValidatorTypeMismatch(#[from] ValidatorTypeMismatch),
-        /// Variant for custom error
-        #[error("{0}")]
-        Custom(String),
-        /// Variant used when at least one [`Validator`](super::IsAllowed) should be provided
-        #[error("No validators provided")]
-        NoValidatorsProvided,
+impl PartialOrd for ValidatorVerdict {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+// Deny < Skip < Allow
+impl Ord for ValidatorVerdict {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let lhs: u8 = **self;
+        let rhs: u8 = **other;
+        lhs.cmp(&rhs)
+    }
+}
+
+impl Deref for ValidatorVerdict {
+    type Target = u8;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ValidatorVerdict::Deny(_) => &0,
+            ValidatorVerdict::Skip => &1,
+            ValidatorVerdict::Allow => &2,
+        }
+    }
+}
+
+impl ValidatorVerdict {
+    /// Check if verdict is [`Allow`](ValidatorVerdict::Allow)
+    #[inline]
+    pub fn is_allow(&self) -> bool {
+        matches!(self, ValidatorVerdict::Allow)
     }
 
-    impl From<String> for DenialReason {
-        fn from(s: String) -> Self {
-            Self::Custom(s)
+    /// Check if verdict is [`Deny`](ValidatorVerdict::Deny)
+    #[inline]
+    pub fn is_deny(&self) -> bool {
+        matches!(self, ValidatorVerdict::Deny(_))
+    }
+
+    /// Check if verdict is [`Skip`](ValidatorVerdict::Skip)
+    #[inline]
+    pub fn is_skip(&self) -> bool {
+        matches!(self, ValidatorVerdict::Skip)
+    }
+
+    /// Compare `self` with `other` and return the least permissive one
+    ///
+    /// Returns `self` if both are equal
+    #[must_use]
+    #[inline]
+    pub fn least_permissive(self, other: Self) -> Self {
+        std::cmp::min(self, other)
+    }
+
+    /// Similar to [`least_permissive`](Self::least_permissive)
+    /// but won't compute `f` if `self` is [`Deny`](ValidatorVerdict::Deny)
+    #[must_use]
+    pub fn least_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
+        if let Self::Deny(_) = &self {
+            self
+        } else {
+            self.least_permissive(f())
         }
     }
 
-    impl FromStr for DenialReason {
-        type Err = Infallible;
+    /// Compare `self` with `other` and return the most permissive one
+    ///
+    /// Returns `self` if both are equal
+    #[must_use]
+    #[inline]
+    pub fn most_permissive(self, other: Self) -> Self {
+        std::cmp::max(self, other)
+    }
 
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            Ok(Self::Custom(s.to_owned()))
+    /// Similar to [`most_permissive`](Self::most_permissive)
+    /// but won't compute `f` if `self` is [`Allow`](ValidatorVerdict::Allow)
+    #[must_use]
+    pub fn most_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
+        if let Self::Allow = &self {
+            self
+        } else {
+            self.most_permissive(f())
         }
     }
+}
+
+impl From<Result<()>> for ValidatorVerdict {
+    fn from(result: Result<()>) -> Self {
+        match result {
+            Ok(_) => ValidatorVerdict::Allow,
+            Err(reason) => ValidatorVerdict::Deny(reason),
+        }
+    }
+}
+
+/// Reason for denying the execution of a particular instruction.
+pub type DenialReason = String;
+
+/// Trait for hard-coded strongly-typed permission tokens.
+///
+/// # Example
+///
+/// ```
+/// use iroha_core::smartcontracts::isi::permissions::{
+///     PermissionTokenTrait, PredefinedTokenConversionError,
+/// };
+/// use iroha_data_model::prelude::*;
+///
+/// struct ExampleToken {
+///     pub param: String,
+/// }
+///
+/// impl PermissionTokenTrait for ExampleToken {
+///     #[inline]
+///     fn name() -> &'static Name {
+///         static NAME: once_cell::sync::Lazy<Name> =
+///             once_cell::sync::Lazy::new(|| "example_token".parse().expect("Valid"));
+///         &NAME
+///     }
+/// }
+///
+/// impl From<ExampleToken> for PermissionToken {
+///     fn from(example_token: ExampleToken) -> Self {
+///         PermissionToken::new(ExampleToken::name().clone())
+///             .with_params([(
+///                 "param".parse().expect("Valid"),
+///                 Value::String(example_token.param)
+///             )])
+///     }
+/// }
+///
+/// impl TryFrom<PermissionToken> for ExampleToken {
+///     type Error = PredefinedTokenConversionError;
+///
+///     fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+///         static PARAM_NAME: once_cell::sync::Lazy<Name> =
+///             once_cell::sync::Lazy::new(|| "param".parse().expect("Valid"));
+///
+///         if token.name() != Self::name() {
+///             return Err(
+///                 PredefinedTokenConversionError::Name(
+///                     token.name().clone()
+///                 )
+///             );
+///         }
+///         if let Some(Value::String(ref param)) = token.get_param(&PARAM_NAME) {
+///             return Ok(ExampleToken { param: param.clone() });
+///         }
+///
+///         Err(PredefinedTokenConversionError::Param(&PARAM_NAME))
+///     }
+/// }
+/// ```
+pub trait PermissionTokenTrait:
+    Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
+{
+    /// Name of the permission token.
+    ///
+    /// Cannot use an associated constant because [`Name`] cannot be created at *const* context.
+    fn name() -> &'static Name;
+}
+
+/// Errors that may appear when converting specialized permission tokens
+/// to universal `[PermissionToken]`
+#[derive(Debug, thiserror::Error)]
+pub enum PredefinedTokenConversionError {
+    /// Wrong token name
+    #[error("Wrong token name: {0}")]
+    Name(Name),
+    /// Parameter not present in token parameters
+    #[error("Parameter {0} not found")]
+    Param(&'static Name),
+    /// Unexpected value for parameter
+    #[error("Wrong value for parameter {0}")]
+    Value(&'static Name),
 }
 
 pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
-        builder::Validator as ValidatorBuilder,
-        combinators::{AllowAll, ValidatorApplyOr as _},
-        error::DenialReason,
-        roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
-        HasTokenBoxed, IsAllowedBoxed,
+        combinators::ValidatorApplyOr as _,
+        judge::{
+            builder::Builder as JudgeBuilder, AllowAll, DenyAll, Judge, OperationJudgeBoxed,
+            QueryJudgeArc,
+        },
+        roles::{IsGrantAllowed, IsRevokeAllowed},
+        DenialReason, IsAllowed, ValidatorVerdict,
     };
 }
 
@@ -112,71 +324,94 @@ mod tests {
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
-    use super::{builder::Validator as ValidatorBuilder, combinators::DenyAll, *};
+    use super::{judge::DenyAll, prelude::*, *};
     use crate::wsv::World;
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Deny all burn operations")]
     struct DenyBurn;
 
-    impl From<DenyBurn> for IsInstructionAllowedBoxed {
-        fn from(permissions: DenyBurn) -> Self {
-            Box::new(permissions)
-        }
-    }
+    impl IsAllowed for DenyBurn {
+        type Operation = Instruction;
 
-    impl IsAllowed<Instruction> for DenyBurn {
         fn check(
             &self,
             _authority: &AccountId,
             instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> Result<()> {
+        ) -> ValidatorVerdict {
             match instruction {
-                Instruction::Burn(_) => Err("Denying sequence isi.".to_owned().into()),
-                _ => Ok(()),
+                Instruction::Burn(_) => ValidatorVerdict::Deny("Denying sequence isi.".to_owned()),
+                _ => ValidatorVerdict::Skip,
             }
         }
     }
 
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, Display)]
+    #[display(fmt = "Deny all Alice's operations")]
     struct DenyAlice;
 
-    impl IsAllowed<Instruction> for DenyAlice {
+    impl IsAllowed for DenyAlice {
+        type Operation = Instruction;
+
         fn check(
             &self,
             authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> Result<()> {
+        ) -> ValidatorVerdict {
             if authority.name.as_ref() == "alice" {
-                Err("Alice account is denied.".to_owned().into())
+                ValidatorVerdict::Deny("Alice account is denied.".to_owned())
             } else {
-                Ok(())
+                ValidatorVerdict::Skip
             }
         }
     }
 
-    impl From<DenyAlice> for IsInstructionAllowedBoxed {
-        fn from(value: DenyAlice) -> Self {
-            Box::new(value)
+    #[derive(Debug, Clone, Serialize)]
+    struct TestToken;
+
+    impl PermissionTokenTrait for TestToken {
+        #[inline]
+        fn name() -> &'static Name {
+            static NAME: once_cell::sync::Lazy<Name> =
+                once_cell::sync::Lazy::new(|| "test_token".parse().expect("Valid"));
+            &NAME
+        }
+    }
+
+    impl From<TestToken> for PermissionToken {
+        fn from(_: TestToken) -> Self {
+            PermissionToken::new(TestToken::name().clone())
+        }
+    }
+
+    impl TryFrom<PermissionToken> for TestToken {
+        type Error = PredefinedTokenConversionError;
+        fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
+            if token.name() == Self::name() {
+                Ok(Self)
+            } else {
+                Err(PredefinedTokenConversionError::Name(token.name().clone()))
+            }
         }
     }
 
     #[derive(Debug, Clone, Serialize)]
-    struct GrantedToken;
+    struct HasTestToken;
 
     // TODO: ADD some Revoke tests.
 
-    impl HasToken for GrantedToken {
+    impl HasToken for HasTestToken {
+        type Token = TestToken;
+
         fn token(
             &self,
             _authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> std::result::Result<PermissionToken, String> {
-            Ok(PermissionToken::new(
-                Name::from_str("token").expect("Valid"),
-            ))
+        ) -> std::result::Result<TestToken, String> {
+            Ok(TestToken)
         }
     }
 
@@ -200,11 +435,10 @@ mod tests {
 
     #[test]
     pub fn multiple_validators_combined() {
-        let permissions_validator: IsInstructionAllowedBoxed =
-            ValidatorBuilder::with_validator(DenyBurn)
-                .with_validator(DenyAlice)
-                .all_should_succeed()
-                .build();
+        let permissions_validator = JudgeBuilder::with_validator(DenyBurn)
+            .with_validator(DenyAlice)
+            .no_denies()
+            .build();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
@@ -214,23 +448,23 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check(&account_bob, &instruction_burn, &wsv)
+            .judge(&account_bob, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_fail, &wsv)
+            .judge(&account_alice, &instruction_fail, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_burn, &wsv)
+            .judge(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_bob, &instruction_fail, &wsv)
+            .judge(&account_bob, &instruction_fail, &wsv)
             .is_ok());
     }
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator = ValidatorBuilder::with_recursive_validator(DenyBurn)
-            .all_should_succeed()
+        let permissions_validator = JudgeBuilder::with_recursive_validator(DenyBurn)
+            .no_denies()
             .build();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
@@ -242,13 +476,13 @@ mod tests {
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_fail, &wsv)
+            .judge(&account_alice, &instruction_fail, &wsv)
             .is_ok());
         assert!(permissions_validator
-            .check(&account_alice, &instruction_burn, &wsv)
+            .judge(&account_alice, &instruction_burn, &wsv)
             .is_err());
         assert!(permissions_validator
-            .check(&account_alice, &nested_instruction_sequence, &wsv)
+            .judge(&account_alice, &nested_instruction_sequence, &wsv)
             .is_err());
     }
 
@@ -263,14 +497,14 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(PermissionToken::new(
-            Name::from_str("token").expect("Valid")
-        )));
+        assert!(bob_account.add_permission(TestToken.into()));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator: HasTokenBoxed = Box::new(GrantedToken);
-        assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
-        assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
+        let validator = HasTestToken.into_validator();
+        assert!(validator
+            .check(&alice_id, &instruction_burn, &wsv)
+            .is_deny());
+        assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_allow());
         Ok(())
     }
 
@@ -300,6 +534,9 @@ mod tests {
         .into();
         let wsv = WorldStateView::new(World::new());
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &DenyAll.into()).is_err())
+        let judge = JudgeBuilder::with_validator(DenyAll::new().into_validator())
+            .no_denies()
+            .build();
+        assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &judge).is_err())
     }
 }

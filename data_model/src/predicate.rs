@@ -414,7 +414,7 @@ pub mod numerical {
     //! Numerical predicates.
     use core::cmp::{max, min};
 
-    use iroha_data_primitives::fixed::Fixed;
+    use iroha_primitives::fixed::Fixed;
 
     use super::*;
 
@@ -536,6 +536,8 @@ pub mod numerical {
     mod tests {
         #![allow(clippy::print_stdout, clippy::use_debug)]
 
+        use iroha_primitives::fixed::Fixed;
+
         use super::*;
 
         #[test]
@@ -564,7 +566,6 @@ pub mod numerical {
         #[test]
         #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
         fn semi_interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
-            use crate::prelude::Fixed;
             let pred = Range::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
 
             assert!(pred.applies(&Value::Fixed(Fixed::try_from(1_f64)?)));
@@ -588,7 +589,6 @@ pub mod numerical {
 
         #[test]
         fn upper_bounds() {
-            use crate::prelude::Fixed;
             {
                 let pred = Range::Fixed(SemiInterval::starting(Fixed::ZERO));
                 // Technically the maximum itself is never included in the range.
@@ -605,7 +605,6 @@ pub mod numerical {
 pub mod value {
     //!  raw predicates applied to `Value`.
     use super::*;
-    use crate::prelude::BlockValue;
 
     /// A predicate designed for general processing of `Value`.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
@@ -678,10 +677,7 @@ pub mod value {
                 Predicate::Numerical(pred) => pred.applies(input),
                 Predicate::Display(pred) => pred.applies(&input.to_string()),
                 Predicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => {
-                        let BlockValue { header, .. } = block;
-                        pred.applies(&header.timestamp)
-                    }
+                    Value::Block(block) => pred.applies(&block.header.timestamp),
                     _ => false,
                 },
                 Predicate::Pass => true,

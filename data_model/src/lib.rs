@@ -9,23 +9,32 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    alloc::alloc,
     borrow::ToOwned as _,
     boxed::Box,
     format,
     string::{String, ToString},
     vec::Vec,
 };
-use core::{fmt, fmt::Debug, ops::RangeInclusive};
+use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
-use block_value::BlockValue;
-use derive_more::Display;
+use block_value::{BlockHeaderValue, BlockValue};
+#[cfg(not(target_arch = "aarch64"))]
+use derive_more::Into;
+use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
-use iroha_data_primitives::small::SmallVec;
-pub use iroha_data_primitives::{self as primitives, fixed, small};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_schema::IntoSchema;
+use iroha_primitives::{
+    fixed,
+    small::{Array as SmallArray, SmallVec},
+};
+use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
+use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -50,7 +59,122 @@ pub mod query;
 pub mod role;
 pub mod transaction;
 pub mod trigger;
-pub mod uri;
+
+pub mod utils {
+    //! Module with useful utilities shared between crates
+
+    use core::fmt::*;
+
+    /// Wrapper for type implementing [`Display`] trait.
+    /// Adds back quotes when item is printed.
+    pub struct BackQuotedWrapper<T: Display>(T);
+
+    impl<T: Display> Display for BackQuotedWrapper<T> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            write!(f, "`{}`", self.0)
+        }
+    }
+
+    /// Iterator which wraps each element in [`BackQuotedWrapper`]
+    /// to display items with back quotes
+    pub struct BackQuotedIterator<T, I>
+    where
+        T: Display,
+        I: Iterator<Item = T>,
+    {
+        iter: I,
+    }
+
+    impl<T, I> Iterator for BackQuotedIterator<T, I>
+    where
+        T: Display,
+        I: Iterator<Item = T>,
+    {
+        type Item = BackQuotedWrapper<T>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.iter.next().map(BackQuotedWrapper)
+        }
+    }
+
+    /// Trait to wrap iterator items in back quotes when displaying.
+    ///
+    /// Auto-implemented for all [`Iterator`]s which [`Item`](Iterator::Item) implements [`Display`].
+    pub trait BackQuoted<T: Display>: Iterator<Item = T> + Sized {
+        /// Function to construct new iterator with back quotes around items.
+        ///
+        /// # Example
+        ///
+        /// ```
+        /// use iroha_data_model::utils::{
+        ///     format_comma_separated,
+        ///     BackQuoted as _,
+        /// };
+        ///
+        /// struct Keys([String; 2]);
+        ///
+        /// impl core::fmt::Display for Keys {
+        ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        ///         format_comma_separated(self.0.iter().back_quoted(), ('{', '}'), f)
+        ///     }
+        /// }
+        ///
+        /// let keys = Keys(["key1".to_owned(), "key2".to_owned()]);
+        /// assert_eq!(keys.to_string(), "{`key1`, `key2`}");
+        /// ```
+        fn back_quoted(self) -> BackQuotedIterator<T, Self>;
+    }
+
+    impl<T, I> BackQuoted<T> for I
+    where
+        T: Display,
+        I: Iterator<Item = T>,
+    {
+        fn back_quoted(self) -> BackQuotedIterator<T, Self> {
+            BackQuotedIterator { iter: self }
+        }
+    }
+
+    /// Format `input` separating items with comma, wrapping every item with apostrophe
+    /// and wrapping the whole output into `[` and `]`
+    ///
+    /// # Errors
+    /// If cannot write to the `f`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use iroha_data_model::utils::format_comma_separated;
+    ///
+    /// struct Array([u8; 3]);
+    ///
+    /// impl core::fmt::Display for Array {
+    ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    ///         format_comma_separated(self.0.iter(), ('[', ']'), f)
+    ///     }
+    /// }
+    ///
+    /// let arr = Array([1, 2, 3]);
+    /// assert_eq!(arr.to_string(), "[1, 2, 3]");
+    /// ```
+    pub fn format_comma_separated<T: Display>(
+        mut input: impl Iterator<Item = T>,
+        (open, close): (char, char),
+        f: &mut Formatter<'_>,
+    ) -> Result {
+        f.write_char(open)?;
+
+        if let Some(item) = input.next() {
+            f.write_fmt(format_args!("{}", item))?;
+        }
+
+        for item in input {
+            f.write_fmt(format_args!(", {}", item))?;
+        }
+
+        f.write_char(close)
+    }
+}
 
 /// Error which occurs when parsing string into a data model entity
 #[derive(Debug, Display, Clone, Copy)]
@@ -190,14 +314,6 @@ pub enum IdBox {
     RoleId(<role::Role as Identifiable>::Id),
 }
 
-impl Identifiable for IdBox {
-    type Id = Self;
-
-    fn id(&self) -> &Self::Id {
-        self
-    }
-}
-
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
@@ -290,16 +406,19 @@ pub type ValueBox = Box<Value>;
     Clone,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
-    PartialOrd,
-    Ord,
 )]
 #[allow(clippy::enum_variant_names)]
+#[repr(u8)]
 pub enum Value {
     /// [`u32`] integer.
     U32(u32),
@@ -333,12 +452,77 @@ pub enum Value {
     SignatureCheckCondition(SignatureCheckCondition),
     /// Committed or rejected transactions
     TransactionValue(TransactionValue),
+    /// Transaction Query
+    TransactionQueryResult(TransactionQueryResult),
     /// [`PermissionToken`].
     PermissionToken(PermissionToken),
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
-    Block(BlockValue),
+    Block(BlockValueWrapper),
+    /// Block headers
+    BlockHeader(BlockHeaderValue),
+}
+
+/// Cross-platform wrapper for `BlockValue`.
+#[cfg(not(target_arch = "aarch64"))]
+#[derive(
+    AsRef,
+    Clone,
+    Debug,
+    Decode,
+    Deref,
+    Deserialize,
+    Encode,
+    Eq,
+    From,
+    Into,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+)]
+#[serde(transparent)]
+pub struct BlockValueWrapper(BlockValue);
+
+/// Cross-platform wrapper for `BlockValue`.
+#[cfg(target_arch = "aarch64")]
+#[derive(
+    AsRef,
+    Clone,
+    Debug,
+    Decode,
+    Deref,
+    Deserialize,
+    Encode,
+    Eq,
+    From,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+)]
+#[as_ref(forward)]
+#[deref(forward)]
+#[from(forward)]
+#[serde(transparent)]
+pub struct BlockValueWrapper(Box<BlockValue>);
+
+#[cfg(target_arch = "aarch64")]
+impl From<BlockValueWrapper> for BlockValue {
+    fn from(block_value: BlockValueWrapper) -> Self {
+        *block_value.0
+    }
+}
+
+impl IntoSchema for BlockValueWrapper {
+    fn type_name() -> String {
+        BlockValue::type_name()
+    }
+
+    fn schema(map: &mut MetaMap) {
+        BlockValue::schema(map);
+    }
 }
 
 impl fmt::Display for Value {
@@ -367,9 +551,11 @@ impl fmt::Display for Value {
             Value::Parameter(v) => fmt::Display::fmt(&v, f),
             Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
             Value::TransactionValue(_) => write!(f, "TransactionValue"),
+            Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
-            Value::Block(v) => fmt::Display::fmt(&v, f),
+            Value::Block(v) => fmt::Display::fmt(&**v, f),
+            Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -381,9 +567,22 @@ impl Value {
         use Value::*;
 
         match self {
-            U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
-            | Hash(_) | Block(_) => 1_usize,
+            U32(_)
+            | U128(_)
+            | Id(_)
+            | PublicKey(_)
+            | Bool(_)
+            | Parameter(_)
+            | Identifiable(_)
+            | String(_)
+            | Name(_)
+            | Fixed(_)
+            | TransactionValue(_)
+            | TransactionQueryResult(_)
+            | PermissionToken(_)
+            | Hash(_)
+            | Block(_)
+            | BlockHeader(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -391,7 +590,13 @@ impl Value {
     }
 }
 
-impl<A: small::Array> From<SmallVec<A>> for Value
+impl From<BlockValue> for Value {
+    fn from(block_value: BlockValue) -> Self {
+        Value::Block(block_value.into())
+    }
+}
+
+impl<A: SmallArray> From<SmallVec<A>> for Value
 where
     A::Item: Into<Value>,
 {
@@ -600,7 +805,19 @@ where
     }
 }
 
-impl<A: small::Array> TryFrom<Value> for small::SmallVec<A>
+impl TryFrom<Value> for BlockValue {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Block(block_value) = value {
+            return Ok(block_value.into());
+        }
+
+        Err(Self::Error::default())
+    }
+}
+
+impl<A: SmallArray> TryFrom<Value> for SmallVec<A>
 where
     Value: TryInto<A::Item>,
 {
@@ -611,7 +828,7 @@ where
             return vec
                 .into_iter()
                 .map(TryInto::try_into)
-                .collect::<Result<small::SmallVec<_>, _>>()
+                .collect::<Result<SmallVec<_>, _>>()
                 .map_err(|_e| Self::Error::default());
         }
         Err(Self::Error::default())
@@ -623,7 +840,7 @@ where
 /// and `PartialCmp` implementations.
 pub trait Identifiable: Debug {
     /// The type of the `Id` of the entity.
-    type Id: Into<IdBox> + fmt::Display + fmt::Debug + Clone + Eq + Ord;
+    type Id;
 
     /// Get reference to the type's `Id`. There should be no other
     /// inherent `impl` with the same name (e.g. `getset`).
@@ -646,6 +863,16 @@ pub trait Registered: Identifiable {
     /// would be empty, to save space you create a builder for it, and
     /// set `With` to the builder's type.
     type With: Into<RegistrableBox>;
+}
+
+/// Trait for proxy objects used for registration.
+#[cfg(feature = "mutable_api")]
+pub trait Registrable {
+    /// Constructed type
+    type Target;
+
+    /// Construct [`Self::Target`]
+    fn build(self) -> Self::Target;
 }
 
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
@@ -688,13 +915,63 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(feature = "ffi_api")]
-mod ffi {
-    use iroha_ffi::{gen_ffi_impl, handles};
+pub mod ffi {
+    //! Definitions and implementations of FFI related functionalities
 
     use super::*;
 
-    handles! {0,
+    macro_rules! ffi_item {
+        ($it: item) => {
+            #[cfg(not(feature = "ffi_import"))]
+            $it
+
+            #[cfg(feature = "ffi_import")]
+            iroha_ffi::ffi! { $it }
+        };
+    }
+
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+    macro_rules! ffi_fn {
+        ($macro_name: ident) => {
+            iroha_ffi::$macro_name! { pub Clone:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                metadata::Metadata,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+            iroha_ffi::$macro_name! { pub Eq:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                metadata::Metadata,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+            iroha_ffi::$macro_name! { pub Ord:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+            iroha_ffi::$macro_name! { pub Drop:
+                account::Account,
+                asset::Asset,
+                domain::Domain,
+                metadata::Metadata,
+                permissions::PermissionToken,
+                role::Role,
+                Name,
+            }
+        };
+    }
+
+    iroha_ffi::handles! {
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -702,84 +979,37 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
 
-    gen_ffi_impl! { Clone:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
+    #[cfg(feature = "ffi_import")]
+    ffi_fn! {decl_ffi_fn}
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    ffi_fn! {def_ffi_fn}
 
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
-    }
-    gen_ffi_impl! { Eq:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
-    }
-    gen_ffi_impl! { Ord:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-
-        iroha_crypto::PublicKey
-    }
-    gen_ffi_impl! { Drop:
-        account::Account,
-        asset::Asset,
-        domain::Domain,
-        metadata::Metadata,
-        permissions::PermissionToken,
-        role::Role,
-        Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
-    }
+    pub(crate) use ffi_item;
 }
 
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "std")]
     pub use super::current_time;
+    #[cfg(feature = "mutable_api")]
+    pub use super::Registrable;
     pub use super::{
         account::prelude::*,
         asset::prelude::*,
         block_value::prelude::*,
         domain::prelude::*,
-        fixed::prelude::*,
         name::prelude::*,
         pagination::{prelude::*, Pagination},
         peer::prelude::*,
         role::prelude::*,
         trigger::prelude::*,
-        uri, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
+        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
         PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permissions::prelude::*, query::prelude::*, small, transaction::prelude::*,
-        trigger::prelude::*,
+        permissions::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
     };
 }

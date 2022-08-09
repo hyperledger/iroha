@@ -109,7 +109,7 @@ fn metadata(data: &Data) -> TokenStream2 {
                     types: Vec::new()
                 }
             )})
-            .unwrap();
+            .expect("Failed to parse metadata tuple");
             (vec![], expr)
         }
         Data::Union(_) => unimplemented!(),
@@ -145,7 +145,7 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
             }
         )
     })
-    .unwrap();
+    .expect("Failed to parse metadata for tuplestructs");
     (fields_ty, expr)
 }
 
@@ -165,7 +165,7 @@ fn metadata_for_structs(fields: &FieldsNamed) -> (Vec<Type>, Expr) {
             }
         )
     })
-    .unwrap();
+    .expect("Failed to parse metadata for structs");
     (fields_ty, expr)
 }
 
@@ -221,14 +221,14 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             }
         })
     })
-    .unwrap();
+    .expect("Failed to parse metadata for enums");
 
     (fields_ty, expr)
 }
 
 /// Generates declaration for field
 fn field_to_declaration(field: &Field) -> TokenStream2 {
-    let ident = field.ident.as_ref().unwrap();
+    let ident = field.ident.as_ref().expect("Field to declaration");
     let ty = &field.ty;
 
     quote! {
@@ -291,7 +291,8 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
         .map(|int| quote! { #int })
         .or_else(|| {
             v.discriminant.as_ref().map(|&(_, ref expr)| {
-                let n: Lit = syn::parse2(quote! { #expr }).unwrap();
+                let n: Lit = syn::parse2(quote! { #expr })
+                    .expect("Fallback in variant_index failed to parse");
                 quote! { #n }
             })
         })
@@ -322,7 +323,8 @@ fn filter_map_fields_types(field: &Field) -> Option<Field> {
     if is_compact(field) {
         let ty = &field.ty;
         let mut field = field.clone();
-        field.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> }).unwrap();
+        field.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> })
+            .expect("Failed to parse compact schema variant");
         Some(field)
     } else {
         Some(field.clone())

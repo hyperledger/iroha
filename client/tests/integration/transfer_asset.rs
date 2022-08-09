@@ -3,6 +3,7 @@
 use iroha_client::client;
 use iroha_core::prelude::*;
 use iroha_data_model::{prelude::*, Registered};
+use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 #[test]

@@ -4,7 +4,8 @@ use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_data_model::{fixed::Fixed, prelude::*};
+use iroha_data_model::prelude::*;
+use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 use super::Configuration;
@@ -224,7 +225,10 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
         .into_iter()
         .map(|asset| asset.id().clone())
         .collect::<Vec<_>>();
-    dbg!(&asset_definition_ids);
+    iroha_logger::debug!(
+        "Collected asset definitions ID's: {:?}",
+        &asset_definition_ids
+    );
 
     assert!(asset_definition_ids.contains(&normal_asset_definition_id));
     assert!(!asset_definition_ids.contains(&incorrect_asset_definition_id));

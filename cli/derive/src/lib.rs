@@ -35,17 +35,18 @@ use syn::{
 /// 3) When the colon-separated form has spaces in the provided name.
 ///
 /// # Examples:
-/// ```no_run
+/// ```rust
 /// use warp::{Rejection, Filter};
-/// use std::convert::Infallible;
-/// use iroha::torii::utils::WarpResult;
+/// use std::{convert::Infallible, marker::PhantomData};
+/// // use iroha_cli::torii::utils::WarpResult;
+/// pub struct WarpResult<O, E>(Result<O, E>);
 /// use iroha_cli_derive::generate_endpoints;
 ///
 /// // An example with arguments of both acceptable kinds.
 /// // This would generate endpoints accepting functions with
 /// // 2, 3, 4 and 5 arguments. The first and the last of them
-/// // will have the custom names provided, whereas the other two will have
-/// // default ones such as `endpoint3`.
+/// // have the custom names provided, whereas the other two have
+/// // defaults, such as `endpoint3`.
 /// generate_endpoints!(3, my_endpoint: 2, 4, anotherOne: 5, );
 /// ```
 #[proc_macro]

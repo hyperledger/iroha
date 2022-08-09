@@ -1,7 +1,19 @@
-#+TITLE: Iroha 2 flaky test document
+#+TITLE: Iroha 2 test guide
+* Why tests are important
 
-This document serves to test and track changes to the flaky-ness of the
-tests used in the Iroha 2 CI pipeline.
+Tests are the lifeblood of modern software engineering.  Whenever you
+add or remove a feature you /must/ ensure that the tests pass. Sadly,
+writing tests is as difficult as writing software, and tests are prone
+to misbehaviour. What follows is a short guide on how to write tests,
+how to update the tests, and basic troubleshooting.
+
+* Test flakyness
+
+A test is considered flaky if its pass/fail is not deterministic. In
+other words, there is no guarantee that it will
+always pass or always fail when you run it.
+
+* Known flaky tests
 
 This file should be updated after any performance critical
 changes. Note, because most flaky tests are of the =integration=
@@ -12,9 +24,10 @@ Unfortunately it is impossible to expedite the process,  and doing
 something in parallel to the testing can worsen the results,  so
 beware of repeating the tests on your work machine.
 
-|------------------------------------------+------------------+--------------+---------------------------|
-| Commit_sha                               | unstable…7_p…_1… | Two_networks | network_stable_after_add… |
-|------------------------------------------+------------------+--------------+---------------------------|
-| 938a3168387bb5a67aac19057d94c220c137dd96 | 1/300            | 3/300        | 5/300                     |
-|                                          |                  |              |                           |
-|------------------------------------------+------------------+--------------+---------------------------|
+|------------------------------------------+------------------+--------------+---------------------------+-------------------------------------+-----------------------------------------+--------------------------------------------------------------|
+| Commit_sha                               | unstable…7_p…_1… | Two_networks | network_stable_after_add… | integration::p2p::multiple_networks | time_trigger_execution_count…10_percent | client_has_rejected_and_acepted_txs_should_return_tx_history |
+|------------------------------------------+------------------+--------------+---------------------------+-------------------------------------+-----------------------------------------+--------------------------------------------------------------|
+| 938a3168387bb5a67aac19057d94c220c137dd96 | 1/300            | 3/300        | 5/300                     | 0/300                               | 0/300                                   | 0/300                                                        |
+| 3f88232ce36e441c7decdec86feae027d271e3ef | 2/300            | 5/300        | 6/300                     | 1/300                               | 1/300                                   | 1/300                                                        |
+| ba4571d96bea31cd9dea93128bf122e06cb43e31 | 1/300            | 4/300        | 2/300                     | 1/300                               | 0/300                                   | 0/300                                                        |
+|------------------------------------------+------------------+--------------+---------------------------+-------------------------------------+-----------------------------------------+--------------------------------------------------------------|

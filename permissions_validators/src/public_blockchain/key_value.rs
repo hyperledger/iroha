@@ -1,4 +1,4 @@
-//! Module with permission for burning
+//! Module with permission for setting and removing key values
 
 use iroha_data_model::asset::DefinitionId;
 
@@ -59,35 +59,31 @@ declare_token!(
 );
 
 /// Checks that account can set keys for assets only for the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow only the asset owner to set asset metadata keys")]
 pub struct AssetSetOnlyForSignerAccount;
 
-impl_from_item_for_instruction_validator_box!(AssetSetOnlyForSignerAccount);
+impl IsAllowed for AssetSetOnlyForSignerAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for AssetSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Ok(());
+            return Skip;
         };
-        let object_id = set_kv_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
+        let object_id = try_evaluate_or_deny!(set_kv_box.object_id, wsv);
 
         match object_id {
             IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
-                Err("Can't set value to asset store from another account."
-                    .to_owned()
-                    .into())
+                Deny("Cannot set value to the asset store of another account".to_owned())
             }
-            _ => Ok(()),
+            _ => Allow,
         }
     }
 }
@@ -97,19 +93,19 @@ impl IsAllowed<Instruction> for AssetSetOnlyForSignerAccount {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct SetGrantedByAssetOwner;
 
-impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetOwner);
-
 impl HasToken for SetGrantedByAssetOwner {
+    type Token = CanSetKeyValueInUserAssets;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Err("Instruction is not set.".to_owned());
+            return Err("Instruction is not set".to_owned());
         };
         let object_id = set_kv_box
             .object_id
@@ -118,70 +114,63 @@ impl HasToken for SetGrantedByAssetOwner {
         let object_id: AssetId = if let Ok(obj_id) = object_id.try_into() {
             obj_id
         } else {
-            return Err("Source id is not an AssetId.".to_owned());
+            return Err("Source id is not an AssetId".to_owned());
         };
-        Ok(CanSetKeyValueInUserAssets::new(object_id).into())
+        Ok(CanSetKeyValueInUserAssets::new(object_id))
     }
 }
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the asset owner")]
 pub struct GrantMyAssetAccessSet;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessSet);
-
 impl IsGrantAllowed for GrantMyAssetAccessSet {
+    type Token = CanSetKeyValueInUserAssets;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanSetKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
-
+        token: Self::Token,
+        _wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
         if &token.asset_id.account_id != authority {
-            return Err(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "The signer does not own the account specified in the permission token".to_owned(),
             );
         }
 
-        Ok(())
+        Allow
     }
 }
 
 /// Checks that account can set keys only the for signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow only the account owner to set account metadata keys")]
 pub struct AccountSetOnlyForSignerAccount;
 
-impl_from_item_for_instruction_validator_box!(AccountSetOnlyForSignerAccount);
+impl IsAllowed for AccountSetOnlyForSignerAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for AccountSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Ok(());
+            return Skip;
         };
-        let object_id = set_kv_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
+        let object_id = try_evaluate_or_deny!(set_kv_box.object_id, wsv);
 
         match &object_id {
             IdBox::AccountId(account_id) if account_id != authority => {
-                Err("Can't set value to account store from another account."
-                    .to_owned()
-                    .into())
+                Deny("Cannot set values to the account store of another account".to_owned())
             }
-            _ => Ok(()),
+            _ => Allow,
         }
     }
 }
@@ -190,19 +179,19 @@ impl IsAllowed<Instruction> for AccountSetOnlyForSignerAccount {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct SetGrantedByAccountOwner;
 
-impl_from_item_for_granted_token_validator_box!(SetGrantedByAccountOwner);
-
 impl HasToken for SetGrantedByAccountOwner {
+    type Token = CanSetKeyValueInUserMetadata;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Err("Instruction is not set.".to_owned());
+            return Err("Instruction is not set".to_owned());
         };
         let object_id = set_kv_box
             .object_id
@@ -211,67 +200,61 @@ impl HasToken for SetGrantedByAccountOwner {
         let object_id: AccountId = if let Ok(obj_id) = object_id.try_into() {
             obj_id
         } else {
-            return Err("Source id is not an AccountId.".to_owned());
+            return Err("Source id is not an AccountId".to_owned());
         };
-        Ok(CanSetKeyValueInUserMetadata::new(object_id).into())
+        Ok(CanSetKeyValueInUserMetadata::new(object_id))
     }
 }
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the account owner")]
 pub struct GrantMyMetadataAccessSet;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessSet);
-
 impl IsGrantAllowed for GrantMyMetadataAccessSet {
+    type Token = CanSetKeyValueInUserMetadata;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanSetKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
+        token: Self::Token,
+        _wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
         if &token.account_id != authority {
-            return Err(
-                "Account specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "The signer does not own the account specified in the permission token".to_owned(),
             );
         }
-        Ok(())
+        Allow
     }
 }
 
 /// Checks that account can remove keys for assets only the for signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow only the asset owner to remove asset metadata keys")]
 pub struct AssetRemoveOnlyForSignerAccount;
 
-impl_from_item_for_instruction_validator_box!(AssetRemoveOnlyForSignerAccount);
+impl IsAllowed for AssetRemoveOnlyForSignerAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for AssetRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return Ok(());
+            return Skip;
         };
-        let object_id = rem_kv_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
+        let object_id = try_evaluate_or_deny!(rem_kv_box.object_id, wsv);
         match object_id {
             IdBox::AssetId(asset_id) if &asset_id.account_id != authority => {
-                Err("Can't remove value from asset store from another account."
-                    .to_owned()
-                    .into())
+                Deny("Cannot remove values from the asset store of another account".to_owned())
             }
-            _ => Ok(()),
+            _ => Allow,
         }
     }
 }
@@ -280,19 +263,19 @@ impl IsAllowed<Instruction> for AssetRemoveOnlyForSignerAccount {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct RemoveGrantedByAssetOwner;
 
-impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetOwner);
-
 impl HasToken for RemoveGrantedByAssetOwner {
+    type Token = CanRemoveKeyValueInUserAssets;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return Err("Instruction is not set.".to_owned());
+            return Err("Instruction is not set".to_owned());
         };
         let object_id = rem_kv_box
             .object_id
@@ -301,69 +284,62 @@ impl HasToken for RemoveGrantedByAssetOwner {
         let object_id: AssetId = if let Ok(obj_id) = object_id.try_into() {
             obj_id
         } else {
-            return Err("Source id is not an AssetId.".to_owned());
+            return Err("Source id is not an AssetId".to_owned());
         };
-        Ok(CanRemoveKeyValueInUserAssets::new(object_id).into())
+        Ok(CanRemoveKeyValueInUserAssets::new(object_id))
     }
 }
 
 /// Validator that checks Grant instruction so that the access is granted to the assets
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the account owner")]
 pub struct GrantMyAssetAccessRemove;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessRemove);
-
 impl IsGrantAllowed for GrantMyAssetAccessRemove {
+    type Token = CanRemoveKeyValueInUserAssets;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanRemoveKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
-
+        token: Self::Token,
+        _wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
         if &token.asset_id.account_id != authority {
-            return Err(
-                "Asset specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "The signer does not own the account specified in the permission token".to_owned(),
             );
         }
-        Ok(())
+        Allow
     }
 }
 
 /// Checks that account can remove keys only the for signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow only the account owner to remove account metadata keys")]
 pub struct AccountRemoveOnlyForSignerAccount;
 
-impl_from_item_for_instruction_validator_box!(AccountRemoveOnlyForSignerAccount);
+impl IsAllowed for AccountRemoveOnlyForSignerAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for AccountRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return Ok(());
+            return Skip;
         };
-        let object_id = rem_kv_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
+        let object_id = try_evaluate_or_deny!(rem_kv_box.object_id, wsv);
 
         match object_id {
-            IdBox::AccountId(account_id) if &account_id != authority => Err(
-                "Can't remove value from account store from another account."
-                    .to_owned()
-                    .into(),
-            ),
-            _ => Ok(()),
+            IdBox::AccountId(account_id) if &account_id != authority => {
+                Deny("Cannot remove values from the account store of another account".to_owned())
+            }
+            _ => Allow,
         }
     }
 }
@@ -372,19 +348,19 @@ impl IsAllowed<Instruction> for AccountRemoveOnlyForSignerAccount {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct RemoveGrantedByAccountOwner;
 
-impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAccountOwner);
-
 impl HasToken for RemoveGrantedByAccountOwner {
+    type Token = CanRemoveKeyValueInUserMetadata;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return Err("Instruction is not remove.".to_owned());
+            return Err("Instruction is not remove".to_owned());
         };
         let object_id = rem_kv_box
             .object_id
@@ -393,155 +369,145 @@ impl HasToken for RemoveGrantedByAccountOwner {
         let object_id: AccountId = if let Ok(obj_id) = object_id.try_into() {
             obj_id
         } else {
-            return Err("Source id is not an AccountId.".to_owned());
+            return Err("Source id is not an AccountId".to_owned());
         };
-        Ok(CanRemoveKeyValueInUserMetadata::new(object_id).into())
+        Ok(CanRemoveKeyValueInUserMetadata::new(object_id))
     }
 }
 
 /// Validator that checks Grant instruction so that the access is granted to the metadata
 /// of the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the account owner")]
 pub struct GrantMyMetadataAccessRemove;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessRemove);
-
 impl IsGrantAllowed for GrantMyMetadataAccessRemove {
+    type Token = CanRemoveKeyValueInUserMetadata;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanRemoveKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
-
+        token: Self::Token,
+        _wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
         if &token.account_id != authority {
-            return Err(
-                "Account specified in permission token is not owned by signer."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "The signer does not own the account specified in the permission token".to_owned(),
             );
         }
-        Ok(())
+        Allow
     }
 }
 
-/// Validator that checks Grant instruction so that the access is granted to the assets defintion
-/// registered by signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+/// Validator that checks Grant instruction so that the access to the asset definition
+/// is granted by the asset creator.
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantMyAssetDefinitionSet;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionSet);
-
 impl IsGrantAllowed for GrantMyAssetDefinitionSet {
+    type Token = CanSetKeyValueInAssetDefinition;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanSetKeyValueInAssetDefinition = extract_specialized_token(instruction, wsv)?;
-
+    ) -> ValidatorVerdict {
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
 // Validator that checks Grant instruction so that the access is granted to the assets defintion
 /// registered by signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "the signer is the asset creator")]
 pub struct GrantMyAssetDefinitionRemove;
 
-impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionRemove);
-
 impl IsGrantAllowed for GrantMyAssetDefinitionRemove {
+    type Token = CanRemoveKeyValueInAssetDefinition;
+
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &GrantBox,
+        token: Self::Token,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        let token: CanRemoveKeyValueInAssetDefinition =
-            extract_specialized_token(instruction, wsv)?;
-
+    ) -> ValidatorVerdict {
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
 /// Checks that account can set keys for asset definitions only registered by the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow only the asset creator to set asset definition metadata keys")]
 pub struct AssetDefinitionSetOnlyForSignerAccount;
 
-impl_from_item_for_instruction_validator_box!(AssetDefinitionSetOnlyForSignerAccount);
+impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for AssetDefinitionSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Ok(());
+            return Skip;
         };
-        let obj_id = set_kv_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
 
-        let object_id: AssetDefinitionId = try_into_or_exit!(obj_id);
+        let object_id: AssetDefinitionId =
+            ok_or_skip!(try_evaluate_or_deny!(set_kv_box.object_id, wsv).try_into());
+
         let registered_by_signer_account = wsv
             .asset_definition_entry(&object_id)
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
-            return Err(
-                "Can't set key value to asset definition registered by other accounts."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "Cannot set key values to asset definitions registered by other accounts"
+                    .to_owned(),
             );
         }
-        Ok(())
+        Allow
     }
 }
 
 /// Checks that account can set keys for asset definitions only registered by the signer account.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow only the asset creator to remove asset definition metadata keys")]
 pub struct AssetDefinitionRemoveOnlyForSignerAccount;
 
-impl_from_item_for_instruction_validator_box!(AssetDefinitionRemoveOnlyForSignerAccount);
+impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for AssetDefinitionRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<()> {
+    ) -> ValidatorVerdict {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
-            return Ok(());
+            return Skip;
         };
-        let obj_id = rem_kv_box
-            .object_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
 
-        let object_id: AssetDefinitionId = try_into_or_exit!(obj_id);
+        let object_id: AssetDefinitionId =
+            ok_or_skip!(try_evaluate_or_deny!(rem_kv_box.object_id, wsv).try_into());
+
         let registered_by_signer_account = wsv
             .asset_definition_entry(&object_id)
             .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
-            return Err(
-                "Can't remove key value to asset definition registered by other accounts."
-                    .to_owned()
-                    .into(),
+            return Deny(
+                "Cannot remove key values from asset definitions registered by other accounts"
+                    .to_owned(),
             );
         }
-        Ok(())
+        Allow
     }
 }
 
@@ -549,19 +515,19 @@ impl IsAllowed<Instruction> for AssetDefinitionRemoveOnlyForSignerAccount {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct SetGrantedByAssetDefinitionOwner;
 
-impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetDefinitionOwner);
-
 impl HasToken for SetGrantedByAssetDefinitionOwner {
+    type Token = CanSetKeyValueInAssetDefinition;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Err("Instruction is not set.".to_owned());
+            return Err("Instruction is not set".to_owned());
         };
         let object_id = set_kv_box
             .object_id
@@ -570,9 +536,9 @@ impl HasToken for SetGrantedByAssetDefinitionOwner {
         let object_id: AssetDefinitionId = if let Ok(obj_id) = object_id.try_into() {
             obj_id
         } else {
-            return Err("Source id is not an AssetDefinitionId.".to_owned());
+            return Err("Source id is not an AssetDefinitionId".to_owned());
         };
-        Ok(CanSetKeyValueInAssetDefinition::new(object_id).into())
+        Ok(CanSetKeyValueInAssetDefinition::new(object_id))
     }
 }
 
@@ -580,19 +546,19 @@ impl HasToken for SetGrantedByAssetDefinitionOwner {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct RemoveGrantedByAssetDefinitionOwner;
 
-impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetDefinitionOwner);
-
 impl HasToken for RemoveGrantedByAssetDefinitionOwner {
+    type Token = CanRemoveKeyValueInAssetDefinition;
+
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> std::result::Result<PermissionToken, String> {
+    ) -> std::result::Result<Self::Token, String> {
         let set_kv_box = if let Instruction::RemoveKeyValue(set_kv) = instruction {
             set_kv
         } else {
-            return Err("Instruction is not remove key value.".to_owned());
+            return Err("Instruction is not remove key value".to_owned());
         };
         let object_id = set_kv_box
             .object_id
@@ -601,8 +567,8 @@ impl HasToken for RemoveGrantedByAssetDefinitionOwner {
         let object_id: AssetDefinitionId = if let Ok(obj_id) = object_id.try_into() {
             obj_id
         } else {
-            return Err("Source id is not an AssetDefinitionId.".to_owned());
+            return Err("Source id is not an AssetDefinitionId".to_owned());
         };
-        Ok(CanRemoveKeyValueInAssetDefinition::new(object_id).into())
+        Ok(CanRemoveKeyValueInAssetDefinition::new(object_id))
     }
 }

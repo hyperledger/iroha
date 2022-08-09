@@ -49,7 +49,7 @@ pub trait DumpDecoded: Debug + Decode {
     /// # Errors
     /// - If decoding from *Parity Scale Codec* fails
     /// - If writing into `w` fails
-    fn dump_decoded(mut input: &[u8], w: &mut dyn io::Write) -> Result<(), eyre::Error> {
+    fn dump_decoded(mut input: &[u8], w: &mut dyn io::Write) -> Result<()> {
         let obj = <Self as Decode>::decode(&mut input)?;
         #[allow(clippy::use_debug)]
         writeln!(w, "{:#?}", obj)?;
@@ -119,12 +119,9 @@ impl<'map> Decoder<'map> {
             .iter()
             .filter_map(|(type_name, dump_decoded)| {
                 let mut buf = Vec::new();
-                dump_decoded(bytes, &mut buf)
-                    .ok()
-                    .and_then(|_| String::from_utf8(buf).ok())
-                    .and_then(|formatted| {
-                        writeln!(writer, "{}:\n{}", type_name.italic().cyan(), formatted).ok()
-                    })
+                dump_decoded(bytes, &mut buf).ok()?;
+                let formatted = String::from_utf8(buf).ok()?;
+                writeln!(writer, "{}:\n{}", type_name.italic().cyan(), formatted).ok()
             })
             .count();
         match count {

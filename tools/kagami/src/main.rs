@@ -6,7 +6,7 @@ use std::io::{stdout, BufWriter, Write};
 
 use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
-use iroha::config::Configuration;
+use iroha_config::iroha::Configuration;
 
 pub type Outcome = color_eyre::Result<()>;
 
@@ -73,7 +73,8 @@ mod crypto {
     #[derive(StructOpt, Debug, Clone)]
     #[structopt(group = ArgGroup::new("generate_from").required(false))]
     pub struct Args {
-        /// Algorithm used for generating the key-pair
+        /// Algorithm used to generate the key-pair.
+        /// Options: `ed25519`, `secp256k1`, `bls_normal`, `bls_small`.
         #[clap(default_value_t, long, short)]
         algorithm: Algorithm,
         /// The `private_key` used to generate the key-pair
@@ -203,7 +204,7 @@ mod docs {
     use std::{fmt::Debug, io::Write};
 
     use color_eyre::eyre::WrapErr as _;
-    use iroha_config::Configurable;
+    use iroha_config::base::Configurable;
     use serde_json::Value;
 
     use super::*;

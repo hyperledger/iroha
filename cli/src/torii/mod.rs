@@ -9,7 +9,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
+    smartcontracts::isi::query,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -23,8 +23,7 @@ use warp::{
 };
 
 #[macro_use]
-pub mod utils;
-pub mod config;
+pub(crate) mod utils;
 pub mod routing;
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -33,7 +32,7 @@ pub struct Torii {
     wsv: Arc<WorldStateView>,
     queue: Arc<Queue>,
     events: EventsSender,
-    query_validator: Arc<IsQueryAllowedBoxed>,
+    query_judge: QueryJudgeArc,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
 }
@@ -74,7 +73,7 @@ pub enum Error {
     Status(#[from] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed")]
-    ConfigurationReload(#[from] iroha_config::runtime_upgrades::ReloadError),
+    ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     #[error("Failed to produce Prometheus metrics: {0}")]
@@ -86,7 +85,7 @@ pub(crate) const fn query_status_code(query_error: &query::Error) -> StatusCode 
     use query::Error::*;
     match query_error {
         Decode(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
-        Signature(_) => StatusCode::UNAUTHORIZED,
+        Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
         Permission(_) => StatusCode::FORBIDDEN,
         Find(_) => StatusCode::NOT_FOUND,
     }

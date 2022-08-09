@@ -9,25 +9,28 @@ declare_token!(
 );
 
 /// Prohibits registering domains.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Prohibit register domains")]
 pub struct ProhibitRegisterDomains;
 
-impl_from_item_for_instruction_validator_box!(ProhibitRegisterDomains);
+impl IsAllowed for ProhibitRegisterDomains {
+    type Operation = Instruction;
 
-impl IsAllowed<Instruction> for ProhibitRegisterDomains {
     fn check(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView,
-    ) -> Result<(), DenialReason> {
+    ) -> ValidatorVerdict {
         if let Instruction::Register(register) = instruction {
             if let Ok(RegistrableBox::Domain(_)) = register.object.evaluate(wsv, &Context::new()) {
-                return Err("Domain registration is prohibited.".to_owned().into());
+                return Deny("Domain registration is prohibited.".to_owned());
             }
+
+            return Allow;
         }
 
-        Ok(())
+        Skip
     }
 }
 
@@ -35,15 +38,15 @@ impl IsAllowed<Instruction> for ProhibitRegisterDomains {
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedAllowedRegisterDomains;
 
-impl_from_item_for_granted_token_validator_box!(GrantedAllowedRegisterDomains);
-
 impl HasToken for GrantedAllowedRegisterDomains {
+    type Token = CanRegisterDomains;
+
     fn token(
         &self,
         _authority: &AccountId,
         _instruction: &Instruction,
         _wsv: &WorldStateView,
-    ) -> Result<PermissionToken, String> {
-        Ok(CanRegisterDomains::new().into())
+    ) -> Result<CanRegisterDomains, String> {
+        Ok(CanRegisterDomains::new())
     }
 }

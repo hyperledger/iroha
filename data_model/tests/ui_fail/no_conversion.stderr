@@ -1,5 +1,0 @@
-error[E0308]: mismatched types
- --> tests/ui_fail/no_conversion.rs:4:17
-  |
-4 |     Fixed::from(-1_f64);
-  |                 ^^^^^^ expected struct `iroha_data_model::prelude::Fixed`, found `f64`

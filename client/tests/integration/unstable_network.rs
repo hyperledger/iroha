@@ -3,7 +3,6 @@
 use std::{thread, time::Duration};
 
 use iroha_client::client::{self, Client};
-use iroha_config::logger;
 use iroha_data_model::prelude::*;
 use iroha_logger::Level;
 use test_network::*;
@@ -58,13 +57,15 @@ fn unstable_network(
     polling_max_attempts: u32,
     polling_period: Duration,
 ) {
-    drop(iroha_logger::install_panic_hook());
+    if let Err(error) = iroha_logger::install_panic_hook() {
+        eprintln!("Installing panic hook failed: {error}");
+    }
     let rt = Runtime::test();
     // Given
     let (network, mut iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
-        configuration.logger.max_log_level = Level(logger::Level::ERROR).into();
+        configuration.logger.max_log_level = Level::ERROR.into();
         let network =
             <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers)
                 .await

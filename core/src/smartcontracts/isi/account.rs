@@ -13,7 +13,10 @@ use crate::{ValidQuery, WorldStateView};
 /// - grant permissions and roles
 /// - Revoke permissions or roles
 pub mod isi {
-    use super::{super::prelude::*, *};
+    use super::{
+        super::{prelude::*, query::Error as QueryError},
+        *,
+    };
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
@@ -28,13 +31,15 @@ pub mod isi {
             let asset_id = self.object.id();
 
             match wsv.asset(asset_id) {
-                Err(FindError::Asset(_)) => {
-                    assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
-                    wsv.asset_or_insert(asset_id, self.object.value().clone())
-                        .expect("Account exists");
-                    Ok(())
-                }
-                Err(e) => Err(Error::Find(Box::new(e))),
+                Err(err) => match err {
+                    QueryError::Find(find_err) if matches!(*find_err, FindError::Asset(_)) => {
+                        assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
+                        wsv.asset_or_insert(asset_id, self.object.value().clone())
+                            .expect("Account exists");
+                        Ok(())
+                    }
+                    _ => Err(err.into()),
+                },
                 Ok(_) => Err(Error::Repetition(
                     InstructionType::Register,
                     IdBox::AssetId(asset_id.clone()),

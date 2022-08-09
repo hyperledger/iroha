@@ -2,12 +2,11 @@
 
 use std::{str::FromStr as _, thread, time::Duration};
 
-use iroha_client::{
-    client::{self, Client},
-    config::Configuration as ClientConfiguration,
-};
+use iroha_client::client::{self, Client};
+use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_core::prelude::*;
 use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
+use iroha_primitives::small::SmallStr;
 use test_network::*;
 
 use super::Configuration;
@@ -71,7 +70,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     thread::sleep(pipeline_time);
 
     //Then
-    client_configuration.torii_api_url = small::SmallStr::from_string(
+    client_configuration.torii_api_url = SmallStr::from_string(
         "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
     );
     let iroha_client_1 = Client::new(&client_configuration).expect("Invalid client configuration");

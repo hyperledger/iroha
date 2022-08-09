@@ -9,7 +9,7 @@ use iroha_core::{
     prelude::*,
 };
 use iroha_data_model::{prelude::*, ParseError};
-use small::SmallStr;
+use iroha_primitives::small::SmallStr;
 use test_network::{prepare_test_for_nextest, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
@@ -176,7 +176,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let builder = PeerBuilder::new()
         .with_configuration(configuration)
-        .with_instruction_validator(AllowAll)
+        .with_instruction_judge(Box::new(AllowAll::new()))
         .with_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));

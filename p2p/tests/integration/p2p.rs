@@ -11,7 +11,6 @@ use std::{
 
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_config::logger;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_logger::{prelude::*, Configuration, Level};
 use iroha_p2p::{
@@ -35,7 +34,7 @@ static INIT: Once = Once::new();
 fn setup_logger() {
     INIT.call_once(|| {
         let log_config = Configuration {
-            max_log_level: Level(logger::Level::TRACE).into(),
+            max_log_level: Level::TRACE.into(),
             compact_mode: false,
             ..Configuration::default()
         };
@@ -202,11 +201,15 @@ async fn two_networks() {
 async fn multiple_networks() {
     prepare_test_for_nextest!();
     let log_config = Configuration {
-        max_log_level: Level(logger::Level::TRACE).into(),
+        max_log_level: Level::TRACE.into(),
         compact_mode: false,
         ..Configuration::default()
     };
-    drop(iroha_logger::init(&log_config));
+    // Can't use logger because it's failed to initialize.
+    #[allow(clippy::print_stderr)]
+    if let Err(err) = iroha_logger::init(&log_config) {
+        eprintln!("Failed to initialize logger: {err}");
+    }
     info!("Starting...");
 
     let delay = Duration::from_millis(200);
@@ -269,7 +272,7 @@ async fn start_network(
         broker: broker.clone(),
         messages,
     };
-    drop(actor.start().await);
+    actor.start().await;
 
     let network = Network::<TestMessage>::new(
         broker.clone(),

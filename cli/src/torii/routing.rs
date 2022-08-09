@@ -6,18 +6,17 @@ use std::num::TryFromIntError;
 
 use eyre::WrapErr;
 use iroha_actor::Addr;
-use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
+use iroha_config::{
+    base::Configurable, iroha::ConfigurationView, torii::uri, GetConfiguration, PostConfiguration,
+};
 use iroha_core::{
     block::stream::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
         VersionedBlockSubscriberMessage,
     },
     smartcontracts::{
-        isi::{
-            permissions::IsQueryAllowedBoxed,
-            query::{Error as QueryError, ValidQueryRequest},
-        },
-        permissions::IsAllowed as _,
+        isi::query::{Error as QueryError, ValidQueryRequest},
+        permissions::prelude::*,
     },
 };
 use iroha_crypto::SignatureOf;
@@ -57,7 +56,7 @@ impl VerifiedQueryRequest {
     pub fn validate(
         self,
         wsv: &WorldStateView,
-        query_validator: &IsQueryAllowedBoxed,
+        query_judge: &dyn Judge<Operation = QueryBox>,
     ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.contains_signatory(self.signature.public_key())
@@ -67,8 +66,8 @@ impl VerifiedQueryRequest {
                 "Signature public key doesn't correspond to the account.",
             )));
         }
-        query_validator
-            .check(&self.payload.account_id, &self.payload.query, wsv)
+        query_judge
+            .judge(&self.payload.account_id, &self.payload.query, wsv)
             .map_err(QueryError::Permission)?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
@@ -118,11 +117,11 @@ pub(crate) async fn handle_instructions(
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_queries(
     wsv: Arc<WorldStateView>,
-    query_validator: Arc<IsQueryAllowedBoxed>,
+    query_judge: QueryJudgeArc,
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let (valid_request, filter) = request.validate(&wsv, &query_validator)?;
+    let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
     let original_result = valid_request.execute(&wsv)?;
     let result = filter.filter(original_result);
     let (total, result) = if let Value::Vec(value) = result {
@@ -192,7 +191,9 @@ async fn handle_get_configuration(
                 .wrap_err("Failed to get docs {:?field}")
                 .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs"))
         }
-        Value => serde_json::to_value(iroha_cfg).wrap_err("Failed to serialize value"),
+        // Cast to configuration view to hide private keys.
+        Value => serde_json::to_value(ConfigurationView::from(iroha_cfg))
+            .wrap_err("Failed to serialize value"),
     }
     .map(|v| reply::json(&v))
     .map_err(Error::Config)
@@ -203,13 +204,13 @@ async fn handle_post_configuration(
     iroha_cfg: Configuration,
     cfg: PostConfiguration,
 ) -> Result<Json> {
-    use iroha_config::runtime_upgrades::Reload;
+    use iroha_config::base::runtime_upgrades::Reload;
     use PostConfiguration::*;
 
     iroha_logger::debug!(?cfg);
     match cfg {
         LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level.into())?;
+            iroha_cfg.logger.max_log_level.reload(level)?;
         }
     };
 
@@ -409,7 +410,7 @@ impl Torii {
         iroha_cfg: Configuration,
         wsv: Arc<WorldStateView>,
         queue: Arc<Queue>,
-        query_validator: Arc<IsQueryAllowedBoxed>,
+        query_judge: QueryJudgeArc,
         events: EventsSender,
         network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,
@@ -418,7 +419,7 @@ impl Torii {
             iroha_cfg,
             wsv,
             events,
-            query_validator,
+            query_judge,
             queue,
             network,
             notify_shutdown,
@@ -484,7 +485,7 @@ impl Torii {
         .or(endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state!(self.wsv, self.query_validator))
+                .and(add_state!(self.wsv, self.query_judge))
                 .and(paginate())
                 .and(body::query()),
         ))

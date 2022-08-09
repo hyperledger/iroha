@@ -4,18 +4,18 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-use std::{path::PathBuf, sync::Arc};
+use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use config::Configuration;
 use iroha_actor::{broker::*, prelude::*};
+use iroha_config::iroha::Configuration;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
-    kura::{Kura, KuraTrait},
+    kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
-    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
+    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::{Sumeragi, SumeragiTrait},
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
@@ -28,7 +28,6 @@ use tokio::{
 };
 use torii::Torii;
 
-pub mod config;
 mod event;
 pub mod samples;
 mod stream;
@@ -61,11 +60,10 @@ impl Default for Arguments {
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
-pub struct Iroha<G = GenesisNetwork, K = Kura, S = Sumeragi<G, K>, B = BlockSynchronizer<S>>
+pub struct Iroha<G = GenesisNetwork, S = Sumeragi<G>, B = BlockSynchronizer<S>>
 where
     G: GenesisNetworkTrait,
-    K: KuraTrait,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    S: SumeragiTrait<GenesisNetwork = G>,
     B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// World state view
@@ -75,18 +73,17 @@ where
     /// Sumeragi consensus
     pub sumeragi: AlwaysAddr<S>,
     /// Kura - block storage
-    pub kura: AlwaysAddr<K>,
+    pub kura: Arc<Kura>,
     /// Block synchronization actor
     pub block_sync: AlwaysAddr<B>,
     /// Torii web server
     pub torii: Option<Torii>,
 }
 
-impl<G, S, K, B> Iroha<G, K, S, B>
+impl<G, S, B> Iroha<G, S, B>
 where
     G: GenesisNetworkTrait,
-    K: KuraTrait,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    S: SumeragiTrait<GenesisNetwork = G>,
     B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// To make `Iroha` peer work all actors should be started first.
@@ -103,8 +100,8 @@ where
     #[allow(clippy::non_ascii_literal)]
     pub async fn new(
         args: &Arguments,
-        instruction_validator: IsInstructionAllowedBoxed,
-        query_validator: IsQueryAllowedBoxed,
+        instruction_judge: InstructionJudgeBoxed,
+        query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
         let mut config = match Configuration::from_path(&args.config_path) {
@@ -132,12 +129,20 @@ where
         Self::with_genesis(
             genesis,
             config,
-            instruction_validator,
-            query_validator,
+            instruction_judge,
+            query_judge,
             broker,
             telemetry,
         )
         .await
+    }
+
+    fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
+        let hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            hook(info);
+            notify_shutdown.notify_one();
+        }));
     }
 
     /// Create Iroha with specified broker, config, and genesis.
@@ -149,8 +154,8 @@ where
     pub async fn with_genesis(
         genesis: Option<G>,
         config: Configuration,
-        instruction_validator: IsInstructionAllowedBoxed,
-        query_validator: IsQueryAllowedBoxed,
+        instruction_judge: InstructionJudgeBoxed,
+        query_judge: QueryJudgeBoxed,
         broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
@@ -183,12 +188,12 @@ where
             events_sender.clone(),
         ));
 
-        let query_validator = Arc::new(query_validator);
+        let query_judge = Arc::from(query_judge);
 
         let transaction_validator = TransactionValidator::new(
             config.sumeragi.transaction_limits,
-            Arc::new(instruction_validator),
-            Arc::clone(&query_validator),
+            Arc::from(instruction_judge),
+            Arc::clone(&query_judge),
             Arc::clone(&wsv),
         );
 
@@ -203,9 +208,7 @@ where
 
         let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
-        let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
-            .await?
-            .preinit();
+        let kura = Kura::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())?;
 
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi,
@@ -216,7 +219,7 @@ where
             genesis,
             Arc::clone(&queue),
             broker.clone(),
-            kura.address.clone().expect_running().clone(),
+            Arc::clone(&kura),
             network_addr.clone(),
         )
         .wrap_err("Failed to initialize Sumeragi.")?
@@ -224,7 +227,7 @@ where
         .await
         .expect_running();
 
-        let kura = kura.start().await.expect_running();
+        kura.async_init_all_important().await;
         let block_sync = B::from_configuration(
             &config.block_sync,
             Arc::clone(&wsv),
@@ -240,13 +243,17 @@ where
             config.clone(),
             Arc::clone(&wsv),
             Arc::clone(&queue),
-            query_validator,
+            query_judge,
             events_sender,
             network_addr.clone(),
             Arc::clone(&notify_shutdown),
         );
 
-        Self::start_listening_signal(notify_shutdown)?;
+        Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
+
+        if config.shutdown_on_panic {
+            Self::prepare_panic_hook(notify_shutdown);
+        }
 
         let torii = Some(torii);
         Ok(Self {
@@ -352,7 +359,31 @@ where
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-fn domains(configuration: &config::Configuration) -> [Domain; 1] {
+fn domains(configuration: &Configuration) -> [Domain; 1] {
     let key = configuration.genesis.account_public_key.clone();
     [Domain::from(GenesisDomain::new(key))]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{panic, thread};
+
+    use serial_test::serial;
+
+    use super::*;
+
+    #[allow(clippy::panic)]
+    #[tokio::test]
+    #[serial]
+    async fn iroha_should_notify_on_panic() {
+        let notify = Arc::new(Notify::new());
+        let hook = panic::take_hook();
+        <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
+        let _res = thread::spawn(move || {
+            panic!("Test panic");
+        })
+        .join();
+        notify.notified().await;
+        panic::set_hook(hook);
+    }
 }

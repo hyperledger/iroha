@@ -59,7 +59,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha_data_primitives::small::{self, SmallVec};
+use iroha_primitives::small::{self, SmallVec};
 
 use super::*;
 
@@ -107,6 +107,40 @@ impl Broker {
             .iter()
             .filter_map(|(id, recipient)| Some((id, recipient.downcast_ref::<Recipient<M>>()?)))
             .fold(0, |p, (_, n)| p + if n.0.is_closed() { 0 } else { 1 })
+    }
+
+    /// Synchronously send message via broker.
+    pub fn issue_send_sync<M: BrokerMessage + Send + Sync>(&self, m: &M) {
+        let mut entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {
+            entry
+        } else {
+            return;
+        };
+
+        let closed = entry
+                .get()
+                .iter()
+                .filter_map(|(id, recipient)| Some((id, recipient.downcast_ref::<Recipient<M>>()?)))
+                .map(|(id, recipient)| {
+                    let m = m.clone();
+                    {
+                        if recipient.0.is_closed() {
+                            return Some(*id);
+                        }
+
+                        recipient.send_sync(m);
+                        None
+                    }
+                })
+                .collect::<SmallVec<[_; small::SMALL_SIZE]>>() // TODO: Revise using real-world benchmarks.
+                .into_iter()
+            .flatten();
+
+        let entry = entry.get_mut();
+
+        for c in closed {
+            entry.remove(&c);
+        }
     }
 
     /// Send message via broker
@@ -226,36 +260,38 @@ mod tests {
         let broker = Broker::new();
         Actor1(broker.clone()).start().await;
         Actor1(broker.clone()).start().await;
-        let mut rec = broker.subscribe_with_channel::<Message1>();
 
-        time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(
-            (
-                broker.subscribers::<Message1>(),
-                broker.subscribers::<Stop>()
-            ),
-            (3, 2)
-        );
+        {
+            let mut rec = broker.subscribe_with_channel::<Message1>();
 
-        broker.issue_send(Message1).await;
-        time::sleep(Duration::from_millis(100)).await;
+            time::sleep(Duration::from_millis(100)).await;
+            assert_eq!(
+                (
+                    broker.subscribers::<Message1>(),
+                    broker.subscribers::<Stop>()
+                ),
+                (3, 2)
+            );
 
-        broker.issue_send(Stop).await;
-        time::sleep(Duration::from_millis(100)).await;
+            broker.issue_send(Message1).await;
+            time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(
-            (
-                broker.subscribers::<Message1>(),
-                broker.subscribers::<Stop>()
-            ),
-            (1, 0)
-        );
+            broker.issue_send(Stop).await;
+            time::sleep(Duration::from_millis(100)).await;
 
-        tokio::time::timeout(Duration::from_millis(10), rec.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        drop(rec);
+            assert_eq!(
+                (
+                    broker.subscribers::<Message1>(),
+                    broker.subscribers::<Stop>()
+                ),
+                (1, 0)
+            );
+
+            tokio::time::timeout(Duration::from_millis(10), rec.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        }
 
         assert_eq!(
             (

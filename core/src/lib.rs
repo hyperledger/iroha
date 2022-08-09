@@ -42,6 +42,13 @@ pub type EventsSender = broadcast::Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
 pub type EventsReceiver = broadcast::Receiver<Event>;
 
+/// Send `event` and log error if failure occurred.
+fn send_event(events_sender: &EventsSender, event: Event) {
+    if let Err(error) = events_sender.send(event) {
+        iroha_logger::debug!(%error, event = ?error.0, "Failed send event");
+    }
+}
+
 /// The network message
 #[derive(Clone, Debug, Encode, Decode, iroha_actor::Message)]
 pub enum NetworkMessage {
@@ -71,9 +78,7 @@ pub mod prelude {
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
             DEFAULT_CONSENSUS_ESTIMATION_MS,
         },
-        smartcontracts::permissions::{
-            builder::Validator as ValidatorBuilder, combinators::AllowAll,
-        },
+        smartcontracts::permissions::prelude::*,
         smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,

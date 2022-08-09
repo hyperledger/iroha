@@ -1,19 +1,20 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_set, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, collections::btree_set, format, string::String, vec::Vec};
 #[cfg(feature = "std")]
-use std::collections::btree_set;
+use std::{alloc::alloc, collections::btree_set};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-#[cfg(feature = "ffi_api")]
-use iroha_ffi::ffi_bindgen;
+use iroha_data_model_derive::IdOrdEqHash;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    ffi::ffi_item,
     permissions::{PermissionToken, Permissions},
     Identifiable, Name, Registered,
 };
@@ -37,6 +38,8 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
 pub struct Id {
@@ -44,47 +47,42 @@ pub struct Id {
     pub name: Name,
 }
 
-/// Role is a tag for a set of permission tokens.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+ffi_item! {
+    /// Role is a tag for a set of permission tokens.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
+    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+    #[display(fmt = "{id}")]
+    #[getset(get = "pub")]
+    #[id(type = "Id")]
+    pub struct Role {
+        /// Unique name of the role.
+        #[getset(skip)]
+        id: <Self as Identifiable>::Id,
+        /// Permission tokens.
+        #[getset(skip)]
+        permissions: Permissions,
+    }
+}
+
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
 )]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-#[display(fmt = "{id}")]
-#[getset(get = "pub")]
-pub struct Role {
-    /// Unique name of the role.
-    #[getset(skip)]
-    id: <Self as Identifiable>::Id,
-    /// Permission tokens.
-    #[getset(skip)]
-    permissions: Permissions,
-}
-
-impl PartialOrd for Role {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Role {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id().cmp(other.id())
-    }
-}
-
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl Role {
     /// Constructor.
     #[inline]
@@ -99,14 +97,6 @@ impl Role {
     }
 }
 
-impl Identifiable for Role {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
-    }
-}
-
 impl Registered for Role {
     type With = NewRole;
 }
@@ -116,43 +106,48 @@ impl Registered for Role {
     Debug,
     Display,
     Clone,
-    PartialEq,
-    Eq,
+    IdOrdEqHash,
     Getters,
     Decode,
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
+#[allow(clippy::multiple_inherent_impl)]
+#[id(type = "<Role as Identifiable>::Id")]
 pub struct NewRole {
     inner: Role,
 }
 
-impl Identifiable for NewRole {
-    type Id = <Role as Identifiable>::Id;
+#[cfg(feature = "mutable_api")]
+impl crate::Registrable for NewRole {
+    type Target = Role;
 
+    #[must_use]
     #[inline]
-    fn id(&self) -> &Self::Id {
-        &self.inner.id
+    fn build(self) -> Self::Target {
+        self.inner
     }
 }
 
-impl PartialOrd for NewRole {
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+impl NewRole {
+    /// Add permission to the [`Role`]
+    #[must_use]
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
+    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+        self.inner.permissions.insert(perm.into());
+        self
     }
 }
 
-impl Ord for NewRole {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.inner.cmp(&other.inner)
-    }
-}
-
-/// Builder for [`Role`]
 impl NewRole {
     /// Constructor
     #[must_use]
@@ -166,20 +161,10 @@ impl NewRole {
         }
     }
 
-    /// Add permission to the [`Role`]
-    #[must_use]
+    /// Identification
     #[inline]
-    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
-        self.inner.permissions.insert(perm.into());
-        self
-    }
-
-    /// Construct [`Role`]
-    #[must_use]
-    #[inline]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Role {
-        self.inner
+    pub(crate) fn id(&self) -> &<Role as Identifiable>::Id {
+        &self.inner.id
     }
 }
 

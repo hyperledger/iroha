@@ -2,53 +2,73 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    alloc::alloc,
+    boxed::Box,
     collections::{btree_map, btree_set},
     format,
     string::String,
     vec::Vec,
 };
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::{
+    alloc::alloc,
+    collections::{btree_map, btree_set},
+};
 
-use derive_more::Display;
 use getset::Getters;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Name, Value};
+use crate::{ffi::ffi_item, utils::format_comma_separated, Name, Value};
 
 /// Collection of [`PermissionToken`]s
 pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
-/// Stored proof of the account having a permission for a certain action.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[getset(get = "pub")]
-#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
-#[display(fmt = "{name}")]
-pub struct PermissionToken {
-    /// Name of the permission rule given to account.
-    name: Name,
-    /// Params identifying how this rule applies.
-    #[getset(skip)]
-    params: btree_map::BTreeMap<Name, Value>,
+ffi_item! {
+    /// Stored proof of the account having a permission for a certain action.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
+    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+    #[getset(get = "pub")]
+    pub struct PermissionToken {
+        /// Name of the permission rule given to account.
+        name: Name,
+        /// Params identifying how this rule applies.
+        #[getset(skip)]
+        params: btree_map::BTreeMap<Name, Value>,
+    }
 }
 
-#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
+impl core::fmt::Display for PermissionToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}: ", self.name)?;
+        format_comma_separated(
+            self.params
+                .iter()
+                .map(|(name, value)| format!("`{name}` : `{value}`")),
+            ('{', '}'),
+            f,
+        )
+    }
+}
+
 impl PermissionToken {
     /// Constructor.
     #[inline]

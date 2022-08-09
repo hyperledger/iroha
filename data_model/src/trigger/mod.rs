@@ -2,15 +2,16 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::cmp;
+use core::{cmp, str::FromStr};
 
-use derive_more::{Constructor, Display, FromStr};
+use derive_more::Display;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, Registered,
+    events::prelude::*, metadata::Metadata, prelude::Domain, transaction::Executable, Identifiable,
+    Name, ParseError, Registered,
 };
 
 pub mod set;
@@ -147,9 +148,6 @@ impl Identifiable for Trigger<FilterBox> {
 /// Identification of a `Trigger`.
 #[derive(
     Debug,
-    Display,
-    Constructor,
-    FromStr,
     Clone,
     PartialEq,
     Eq,
@@ -165,12 +163,59 @@ impl Identifiable for Trigger<FilterBox> {
 pub struct Id {
     /// Name given to trigger by its creator.
     pub name: Name,
+    /// DomainId of domain of the trigger.
+    pub domain_id: Option<<Domain as Identifiable>::Id>,
+}
+
+impl Id {
+    /// Constructs a new [`Id`].
+    #[inline]
+    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+        Self {
+            name,
+            domain_id: Some(domain_id),
+        }
+    }
+}
+
+impl core::fmt::Display for Id {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(ref domain_id) = self.domain_id {
+            write!(f, "{}${}", self.name, domain_id)
+        } else {
+            write!(f, "{}", self.name)
+        }
+    }
+}
+
+impl FromStr for Id {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut split = s.split('$');
+        match (split.next(), split.next(), split.next()) {
+            (Some(""), _, _) => Err(ParseError {
+                reason: "Trigger ID cannot be empty",
+            }),
+            (Some(name), None, _) => Ok(Self {
+                name: Name::from_str(name)?,
+                domain_id: None,
+            }),
+            (Some(name), Some(domain_id), None) if !domain_id.is_empty() => Ok(Self {
+                name: Name::from_str(name)?,
+                domain_id: Some(<Domain as Identifiable>::Id::from_str(domain_id)?),
+            }),
+            _ => Err(ParseError {
+                reason: "Trigger ID should have format `name` or `name$domain_id`",
+            }),
+        }
+    }
 }
 
 pub mod action {
     //! Contains trigger action and common trait for all actions
 
-    use iroha_data_primitives::atomic::AtomicU32;
+    use iroha_primitives::atomic::AtomicU32;
 
     use super::*;
     use crate::HasMetadata;

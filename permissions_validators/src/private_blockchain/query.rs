@@ -1,371 +1,313 @@
 //! Query Permissions.
 
+use iroha_core::smartcontracts::permissions::ValidatorVerdict;
+
 use super::*;
 
 /// Allow queries that only access the data of the domain of the signer.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow queries that only access the data for the domain of the signer")]
 pub struct OnlyAccountsDomain;
 
-impl IsAllowed<QueryBox> for OnlyAccountsDomain {
-    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
+impl IsAllowed for OnlyAccountsDomain {
+    type Operation = QueryBox;
+
+    #[allow(
+        clippy::too_many_lines,
+        clippy::match_same_arms,
+        clippy::cognitive_complexity
+    )]
     fn check(
         &self,
         authority: &AccountId,
         query: &QueryBox,
         wsv: &WorldStateView,
-    ) -> Result<(), DenialReason> {
+    ) -> ValidatorVerdict {
         use QueryBox::*;
-        let context = Context::new();
         match query {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
-                Err("Only access to the assets of the same domain is permitted."
-                    .to_owned()
-                    .into())
+                Deny("Only access to the assets of the same domain is permitted.".to_owned())
             }
-            FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => Err(
-                "Only access to the accounts of the same domain is permitted."
-                    .to_owned()
-                    .into(),
+            FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
+                Deny("Only access to the accounts of the same domain is permitted.".to_owned())
+            }
+            FindAllAssetsDefinitions(_) => Deny(
+                "Only access to the asset definitions of the same domain is permitted.".to_owned(),
             ),
-            FindAllAssetsDefinitions(_) => Err(
-                "Only access to the asset definitions of the same domain is permitted."
-                    .to_owned()
-                    .into(),
-            ),
-            FindAllDomains(_) => Err("Only access to the domain of the account is permitted."
-                .to_owned()
-                .into()),
-            FindAllRoles(_) => Err("Only access to roles of the same domain is permitted."
-                .to_owned()
-                .into()),
-            FindAllRoleIds(_) => Ok(()), // In case you need to debug the permissions.
-            FindRoleByRoleId(_) => Err("Only access to roles of the same domain is permitted."
-                .to_owned()
-                .into()),
-            FindAllPeers(_) => Ok(()), // Can be obtained in other ways, so why hide it.
-            FindAllActiveTriggerIds(_) => Ok(()),
+            FindAllDomains(_) => {
+                Deny("Only access to the domain of the account is permitted.".to_owned())
+            }
+            FindAllRoles(_) => {
+                Deny("Only access to roles of the same domain is permitted.".to_owned())
+            }
+            FindAllRoleIds(_) => Allow, // In case you need to debug the permissions.
+            FindRoleByRoleId(_) => {
+                Deny("Only access to roles of the same domain is permitted.".to_owned())
+            }
+            FindAllPeers(_) => Allow, // Can be obtained in other ways, so why hide it.
+            FindAllActiveTriggerIds(_) => Allow,
             // Private blockchains should have debugging too, hence
             // all accounts should also be
             FindTriggerById(query) => {
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let id = try_evaluate_or_deny!(query.id, wsv);
                 wsv.triggers()
-                    .inspect(&id, |action| {
+                    .inspect_by_id(&id, |action| {
                         if action.technical_account() == authority {
-                            Ok(())
+                            Allow
                         } else {
-                            Err("Cannot access Trigger if you're not the technical account."
-                                .to_owned()
-                                .into())
+                            Deny("Only technical accounts can access triggers.".to_owned())
                         }
                     })
-                    .ok_or_else(|| {
-                        format!(
+                    .unwrap_or_else(|| {
+                        Deny(format!(
                             "A trigger with the specified Id: {} is not accessible to you",
                             id.clone()
-                        )
-                    })?
+                        ))
+                    })
             }
             FindTriggerKeyValueByIdAndKey(query) => {
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let id = try_evaluate_or_deny!(query.id, wsv);
                 wsv.triggers()
-                    .inspect(&id, |action| {
+                    .inspect_by_id(&id, |action| {
                         if action.technical_account() == authority {
-                            Ok(())
+                            Allow
                         } else {
-                            Err(
-                        "Cannot access Trigger internal state if you're not the technical account."
-                            .to_owned().into(),
-                    )
+                            Deny(
+                                "Only technical accounts can access the internal state of a Trigger."
+                                .to_owned()
+                            )
                         }
                     })
-                    .ok_or_else(|| {
-                        format!(
-                            "A trigger with the specified Id: {} is not accessible to you",
-                            id.clone()
+                    .unwrap_or_else(|| {
+                        Deny(
+                            format!(
+                                "A trigger with the specified Id: {} is not accessible to you",
+                                id.clone()
+                            ),
                         )
-                    })?
+                    })
             }
             FindTriggersByDomainId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
 
                 if domain_id == authority.domain_id {
-                    return Ok(());
+                    return Allow;
                 }
 
-                Err(format!(
+                Deny(format!(
                     "Cannot access triggers with given domain {}, {} is permitted..",
                     domain_id, authority.domain_id
-                )
-                .into())
+                ))
             }
             FindAccountById(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as it is in a different domain.",
                         account_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as it is in a different domain.",
                         account_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAccountsByDomainId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
                 if domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access accounts from a different domain with name {}.",
                         domain_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_id.account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset {} as it is in a different domain.",
                         asset_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as it is in a different domain.",
                         account_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetsByDomainId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
                 if domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access assets from a different domain with name {}.",
                         domain_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetsByDomainIdAndAssetDefinitionId(query) => {
-                let domain_id = query
-                    .domain_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(query.domain_id, wsv);
                 if domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access assets from a different domain with name {}.",
                         domain_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetDefinitionKeyValueByIdAndKey(query) => {
-                let asset_definition_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_definition_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_definition_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
                         asset_definition_id.domain_id,
                         authority.domain_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetQuantityById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_id.account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset {} as it is in a different domain.",
                         asset_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if asset_id.account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset {} as it is in a different domain.",
                         asset_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindDomainById(query::FindDomainById { id })
             | FindDomainKeyValueByIdAndKey(query::FindDomainKeyValueByIdAndKey { id, .. }) => {
-                let domain_id = id.evaluate(wsv, &context).map_err(|err| err.to_string())?;
+                let domain_id = try_evaluate_or_deny!(id, wsv);
                 if domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!("Cannot access a different domain: {}.", domain_id).into())
+                    Deny(format!("Cannot access a different domain: {}.", domain_id))
                 }
             }
-            FindAllBlocks(_) => Err("Access to all blocks not permitted".to_owned().into()),
-            FindAllTransactions(_) => Err(
-                "Only access to transactions in the same domain is permitted."
-                    .to_owned()
-                    .into(),
-            ),
+            FindAllBlocks(_) => Deny("You are not permitted to access all blocks.".to_owned()),
+            FindAllBlockHeaders(_) => {
+                Deny("You are not permitted to access all blocks.".to_owned())
+            }
+            FindBlockHeaderByHash(_) => {
+                Deny("You are not permitted to access arbitrary blocks.".to_owned())
+            }
+            FindAllTransactions(_) => {
+                Deny("Cannot access transactions of another domain.".to_owned())
+            }
             FindTransactionsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as it is in a different domain.",
                         account_id
-                    )
-                    .into())
+                    ))
                 }
             }
-            FindTransactionByHash(_query) => Ok(()),
+            FindTransactionByHash(_query) => Allow,
             FindRolesByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as it is in a different domain.",
                         account_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindPermissionTokensByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if account_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as it is in a different domain.",
                         account_id
-                    )
-                    .into())
+                    ))
                 }
             }
             FindAssetDefinitionById(query) => {
-                let asset_definition_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_definition_id = try_evaluate_or_deny!(query.id, wsv);
 
                 if asset_definition_id.domain_id == authority.domain_id {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
                         asset_definition_id.domain_id,
                         authority.domain_id,
-                    ).into())
+                    ))
                 }
             }
         }
     }
 }
 
-impl_from_item_for_query_validator_box!(OnlyAccountsDomain);
-
 /// Allow queries that only access the signers account data.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Display, Copy, Clone, Serialize)]
+#[display(fmt = "Allow queries that only access the signers account data")]
 pub struct OnlyAccountsData;
 
-impl IsAllowed<QueryBox> for OnlyAccountsData {
+impl IsAllowed for OnlyAccountsData {
+    type Operation = QueryBox;
+
     #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn check(
         &self,
         authority: &AccountId,
         query: &QueryBox,
         wsv: &WorldStateView,
-    ) -> Result<(), DenialReason> {
+    ) -> ValidatorVerdict {
         use QueryBox::*;
 
-        let context = Context::new();
         match query {
             FindAccountsByName(_)
                 | FindAccountsByDomainId(_)
                 | FindAccountsWithAsset(_)
                 | FindAllAccounts(_) => {
-                    Err("Other accounts are private.".to_owned().into())
+                    Deny("Other accounts are private.".to_owned())
                 }
                 | FindAllDomains(_)
                 | FindDomainById(_)
                 | FindDomainKeyValueByIdAndKey(_) => {
-                    Err("Only access to your account's data is permitted.".to_owned().into())
+                    Deny("Only the access to the data in your own account is permitted.".to_owned())
                 },
             FindAssetsByDomainIdAndAssetDefinitionId(_)
                 | FindAssetsByName(_) // TODO: I think this is a mistake.
@@ -375,177 +317,150 @@ impl IsAllowed<QueryBox> for OnlyAccountsData {
                 | FindAssetDefinitionById(_)
                 | FindAssetDefinitionKeyValueByIdAndKey(_)
                 | FindAllAssets(_) => {
-                    Err("Only access to the assets of your account is permitted.".to_owned().into())
+                    Deny("Only the access to the assets of your own account is permitted.".to_owned())
                 }
             FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
-                Err("Only access to roles of the same account is permitted.".to_owned().into())
+                Deny("Only the access to the roles of your own account is permitted.".to_owned())
             },
             FindAllActiveTriggerIds(_) | FindTriggersByDomainId(_) => {
-                Err("Only access to the triggers of the same account is permitted.".to_owned().into())
+                Deny("Only the access to the triggers of your own account is permitted.".to_owned())
             }
             FindAllPeers(_) => {
-                Err("Only access to your account-local data is permitted.".to_owned().into())
+                Deny("Only the access to the local data of your account is permitted.".to_owned())
             }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|e| e.to_string())?;
-                if wsv.triggers().inspect(&id, |action|
+                let id = try_evaluate_or_deny!(query.id, wsv);
+                if wsv.triggers().inspect_by_id(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
-                    return Ok(())
+                    return Allow
                 }
-                Err(format!(
+                Deny(format!(
                     "A trigger with the specified Id: {} is not accessible to you",
                     id
-                ).into())
+                ))
             }
             FindTriggerKeyValueByIdAndKey(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
-                let id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
-                if wsv.triggers().inspect(&id, |action|
+                let id = try_evaluate_or_deny!(query.id, wsv);
+                if wsv.triggers().inspect_by_id(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
-                    return Ok(())
+                    return Allow
                 }
-                Err(format!(
+                Deny(format!(
                     "A trigger with the specified Id: {} is not accessible to you",
                     id
-                ).into())
+                ))
             }
             FindAccountById(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as only access to your own account, {} is permitted..",
                         account_id,
                         authority
-                    ).into())
+                    ))
                 }
             }
             FindAccountKeyValueByIdAndKey(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access account {} as only access to your own account is permitted..",
                         account_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset {} as it is in a different account.",
                         asset_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .account_id, wsv);
                 if &account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access a different account: {}.",
                         account_id
-                    ).into())
+                    ))
                 }
             }
 
             FindAssetQuantityById(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset {} as it is in a different account.",
                         asset_id
-                    ).into())
+                    ))
                 }
             }
             FindAssetKeyValueByIdAndKey(query) => {
-                let asset_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!(
+                    Deny(format!(
                         "Cannot access asset {} as it is in a different account.",
                         asset_id
-                    ).into())
+                    ))
                 }
             }
             FindAllBlocks(_) => {
-                Err("Access to all blocks not permitted".to_owned().into())
+                Deny("You are not permitted to access all blocks.".to_owned())
+            }
+            FindAllBlockHeaders(_) => {
+                Deny("Access to all block headers not permitted".to_owned())
+            }
+            FindBlockHeaderByHash(_) => {
+                Deny("Access to arbitrary block headers not permitted".to_owned())
             }
             FindAllTransactions(_) => {
-                Err("Only access to transactions of the same account is permitted.".to_owned().into())
+                Deny("Cannot access transactions of another account.".to_owned())
             },
             FindTransactionsByAccountId(query) => {
-                let account_id = query
-                    .account_id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query
+                    .account_id, wsv);
                 if &account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!("Cannot access another account: {}.", account_id).into())
+                    Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
-            FindTransactionByHash(_query) => Ok(()),
+            FindTransactionByHash(_query) => Allow,
             FindRolesByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!("Cannot access another account: {}.", account_id).into())
+                    Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
             FindPermissionTokensByAccountId(query) => {
-                let account_id = query
-                    .id
-                    .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
-                    Ok(())
+                    Allow
                 } else {
-                    Err(format!("Cannot access another account: {}.", account_id).into())
+                    Deny(format!("Cannot access another account: {}.", account_id))
                 }
             }
         }
     }
 }
-
-impl_from_item_for_query_validator_box!(OnlyAccountsData);

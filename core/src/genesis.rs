@@ -8,16 +8,15 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref,
 use derive_more::Deref;
 use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
+use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{asset::AssetDefinition, prelude::*};
+use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
-use small::{smallvec, SmallVec};
 use tokio::{time, time::Duration};
 
-pub use self::config::GenesisConfiguration;
 use crate::{
-    kura::KuraTrait,
     sumeragi::{
         fault::{FaultInjection, SumeragiWithFault},
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
@@ -46,7 +45,7 @@ pub trait GenesisNetworkTrait:
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
-        genesis_config: &Option<GenesisConfiguration>,
+        genesis_config: &Option<Configuration>,
         transaction_limits: &TransactionLimits,
     ) -> Result<Option<Self>>;
 
@@ -69,11 +68,11 @@ pub trait GenesisNetworkTrait:
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
-    async fn submit_transactions<K: KuraTrait, F: FaultInjection>(
+    async fn submit_transactions<F: FaultInjection>(
         &self,
-        sumeragi: &mut SumeragiWithFault<Self, K, F>,
+        sumeragi: &mut SumeragiWithFault<Self, F>,
         network: Addr<IrohaNetwork>,
-        ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, K, F>>,
+        ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, F>>,
     ) -> Result<()> {
         iroha_logger::debug!("Starting submit genesis");
         let genesis_topology = self
@@ -86,7 +85,7 @@ pub trait GenesisNetworkTrait:
             .await
     }
 
-    /// See [`GenesisConfiguration`] docs.
+    /// See [`Configuration`] docs.
     fn genesis_submission_delay_ms(&self) -> u64;
 }
 
@@ -166,7 +165,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
-        genesis_config: &Option<GenesisConfiguration>,
+        genesis_config: &Option<Configuration>,
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
         #![allow(clippy::unwrap_in_result)]
@@ -323,84 +322,6 @@ impl GenesisTransaction {
     }
 }
 
-/// Module with genesis configuration logic.
-pub mod config {
-    use iroha_config::derive::Configurable;
-    use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
-    use serde::{Deserialize, Serialize};
-
-    const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT: u64 = 100;
-    const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
-    const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
-
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
-    #[serde(default)]
-    #[serde(rename_all = "UPPERCASE")]
-    #[config(env_prefix = "IROHA_GENESIS_")]
-    /// Configuration of the genesis block and the process of its submission.
-    pub struct GenesisConfiguration {
-        /// The genesis account public key, should be supplied to all peers.
-        #[config(serde_as_str)]
-        pub account_public_key: PublicKey,
-        /// Genesis account private key, only needed on the peer that submits the genesis block.
-        pub account_private_key: Option<PrivateKey>,
-        /// Number of attempts to connect to peers, while waiting for them to submit genesis.
-        #[serde(default = "default_wait_for_peers_retry_count_limit")]
-        pub wait_for_peers_retry_count_limit: u64,
-        /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
-        #[serde(default = "default_wait_for_peers_retry_period_ms")]
-        pub wait_for_peers_retry_period_ms: u64,
-        /// Delay before genesis block submission after minimum number of peers were discovered to be online.
-        /// Used to ensure that other peers had time to connect to each other.
-        #[serde(default = "default_genesis_submission_delay_ms")]
-        pub genesis_submission_delay_ms: u64,
-    }
-
-    #[allow(clippy::expect_used)]
-    impl Default for GenesisConfiguration {
-        fn default() -> Self {
-            let (public_key, private_key) = Self::placeholder_keypair().into();
-
-            Self {
-                account_public_key: public_key,
-                account_private_key: Some(private_key),
-                wait_for_peers_retry_count_limit: DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT,
-                wait_for_peers_retry_period_ms: DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS,
-                genesis_submission_delay_ms: DEFAULT_GENESIS_SUBMISSION_DELAY_MS,
-            }
-        }
-    }
-
-    impl GenesisConfiguration {
-        /// Key-pair used by default for demo purposes
-        #[allow(clippy::expect_used)]
-        fn placeholder_keypair() -> KeyPair {
-            let public_key =
-                "ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
-                    .parse()
-                    .expect("Public key not in mulithash format");
-            let private_key = PrivateKey::from_hex(
-                iroha_crypto::Algorithm::Ed25519,
-                "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
-            ).expect("Private key not hex encoded");
-
-            KeyPair::new(public_key, private_key).expect("Key pair mismatch")
-        }
-    }
-
-    const fn default_wait_for_peers_retry_count_limit() -> u64 {
-        DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT
-    }
-
-    const fn default_wait_for_peers_retry_period_ms() -> u64 {
-        DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS
-    }
-
-    const fn default_genesis_submission_delay_ms() -> u64 {
-        DEFAULT_GENESIS_SUBMISSION_DELAY_MS
-    }
-}
-
 /// Builder type for `RawGenesisBlock` that does
 /// not perform any correctness checking on the block
 /// produced. Use with caution in tests and other things
@@ -422,7 +343,7 @@ impl RawGenesisBlockBuilder {
     pub fn new() -> Self {
         RawGenesisBlockBuilder {
             transaction: GenesisTransaction {
-                isi: iroha_data_model::small::SmallVec::new(),
+                isi: SmallVec::new(),
             },
         }
     }
@@ -506,10 +427,10 @@ mod tests {
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
             RawGenesisBlock::default(),
-            &Some(GenesisConfiguration {
+            &Some(Configuration {
                 account_public_key: public_key,
                 account_private_key: Some(private_key),
-                ..GenesisConfiguration::default()
+                ..Configuration::default()
             }),
             &tx_limits,
         )?;

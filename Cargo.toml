@@ -8,15 +8,13 @@ members = [
   "client",
   "client_cli",
   "config",
-  "config/derive",
+  "config/base",
+  "config/base/derive",
   "core",
   "core/test_network",
   "crypto",
-  "tools/kura_inspector",
-  "tools/parity_scale_decoder",
-  "tools/kagami",
   "data_model",
-  "data_model/primitives",
+  "primitives",
   "ffi",
   "ffi/derive",
   "futures",
@@ -27,14 +25,23 @@ members = [
   "p2p",
   "permissions_validators",
   "schema",
-  "schema/gen",
   "schema/derive",
+  "schema/gen",
   "substrate",
   "telemetry",
+  "tools/kagami",
+  "tools/kura_inspector",
+  "tools/parity_scale_decoder",
   "version",
   "version/derive",
 ]
 
-[profile.release-with-debug]
+
+[profile.deploy]
 inherits = "release"
-debug = true
+opt-level = 3
+debug = false
+strip = "symbols"
+debug-assertions = false
+lto = true
+incremental = false

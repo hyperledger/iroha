@@ -1,0 +1,31 @@
+{
+    "id": {
+        "name": "alice",
+        "domain_id": {
+            "name": "wonderland"
+        }
+    },
+    "assets": {},
+    "signatories": [],
+    "permission_tokens": [],
+    "signature_check_condition": {
+        "ContainsAny": {
+            "collection": {
+                "ContextValue": {
+                    "value_name": "transaction_signatories"
+                }
+            },
+            "elements": {
+                "ContextValue": {
+                    "value_name": "account_signatories"
+                }
+            }
+        }
+    },
+    "metadata": {
+        "hat": {
+            "Name": "white"
+        }
+    },
+    "roles": []
+}

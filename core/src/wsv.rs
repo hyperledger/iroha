@@ -3,23 +3,28 @@
 
 use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
-use config::Configuration;
 use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
     DashSet,
 };
 use eyre::Result;
 use getset::Getters;
+use iroha_config::wsv::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::{prelude::*, small::SmallVec};
+use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
+use iroha_primitives::small::SmallVec;
 use iroha_telemetry::metrics::Metrics;
 use tokio::{sync::broadcast, task};
 
 use crate::{
     block::Chain,
     prelude::*,
-    smartcontracts::{isi::Error, wasm, Execute, FindError},
+    send_event,
+    smartcontracts::{
+        isi::{query::Error as QueryError, Error},
+        wasm, Execute, FindError,
+    },
     DomainsMap, EventsSender, PeersIds,
 };
 
@@ -126,7 +131,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
+    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryError> {
         self.map_account(id, |account| account.assets().cloned().collect())
     }
 
@@ -261,18 +266,18 @@ impl WorldStateView {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
-        self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
+    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryError> {
+        self.map_account(&id.account_id, |account| -> Result<Asset, QueryError> {
             account
                 .asset(id)
-                .ok_or_else(|| FindError::Asset(id.clone()))
+                .ok_or_else(|| QueryError::Find(Box::new(FindError::Asset(id.clone()))))
                 .map(Clone::clone)
         })?
     }
 
     /// Send [`Event`]s to known subscribers.
     fn produce_event(&self, event: impl Into<Event>) {
-        let _result = self.events_sender.send(event.into());
+        send_event(&self.events_sender, event.into());
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.
@@ -552,11 +557,9 @@ impl WorldStateView {
         &self,
         id: &AccountId,
         f: impl FnOnce(&Account) -> T,
-    ) -> Result<T, FindError> {
+    ) -> Result<T, QueryError> {
         let domain = self.domain(&id.domain_id)?;
-        let account = domain
-            .account(id)
-            .ok_or_else(|| FindError::Account(id.clone()))?;
+        let account = domain.account(id).ok_or(QueryError::Unauthorized)?;
         Ok(f(account))
     }
 
@@ -653,7 +656,7 @@ impl WorldStateView {
     }
 
     /// Get all transactions
-    pub fn transaction_values(&self) -> Vec<TransactionValue> {
+    pub fn transaction_values(&self) -> Vec<TransactionQueryResult> {
         let mut txs = self
             .blocks()
             .flat_map(|block| {
@@ -663,7 +666,10 @@ impl WorldStateView {
                     .iter()
                     .cloned()
                     .map(Box::new)
-                    .map(TransactionValue::RejectedTransaction)
+                    .map(|versioned_rejected_tx| TransactionQueryResult {
+                        tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
+                        block_hash: Hash::from(block.hash()),
+                    })
                     .chain(
                         block
                             .transactions
@@ -671,7 +677,10 @@ impl WorldStateView {
                             .cloned()
                             .map(VersionedTransaction::from)
                             .map(Box::new)
-                            .map(TransactionValue::Transaction),
+                            .map(|versioned_tx| TransactionQueryResult {
+                                tx_value: TransactionValue::Transaction(versioned_tx),
+                                block_hash: Hash::from(block.hash()),
+                            }),
                     )
                     .collect::<Vec<_>>()
             })
@@ -791,51 +800,6 @@ impl WorldStateView {
         let event = ExecuteTriggerEvent::new(trigger_id, authority);
         self.world.triggers.handle_execute_trigger_event(&event);
         self.produce_event(event);
-    }
-}
-
-/// This module contains all configuration related logic.
-pub mod config {
-    use iroha_config::derive::Configurable;
-    use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
-    use serde::{Deserialize, Serialize};
-
-    use crate::smartcontracts::wasm;
-
-    const DEFAULT_METADATA_LIMITS: MetadataLimits =
-        MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
-    const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
-
-    /// [`WorldStateView`](super::WorldStateView) configuration.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
-    #[config(env_prefix = "WSV_")]
-    #[serde(rename_all = "UPPERCASE", default)]
-    pub struct Configuration {
-        /// [`MetadataLimits`] for every asset with store.
-        pub asset_metadata_limits: MetadataLimits,
-        /// [`MetadataLimits`] of any asset definition's metadata.
-        pub asset_definition_metadata_limits: MetadataLimits,
-        /// [`MetadataLimits`] of any account's metadata.
-        pub account_metadata_limits: MetadataLimits,
-        /// [`MetadataLimits`] of any domain's metadata.
-        pub domain_metadata_limits: MetadataLimits,
-        /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
-        pub ident_length_limits: LengthLimits,
-        /// [`WASM Runtime`](wasm::Runtime) configuration
-        pub wasm_runtime_config: wasm::config::Configuration,
-    }
-
-    impl Default for Configuration {
-        fn default() -> Self {
-            Configuration {
-                asset_metadata_limits: DEFAULT_METADATA_LIMITS,
-                asset_definition_metadata_limits: DEFAULT_METADATA_LIMITS,
-                account_metadata_limits: DEFAULT_METADATA_LIMITS,
-                domain_metadata_limits: DEFAULT_METADATA_LIMITS,
-                ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
-                wasm_runtime_config: wasm::config::Configuration::default(),
-            }
-        }
     }
 }
 

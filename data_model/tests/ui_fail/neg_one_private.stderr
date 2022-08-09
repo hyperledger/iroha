@@ -1,5 +1,0 @@
-error[E0599]: no function or associated item named `negative_one` found for struct `iroha_data_model::prelude::Fixed` in the current scope
- --> tests/ui_fail/neg_one_private.rs:4:22
-  |
-4 |     let qty = Fixed::negative_one();
-  |                      ^^^^^^^^^^^^ function or associated item not found in `iroha_data_model::prelude::Fixed`

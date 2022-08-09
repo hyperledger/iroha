@@ -102,7 +102,7 @@ impl Signature {
     #[cfg(feature = "std")]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
         let algorithm: Algorithm = self.public_key.digest_function();
-        let public_key = UrsaPublicKey(self.public_key.payload().clone());
+        let public_key = UrsaPublicKey(self.public_key.payload().to_owned());
 
         match algorithm {
             Algorithm::Ed25519 => Ed25519Sha512::new().verify(payload, self.payload(), &public_key),
@@ -186,13 +186,13 @@ impl<T: IntoSchema> IntoSchema for SignatureOf<T> {
         format!("{}::SignatureOf<{}>", module_path!(), T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        Signature::schema(map);
-
         map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![Signature::type_name()],
             })
         });
+
+        Signature::schema(map);
     }
 }
 

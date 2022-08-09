@@ -12,6 +12,10 @@ on:
       # Not part of the workspace
       - "!wasm/**"
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -47,17 +51,18 @@ jobs:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
-      # TODO Remove these steps #2165
+      - uses: actions/checkout@v2
+      # TODO Remove this step #2165
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: llvm-tools-preview
+      # TODO Remove this step #2165
       - name: Add components to nightly channel
         run: rustup component add llvm-tools-preview --toolchain nightly-2022-04-20-x86_64-unknown-linux-gnu
+      # TODO Remove this step #2165
       - uses: taiki-e/install-action@cargo-llvm-cov
-      #
-      - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
@@ -76,6 +81,11 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: true
+      - name: Upload codecov report artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: lcov-${{ github.event.pull_request.head.sha }}.info
+          path: lcov.info
 
   integration_tests:
     runs-on: ubuntu-latest
@@ -90,4 +100,4 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
-          mold --run cargo test --test '*' --${{ matrix.feature_flag }} -- integration:: --skip unstable_network
+          mold --run cargo test --test mod --${{ matrix.feature_flag }} -- integration:: --skip unstable_network

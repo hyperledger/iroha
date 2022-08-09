@@ -13,7 +13,7 @@ use iroha_core::{
         BlockHeader, EmptyChainHash,
     },
     queue::Queue,
-    smartcontracts::{isi::error::FindError, permissions::combinators::DenyAll},
+    smartcontracts::isi::error::FindError,
     sumeragi::view_change::ProofChain,
     tx::TransactionValidator,
     wsv::World,
@@ -73,7 +73,7 @@ async fn create_torii() -> (Torii, KeyPair) {
             config,
             wsv,
             queue,
-            AllowAll::new(),
+            Arc::new(AllowAll::new()),
             events,
             network,
             Arc::new(Notify::new()),
@@ -111,7 +111,7 @@ async fn torii_pagination() {
         let pagination = Pagination { start, limit };
         handle_queries(
             Arc::clone(&torii.wsv),
-            Arc::clone(&torii.query_validator),
+            Arc::clone(&torii.query_judge),
             pagination,
             query,
         )
@@ -176,7 +176,7 @@ impl QuerySet {
 
         let (mut torii, keys) = create_torii().await;
         if self.deny_all {
-            torii.query_validator = Arc::new(DenyAll.into());
+            torii.query_judge = Arc::new(DenyAll::new());
         }
 
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -398,14 +398,8 @@ async fn find_asset_with_no_account() {
             asset_id("rose", "alice"),
         )))
         .await
-        .status(StatusCode::NOT_FOUND)
-        .body_matches_err(|body| {
-            if let query::Error::Find(err) = body {
-                matches!(**err, FindError::Account(_))
-            } else {
-                false
-            }
-        })
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(body, query::Error::Unauthorized))
         .assert()
 }
 
@@ -515,14 +509,8 @@ async fn find_account_with_no_account() {
             AccountId::new("alice".parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
         )))
         .await
-        .status(StatusCode::NOT_FOUND)
-        .body_matches_err(|body| {
-            if let query::Error::Find(err) = body {
-                matches!(**err, FindError::Account(_))
-            } else {
-                false
-            }
-        })
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(body, query::Error::Unauthorized))
         .assert()
 }
 
@@ -671,8 +659,8 @@ async fn query_with_no_find() {
     // .deny_all()
         .query(query())
         .await
-        .status(StatusCode::NOT_FOUND)
-        .body_matches_err(|body| matches!(*body, query::Error::Find(_)))
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(body, query::Error::Unauthorized))
         .assert()
 }
 
@@ -759,14 +747,6 @@ async fn blocks_stream() {
     assert_eq!(block.header().height, BLOCK_COUNT as u64 + 1);
 }
 
-/// Returns the a map of a form `domain_name -> domain`, for initial domains.
-fn domains(
-    configuration: &crate::config::Configuration,
-) -> eyre::Result<impl Iterator<Item = Domain>> {
-    let key = configuration.genesis.account_public_key.clone();
-    Ok([Domain::from(GenesisDomain::new(key))].into_iter())
-}
-
 #[test]
 fn hash_should_be_the_same() {
     prepare_test_for_nextest!();
@@ -798,13 +778,18 @@ fn hash_should_be_the_same() {
         AcceptedTransaction::from_transaction(signed_tx, &tx_limits).expect("Failed to accept.");
     let accepted_tx_hash = accepted_tx.hash();
     let wsv = Arc::new(WorldStateView::new(World::with(
-        domains(&config).unwrap(),
+        crate::domains(&config),
         BTreeSet::new(),
     )));
-    let valid_tx_hash = TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
-        .validate(accepted_tx, true)
-        .expect("Failed to validate.")
-        .hash();
+    let valid_tx_hash = TransactionValidator::new(
+        tx_limits,
+        Arc::new(AllowAll::new()),
+        Arc::new(AllowAll::new()),
+        wsv,
+    )
+    .validate(accepted_tx, true)
+    .expect("Failed to validate.")
+    .hash();
     assert_eq!(tx_hash, signed_tx_hash);
     assert_eq!(tx_hash, accepted_tx_hash);
     assert_eq!(tx_hash, valid_tx_hash.transmute());

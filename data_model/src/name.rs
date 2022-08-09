@@ -1,11 +1,14 @@
 //! This module contains [`Name`](`crate::name::Name`) structure
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use derive_more::{DebugCustom, Display};
-use iroha_data_primitives::conststr::ConstString;
+use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
@@ -16,13 +19,25 @@ use crate::{ParseError, ValidationError};
 /// [`Domain`](`crate::domain::Domain`)'s name or
 /// [`Account`](`crate::account::Account`)'s name.
 #[derive(
-    DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
+    DebugCustom,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Encode,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
 #[repr(transparent)]
 pub struct Name(ConstString);
 
 impl Name {
-    /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
+    /// Check if `range` contains the number of chars in the inner `ConstString` of this [`Name`].
     ///
     /// # Errors
     /// Fails if `range` does not
@@ -31,7 +46,7 @@ impl Name {
         range: impl Into<RangeInclusive<usize>>,
     ) -> Result<(), ValidationError> {
         let range = range.into();
-        if range.contains(&self.as_ref().chars().count()) {
+        if range.contains(&self.0.chars().count()) {
             Ok(())
         } else {
             Err(ValidationError::new(&format!(
@@ -86,27 +101,41 @@ impl FromStr for Name {
 /// # Safety
 ///
 /// All of the given pointers must be valid
-#[cfg(feature = "ffi_api")]
+#[no_mangle]
 #[allow(non_snake_case, unsafe_code)]
-pub unsafe extern "C" fn Name__from_str(
-    candidate: *const u8,
-    candidate_len: usize,
-    output: *mut *mut Name,
-) -> iroha_ffi::FfiResult {
-    let candidate = core::slice::from_raw_parts(candidate, candidate_len);
+#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+pub unsafe extern "C" fn Name__from_str<'itm>(
+    candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
+    out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
+) -> iroha_ffi::FfiReturn {
+    let res = std::panic::catch_unwind(|| {
+        // False positive - doesn't compile otherwise
+        #[allow(clippy::let_unit_value)]
+        let fn_body = || {
+            let mut store = Default::default();
+            let candidate: &str = iroha_ffi::TryFromReprC::try_from_repr_c(candidate, &mut store)?;
+            let method_res = iroha_ffi::IntoFfi::into_ffi(
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                Name::from_str(candidate).map_err(|_e| iroha_ffi::FfiReturn::ExecutionFail)?,
+            );
+            iroha_ffi::OutPtrOf::write(out_ptr, method_res)?;
+            Ok(())
+        };
 
-    let method_res = match core::str::from_utf8(candidate) {
-        Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
-        Ok(candidate) => Name::from_str(candidate),
-    };
-    let method_res = match method_res {
-        Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
-        Ok(method_res) => method_res,
-    };
-    let method_res = Box::into_raw(Box::new(method_res));
+        if let Err(err) = fn_body() {
+            return err;
+        }
 
-    output.write(method_res);
-    iroha_ffi::FfiResult::Ok
+        iroha_ffi::FfiReturn::Ok
+    });
+
+    match res {
+        Ok(res) => res,
+        Err(_) => {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+            iroha_ffi::FfiReturn::UnrecoverableError
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Name {
@@ -168,31 +197,27 @@ mod tests {
 
     #[test]
     #[allow(unsafe_code)]
-    #[cfg(feature = "ffi_api")]
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     fn ffi_name_from_str() -> Result<(), ParseError> {
-        use crate::ffi::{Handle, __drop};
-
+        use iroha_ffi::Handle;
         let candidate = "Name";
-        let candidate_bytes = candidate.as_bytes();
-        let candidate_bytes_len = candidate_bytes.len();
 
         unsafe {
             let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
 
             assert_eq!(
-                iroha_ffi::FfiResult::Ok,
-                Name__from_str(
-                    candidate_bytes.as_ptr(),
-                    candidate_bytes_len,
-                    name.as_mut_ptr()
-                )
+                iroha_ffi::FfiReturn::Ok,
+                Name__from_str(candidate.into_ffi(), name.as_mut_ptr())
             );
 
             let name = name.assume_init();
             assert_ne!(core::ptr::null_mut(), name);
             assert_eq!(Name::from_str(candidate)?, *name);
 
-            assert_eq!(iroha_ffi::FfiResult::Ok, __drop(Name::ID, name.cast()));
+            assert_eq!(
+                iroha_ffi::FfiReturn::Ok,
+                crate::ffi::__drop(Name::ID, name.cast())
+            );
         }
 
         Ok(())

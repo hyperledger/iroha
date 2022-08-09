@@ -22,9 +22,9 @@ fn call_execute_trigger() -> Result<()> {
 
     let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id.clone(), vec![instruction.into()]);
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
-    let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTriggerBox::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
@@ -46,9 +46,9 @@ fn execute_trigger_should_produce_event() -> Result<()> {
 
     let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id, vec![instruction.into()]);
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
-    let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
 
     let thread_client = test_client.clone();
@@ -79,7 +79,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = "alice@wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTriggerBox::new(trigger_id);
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
@@ -88,7 +88,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
         call_trigger.clone().into(),
     ];
     let register_trigger = build_register_trigger_isi(asset_id.clone(), instructions);
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
     test_client.submit_blocking(call_trigger)?;
 
@@ -177,7 +177,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             )),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
@@ -187,7 +187,14 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     test_client.submit_blocking(execute_trigger.clone())?;
 
     // Executing trigger second time
-    test_client.submit_blocking(execute_trigger)?;
+    assert!(matches!(
+        test_client
+            .submit_blocking(execute_trigger)
+            .expect_err("Error expected")
+            .root_cause()
+            .downcast_ref::<InstructionExecutionFail>(),
+        Some(&InstructionExecutionFail { .. })
+    ));
 
     // Checking results
     let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
@@ -223,7 +230,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
             )),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
