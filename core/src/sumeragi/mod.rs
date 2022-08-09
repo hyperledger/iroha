@@ -92,6 +92,8 @@ impl Sumeragi {
             latest_block_hash: Hash::zeroed().typed(),
             latest_block_height: 0,
             current_topology: network_topology,
+
+            sumeragi_thread_should_exit: false,
         };
 
         let (incoming_message_sender, incoming_message_receiver) = std::sync::mpsc::channel();
@@ -220,8 +222,17 @@ impl Sumeragi {
                 &sumeragi.internal,
                 latest_block_hash,
                 latest_block_height,
-            )
+            );
+            info!("Sumeragi Thread has Shutdown");
         });
+    }
+
+    pub fn stop_thread(&self) {
+        self.internal
+            .sumeragi_state_machine_data
+            .lock()
+            .expect("lock to stop sumeragi thread")
+            .sumeragi_thread_should_exit = true;
     }
 
     pub fn update_online_peers(&self, online_peers: Vec<PublicKey>) {
