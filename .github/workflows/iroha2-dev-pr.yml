@@ -67,16 +67,16 @@ jobs:
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo llvm-cov clean --workspace
-          mold --run cargo +nightly-2022-04-20 llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --doc
-          mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace
+          mold --run cargo +nightly-2022-04-20 llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
+          mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
       - name: Generate lcov report
-        if: ${{ matrix.feature_flag == 'all-features' }}
+        if: matrix.feature_flag == 'all-features'
         run: |
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
           mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
-        if: ${{ matrix.feature_flag == 'all-features' }}
+        if: matrix.feature_flag == 'all-features'
         uses: codecov/codecov-action@v3
         with:
           files: lcov.info
