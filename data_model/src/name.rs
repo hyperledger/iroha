@@ -7,6 +7,8 @@ use core::{ops::RangeInclusive, str::FromStr};
 use std::alloc::alloc;
 
 use derive_more::{DebugCustom, Display};
+#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+use iroha_ffi::ffi_export;
 use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
@@ -88,53 +90,13 @@ impl AsRef<str> for Name {
     }
 }
 
+#[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_export)]
 impl FromStr for Name {
     type Err = ParseError;
 
+    /// Parse [`Name`] from a string.
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
         Self::validate_str(candidate).map(|_| Self(ConstString::from(candidate)))
-    }
-}
-
-/// FFI function equivalent of [`Name::from_str`]
-///
-/// # Safety
-///
-/// All of the given pointers must be valid
-#[no_mangle]
-#[allow(non_snake_case, unsafe_code)]
-#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-pub unsafe extern "C" fn Name__from_str<'itm>(
-    candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
-    out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
-) -> iroha_ffi::FfiReturn {
-    let res = std::panic::catch_unwind(|| {
-        // False positive - doesn't compile otherwise
-        #[allow(clippy::let_unit_value)]
-        let fn_body = || {
-            let mut store = Default::default();
-            let candidate: &str = iroha_ffi::TryFromReprC::try_from_repr_c(candidate, &mut store)?;
-            let method_res = iroha_ffi::IntoFfi::into_ffi(
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                Name::from_str(candidate).map_err(|_e| iroha_ffi::FfiReturn::ExecutionFail)?,
-            );
-            iroha_ffi::OutPtrOf::write(out_ptr, method_res)?;
-            Ok(())
-        };
-
-        if let Err(err) = fn_body() {
-            return err;
-        }
-
-        iroha_ffi::FfiReturn::Ok
-    });
-
-    match res {
-        Ok(res) => res,
-        Err(_) => {
-            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-            iroha_ffi::FfiReturn::UnrecoverableError
-        }
     }
 }
 

@@ -95,6 +95,22 @@ pub fn simple(byte: u8) -> u8 {
     byte
 }
 
+pub trait Target {
+    type Target;
+
+    fn target(self) -> Self::Target;
+}
+
+#[ffi_export]
+impl Target for FfiStruct {
+    type Target = Option<Name>;
+
+    /// Return [`Self::Target`]
+    fn target(self) -> <Self as Target>::Target {
+        self.name
+    }
+}
+
 fn get_new_struct() -> FfiStruct {
     let name = Name(String::from("X"));
 
@@ -316,3 +332,21 @@ fn conversion_failed() {
         )
     }
 }
+
+#[test]
+fn invoke_trait_method() {
+    let ffi_struct = get_new_struct_with_params();
+    let mut output = MaybeUninit::uninit();
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            FfiStruct__target(IntoFfi::into_ffi(ffi_struct), output.as_mut_ptr())
+        );
+        let output = output.assume_init();
+
+        assert!(!output.is_null());
+        assert_eq!(Name(String::from("X")), *output);
+    }
+}
+

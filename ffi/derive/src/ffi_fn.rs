@@ -189,13 +189,19 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             let src_type = receiver.src_type();
 
             if matches!(src_type, syn::Type::Path(_)) {
-                return quote! {
-                    if __out_ptr.is_null() {
-                        return Err(iroha_ffi::FfiReturn::ArgIsNull);
-                    }
+                match output_arg.src_type() {
+                    // NOTE: case like fn(mut self, ...) -> Self (builder pattern)
+                    syn::Type::Path(path) if path.path.is_ident("Self") => {
+                        return quote! {
+                            if __out_ptr.is_null() {
+                                return Err(iroha_ffi::FfiReturn::ArgIsNull);
+                            }
 
-                    __out_ptr.write(#arg_name);
-                };
+                            __out_ptr.write(#arg_name);
+                        };
+                    }
+                    _ => {}
+                }
             }
         }
 
