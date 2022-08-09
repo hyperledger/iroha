@@ -1,7 +1,11 @@
 //! CLI for generating iroha sample configuration, genesis and
 //! cryptographic key pairs. To be used with all compliant Iroha
 //! installations.
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::io::{stdout, BufWriter, Write};
 
 use clap::{ArgGroup, StructOpt};
@@ -208,6 +212,11 @@ mod genesis {
 
 mod docs {
     #![allow(clippy::panic_in_result_fn, clippy::expect_used)]
+    #![allow(
+        clippy::arithmetic,
+        clippy::std_instead_of_core,
+        clippy::std_instead_of_alloc
+    )]
     use std::{fmt::Debug, io::Write};
 
     use color_eyre::eyre::WrapErr as _;

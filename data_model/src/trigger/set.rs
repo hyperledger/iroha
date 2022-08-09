@@ -7,11 +7,11 @@
 //! same approximate location in the hierarchy, thus using Binary
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
-
+#![allow(clippy::std_instead_of_core)]
 #![cfg(feature = "std")]
 #![allow(clippy::expect_used)]
 
-use std::{cmp::min, result::Result};
+use core::{cmp::min, result::Result};
 
 use dashmap::DashMap;
 use tokio::{sync::RwLock, task};
@@ -248,7 +248,7 @@ impl Set {
     pub fn mod_repeats(
         &self,
         id: &Id,
-        f: impl Fn(u32) -> std::result::Result<u32, RepeatsOverflowError>,
+        f: impl Fn(u32) -> Result<u32, RepeatsOverflowError>,
     ) -> Result<(), ModRepeatsError> {
         let res = self
             .inspect_by_id(id, |action| match action.repeats() {
@@ -372,7 +372,7 @@ impl Set {
     /// Failed actions won't appear on the next `inspect_matched()` call if they don't match new
     /// events by calling `handle_` methods.
     /// Repeats count of failed actions won't be decreased.
-    pub async fn inspect_matched<F, E>(&self, f: F) -> std::result::Result<(), Vec<E>>
+    pub async fn inspect_matched<F, E>(&self, f: F) -> Result<(), Vec<E>>
     where
         F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,
@@ -403,7 +403,7 @@ impl Set {
     ///
     /// Returns vector of successfully executed triggers
     /// and result with errors vector if there are some
-    async fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, std::result::Result<(), Vec<E>>)
+    async fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, Result<(), Vec<E>>)
     where
         F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,

@@ -1,5 +1,5 @@
 //! Package for managing iroha configuration
-
+#![allow(clippy::std_instead_of_core)]
 use std::{fmt::Debug, path::Path};
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -7,7 +7,6 @@ use serde_json::Value;
 
 pub mod derive {
     //! Derives for configuration entities
-
     /// Generate view for the type and implement conversion `Type -> View`.
     /// View contains a subset of the fields that the type has.
     ///
@@ -73,7 +72,8 @@ pub mod derive {
     /// ```
     pub use iroha_config_derive::view;
     // TODO: below technically relates to `LoadFromEnv` only and not `Configurable` itself
-    /// Derive macro for implementing the [`iroha_config::base::derive::Combine`](`crate::proxy::Combine`)
+    /// Derive macro for implementing the
+    /// [`iroha_config::base::derive::Combine`](`crate::proxy::Combine`)
     /// trait for config structures.
     ///
     /// Has several attributes:
@@ -128,12 +128,16 @@ pub mod derive {
     /// ```
     pub use iroha_config_derive::Combine;
     // TODO: more decoupling needed, still depends on `LoadFromEnv`
-    /// Derive macro for implementing the trait [`iroha_config::base::proxy::Documented`](`crate::proxy::Documented`) for config structures.
+    /// Derive macro for implementing the trait
+    /// [`iroha_config::base::proxy::Documented`](`crate::proxy::Documented`)
+    /// for config structures.
     ///
-    /// Even though this macro doesn't own any attributes, as of now it relies on
-    /// the `#[config]` attribute defined by the [`iroha_config::base::derive::Combine`](`crate::derive::Combine`) macro.
-    /// As such, `#[config(env_prefix = ...)]` is required for generating documentation, and `#[config(inner)]` for
-    /// getting inner fields recursively.
+    /// Even though this macro doesn't own any attributes, as of now
+    /// it relies on the `#[config]` attribute defined by the
+    /// [`iroha_config::base::derive::Combine`](`crate::derive::Combine`)
+    /// macro.  As such, `#[config(env_prefix = ...)]` is required for
+    /// generating documentation, and `#[config(inner)]` for getting
+    /// inner fields recursively.
     ///
     /// ```rust
     /// use iroha_config_base::derive::{Combine, Documented};
@@ -216,13 +220,13 @@ pub mod view {
     }
     impl<T> NoView for T {}
 
-    /// Marker traits for types for which views are implemented  
+    /// Marker traits for types for which views are implemented
     pub trait HasView {}
 
     /// Wrapper structure used to check if type implements `[HasView]`
     /// If `T` doesn't implement [`HasView`] then `NoView::IS_HAS_VIEW` (`false`) will be used
-    /// Otherwise `IsHasView::IS_HAS_VIEW` (`true`) from `impl` block will shadow `NoView::IS_HAS_VIEW`  
-    pub struct IsHasView<T>(std::marker::PhantomData<T>);
+    /// Otherwise `IsHasView::IS_HAS_VIEW` (`true`) from `impl` block will shadow `NoView::IS_HAS_VIEW`
+    pub struct IsHasView<T>(core::marker::PhantomData<T>);
 
     impl<T: HasView> IsHasView<T> {
         /// `T` implements trait [`HasView`]

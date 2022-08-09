@@ -1,7 +1,7 @@
 //! This module provides a network layer for holding of persistent
 //! connections between blockchain nodes. Sane defaults for secure
 //! Cryptography are chosen in this module, and encapsulated.
-
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{io, net::AddrParseError};
 
 use iroha_crypto::ursa::{
@@ -12,9 +12,7 @@ use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
 pub mod handshake;
-/// Network is a main p2p start point.
 pub mod network;
-/// Peer is an endpoint to another node.
 pub mod peer;
 
 /// The main type to use for secure communication.
@@ -86,7 +84,7 @@ impl From<io::Error> for Error {
 }
 
 /// Result shorthand.
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Message read from the other peer, serialized into bytes
 #[derive(Debug, Clone, Encode, Decode, iroha_actor::Message)]

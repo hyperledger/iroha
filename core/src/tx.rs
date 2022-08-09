@@ -7,7 +7,12 @@
 //! This is also where the actual execution of instructions, as well
 //! as various forms of validation are performed.
 // TODO: Add full lifecycle docs.
-
+#![allow(
+    clippy::new_without_default,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 use std::sync::Arc;
 
 use eyre::{Result, WrapErr};

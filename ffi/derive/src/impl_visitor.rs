@@ -263,7 +263,7 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
             // NOTE: Its's irrelevant
         }
         self.trait_name = node.trait_.as_ref().map(|(_, trait_, _)| trait_);
-        self.visit_self_type(&*node.self_ty);
+        self.visit_self_type(&node.self_ty);
 
         let self_ty = self.self_ty.expect_or_abort("Defined");
         self.fns
@@ -376,7 +376,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
             abort!(node.pat, "Unsupported pattern in variable name binding");
         }
 
-        self.add_input_arg(&*node.ty);
+        self.add_input_arg(&node.ty);
     }
 
     fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
@@ -400,7 +400,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         match node {
             syn::ReturnType::Default => {}
             syn::ReturnType::Type(_, src_type) => {
-                self.add_output_arg(&**src_type);
+                self.add_output_arg(src_type);
             }
         }
     }

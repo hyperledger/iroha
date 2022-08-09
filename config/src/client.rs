@@ -1,4 +1,5 @@
 //! Module for client-related configuration and structs
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use derive_more::Display;

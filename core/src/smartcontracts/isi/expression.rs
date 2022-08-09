@@ -1,5 +1,10 @@
 //! Implementations for Expression evaluation for different expressions.
-
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 use eyre::Result;
 use iroha_data_model::{
     expression::{prelude::*, Expression},

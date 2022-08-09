@@ -1,4 +1,5 @@
 //! `Sumeragi` configuration. Contains both block commit and Gossip-related configuration.
+#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};

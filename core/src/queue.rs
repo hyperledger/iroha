@@ -1,5 +1,11 @@
 //! Module with queue actor
-#![allow(clippy::expect_used)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic,
+    clippy::expect_used
+)]
 
 use std::{sync::Arc, time::Duration};
 
@@ -108,7 +114,7 @@ impl Queue {
             .and_then(|success| {
                 success
                     .into_inner()
-                    .then(|| ())
+                    .then_some(())
                     .ok_or_else(|| eyre!("Signature condition check failed"))
             })
             .map_err(|reason| Error::SignatureCondition {

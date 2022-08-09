@@ -1,4 +1,6 @@
 //! Module with genesis configuration logic.
+#![allow(clippy::std_instead_of_core)]
+
 use iroha_config_base::derive::{view, Combine, Documented};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};

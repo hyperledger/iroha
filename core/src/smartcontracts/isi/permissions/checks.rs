@@ -1,5 +1,9 @@
 //! Contains functions to check permission
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use super::{judge::Judge, *};
 
 /// Verify that the given `instruction` is allowed to be executed

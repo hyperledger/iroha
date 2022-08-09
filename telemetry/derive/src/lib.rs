@@ -1,6 +1,8 @@
 //! Attribute-like macro for instrumenting `isi` for `prometheus`
 //! metrics. See [`macro@metrics`] for more details.
 
+#![allow(clippy::std_instead_of_core)]
+
 use proc_macro::TokenStream;
 #[cfg(feature = "metric-instrumentation")]
 use proc_macro2::TokenStream as TokenStream2;

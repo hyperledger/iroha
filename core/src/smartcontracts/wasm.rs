@@ -1,7 +1,12 @@
 //! This module contains logic related to executing smartcontracts via
 //! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
 //! to wasm format and submitted in a transaction
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, clippy::doc_link_with_quotes)]
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 
 use eyre::Context;
 use iroha_config::wasm::Configuration;

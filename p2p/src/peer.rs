@@ -1,4 +1,7 @@
-use std::{
+//! Peer state machine and connection/handshake logic with ecnryption
+//! and actor implementations.
+#![allow(clippy::arithmetic, clippy::std_instead_of_alloc)]
+use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
 };
@@ -251,7 +254,7 @@ where
     async fn handshake(&mut self) -> Result<&Self, Error> {
         trace!(peer = ?self, "Attempting handshake");
         let mut temp = Self::Disconnected(self.id().clone());
-        std::mem::swap(&mut temp, self);
+        core::mem::swap(&mut temp, self);
         let mut result = match temp {
             Self::Connecting(_, _) => {
                 temp.connect()
@@ -299,7 +302,7 @@ where
                 temp
             }
         };
-        std::mem::swap(&mut result, self);
+        core::mem::swap(&mut result, self);
         Ok(self)
     }
 
@@ -440,7 +443,7 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Peer::Connecting(_, _) => f.debug_struct("Connecting"),
             Peer::ConnectedTo(_, _, _) => f.debug_struct("ConnectedTo"),
@@ -493,7 +496,7 @@ where
 
     async fn handle(&mut self, ctx: &mut Context<Self>, Start: Start) {
         let mut dummy = Self::Disconnected(self.id().clone());
-        std::mem::swap(&mut dummy, self);
+        core::mem::swap(&mut dummy, self);
         trace!(
             peer = ?dummy,
             "Starting connection and handshake"
@@ -515,7 +518,7 @@ where
             // Subscribe reading stream
             ctx.notify_with(read_connection_stream(read, receiver));
             dummy = Self::Ready(id, broker, connection, crypto);
-            std::mem::swap(&mut dummy, self);
+            core::mem::swap(&mut dummy, self);
         } else {
             error!(peer = ?self, "Handshake didn't fail, but the peer is not ready");
         }
@@ -554,7 +557,7 @@ where
                             warn!(%error, "Error decrypting message!");
                             let mut new_self =
                                 Self::Error(id.clone(), CryptographicError::Decrypt(error).into());
-                            std::mem::swap(&mut new_self, self);
+                            core::mem::swap(&mut new_self, self);
                             return;
                         }
                     }
@@ -604,7 +607,7 @@ where
                         warn!(%error, "Error encrypting message!");
                         let mut new_self =
                             Self::Error(id.clone(), CryptographicError::Encrypt(error).into());
-                        std::mem::swap(&mut new_self, self);
+                        core::mem::swap(&mut new_self, self);
                         return;
                     }
                 },
@@ -614,7 +617,7 @@ where
             if let Err(e) = send_message(connection.write.as_mut().unwrap(), data.as_slice()).await
             {
                 let mut new_self = Self::Error(id.clone(), e);
-                std::mem::swap(&mut new_self, self);
+                core::mem::swap(&mut new_self, self);
             }
         } else {
             warn!("Peer not ready. Cannot send message.");
@@ -655,7 +658,7 @@ where
             };
             info!(peer = ?self, "Stopping.");
             let mut disconnected = Self::Disconnected(self.id().clone());
-            std::mem::swap(&mut disconnected, self);
+            core::mem::swap(&mut disconnected, self);
             ctx.stop_now();
         }
     }

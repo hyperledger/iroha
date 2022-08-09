@@ -1,4 +1,4 @@
-#![allow(unsafe_code)]
+#![allow(unsafe_code, clippy::undocumented_unsafe_blocks, clippy::arithmetic)]
 #![no_std]
 
 //! Structures, macros related to FFI and generation of FFI bindings.

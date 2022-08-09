@@ -1,5 +1,9 @@
 //! Contains [`HasToken`] trait and box container for it
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use super::*;
 
 /// Trait that checks whether a permission token is needed for a certain action.

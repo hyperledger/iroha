@@ -134,7 +134,10 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
         .iter()
         .filter_map(|attr| {
             if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
-                return meta_list.path.is_ident("getset").then(|| meta_list.nested);
+                return meta_list
+                    .path
+                    .is_ident("getset")
+                    .then_some(meta_list.nested);
             }
 
             None

@@ -1,6 +1,6 @@
 //! Iroha peer command-line interface.
 
-use std::str::FromStr;
+use core::str::FromStr;
 
 use eyre::WrapErr as _;
 use iroha::Arguments;

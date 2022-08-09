@@ -1,7 +1,12 @@
 //! Genesis-related logic and constructs. Contains the `GenesisBlock`,
 //! `RawGenesisBlock` and the `RawGenesisBlockBuilder` structures.
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::new_without_default)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::new_without_default,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 

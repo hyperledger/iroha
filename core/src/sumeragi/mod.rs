@@ -1,7 +1,11 @@
 //! Translates to Emperor. Consensus-related logic of Iroha.
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::{
     collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     fmt::{self, Debug, Formatter},

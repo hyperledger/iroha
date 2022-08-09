@@ -1,5 +1,5 @@
 //! Crate with various iroha futures
-
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{
     future::Future,
     pin::Pin,
