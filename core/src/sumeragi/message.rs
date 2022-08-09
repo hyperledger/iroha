@@ -1,5 +1,11 @@
 //! Contains message structures for p2p communication during consensus.
 #![allow(clippy::module_name_repetitions)]
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
+#![allow(clippy::significant_drop_in_scrutinee)]
 
 use std::time::Duration;
 
@@ -568,6 +574,7 @@ pub struct TransactionGossip {
 }
 
 impl TransactionGossip {
+    #![allow(clippy::unused_async)]
     /// Constructor.
     pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
         Self {

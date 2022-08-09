@@ -1,5 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic_in_result_fn)]
-
+#![allow(clippy::restriction)]
 use std::{fmt::Write as _, sync::mpsc, thread};
 
 use eyre::Result;

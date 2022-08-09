@@ -1,8 +1,10 @@
-/// Encapsulates the retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
+//! Retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
+#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
 use iroha_config::telemetry::retry_period::{
     DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
 };
 
+/// Period for re-entrant polling
 pub struct RetryPeriod {
     /// The minimum period
     min_period: u64,

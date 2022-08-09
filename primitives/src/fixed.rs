@@ -1,4 +1,5 @@
 //! Types used for Fixed-point operations. Uses [`fixnum::FixedPoint`].
+#![allow(clippy::std_instead_of_core)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};

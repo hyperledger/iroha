@@ -2,6 +2,11 @@
 //! using [criterion](https://github.com/bheisler/criterion.rs)
 //! for performance check during development
 #![allow(missing_docs)]
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 
 use criterion::{
     black_box, criterion_group, criterion_main,

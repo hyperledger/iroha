@@ -4,6 +4,7 @@
 //! Note that the Genesis domain and account have a temporary
 //! privileged position, and permission validation is turned off for
 //! the Genesis block.
+#![allow(clippy::std_instead_of_alloc)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};

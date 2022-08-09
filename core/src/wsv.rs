@@ -1,5 +1,11 @@
 //! This module provides the [`WorldStateView`] - in-memory representations of the current blockchain
 //! state.
+#![allow(
+    clippy::new_without_default,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 
 use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
@@ -662,7 +668,7 @@ impl WorldStateView {
             .world
             .trusted_peers_ids
             .iter()
-            .map(|peer| Peer::new((&*peer).clone()))
+            .map(|peer| Peer::new((*peer).clone()))
             .collect::<Vec<Peer>>();
         vec.sort();
         vec

@@ -1,4 +1,5 @@
 //! Merkle tree implementation.
+#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
@@ -44,17 +45,17 @@ trait CompleteBTree<T> {
             return None;
         }
         let idx = (idx - 1).div_euclid(2);
-        (idx < self.len()).then(|| idx)
+        (idx < self.len()).then_some(idx)
     }
 
     fn l_child(&self, idx: usize) -> Option<usize> {
         let idx = 2 * idx + 1;
-        (idx < self.len()).then(|| idx)
+        (idx < self.len()).then_some(idx)
     }
 
     fn r_child(&self, idx: usize) -> Option<usize> {
         let idx = 2 * idx + 2;
-        (idx < self.len()).then(|| idx)
+        (idx < self.len()).then_some(idx)
     }
 
     fn get_l_child(&self, idx: usize) -> Option<&T> {
@@ -89,16 +90,13 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
 
         let mut tree = Vec::with_capacity(2_usize.pow(height + 1));
         while let Some(r_node) = queue.pop_back() {
-            match queue.pop_back() {
-                Some(l_node) => {
-                    queue.push_front(Self::nodes_pair_hash(&l_node, &r_node));
-                    tree.push(r_node);
-                    tree.push(l_node);
-                }
-                None => {
-                    tree.push(r_node);
-                    break;
-                }
+            if let Some(l_node) = queue.pop_back() {
+                queue.push_front(Self::nodes_pair_hash(&l_node, &r_node));
+                tree.push(r_node);
+                tree.push(l_node);
+            } else {
+                tree.push(r_node);
+                break;
             }
         }
         tree.reverse();

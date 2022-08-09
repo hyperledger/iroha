@@ -1,5 +1,5 @@
 //! Module for adding layers for events for subscribers
-
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{
     any::TypeId,
     fmt::Debug,

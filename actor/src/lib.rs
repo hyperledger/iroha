@@ -1,10 +1,12 @@
 //! Iroha simple actor framework.
-#![allow(clippy::same_name_method)]
-#![allow(clippy::expect_used)]
-
+#![allow(
+    clippy::std_instead_of_core,
+    clippy::expect_used,
+    clippy::same_name_method
+)]
 #[cfg(feature = "deadlock_detection")]
-use std::any::type_name;
-use std::{
+use core::any::type_name;
+use core::{
     fmt::Debug,
     ops::{Deref, DerefMut},
     time::Duration,

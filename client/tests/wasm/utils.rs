@@ -1,3 +1,8 @@
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use iroha_core::smartcontracts::wasm;
 
 /// Return string containing exported memory, dummy allocator, and

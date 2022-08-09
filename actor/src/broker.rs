@@ -1,61 +1,70 @@
-#![allow(clippy::module_name_repetitions)]
-
 //! Module with message broker for `iroha_actor`
-///
-/// ```rust
-/// use iroha_actor::{prelude::*, broker::*};
-///
-/// #[derive(Clone)]
-/// struct Message1(String);
-/// impl Message for Message1 { type Result = (); }
-///
-/// #[derive(Clone)] struct Message2(String);
-/// impl Message for Message2 { type Result = (); }
-///
-/// struct Actor1(Broker);
-/// struct Actor2(Broker);
-///
-/// #[async_trait::async_trait]
-/// impl Actor for Actor1 {
-///     async fn on_start(&mut self, ctx: &mut Context<Self>) {
-///         self.0.subscribe::<Message1, _>(ctx);
-///         self.0.issue_send(Message2("Hello".to_string())).await;
-///     }
-/// }
-///
-/// #[async_trait::async_trait]
-/// impl Handler<Message1> for Actor1 {
-///     type Result = ();
-///     async fn handle(&mut self, msg: Message1) {
-///         println!("Actor1: {}", msg.0);
-///     }
-/// }
-///
-/// #[async_trait::async_trait]
-/// impl Actor for Actor2 {
-///     async fn on_start(&mut self, ctx: &mut Context<Self>) {
-///         self.0.subscribe::<Message2, _>(ctx);
-///     }
-/// }
-///
-/// #[async_trait::async_trait]
-/// impl Handler<Message2> for Actor2 {
-///     type Result = ();
-///     async fn handle(&mut self, msg: Message2) {
-///         println!("Actor2: {}", msg.0);
-///         self.0.issue_send(Message1(msg.0.clone() + " world")).await;
-///     }
-/// }
-/// tokio::runtime::Runtime::new().unwrap().block_on(async {
-///     let broker = Broker::new();
-///     Actor2(broker.clone()).start().await;
-///     Actor1(broker).start().await;
-///     // Actor2: Hello
-///     // Actor1: Hello world
-/// })
-/// ```
-use std::any::{Any, TypeId};
-use std::{collections::HashMap, sync::Arc};
+//!
+//! ```rust
+//! use iroha_actor::{prelude::*, broker::*};
+//!
+//! #[derive(Clone)]
+//! struct Message1(String);
+//! impl Message for Message1 { type Result = (); }
+//!
+//! #[derive(Clone)] struct Message2(String);
+//! impl Message for Message2 { type Result = (); }
+//!
+//! struct Actor1(Broker);
+//! struct Actor2(Broker);
+//!
+//! #[async_trait::async_trait]
+//! impl Actor for Actor1 {
+//!     async fn on_start(&mut self, ctx: &mut Context<Self>) {
+//!         self.0.subscribe::<Message1, _>(ctx);
+//!         self.0.issue_send(Message2("Hello".to_string())).await;
+//!     }
+//! }
+//!
+//! #[async_trait::async_trait]
+//! impl Handler<Message1> for Actor1 {
+//!     type Result = ();
+//!     async fn handle(&mut self, msg: Message1) {
+//!         println!("Actor1: {}", msg.0);
+//!     }
+//! }
+//!
+//! #[async_trait::async_trait]
+//! impl Actor for Actor2 {
+//!     async fn on_start(&mut self, ctx: &mut Context<Self>) {
+//!         self.0.subscribe::<Message2, _>(ctx);
+//!     }
+//! }
+//!
+//! #[async_trait::async_trait]
+//! impl Handler<Message2> for Actor2 {
+//!     type Result = ();
+//!     async fn handle(&mut self, msg: Message2) {
+//!         println!("Actor2: {}", msg.0);
+//!         self.0.issue_send(Message1(msg.0.clone() + " world")).await;
+//!     }
+//! }
+//! tokio::runtime::Runtime::new().unwrap().block_on(async {
+//!     let broker = Broker::new();
+//!     Actor2(broker.clone()).start().await;
+//!     Actor1(broker).start().await;
+//!     // Actor2: Hello
+//!     // Actor1: Hello world
+//! })
+//! ```
+
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
+
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    sync::Arc,
+};
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::{prelude::*, stream::FuturesUnordered};

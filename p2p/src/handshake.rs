@@ -193,6 +193,7 @@ pub mod peer_state {
 
             let data = &crypto.encrypt(data)?;
 
+            #[allow(clippy::arithmetic)]
             let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
             #[allow(clippy::cast_possible_truncation)]
             buf.push(data.len() as u8);

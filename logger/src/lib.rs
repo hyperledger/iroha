@@ -1,5 +1,9 @@
 //! Iroha's logging utilities.
-#![allow(clippy::expect_used)]
+#![allow(
+    clippy::expect_used,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 
 pub mod layer;
 pub mod telemetry;

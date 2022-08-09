@@ -1,6 +1,10 @@
 //! Structures related to proofs and reasons of view changes.
 //! Where view change is a process of changing topology due to some faulty network behavior.
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::collections::HashSet;
 
 use derive_more::Display;

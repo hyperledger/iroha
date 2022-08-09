@@ -38,7 +38,7 @@ async fn create_torii() -> (Torii, KeyPair) {
         format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
-        ('a'..'z')
+        ('a'..='z')
             .map(|name| DomainId::from_str(&name.to_string()).expect("Valid"))
             .map(|domain_id| Domain::new(domain_id).build()),
         vec![],

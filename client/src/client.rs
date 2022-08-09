@@ -1,5 +1,10 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::{
     collections::HashMap, fmt::Debug, marker::PhantomData, sync::mpsc, thread, time::Duration,
 };
@@ -1036,9 +1041,10 @@ pub mod events_api {
                     try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
                         .into_v1()
                 {
-                    return Ok(Events);
+                    Ok(Events)
+                } else {
+                    Err(eyre!("Expected `SubscriptionAccepted`."))
                 }
-                return Err(eyre!("Expected `SubscriptionAccepted`."));
             }
         }
 

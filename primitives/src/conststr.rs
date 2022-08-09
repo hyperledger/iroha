@@ -1,4 +1,10 @@
 //! Const-string related implementation and structs.
+#![allow(
+    clippy::std_instead_of_core,
+    clippy::undocumented_unsafe_blocks,
+    clippy::arithmetic
+)]
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::{Borrow, ToOwned},
