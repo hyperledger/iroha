@@ -205,6 +205,7 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
 
     FnDescriptor {
         self_ty,
+        trait_name: None,
         doc,
         sig,
         receiver: Some(receiver),

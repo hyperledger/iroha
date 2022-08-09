@@ -5,7 +5,7 @@ use syn::Ident;
 use crate::impl_visitor::{ffi_output_arg, Arg, FnDescriptor};
 
 pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
-    let ffi_fn_name = gen_fn_name(fn_descriptor.self_ty_name(), &fn_descriptor.sig.ident);
+    let ffi_fn_name = gen_fn_name(fn_descriptor);
 
     let self_ty = fn_descriptor
         .self_ty
@@ -24,7 +24,7 @@ pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
 }
 
 pub fn gen_definition(fn_descriptor: &FnDescriptor) -> TokenStream {
-    let ffi_fn_name = gen_fn_name(fn_descriptor.self_ty_name(), &fn_descriptor.sig.ident);
+    let ffi_fn_name = gen_fn_name(fn_descriptor);
 
     let self_ty = fn_descriptor
         .self_ty
@@ -61,11 +61,17 @@ pub fn gen_definition(fn_descriptor: &FnDescriptor) -> TokenStream {
     }
 }
 
-pub fn gen_fn_name(self_ty_name: Option<&Ident>, method_name: &Ident) -> Ident {
-    let self_ty_name = self_ty_name.map_or_else(Default::default, ToString::to_string);
+pub fn gen_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
+    let method_name = &fn_descriptor.sig.ident;
+    let self_ty_name = fn_descriptor
+        .self_ty_name()
+        .map_or_else(Default::default, ToString::to_string);
+    let trait_name = fn_descriptor
+        .trait_name()
+        .map_or_else(Default::default, |trait_name| format!("__{trait_name}"));
 
     Ident::new(
-        &format!("{}__{}", self_ty_name, method_name),
+        &format!("{}{}__{}", self_ty_name, trait_name, method_name),
         proc_macro2::Span::call_site(),
     )
 }

@@ -341,7 +341,7 @@ fn invoke_trait_method() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__target(IntoFfi::into_ffi(ffi_struct), output.as_mut_ptr())
+            FfiStruct__Target__target(IntoFfi::into_ffi(ffi_struct), output.as_mut_ptr())
         );
         let output = output.assume_init();
 

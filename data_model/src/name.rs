@@ -169,7 +169,7 @@ mod tests {
 
             assert_eq!(
                 iroha_ffi::FfiReturn::Ok,
-                Name__from_str(candidate.into_ffi(), name.as_mut_ptr())
+                Name__FromStr__from_str(candidate.into_ffi(), name.as_mut_ptr())
             );
 
             let name = name.assume_init();

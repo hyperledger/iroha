@@ -10,13 +10,6 @@ pub struct Arg {
     type_: Type,
 }
 
-pub struct ImplDescriptor<'ast> {
-    /// Associated types in the impl block
-    pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
-    /// Functions in the impl block
-    pub fns: Vec<FnDescriptor>,
-}
-
 impl Arg {
     pub fn name(&self) -> &Ident {
         &self.name
@@ -66,10 +59,18 @@ fn resolve_src_type(self_type: Option<&syn::Path>, mut arg_type: Type) -> Type {
 
     arg_type
 }
+pub struct ImplDescriptor<'ast> {
+    /// Associated types in the impl block
+    pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
+    /// Functions in the impl block
+    pub fns: Vec<FnDescriptor>,
+}
 
 pub struct FnDescriptor {
     /// Resolved type of the `Self` type
     pub self_ty: Option<syn::Path>,
+    /// Trait name
+    pub trait_name: Option<syn::Path>,
 
     /// Function documentation
     pub doc: syn::Attribute,
@@ -97,6 +98,8 @@ struct ImplVisitor<'ast> {
 struct FnVisitor<'ast> {
     /// Resolved type of the `Self` type
     self_ty: Option<&'ast syn::Path>,
+    /// Trait name
+    trait_name: Option<&'ast syn::Path>,
 
     /// Function documentation
     doc: Option<syn::Attribute>,
@@ -131,16 +134,28 @@ impl<'ast> ImplDescriptor<'ast> {
 }
 
 impl FnDescriptor {
-    fn from_impl_method(self_ty: &syn::Path, node: &syn::ImplItemMethod) -> Self {
-        let mut visitor = FnVisitor::new(Some(self_ty));
+    pub(crate) fn from_impl_method(
+        self_ty: &syn::Path,
+        trait_name: Option<&syn::Path>,
+        node: &syn::ImplItemMethod,
+    ) -> Self {
+        let mut visitor = FnVisitor::new(Some(self_ty), trait_name);
 
         visitor.visit_impl_item_method(node);
         FnDescriptor::from_visitor(visitor)
     }
 
+    pub(crate) fn from_fn(node: &syn::ItemFn) -> Self {
+        let mut visitor = FnVisitor::new(None, None);
+
+        visitor.visit_item_fn(node);
+        Self::from_visitor(visitor)
+    }
+
     fn from_visitor(visitor: FnVisitor) -> Self {
         Self {
             self_ty: visitor.self_ty.map(Clone::clone),
+            trait_name: visitor.trait_name.map(Clone::clone),
 
             doc: visitor.doc.expect_or_abort("Missing doc"),
             sig: visitor.sig.expect_or_abort("Missing signature").clone(),
@@ -154,13 +169,9 @@ impl FnDescriptor {
     pub fn self_ty_name(&self) -> Option<&Ident> {
         self.self_ty.as_ref().map(get_ident)
     }
-}
-impl From<&syn::ItemFn> for FnDescriptor {
-    fn from(item: &syn::ItemFn) -> Self {
-        let mut visitor = FnVisitor::new(None);
 
-        visitor.visit_item_fn(item);
-        Self::from_visitor(visitor)
+    pub fn trait_name(&self) -> Option<&Ident> {
+        self.trait_name.as_ref().map(get_ident)
     }
 }
 
@@ -188,9 +199,13 @@ impl<'ast> ImplVisitor<'ast> {
 }
 
 impl<'ast> FnVisitor<'ast> {
-    pub const fn new(self_ty: Option<&'ast syn::Path>) -> Self {
+    pub const fn new(
+        self_ty: Option<&'ast syn::Path>,
+        trait_name: Option<&'ast syn::Path>,
+    ) -> Self {
         Self {
             self_ty,
+            trait_name,
 
             doc: None,
             sig: None,
@@ -264,13 +279,14 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
         self.trait_name = node.trait_.as_ref().map(|trait_| &trait_.1);
         self.visit_self_type(&*node.self_ty);
 
+        let self_ty = self.self_ty.expect_or_abort("Defined");
         for it in &node.items {
             match it {
-                syn::ImplItem::Method(method) => {
-                    let self_ty = self.self_ty.expect_or_abort("Defined");
-                    self.fns
-                        .push(FnDescriptor::from_impl_method(self_ty, method))
-                }
+                syn::ImplItem::Method(method) => self.fns.push(FnDescriptor::from_impl_method(
+                    self_ty,
+                    self.trait_name,
+                    method,
+                )),
                 syn::ImplItem::Type(type_) => {
                     self.associated_types.push((&type_.ident, &type_.ty));
                 }

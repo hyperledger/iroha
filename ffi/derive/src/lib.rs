@@ -173,7 +173,7 @@ pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 abort!(item.sig.generics, "Generics are not supported");
             }
 
-            let fn_descriptor = FnDescriptor::from(&item);
+            let fn_descriptor = FnDescriptor::from_fn(&item);
             let ffi_fn = ffi_fn::gen_definition(&fn_descriptor);
             quote! {
                 #item
@@ -240,7 +240,7 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 abort!(item.sig.generics, "Generics are not supported");
             }
 
-            let fn_descriptor = FnDescriptor::from(&item);
+            let fn_descriptor = FnDescriptor::from_fn(&item);
             let ffi_fn = ffi_fn::gen_declaration(&fn_descriptor);
             quote! {
                 #item
