@@ -78,6 +78,14 @@ impl RequestBuilder for DefaultRequestBuilder {
         }
     }
 
+    fn try_new(method: Method, url: impl AsRef<str> + core::fmt::Display) -> eyre::Result<Self> {
+        let err_string = format!("url: {url}, method: {method}");
+        Ok(Self {
+            inner: Ok(AttoHttpRequestBuilder::try_new(method, url).wrap_err(err_string)?),
+            body: None,
+        })
+    }
+
     fn header<K, V>(self, key: K, value: V) -> Self
     where
         K: AsRef<str>,
@@ -140,6 +148,10 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
         Self(Ok(http::Request::builder()
             .method(method)
             .uri(url.as_ref())))
+    }
+
+    fn try_new(method: Method, url: impl AsRef<str>) -> eyre::Result<Self> {
+        Ok(Self::new(method, url))
     }
 
     fn param<K, V>(self, _key: K, _val: V) -> Self {

@@ -1,10 +1,6 @@
 //! This file contains examples from the Rust tutorial.
 //! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
 //!
-//! ## Syntax:
-//! - Anything between "// BEGIN FRAGMENT: <name>" (case sensitive) and "// END FRAGMENT" is considered a named fragment. Don't use special characters in names. Prefer snake case.
-//! - Fragments can be included in one another. In that case the lines matching "// BEGIN FRAGMENT: " and end are removed.
-//! - Elements between "// BEGIN ESCAPE" and "// END ESCAPE" are excluded unconditionally from the tutorial.
 #![allow(clippy::restriction, clippy::needless_borrow)]
 
 use eyre::{Error, WrapErr};
@@ -27,7 +23,7 @@ fn main() {
         .expect("Account registration example is expected to work correctly");
     asset_registration_test(&config)
         .expect("Asset registration example is expected to work correctly");
-    println!("Success. I M Idiot");
+    println!("Success!");
     // END ESCAPE
 }
 // END FRAGMENT

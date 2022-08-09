@@ -10,10 +10,20 @@ pub use http::{Method, Response, StatusCode};
 ///
 /// The order of builder methods invocation is not strict. There is no guarantee that builder user calls
 /// all methods. Only [`RequestBuilder::new`] is the required one.
-pub trait RequestBuilder {
-    /// Entrypoint - create a new builder with specified method and URL.
+pub trait RequestBuilder
+where
+    Self: Sized,
+{
     #[must_use]
+    #[deprecated]
+    /// Entrypoint - create a new builder with specified method and URL.
     fn new(method: Method, url: impl AsRef<str>) -> Self;
+
+    /// Entrypoint - create a new builder with specified method and URL.
+    ///
+    /// # Errors
+    /// If either the `method` or `url` are invalid.
+    fn try_new(method: Method, url: impl AsRef<str> + core::fmt::Display) -> eyre::Result<Self>;
 
     /// Add multiple query params at once. Uses [`RequestBuilder::param`] for each param.
     #[must_use]
@@ -193,7 +203,7 @@ pub mod ws {
     ///     fn get_next(&self) -> Vec<u8> {
     ///         /* ... */
     ///     }
-    ///     
+    ///
     ///     // Send message
     ///     fn send(&self, msg: Vec<u8>) {
     ///         /* ... */

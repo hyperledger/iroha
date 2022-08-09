@@ -35,8 +35,8 @@ pub trait ResponseHandler<T = Vec<u8>> {
     fn handle(self, response: Response<T>) -> Self::Output;
 }
 
-/// Phantom struct that handles responses of Query API.
-/// Depending on input query struct, transforms a response into appropriate output.
+/// Phantom struct that handles responses of Query API.  Depending on
+/// input query struct, transforms a response into appropriate output.
 #[derive(Clone, Copy)]
 pub struct QueryResponseHandler<R>(PhantomData<R>);
 
@@ -95,8 +95,9 @@ where
 
 /// Different errors as a result of query response handling
 #[derive(Debug, thiserror::Error)]
-// `QueryError` variant is too large (32 bytes), but I think that this enum is not
-// very frequently constructed, so boxing here is unnecessary.
+// `QueryError` variant is too large (32 bytes), but I think that this
+// enum is not very frequently constructed, so boxing here is
+// unnecessary.
 #[allow(variant_size_differences)]
 pub enum ClientQueryError {
     /// Certain Iroha query error
@@ -152,7 +153,8 @@ impl ResponseHandler for StatusResponseHandler {
     }
 }
 
-/// Private structure to incapsulate error reporting for HTTP response.
+/// Private structure to incapsulate error reporting for HTTP
+/// response.
 struct ResponseReport(eyre::Report);
 
 impl ResponseReport {
@@ -176,9 +178,10 @@ impl From<ResponseReport> for eyre::Report {
     }
 }
 
-/// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
-/// The only difference is that this struct has `output` field extracted from the result
-/// accordingly to the source query.
+/// More convenient version of
+/// [`iroha_data_model::prelude::PaginatedQueryResult`]. The only
+/// difference is that this struct has `output` field extracted from
+/// the result accordingly to the source query.
 #[derive(Clone, Debug)]
 pub struct ClientQueryOutput<R>
 where
@@ -277,7 +280,8 @@ impl Client {
 
     /// Constructor for client from configuration and headers
     ///
-    /// *Authentication* header will be added, if `login` and `password` fields are presented
+    /// *Authentication* header will be added if `login` and
+    /// `password` fields are present
     ///
     /// # Errors
     /// If configuration isn't valid (e.g public/private keys don't match)
@@ -356,8 +360,9 @@ impl Client {
             .wrap_err("Failed to sign query")
     }
 
-    /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
-    /// Returns submitted transaction's hash or error string.
+    /// Instructions API entry point. Submits one Iroha Special
+    /// Instruction to `Iroha` peers.  Returns submitted transaction's
+    /// hash or error string.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
@@ -369,8 +374,9 @@ impl Client {
         self.submit_all([isi])
     }
 
-    /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
-    /// Returns submitted transaction's hash or error string.
+    /// Instructions API entry point. Submits several Iroha Special
+    /// Instructions to `Iroha` peers.  Returns submitted
+    /// transaction's hash or error string.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
@@ -381,9 +387,10 @@ impl Client {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
-    /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
-    /// Returns submitted transaction's hash or error string.
+    /// Instructions API entry point. Submits one Iroha Special
+    /// Instruction to `Iroha` peers.  Allows to specify [`Metadata`]
+    /// of [`Transaction`].  Returns submitted transaction's hash or
+    /// error string.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
@@ -395,9 +402,10 @@ impl Client {
         self.submit_all_with_metadata([instruction], metadata)
     }
 
-    /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
-    /// Returns submitted transaction's hash or error string.
+    /// Instructions API entry point. Submits several Iroha Special
+    /// Instructions to `Iroha` peers.  Allows to specify [`Metadata`]
+    /// of [`Transaction`].  Returns submitted transaction's hash or
+    /// error string.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
@@ -424,16 +432,18 @@ impl Client {
         let response = req
             .build()?
             .send()
-            .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
+            .wrap_err_with(|| format!("Failed to send transaction with hash {hash}"))?;
         resp_handler.handle(response)?;
         Ok(hash)
     }
 
-    /// Submit the prebuilt transaction and wait until it is either rejected or committed.
-    /// If rejected, return the rejection reason.
+    /// Submit the prebuilt transaction and wait until it is either
+    /// rejected or committed.  If rejected, return the rejection
+    /// reason.
     ///
     /// # Errors
-    /// Fails if sending a transaction to a peer fails or there is an error in the response
+    /// Fails if sending a transaction to a peer fails or there is an
+    /// error in the response
     pub fn submit_transaction_blocking(
         &self,
         transaction: Transaction,
@@ -480,9 +490,11 @@ impl Client {
 
     /// Lower-level Instructions API entry point.
     ///
-    /// Returns a tuple with a provided request builder, a hash of the transaction, and a response handler.
-    /// Despite the fact that response handling can be implemented just by asserting that status code is 200,
-    /// it is better to use a response handler anyway. It allows to abstract from implementation details.
+    /// Returns a tuple with a provided request builder, a hash of the
+    /// transaction, and a response handler.  Despite the fact that
+    /// response handling can be implemented just by asserting that
+    /// status code is 200, it is better to use a response handler
+    /// anyway. It allows to abstract from implementation details.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
     ///
@@ -498,10 +510,10 @@ impl Client {
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
         Ok((
-            B::new(
+            B::try_new(
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::TRANSACTION),
-            )
+            )?
             .headers(self.headers.clone())
             .body(transaction_bytes),
             hash,
@@ -509,8 +521,9 @@ impl Client {
         ))
     }
 
-    /// Submits and waits until the transaction is either rejected or committed.
-    /// Returns rejection reason if transaction was rejected.
+    /// Submits and waits until the transaction is either rejected or
+    /// committed.  Returns rejection reason if transaction was
+    /// rejected.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
@@ -521,8 +534,9 @@ impl Client {
         self.submit_all_blocking(vec![instruction.into()])
     }
 
-    /// Submits and waits until the transaction is either rejected or committed.
-    /// Returns rejection reason if transaction was rejected.
+    /// Submits and waits until the transaction is either rejected or
+    /// committed.  Returns rejection reason if transaction was
+    /// rejected.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
@@ -533,8 +547,8 @@ impl Client {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
-    /// Submits and waits until the transaction is either rejected or committed.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Submits and waits until the transaction is either rejected or
+    /// committed.  Allows to specify [`Metadata`] of [`Transaction`].
     /// Returns rejection reason if transaction was rejected.
     ///
     /// # Errors
@@ -547,8 +561,8 @@ impl Client {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
-    /// Submits and waits until the transaction is either rejected or committed.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Submits and waits until the transaction is either rejected or
+    /// committed.  Allows to specify [`Metadata`] of [`Transaction`].
     /// Returns rejection reason if transaction was rejected.
     ///
     /// # Errors
@@ -562,7 +576,8 @@ impl Client {
         self.submit_transaction_blocking(transaction)
     }
 
-    /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
+    /// Lower-level Query API entry point. Prepares an http-request
+    /// and returns it with an http-response handler.
     ///
     /// # Errors
     /// Fails if query signing fails.
@@ -655,10 +670,11 @@ impl Client {
         resp_handler.handle(response)
     }
 
-    /// Query API entry point. Requests queries from `Iroha` peers with pagination.
+    /// Query API entry point. Requests queries from `Iroha` peers
+    /// with pagination.
     ///
-    /// Uses default blocking http-client. If you need some custom integration, look at
-    /// [`Self::prepare_query_request`].
+    /// Uses default blocking http-client. If you need some custom
+    /// integration, look at [`Self::prepare_query_request`].
     ///
     /// # Errors
     /// Fails if sending request fails
@@ -687,7 +703,8 @@ impl Client {
             .map(ClientQueryOutput::only_output)
     }
 
-    /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
+    /// Connects through `WebSocket` to listen for `Iroha` pipeline
+    /// and data events.
     ///
     /// # Errors
     /// Fails if subscribing to websocket fails
@@ -699,7 +716,8 @@ impl Client {
         events_api::EventIterator::new(self.events_handler(event_filter)?)
     }
 
-    /// Constructs an Events API handler. With it, you can use any WS client you want.
+    /// Constructs an Events API handler. With it, you can use any WS
+    /// client you want.
     ///
     /// # Errors
     /// Fails if handler construction fails
@@ -712,9 +730,9 @@ impl Client {
         )
     }
 
-    /// Tries to find the original transaction in the pending local tx queue.
-    /// Should be used for an MST case.
-    /// Takes pagination as parameter.
+    /// Tries to find the original transaction in the pending local tx
+    /// queue.  Should be used for an MST case.  Takes pagination as
+    /// parameter.
     ///
     /// # Errors
     /// Fails if subscribing to websocket fails
@@ -762,8 +780,8 @@ impl Client {
         Ok(None)
     }
 
-    /// Tries to find the original transaction in the local pending tx queue.
-    /// Should be used for an MST case.
+    /// Tries to find the original transaction in the local pending tx
+    /// queue.  Should be used for an MST case.
     ///
     /// # Errors
     /// Fails if sending request fails
@@ -855,7 +873,8 @@ impl Client {
         resp_handler.handle(resp)
     }
 
-    /// Prepares http-request to implement [`Self::get_status`] on your own.
+    /// Prepares http-request to implement [`Self::get_status`] on
+    /// your own.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
     ///
@@ -886,7 +905,8 @@ pub mod events_api {
         transform_ws_url,
     };
 
-    /// Events API flow. For documentation and example usage please follow to [`crate::http::ws::conn_flow`].
+    /// Events API flow. For documentation and example usage please
+    /// follow to [`crate::http::ws::conn_flow`].
     pub mod flow {
         use super::*;
 
