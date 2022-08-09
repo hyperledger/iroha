@@ -1,5 +1,5 @@
 //! Module for `Queue`-related configuration and structs.
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{Configurable, Configuration};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(13);
@@ -9,7 +9,9 @@ const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
 const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 
 /// `Queue` configuration.
-#[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+#[derive(
+    Copy, Clone, Deserialize, Serialize, Debug, Configuration, Configurable, PartialEq, Eq,
+)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "QUEUE_")]

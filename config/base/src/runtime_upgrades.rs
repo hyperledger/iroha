@@ -64,7 +64,7 @@ pub trait Reload<T> {
 
 /// Contains [`handle`] types: opaque wrappers around a reloadable
 /// configuration, used to embed reloading functionality into
-/// various [`iroha_config_derive::Configurable`] types.
+/// various [`iroha_config_derive::Configuration`] types.
 ///
 /// # Architecture.
 ///
@@ -125,7 +125,7 @@ pub trait Reload<T> {
 ///
 /// # Examples
 /// ```rust,ignore
-/// use iroha_config_derive::Configurable;
+/// use iroha_config_derive::Configuration;
 /// use serde::{Deserialize, Serialize};
 /// use iroha_config::runtime_upgrades::{handle, Reload, ReloadMut, ReloadError};
 /// use tracing::Level;
@@ -134,7 +134,7 @@ pub trait Reload<T> {
 ///
 /// struct Logger;
 ///
-/// #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+/// #[derive(Clone, Deserialize, Serialize, Debug, Configuration)]
 /// struct Configuration {
 ///     pub max_log_level: handle::SyncValue<Level, handle::Singleton<Level>>,
 ///     pub log_file_path: Option<std::path::PathBuf>,

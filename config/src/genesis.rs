@@ -1,5 +1,5 @@
 //! Module with genesis configuration logic.
-use iroha_config_base::derive::{view, Configurable};
+use iroha_config_base::derive::{view, Configurable, Configuration};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration of the genesis block and the process of its submission.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configuration, Configurable)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_GENESIS_")]

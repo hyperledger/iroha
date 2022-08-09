@@ -1,11 +1,13 @@
 //! Module for network-related configuration and structs
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{Configurable, Configuration};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// Network Configuration parameters
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configuration, Configurable,
+)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]

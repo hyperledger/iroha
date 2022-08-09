@@ -1,14 +1,13 @@
 //! Package for managing iroha configuration
 
+use std::{fmt::Debug, path::Path};
+
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 pub mod derive {
     //! Modules for `Configurable` entities
 
-    use std::{error::Error as StdError, fmt};
-
-    use derive_more::Display;
     /// Generate view for the type and implement conversion `Type -> View`.
     /// View contains a subset of the fields that the type has.
     ///
@@ -32,7 +31,7 @@ pub mod derive {
     /// view! {
     ///     #[derive(Default)]
     ///     struct Structure {
-    ///         #[view(type = u64)]
+    ///         #[view(into = u64)]
     ///         a: u32,
     ///         // `View` shouldn't have field `b` so we must exclude it.
     ///         #[view(ignore)]
@@ -70,17 +69,20 @@ pub mod derive {
     /// assert_eq!(view.a, 13);
     /// let structure_default = Structure::default();
     /// let view_default = StructureView::default();
-    /// assert_eq!(structure_default.a, view_default.a);
+    /// assert_eq!(structure_default.a as u64, view_default.a);
     /// ```
     pub use iroha_config_derive::view;
-    /// Derive macro for implementing [`iroha_config::Configurable`](`crate::Configurable`) for config structures.
+    // TODO: below technically relates to `LoadFromEnv` only and not `Configurable` itself
+    /// Derive macro for implementing the [`iroha_config::base::derive::Configurable`](`crate::proxy::Configurable`)
+    /// trait for config structures.
     ///
     /// Has several attributes:
     ///
     /// ## `env_prefix`
     /// Sets prefix for env variable
     /// ``` rust
-    /// use iroha_config_base::{Configurable, derive::Configurable};
+    /// use iroha_config_base::derive::Configurable;
+    /// use iroha_config_base::proxy::LoadFromEnv;
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
     /// #[config(env_prefix = "PREFIXED_")]
@@ -95,22 +97,25 @@ pub mod derive {
     /// ## `inner`
     /// Tells macro that the structure stores another config inside
     /// ```rust
-    /// use iroha_config_base::{Configurable, derive::Configurable};
+    /// use iroha_config_base::derive::Configurable;
+    /// use iroha_config_base::proxy::LoadFromEnv;
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
     /// struct Outer { #[config(inner)] inner: Inner }
     ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
+    /// #[derive(serde::Deserialize, serde::Serialize, Configurable, Debug, Clone)]
     /// struct Inner { b: String }
     ///
-    /// let outer = Outer { inner: Inner { b: "a".to_owned() }};
-    /// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
+    /// let mut outer = Outer { inner: Inner { b: "a".to_owned() }};
+    /// // Here inner config will be recursively loaded as well
+    /// <Outer as LoadFromEnv>::load_environment(&mut outer);
     /// ```
     ///
     /// ## `serde_as_str`
     /// Tells macro to deserialize from env variable as a bare string:
     /// ```
-    /// use iroha_config_base::{Configurable, derive::Configurable};
+    /// use iroha_config_base::derive::Configurable;
+    /// use iroha_config_base::proxy::LoadFromEnv;
     /// use std::net::Ipv4Addr;
     ///
     /// #[derive(serde::Deserialize, serde::Serialize, Configurable)]
@@ -122,59 +127,67 @@ pub mod derive {
     /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
     /// ```
     pub use iroha_config_derive::Configurable;
+    // TODO: more decoupling needed, still depends on `LoadFromEnv`
+    /// Derive macro for implementing the trait [`iroha_config::base::derive::Configuration`](`crate::proxy::Configuration`) for config structures.
+    ///
+    /// Even though this macro doesn't own any attributes, as of now it relies on
+    /// the `#[config]` attribute defined by the [`iroha_config::base::derive::Configurable`](`crate::derive::Configurable`) macro.
+    /// As such, `#[config(env_prefix = ...)]` is required for generating documentation, and `#[config(inner)]` for
+    /// getting inner fields recursively.
+    ///
+    /// ```rust
+    /// use iroha_config_base::derive::{Configurable, Configuration};
+    /// use iroha_config_base::proxy::{LoadFromEnv, Configuration as ConfigurationTrait};
+    ///
+    /// #[derive(serde::Deserialize, serde::Serialize, Configurable, Configuration)]
+    /// struct Outer { #[config(inner)] inner: Inner }
+    ///
+    /// #[derive(serde::Deserialize, serde::Serialize, Configurable, Configuration, Debug, Clone)]
+    /// struct Inner { b: String }
+    ///
+    /// let outer = Outer { inner: Inner { b: "a".to_owned() }};
+    ///
+    /// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
+    /// ```
+    pub use iroha_config_derive::Configuration;
+    use serde::Deserialize;
+    use thiserror::Error;
 
     /// Error related to deserializing specific field
-    #[derive(Debug, Display)]
-    #[display(fmt = "Failed to deserialize the field {field}")]
+    #[derive(Debug, Error)]
+    #[error("Name of the field: {}", .field)]
     pub struct FieldError {
         /// Field name (known at compile time)
         pub field: &'static str,
-        /// Serde-json error
+        /// Serde json error
+        #[source]
         pub error: serde_json::Error,
     }
 
-    impl StdError for FieldError {
-        fn source(&self) -> Option<&(dyn StdError + 'static)> {
-            Some(&self.error)
-        }
-    }
-
-    /// Derive `Configurable` error
-    #[derive(Debug)]
+    // TODO: deal with `#[serde(skip)]`
+    /// Derive `Configurable` and `Proxy` error
+    #[derive(Debug, Error, Deserialize)]
+    #[allow(clippy::enum_variant_names)]
     pub enum Error {
-        /// Got unknown field
+        /// Used in [`Configuration`] trait for wrong query errors
+        #[error("Got unknown field: `{}`", Self::concat_error_string(.0))]
         UnknownField(Vec<String>),
-        /// Failed to deserialize or serialize a field
-        FieldError(FieldError),
-    }
-
-    impl fmt::Display for Error {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Self::UnknownField(field) => {
-                    let field = field
-                        .iter()
-                        .skip(1)
-                        .fold(field[0].clone(), |mut prev, suc| {
-                            prev += ".";
-                            prev += suc;
-                            prev
-                        });
-                    write!(f, "Failed to deserialize: Unknown field {}", field)
-                }
-                Self::FieldError(_) => write!(f, "Failed to deserialize"),
-            }
-        }
-    }
-
-    impl StdError for Error {
-        fn source(&self) -> Option<&(dyn StdError + 'static)> {
-            if let Error::FieldError(field) = self {
-                Some(field)
-            } else {
-                None
-            }
-        }
+        /// Used in [`Configuration`] trait for deserialization errors
+        /// while retaining field info
+        #[error("Failed to (de)serialize the field: {}", .0.field)]
+        #[serde(skip)]
+        FieldError(#[from] FieldError),
+        /// Used in [`Configurable`] trait for build errors
+        #[error("Some of the proxy fields were [`None`] at build stage")]
+        ProxyBuildError(String),
+        /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
+        #[error("Reading file from disk failed: {0}")]
+        #[serde(skip)]
+        DiskError(#[from] std::io::Error),
+        /// Used in [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for deserialization errors
+        #[error("Deserializing JSON failed: {0}")]
+        #[serde(skip)]
+        SerdeError(#[from] serde_json::Error),
     }
 
     impl Error {
@@ -182,56 +195,15 @@ pub mod derive {
         pub const fn field_error(field: &'static str, error: serde_json::Error) -> Self {
             Self::FieldError(FieldError { field, error })
         }
+
+        /// To be used for [`Self::UnknownField`] variant construction.
+        pub fn concat_error_string(field: &[String]) -> String {
+            field.join(".")
+        }
     }
 }
 
 pub mod runtime_upgrades;
-
-/// Trait for dynamic and asynchronous configuration via maintenance endpoint for Rust structures
-pub trait Configurable: Serialize + DeserializeOwned {
-    /// Error type returned by methods of this trait
-    type Error;
-
-    /// Return the JSON value of a given field
-    /// # Errors
-    /// Fails if field was unknown
-    fn get(&self, field: &'_ str) -> Result<Value, Self::Error> {
-        self.get_recursive([field])
-    }
-
-    /// Return the JSON value of a given inner field of arbitrary inner depth
-    /// # Errors
-    /// Fails if field was unknown
-    fn get_recursive<'tl, T>(&self, inner_field: T) -> Result<Value, Self::Error>
-    where
-        T: AsRef<[&'tl str]> + Send + 'tl;
-
-    /// Load configuration from the environment
-    ///
-    /// # Errors
-    /// Fails if fails to deserialize from environment
-    fn load_environment(&mut self) -> Result<(), Self::Error>;
-
-    /// Get documentation of a given inner field of arbitrary depth
-    ///
-    /// # Errors
-    /// Fails if field was unknown
-    fn get_doc_recursive<'tl>(field: impl AsRef<[&'tl str]>)
-        -> Result<Option<String>, Self::Error>;
-
-    /// Get documentation of a given field
-    /// # Errors
-    /// Fails if field was unknown
-    fn get_doc(field: &str) -> Result<Option<String>, Self::Error> {
-        Self::get_doc_recursive([field])
-    }
-
-    /// Return documentation for all fields in a form of a JSON object
-    fn get_docs() -> Value;
-
-    /// Get inner documentation for non-leaf fields
-    fn get_inner_docs() -> String;
-}
 
 pub mod view {
     //! Module for view related traits and structs
@@ -254,5 +226,105 @@ pub mod view {
     impl<T: HasView> IsHasView<T> {
         /// `T` implements trait [`HasView`]
         pub const IS_HAS_VIEW: bool = true;
+    }
+}
+
+pub mod proxy {
+    //! Module with traits for configuration proxies
+
+    use super::*;
+
+    /// Trait for dynamic and asynchronous configuration via maintenance endpoint for Rust structures
+    pub trait Configuration: Serialize + DeserializeOwned {
+        /// Error type returned by methods of this trait
+        type Error;
+
+        /// Return the JSON value of a given field
+        /// # Errors
+        /// Fails if field was unknown
+        fn get(&self, field: &'_ str) -> Result<Value, Self::Error> {
+            self.get_recursive([field])
+        }
+
+        /// Return the JSON value of a given inner field of arbitrary inner depth
+        /// # Errors
+        /// Fails if field was unknown
+        fn get_recursive<'tl, T>(&self, inner_field: T) -> Result<Value, Self::Error>
+        where
+            T: AsRef<[&'tl str]> + Send + 'tl;
+
+        /// Get documentation of a given inner field of arbitrary depth
+        ///
+        /// # Errors
+        /// Fails if field was unknown
+        fn get_doc_recursive<'tl>(
+            field: impl AsRef<[&'tl str]>,
+        ) -> Result<Option<String>, Self::Error>;
+
+        /// Get documentation of a given field
+        /// # Errors
+        /// Fails if field was unknown
+        fn get_doc(field: &str) -> Result<Option<String>, Self::Error> {
+            Self::get_doc_recursive([field])
+        }
+
+        /// Return documentation for all fields in a form of a JSON object
+        fn get_docs() -> Value;
+
+        /// Get inner documentation for non-leaf fields
+        fn get_inner_docs() -> String;
+    }
+
+    /// Trait for configuration loading and deserialization
+    pub trait Configurable:
+        Serialize + DeserializeOwned + Sized + LoadFromEnv + LoadFromDisk
+    {
+        /// Error type returned by methods of this trait
+        type Error;
+
+        /// If any of the fields in `other` are filled, they
+        /// override the values of the fields in [`self`].
+        #[must_use]
+        fn combine(self, other: Self) -> Self;
+    }
+
+    /// Trait for configuration loading and deserialization from
+    /// the environment
+    pub trait LoadFromEnv {
+        /// Error type returned by methods of this trait
+        type Error;
+
+        /// Load configuration from the environment
+        ///
+        /// # Errors
+        /// - Fails if the deserialization of any field fails.
+        fn load_environment(&mut self) -> Result<(), Self::Error>;
+    }
+
+    /// Trait for configuration loading and deserialization from disk
+    pub trait LoadFromDisk: Sized {
+        /// Error type returned by methods of this trait
+        type Error;
+
+        /// Construct [`Self`] from a path-like object.
+        ///
+        /// # Errors
+        /// - File not found.
+        /// - File found, but peer configuration parsing failed.
+        fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> Result<Self, Self::Error>;
+    }
+
+    /// Trait for building the final config from a proxy one
+    pub trait Builder {
+        /// The resulting type ([`Configuration`] in most cases).
+        type Target;
+        /// Error type returned by methods of this trait
+        type Error;
+
+        /// Construct [`Self::Target`] from a proxy object.
+        ///
+        /// # Errors
+        /// - If any of the fields was still [`None`].
+        fn build(self) -> Result<Self::Target, Self::Error>;
     }
 }

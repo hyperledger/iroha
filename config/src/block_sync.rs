@@ -1,5 +1,5 @@
 //! Module for `BlockSynchronizer`-related configuration and structs.
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{Configurable, Configuration};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_BLOCK_BATCH_SIZE: u32 = 4;
@@ -7,7 +7,9 @@ const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// Configuration for `BlockSynchronizer`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configuration, Configurable,
+)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "BLOCK_SYNC_")]

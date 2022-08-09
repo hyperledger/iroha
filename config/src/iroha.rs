@@ -1,8 +1,8 @@
-//! This module contains [`Configuration`] structure and related implementation.
+//! This module contains [`struct@Configuration`] structure and related implementation.
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Configurable};
+use iroha_config_base::derive::{view, Configurable, Configuration};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
+    #[derive(Debug, Clone, Deserialize, Serialize, Configuration, Configurable)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
@@ -86,7 +86,7 @@ impl Default for Configuration {
 }
 
 impl Configuration {
-    /// Construct [`Self`] from a path-like object.
+    /// Construct [`struct@Self`] from a path-like object.
     ///
     /// # Errors
     /// - File not found.
@@ -119,7 +119,7 @@ impl Configuration {
     /// # Errors
     /// Fails if Configuration deserialization fails (e.g. if `TrustedPeers` contains entries with duplicate public keys)
     pub fn load_environment(&mut self) -> Result<()> {
-        iroha_config_base::Configurable::load_environment(self)?;
+        <Self as iroha_config_base::proxy::LoadFromEnv>::load_environment(self)?;
         self.finalize()?;
         Ok(())
     }

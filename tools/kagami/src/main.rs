@@ -211,12 +211,12 @@ mod docs {
     use std::{fmt::Debug, io::Write};
 
     use color_eyre::eyre::WrapErr as _;
-    use iroha_config::base::Configurable;
+    use iroha_config::base::proxy::Configuration as ConfigurationTrait;
     use serde_json::Value;
 
     use super::*;
 
-    impl<E: Debug, C: Configurable<Error = E> + Send + Sync + Default> PrintDocs for C {}
+    impl<E: Debug, C: ConfigurationTrait<Error = E> + Send + Sync + Default> PrintDocs for C {}
 
     #[derive(StructOpt, Debug, Clone, Copy)]
     pub struct Args;
@@ -227,7 +227,7 @@ mod docs {
         }
     }
 
-    pub trait PrintDocs: Configurable + Send + Sync + Default
+    pub trait PrintDocs: ConfigurationTrait + Send + Sync + Default
     where
         Self::Error: Debug,
     {
