@@ -1,4 +1,4 @@
-name: Check PR Title
+name: I2::Dev::PR Title Check
 
 on:
   pull_request:

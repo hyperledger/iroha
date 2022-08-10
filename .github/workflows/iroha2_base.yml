@@ -1,4 +1,4 @@
-name: I2::Base Image Deploy
+name: I2Base::Publish
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       - 'Dockerfile.base'
 
 jobs:
-  base_image_deploy:
+  publish:
     strategy:
       matrix:
         tag: [dev, stable, lts]

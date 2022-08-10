@@ -1,4 +1,4 @@
-name: I2::Release::Tests
+name: I2::Stable::Tests
 
 on:
   pull_request:

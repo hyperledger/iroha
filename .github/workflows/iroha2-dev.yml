@@ -1,4 +1,4 @@
-name: I2::Dev::Deploy
+name: I2::Dev::Publish
 
 on:
   push:
@@ -11,7 +11,7 @@ env:
 # no point in burning our AWS self-hosted runners' time. Hence
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
