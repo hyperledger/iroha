@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ffi::ffi_item,
-    permissions::{PermissionToken, Permissions},
+    permission::{Permissions, Token as PermissionToken},
     Identifiable, Name, Registered,
 };
 

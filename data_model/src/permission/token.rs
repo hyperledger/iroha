@@ -1,32 +1,7 @@
-//! Structures, traits and impls related to `Permission`s.
+//! Permission Token and related impls
 
-#[cfg(not(feature = "std"))]
-use alloc::{
-    alloc::alloc,
-    boxed::Box,
-    collections::{btree_map, btree_set},
-    format,
-    string::String,
-    vec::Vec,
-};
-#[cfg(feature = "std")]
-use std::{
-    alloc::alloc,
-    collections::{btree_map, btree_set},
-};
-
-use derive_more::{Constructor, Display, FromStr};
-use getset::Getters;
-use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::{IntoFfi, TryFromReprC};
-use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
-
-use crate::{ffi::ffi_item, utils::format_comma_separated, Identifiable, Name, Registered, Value};
-
-/// Collection of [`PermissionToken`]s
-pub type Permissions = btree_set::BTreeSet<PermissionToken>;
+use super::*;
+use crate::utils::format_comma_separated;
 
 /// Unique id of [`PermissionTokenDefinition`]
 #[derive(
@@ -102,7 +77,7 @@ ffi_item! {
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
     #[getset(get = "pub")]
-    pub struct PermissionToken {
+    pub struct Token {
         /// Name of the permission rule given to account.
         definition_id: <PermissionTokenDefinition as Identifiable>::Id,
         /// Params identifying how this rule applies.
@@ -111,7 +86,7 @@ ffi_item! {
     }
 }
 
-impl core::fmt::Display for PermissionToken {
+impl core::fmt::Display for Token {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}: ", self.definition_id)?;
         format_comma_separated(
@@ -124,7 +99,7 @@ impl core::fmt::Display for PermissionToken {
     }
 }
 
-impl PermissionToken {
+impl Token {
     /// Constructor.
     #[inline]
     pub fn new(definition_id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
@@ -134,7 +109,7 @@ impl PermissionToken {
         }
     }
 
-    /// Add parameters to the `PermissionToken` replacing any previously defined
+    /// Add parameters to the [`Token`] replacing any previously defined
     #[inline]
     #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
@@ -153,11 +128,4 @@ impl PermissionToken {
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
     }
-}
-
-/// The prelude re-exports most commonly used traits, structs and macros from this module.
-pub mod prelude {
-    pub use super::{
-        Id as PermissionTokenDefinitionId, PermissionToken, PermissionTokenDefinition, Permissions,
-    };
 }

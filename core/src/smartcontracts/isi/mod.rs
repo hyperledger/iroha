@@ -275,9 +275,9 @@ impl Execute for RegisterBox {
                 Register::<Trigger<FilterBox>>::new(*trigger).execute(authority, wsv)
             }
             RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
-            RegistrableBox::PermissionTokenDefinition(token_definition) => {
-                Register::<PermissionTokenDefinition>::new(*token_definition)
-                    .execute(authority, wsv)
+            RegistrableBox::Validator(validator) => {
+                todo!()
+                // Register::<Validator>::new(*validator).execute(authority, wsv),
             }
         }
     }
@@ -308,6 +308,10 @@ impl Execute for UnregisterBox {
             IdBox::RoleId(role_id) => Unregister::<Role>::new(role_id).execute(authority, wsv),
             IdBox::TriggerId(trigger_id) => {
                 Unregister::<Trigger<FilterBox>>::new(trigger_id).execute(authority, wsv)
+            }
+            IdBox::ValidatorId(validator_id) => {
+                todo!()
+                // Unregister::<Validator>::new(validator_id).execute(authority, wsv),
             }
         }
     }

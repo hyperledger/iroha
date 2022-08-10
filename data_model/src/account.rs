@@ -33,6 +33,7 @@ use crate::{
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     ffi::ffi_item,
     metadata::Metadata,
+    permission::prelude::{Permissions, Token as PermissionToken},
     prelude::Asset,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
@@ -375,7 +376,7 @@ impl FromIterator<Account> for crate::Value {
     }
 }
 
-/// Identification of an Account. Consists of Account's name and Domain's name.
+/// Identification of an [`Account`]. Consists of Account's name and Domain's name.
 ///
 /// # Examples
 ///
