@@ -15,7 +15,7 @@ use core::str::FromStr;
 use iroha_wasm::{data_model::prelude::*, DebugUnwrapExt, Execute};
 
 #[iroha_wasm::entrypoint]
-fn smartcontract_entry_point(_account_id: AccountId) {
+fn trigger_entrypoint() {
     let query = QueryBox::FindAllAccounts(FindAllAccounts {});
     let accounts: Vec<Account> = query.execute().try_into().dbg_unwrap();
 

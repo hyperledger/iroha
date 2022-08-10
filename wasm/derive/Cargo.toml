@@ -9,11 +9,5 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = {version = "1", default-features = false }
+syn = {version = "1", default-features = false, features = ["full", "extra-traits"] }
 quote = "1.0"
-proc-macro-error = "1.0"
-
-[dev-dependencies]
-iroha_wasm = {  path = "../" }
-
-trybuild = "1.0.53"

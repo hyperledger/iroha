@@ -118,17 +118,17 @@ pub enum EventType {
 /// Trait for filters
 pub trait Filter {
     /// Type of event that can be filtered
-    type EventType;
+    type Event;
 
     /// Check if `item` matches filter
     ///
     /// Returns `true`, if `item` matches filter and `false` if not
-    fn matches(&self, event: &Self::EventType) -> bool;
+    fn matches(&self, event: &Self::Event) -> bool;
 
     /// Returns a number of times trigger should be executed for
     ///
     /// Used for time-triggers
-    fn count_matches(&self, event: &Self::EventType) -> u32 {
+    fn count_matches(&self, event: &Self::Event) -> u32 {
         if self.matches(event) {
             1
         } else {
@@ -173,7 +173,7 @@ pub enum FilterBox {
 }
 
 impl Filter for FilterBox {
-    type EventType = Event;
+    type Event = Event;
 
     /// Apply filter to event.
     fn matches(&self, event: &Event) -> bool {
