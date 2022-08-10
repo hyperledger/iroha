@@ -389,7 +389,7 @@ pub mod permissions {
 
     use crate::prelude::*;
 
-    /// `FindAllPermissionTokenDefinitions` Iroha Query finds all registered
+    /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
     /// [`PermissionTokenDefinition`][crate::permissions::PermissionTokenDefinition]s
     #[derive(
         Debug,
@@ -412,7 +412,7 @@ pub mod permissions {
         type Output = Vec<PermissionTokenDefinition>;
     }
 
-    /// `FindPermissionTokensByAccountId` Iroha Query finds all `PermissionToken`s
+    /// [`FindPermissionTokensByAccountId`] Iroha Query finds all [`PermissionToken`]s
     /// for a specified account.
     #[derive(
         Debug,

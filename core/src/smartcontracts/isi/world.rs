@@ -238,59 +238,8 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let definition_id = self.object_id;
 
-            let mut roles_containing_token = Vec::new();
-
-            for role_entry in wsv.roles().iter() {
-                let (role_id, role) = role_entry.pair();
-                if role
-                    .permissions()
-                    .any(|token| *token.definition_id() == definition_id)
-                {
-                    roles_containing_token.push(role_id.clone())
-                }
-            }
-
-            for role_id in roles_containing_token {
-                wsv.modify_world(|world| match world.roles.get_mut(&role_id) {
-                    Some(mut role) => {
-                        role.remove_permissions(&definition_id);
-                        Ok(RoleEvent::Modified(role_id.clone()).into())
-                    }
-                    None => {
-                        error!(%role_id, "role not found - this is a bug");
-                        Err(FindError::Role(role_id.clone()).into())
-                    }
-                })?;
-            }
-
-            let mut accounts_with_token = std::collections::HashMap::new();
-
-            for domain in wsv.domains().iter() {
-                let account_ids = domain.accounts().map(|account| {
-                    (
-                        account.id().clone(),
-                        account
-                            .permissions()
-                            .filter(|token| token.definition_id() == &definition_id)
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    )
-                });
-
-                accounts_with_token.extend(account_ids);
-            }
-
-            for (account_id, tokens) in accounts_with_token {
-                for token in tokens {
-                    wsv.modify_account(&account_id, |account| {
-                        if !account.remove_permission(&token) {
-                            error!(%token, "token not found - this is a bug");
-                        }
-
-                        Ok(AccountEvent::PermissionRemoved(account_id.clone()))
-                    })?;
-                }
-            }
+            remove_token_from_roles(wsv, &definition_id)?;
+            remove_token_from_accounts(wsv, &definition_id)?;
 
             wsv.modify_world(|world| {
                 match world.permission_token_definitions.remove(&definition_id) {
@@ -303,6 +252,75 @@ pub mod isi {
 
             Ok(())
         }
+    }
+
+    /// Removes all tokens with specified definition id from all registered roles
+    fn remove_token_from_roles(
+        wsv: &WorldStateView,
+        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
+    ) -> Result<(), Error> {
+        let mut roles_containing_token = Vec::new();
+
+        for role_entry in wsv.roles().iter() {
+            let (role_id, role) = role_entry.pair();
+            if role
+                .permissions()
+                .any(|token| token.definition_id() == target_definition_id)
+            {
+                roles_containing_token.push(role_id.clone())
+            }
+        }
+
+        for role_id in roles_containing_token {
+            wsv.modify_world(|world| match world.roles.get_mut(&role_id) {
+                Some(mut role) => {
+                    role.remove_permissions(target_definition_id);
+                    Ok(RoleEvent::Modified(role_id.clone()).into())
+                }
+                None => {
+                    error!(%role_id, "role not found - this is a bug");
+                    Err(FindError::Role(role_id.clone()).into())
+                }
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Removes all tokens with specified definition id from all accounts in all domains
+    fn remove_token_from_accounts(
+        wsv: &WorldStateView,
+        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
+    ) -> Result<(), Error> {
+        let mut accounts_with_token = std::collections::HashMap::new();
+
+        for domain in wsv.domains().iter() {
+            let account_ids = domain.accounts().map(|account| {
+                (
+                    account.id().clone(),
+                    account
+                        .permissions()
+                        .filter(|token| token.definition_id() == target_definition_id)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                )
+            });
+
+            accounts_with_token.extend(account_ids);
+        }
+
+        for (account_id, tokens) in accounts_with_token {
+            for token in tokens {
+                wsv.modify_account(&account_id, |account| {
+                    if !account.remove_permission(&token) {
+                        error!(%token, "token not found - this is a bug");
+                    }
+
+                    Ok(AccountEvent::PermissionRemoved(account_id.clone()))
+                })?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -368,6 +386,8 @@ pub mod query {
             Ok(wsv
                 .permission_token_definitions()
                 .iter()
+                // Can't use `.cloned()` since `token_definition` here is a 
+                // `dashmap::mapref::multiple::RefMulti`, not a vanilla Rust reference
                 .map(|token_definition| token_definition.clone())
                 .collect())
         }

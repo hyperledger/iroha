@@ -212,8 +212,8 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
     gen.into()
 }
 
-/// [`VariantCount`] derives a function `const fn variant_count() -> usize` for enums
-/// that returns the count of variants in enum. E.g.
+/// [`VariantCount`] derives an associated constant `VARIANT_COUNT: usize` for enums
+/// that is equal to the count of variants in enum. E.g.
 /// ```
 /// #[derive(VariantCount)]
 /// enum MyEnum {
@@ -225,7 +225,7 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
 ///   }
 /// }
 ///
-/// assert_eq!(MyEnum::variant_count(), 3)
+/// assert_eq!(MyEnum::VARIANT_COUNT, 3)
 /// ```
 ///
 /// # Panics

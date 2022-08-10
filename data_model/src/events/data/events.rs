@@ -208,18 +208,6 @@ mod permission_token {
             }
         }
     }
-
-    impl Identifiable for PermissionTokenEvent {
-        type Id = PermissionTokenDefinitionId;
-
-        fn id(&self) -> &PermissionTokenDefinitionId {
-            match self {
-                Self::DefinitionCreated(definition) | Self::DefinitionDeleted(definition) => {
-                    definition.id()
-                }
-            }
-        }
-    }
 }
 
 mod account {

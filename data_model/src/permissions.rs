@@ -9,7 +9,6 @@ use alloc::{
     string::String,
     vec::Vec,
 };
-use iroha_ffi::{IntoFfi, TryFromReprC};
 #[cfg(feature = "std")]
 use std::{
     alloc::alloc,
@@ -19,6 +18,7 @@ use std::{
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::IdOrdEqHash;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ use crate::{ffi::ffi_item, utils::format_comma_separated, Identifiable, Name, Re
 /// Collection of [`PermissionToken`]s
 pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
-/// Unique id of `PermissionTokenDefinition`
+/// Unique id of [`PermissionTokenDefinition`]
 #[derive(
     Debug,
     Display,
@@ -50,12 +50,12 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct Id {
-    /// `PermissionToken` name
+    /// [`PermissionToken`] name
     name: Name,
 }
 
 ffi_item! {
-    /// Defines a type of `PermissionToken` with given id
+    /// Defines a type of [`PermissionToken`] with given id
     #[derive(
         Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema, IntoFfi, TryFromReprC
     )]
