@@ -335,7 +335,7 @@ fn conversion_failed() {
 #[test]
 fn invoke_trait_method() {
     let ffi_struct = get_new_struct_with_params();
-    let mut output = MaybeUninit::uninit();
+    let mut output = MaybeUninit::<*mut Name>::new(core::ptr::null_mut());
 
     unsafe {
         assert_eq!(

@@ -192,7 +192,7 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
     match parse_macro_input!(item) {
         Item::Impl(item) => {
             let impl_descriptor = ImplDescriptor::from_impl(&item);
-            let ffi_fns = impl_descriptor.fns.iter().map(ffi_fn::gen_definition);
+            let ffi_fns = impl_descriptor.fns.iter().map(ffi_fn::gen_declaration);
 
             // TODO: Should be fixed in https://github.com/hyperledger/iroha/issues/2231
             //let item = wrapper::wrap_impl_item(&impl_descriptor.fns);

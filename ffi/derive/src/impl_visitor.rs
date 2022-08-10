@@ -303,6 +303,14 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
         self.doc = find_doc_attr(&node.attrs).cloned();
 
+        // NOTE: only public method in inherit impls are allowed
+        if self.trait_name.is_none() && !matches!(node.vis, syn::Visibility::Public(_)) {
+            abort!(
+                node.vis,
+                "Methods defined in the inherit impl block must be public"
+            );
+        }
+
         self.sig = Some(&node.sig);
         self.visit_signature(&node.sig);
     }

@@ -7,8 +7,6 @@ use core::{ops::RangeInclusive, str::FromStr};
 use std::alloc::alloc;
 
 use derive_more::{DebugCustom, Display};
-#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-use iroha_ffi::ffi_export;
 use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
@@ -90,7 +88,11 @@ impl AsRef<str> for Name {
     }
 }
 
-#[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_export)]
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl FromStr for Name {
     type Err = ParseError;
 
@@ -154,33 +156,5 @@ mod tests {
 
             assert!(name.is_err());
         }
-    }
-
-    #[test]
-    #[allow(unsafe_code)]
-    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-    fn ffi_name_from_str() -> Result<(), ParseError> {
-        use iroha_ffi::Handle;
-        let candidate = "Name";
-
-        unsafe {
-            let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
-
-            assert_eq!(
-                iroha_ffi::FfiReturn::Ok,
-                Name__FromStr__from_str(candidate.into_ffi(), name.as_mut_ptr())
-            );
-
-            let name = name.assume_init();
-            assert_ne!(core::ptr::null_mut(), name);
-            assert_eq!(Name::from_str(candidate)?, *name);
-
-            assert_eq!(
-                iroha_ffi::FfiReturn::Ok,
-                crate::ffi::__drop(Name::ID, name.cast())
-            );
-        }
-
-        Ok(())
     }
 }
