@@ -12,7 +12,7 @@ on:
       # Not part of the workspace
       - "!wasm/**"
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 

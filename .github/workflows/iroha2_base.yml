@@ -3,12 +3,12 @@ name: I2Base::Publish
 on:
   workflow_dispatch:
   push:
-    branches: 
+    branches:
       - iroha2-dev
       - iroha2-stable
       - iroha2-lts
     paths:
-      - 'Dockerfile.base'
+      - "Dockerfile.base"
 
 jobs:
   publish:

@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [iroha2-stable]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -76,7 +76,6 @@ jobs:
       - name: Cleanup test environment
         run: bash -c './scripts/test_env.sh cleanup docker'
 
-
   bench:
     runs-on: [self-hosted, Linux]
     container:
@@ -87,7 +86,7 @@ jobs:
       - name: Run benchmarks
         run: mold --run cargo bench --workspace --quiet
 
-# ------------------------------ SDK tests go here ------------------------
+  # ------------------------------ SDK tests go here ------------------------
 
   java-api-test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
