@@ -29,11 +29,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-ci:${{ matrix.tag }} image
+      - name: Build and push iroha2-base:${{ matrix.tag }} image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2-ci:${{ matrix.tag }}
+          tags: hyperledger/iroha2-base:${{ matrix.tag }}
           context: .
           file: Dockerfile.base
           build-args: TAG=${{ matrix.tag }}
