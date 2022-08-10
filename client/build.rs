@@ -8,6 +8,12 @@ use std::{env, path::Path, process::Command};
 
 #[allow(clippy::expect_used)]
 fn main() {
+    const SMARTCONTRACT_LOCAL_PATH: &str =
+        "tests/integration/create_nft_for_every_user_smartcontract";
+
+    // Rerunning if smart contract was changed
+    println!("cargo:rerun-if-changed={SMARTCONTRACT_LOCAL_PATH}");
+
     // Build and format the smartcontract if and only if the tests are
     // invoked with the nightly toolchain. We should not force our
     // users to have the `nightly` if we don't use any `nightly`
@@ -23,8 +29,7 @@ fn main() {
     {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR")
             .expect("Expected `CARGO_MANIFEST_DIR` environment variable");
-        let smartcontract_path = Path::new(&manifest_dir)
-            .join("tests/integration/create_nft_for_every_user_smartcontract");
+        let smartcontract_path = Path::new(&manifest_dir).join(SMARTCONTRACT_LOCAL_PATH);
         let out_dir = env::var_os("OUT_DIR").expect("Expected `OUT_DIR` environment variable");
 
         // TODO: check if this was causing the recursive loop.
