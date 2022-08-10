@@ -1,4 +1,5 @@
-FROM    iroha2:base
+ARG TAG
+FROM    hyperledger/iroha2-ci:$TAG
 WORKDIR /iroha
 COPY    . .
 RUN     rm -f rust-toolchain.toml

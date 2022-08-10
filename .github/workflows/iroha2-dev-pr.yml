@@ -25,7 +25,7 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Documentation check
         if: always()
@@ -51,7 +51,7 @@ jobs:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       # TODO Remove this step #2165
       - uses: actions-rs/toolchain@v1
         with:
@@ -96,7 +96,7 @@ jobs:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |

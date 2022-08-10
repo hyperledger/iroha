@@ -55,7 +55,7 @@ impl EventFilter {
 }
 
 impl Filter for EventFilter {
-    type EventType = Event;
+    type Event = Event;
 
     /// Check if `event` matches filter
     ///
