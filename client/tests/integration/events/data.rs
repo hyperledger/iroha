@@ -8,7 +8,6 @@ use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use parity_scale_codec::Encode;
 use test_network::*;
 
-use super::Configuration;
 use crate::wasm::utils::wasm_template;
 
 fn produce_instructions() -> Vec<Instruction> {
@@ -80,7 +79,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
             {wasm_template}
 
             ;; Function which starts the smartcontract execution
-            (func (export "{main_fn_name}") (param i32 i32)
+            (func (export "{main_fn_name}") (param)
                 {isi_calls}))
         "#,
         main_fn_name = wasm::export::WASM_MAIN_FN_NAME,
@@ -96,8 +95,6 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 fn transaction_execution_should_produce_events(executable: Executable) -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
-
-    let pipeline_time = Configuration::pipeline_time();
 
     // spawn event reporter
     let listener = client.clone();
@@ -118,8 +115,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
     let transaction = client
         .build_transaction(executable, UnlimitedMetadata::new())
         .unwrap();
-    client.submit_transaction(transaction)?;
-    thread::sleep(pipeline_time * 2);
+    client.submit_transaction_blocking(transaction)?;
 
     // assertion
     for i in 0..4_usize {
