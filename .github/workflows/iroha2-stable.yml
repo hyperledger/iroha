@@ -15,13 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
-      - name: Build iroha2:build docker image
-        uses: docker/build-push-action@v3
-        with:
-          load: true
-          tags: iroha2:build
-          context: .
-          file: Dockerfile.build
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
