@@ -10,9 +10,6 @@ on:
     paths:
       - 'Dockerfile.base'
 
-env:
-  REPOSITORY_URL: '${{ github.server_url }}/${{ github.repository }}.git'
-
 jobs:
   base_image_deploy:
     strategy:
@@ -37,6 +34,6 @@ jobs:
         with:
           push: true
           tags: hyperledger/iroha2-ci:${{ matrix.tag }}
-          context: ${{ env.REPOSITORY_URL }}#iroha2-${{ matrix.tag }}
+          context: .
           file: Dockerfile.base
           build-args: TAG=${{ matrix.tag }}

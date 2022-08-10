@@ -6,7 +6,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  REPOSITORY_URL: '${{ github.server_url }}/${{ github.repository }}.git'
 
 jobs:
   deploy:
@@ -21,7 +20,7 @@ jobs:
         with:
           load: true
           tags: iroha2:build
-          context: ${{ env.REPOSITORY_URL }}#iroha2-stable
+          context: .
           file: Dockerfile.build
       - name: Login to DockerHub
         uses: docker/login-action@v2
@@ -33,7 +32,7 @@ jobs:
         with:
           push: true
           tags: hyperledger/iroha2:stable
-          context: ${{ env.REPOSITORY_URL }}#iroha2-stable
+          context: .
           file: Dockerfile
 
       - name: Build and push docker image (load-rs:release)
