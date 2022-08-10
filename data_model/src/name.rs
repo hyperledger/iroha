@@ -62,6 +62,8 @@ impl Name {
     /// # Errors
     /// Fails if not valid [`Name`].
     fn validate_str(candidate: &str) -> Result<(), ParseError> {
+        const FORBIDDEN_CHARS: [char; 3] = ['@', '#', '$'];
+
         if candidate.is_empty() {
             return Err(ParseError {
                 reason: "`Name` cannot be empty",
@@ -72,10 +74,11 @@ impl Name {
                 reason: "White space not allowed in `Name` constructs",
             });
         }
-        if candidate.chars().any(|ch| ch == '@' || ch == '#') {
+        if candidate.chars().any(|ch| FORBIDDEN_CHARS.contains(&ch)) {
             #[allow(clippy::non_ascii_literal)]
             return Err(ParseError {
-                reason: "The `@` character is reserved for `account@domain` constructs, `#` — for `asset#domain`",
+                reason: "The `@` character is reserved for `account@domain` constructs, \
+                        `#` — for `asset#domain` and `$` — for `trigger$domain`.",
             });
         }
         Ok(())
@@ -134,7 +137,7 @@ mod tests {
 
     use super::*;
 
-    const INVALID_NAMES: [&str; 4] = ["", " ", "@", "#"];
+    const INVALID_NAMES: [&str; 5] = ["", " ", "@", "#", "$"];
 
     #[test]
     fn deserialize_name() {
