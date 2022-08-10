@@ -111,8 +111,8 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// TODO Remove `compile_fail` #2604
-/// ```compile_fail
+/// TODO Remove `ignore` #2604
+/// ```ignore
 /// use iroha_data_model_derive::{Filter, IdOrdEqHash};
 /// use iroha_data_model::prelude::{HasOrigin, Identifiable};
 /// use iroha_schema::IntoSchema;
@@ -178,8 +178,8 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///
 /// Deriving [`Filter`] for `LayerEvent` expands as follows:
 ///  
-/// TODO Remove `compile_fail` #2604
-/// ```compile_fail
+/// TODO Remove `ignore` #2604
+/// ```ignore
 /// # use iroha_data_model_derive::{Filter, IdOrdEqHash};
 /// # use iroha_data_model::prelude::{HasOrigin, Identifiable};
 /// # use iroha_schema::IntoSchema;
