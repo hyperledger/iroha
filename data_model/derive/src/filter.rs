@@ -247,8 +247,8 @@ pub(super) fn impl_filter(event: &EventEnum) -> TokenStream {
         }
 
         impl #import_path::Filter for #filter_ident {
-            type EventType = #imp_event;
-            fn matches(&self, event: &Self::EventType) -> bool {
+            type Event = #imp_event;
+            fn matches(&self, event: &Self::Event) -> bool {
                 self.origin_filter.matches(event) && self.event_filter.matches(event)
             }
         }
@@ -303,7 +303,8 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
         }
 
         impl #import_path::Filter for #event_filter_ident {
-            type EventType = #imp_event;
+            type Event = #imp_event;
+
             fn matches(&self, event: &#imp_event) -> bool {
                 match (self, event) {
                     #(#id_impls)|* => true,

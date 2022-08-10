@@ -6,6 +6,20 @@ The library crate that is used for writing Iroha-compliant smart contracts in Ru
 
 Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/advanced/wasm.html) for a detailed guide.
 
+## Running tests
+
+To be able to run tests compiled for `wasm32-unknown-unknown` target install `webassembly-test-runner`:
+
+```bash
+cargo install webassembly-test-runner
+```
+
+Then run tests:
+
+```bash
+cargo test
+```
+
 ## Reducing the size of WASM
 
 Since smart contracts are stored directly on the blockchain, you would want to reduce their size.
