@@ -157,7 +157,31 @@ mod role {
     pub enum RoleEvent {
         Created(RoleId),
         Deleted(RoleId),
-        Modified(RoleId),
+        /// [`PermissionToken`]s with particular [`PermissionTokenDefinitionId`] were
+        /// removed from the role.
+        PermissionRemoved(PermissionRemoved),
+    }
+
+    /// Information about permissions removed from [`Role`]
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct PermissionRemoved {
+        /// Role id
+        pub role_id: RoleId,
+        /// [`PermissionTokenDefinition`] id. All [`PermissionToken`]s with this definition id were removed.
+        pub permission_definition_id: <PermissionTokenDefinition as Identifiable>::Id,
     }
 
     impl HasOrigin for RoleEvent {
@@ -165,14 +189,16 @@ mod role {
 
         fn origin_id(&self) -> &<Role as Identifiable>::Id {
             match self {
-                Self::Created(id) | Self::Deleted(id) | Self::Modified(id) => id,
+                Self::Created(role_id)
+                | Self::Deleted(role_id)
+                | Self::PermissionRemoved(PermissionRemoved { role_id, .. }) => role_id,
             }
         }
     }
 }
 
 mod permission_token {
-    //! This module contains `PermissionTokenEvent` and its impls
+    //! This module contains [`PermissionTokenEvent`] and its impls
 
     use super::*;
 
@@ -492,7 +518,7 @@ pub mod prelude {
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission_token::PermissionTokenEvent,
-        role::{RoleEvent, RoleEventFilter, RoleFilter},
+        role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{TriggerEvent, TriggerEventFilter, TriggerFilter},
         Event as DataEvent, HasOrigin, WorldEvent,
     };

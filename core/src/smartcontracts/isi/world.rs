@@ -254,7 +254,7 @@ pub mod isi {
         }
     }
 
-    /// Removes all tokens with specified definition id from all registered roles
+    /// Remove all tokens with specified definition id from all registered roles
     fn remove_token_from_roles(
         wsv: &WorldStateView,
         target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
@@ -275,7 +275,11 @@ pub mod isi {
             wsv.modify_world(|world| match world.roles.get_mut(&role_id) {
                 Some(mut role) => {
                     role.remove_permissions(target_definition_id);
-                    Ok(RoleEvent::Modified(role_id.clone()).into())
+                    Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
+                        role_id,
+                        permission_definition_id: target_definition_id.clone(),
+                    })
+                    .into())
                 }
                 None => {
                     error!(%role_id, "role not found - this is a bug");
@@ -287,7 +291,7 @@ pub mod isi {
         Ok(())
     }
 
-    /// Removes all tokens with specified definition id from all accounts in all domains
+    /// Remove all tokens with specified definition id from all accounts in all domains
     fn remove_token_from_accounts(
         wsv: &WorldStateView,
         target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,

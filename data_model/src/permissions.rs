@@ -75,7 +75,7 @@ impl Registered for PermissionTokenDefinition {
 }
 
 impl PermissionTokenDefinition {
-    /// Constructs new `PermissionTokenDefinition`
+    /// Construct new `PermissionTokenDefinition`
     pub fn new(id: Id) -> Self {
         Self { id }
     }

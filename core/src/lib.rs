@@ -35,10 +35,10 @@ pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
 /// Provides an API to work with collection of key([`DomainId`]) - value([`Domain`]) pairs.
 pub type DomainsMap = DashMap<<Domain as Identifiable>::Id, Domain>;
 
-/// `RolesMap` provides an API to work with collection of key(`RoleId`) - value(`Role`) pairs.
+/// `RolesMap` provides an API to work with a collection of key(`RoleId`) - value(`Role`) pairs.
 pub type RolesMap = DashMap<<Role as Identifiable>::Id, Role>;
 
-/// `PermissionTokenDefinitionsMap` provides an API to work with collection of key(`PermissionTokenDefinitionId`) - value(`PermissionTokenDefinition`) pairs.
+/// `PermissionTokenDefinitionsMap` provides an API to work with a collection of key(`PermissionTokenDefinitionId`) - value(`PermissionTokenDefinition`) pairs.
 pub type PermissionTokenDefinitionsMap =
     DashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
 

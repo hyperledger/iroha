@@ -7,7 +7,7 @@ pub mod register;
 #[cfg(test)]
 mod tests;
 
-/// Lists ids of all predefined permission tokens, e.g. for easier
+/// List ids of all predefined permission tokens, e.g. for easier
 /// registration in genesis block.
 pub fn default_permission_token_definitions() -> [&'static PermissionTokenDefinition; 1] {
     [register::CanRegisterDomains::definition()]

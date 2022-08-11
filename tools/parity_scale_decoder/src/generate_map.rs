@@ -229,6 +229,7 @@ pub fn generate_map() -> DumpDecodedMap {
         PeerFilter,
         PeerId,
         PendingTransactions,
+        PermissionRemoved,
         PermissionToken,
         PermissionTokenDefinition,
         PermissionTokenDefinitionId,

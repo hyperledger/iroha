@@ -66,7 +66,7 @@ impl From<PredefinedPermissionToken> for PermissionToken {
     }
 }
 
-/// Lists ids of all predefined permission tokens, e.g. for easier
+/// List ids of all predefined permission tokens, e.g. for easier
 /// registration in genesis block.
 pub fn default_permission_token_definitions(
 ) -> [&'static PermissionTokenDefinition; PredefinedPermissionToken::VARIANT_COUNT] {
