@@ -1,0 +1,25 @@
+name: Print runner's capacity
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+
+jobs:
+  ubuntu-latest:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - name: Show file system
+        run: |
+          df
+          df -i
+  self-hosted:
+    runs-on: [self-hosted, Linux]
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - name: Show file system
+        run: |
+          df
+          df -i
