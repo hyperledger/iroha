@@ -24,6 +24,7 @@ jobs:
           tags: iroha2:build
           context: ${{ env.REPOSITORY_URL }}#iroha2-dev
           file: Dockerfile.build
+          build-args: TAG=dev
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
