@@ -36,4 +36,3 @@ jobs:
           tags: hyperledger/iroha2-base:${{ matrix.tag }}
           context: .
           file: Dockerfile.base
-          build-args: TAG=${{ matrix.tag }}

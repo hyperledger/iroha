@@ -28,6 +28,7 @@ jobs:
           tags: hyperledger/iroha2:dev
           context: .
           file: Dockerfile
+          build-args: TAG=dev
 
       - name: Check and merge Cargo dependencies (load-rs:dev)
         run: |

@@ -33,6 +33,7 @@ jobs:
           tags: hyperledger/iroha2:${{ matrix.tag }}
           context: .
           file: Dockerfile
+          build-args: TAG=${{ matrix.tag }}
 
       - name: Build and push docker image (load-rs:release)
         run: |
