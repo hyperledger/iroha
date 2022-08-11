@@ -227,41 +227,33 @@ impl<'ast> FnVisitor<'ast> {
         ));
     }
 
-    /// Produces name of the return type. Name of the self argument is used for dummy
-    /// output type which is not present in the FFI function signature. Dummy type is
-    /// used to signal that the self type passes through the method being transcribed
-    fn gen_output_arg_name(&mut self, output_src_type: &Type) -> Ident {
-        if let Some(receiver) = &mut self.receiver {
-            let self_src_ty = &mut receiver.type_;
-
-            if *self_src_ty == *output_src_type {
-                if matches!(self_src_ty, Type::Path(_)) {
-                    // NOTE: `Self` is first consumed and then returned in the same method
-                    let name = core::mem::replace(&mut receiver.name, parse_quote! {irrelevant});
-
-                    *receiver = Arg::new(
-                        self.self_ty.map(Clone::clone),
-                        name,
-                        parse_quote! {#self_src_ty},
-                    );
-                }
-
-                return receiver.name.clone();
+    /// Set return type arg name to self type arg name
+    /// in case of function like `fn(self, ...) -> Self`, otherwise leave name unchanged
+    fn set_output_arg_name(&self, mut output_arg: Arg) -> Arg {
+        if let Some(receiver) = &self.receiver {
+            // NOTE: types need to be resolved here in case of `fn(self) -> Type` where `Type == Self`
+            // NOTE: `Self` is first consumed and then returned in the same method
+            if matches!(receiver.src_type(), Type::Path(_))
+                && receiver.src_type_resolved() == output_arg.src_type_resolved()
+            {
+                output_arg.name = receiver.name().clone();
             }
         }
 
-        Ident::new("__output", Span::call_site())
+        output_arg
     }
 
     fn add_output_arg(&mut self, src_type: &'ast Type) {
         assert!(self.curr_arg_name.is_none());
         assert!(self.output_arg.is_none());
 
-        self.output_arg = Some(Arg::new(
+        let output_arg = Arg::new(
             self.self_ty.map(Clone::clone),
-            self.gen_output_arg_name(src_type),
+            Ident::new("__output", Span::call_site()),
             src_type.clone(),
-        ));
+        );
+
+        self.output_arg = Some(self.set_output_arg_name(output_arg));
     }
 }
 

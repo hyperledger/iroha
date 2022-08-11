@@ -54,7 +54,7 @@ impl FfiStruct {
 
     /// With params
     #[must_use]
-    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> FfiStruct {
         self.params = params.into_iter().collect();
         self
     }

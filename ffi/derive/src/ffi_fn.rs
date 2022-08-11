@@ -191,23 +191,18 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     if let Some(output_arg) = &fn_descriptor.output_arg {
         if let Some(receiver) = &fn_descriptor.receiver {
-            let arg_name = receiver.name();
-            let src_type = receiver.src_type();
-
-            if matches!(src_type, syn::Type::Path(_)) {
-                match output_arg.src_type() {
-                    // NOTE: case like fn(mut self, ...) -> Self (builder pattern)
-                    syn::Type::Path(path) if path.path.is_ident("Self") => {
-                        return quote! {
-                            if __out_ptr.is_null() {
-                                return Err(iroha_ffi::FfiReturn::ArgIsNull);
-                            }
-
-                            __out_ptr.write(#arg_name);
-                        };
+            // NOTE: case like fn(self, ...) -> Self (builder pattern)
+            if matches!(receiver.src_type(), syn::Type::Path(_))
+                && receiver.name() == output_arg.name()
+            {
+                let arg_name = receiver.name();
+                return quote! {
+                    if __out_ptr.is_null() {
+                        return Err(iroha_ffi::FfiReturn::ArgIsNull);
                     }
-                    _ => {}
-                }
+
+                    __out_ptr.write(#arg_name);
+                };
             }
         }
 
