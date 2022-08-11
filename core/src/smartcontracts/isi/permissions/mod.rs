@@ -225,9 +225,9 @@ pub type DenialReason = String;
 
 /// Trait for hard-coded strongly-typed permission tokens.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```
+/// ```rust
 /// use iroha_core::smartcontracts::isi::permissions::{
 ///     PermissionTokenTrait, PredefinedTokenConversionError,
 /// };

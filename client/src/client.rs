@@ -569,7 +569,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```ignore
     /// use eyre::Result;
     /// use iroha_client::{
     ///     client::{Client, ResponseHandler},

@@ -238,7 +238,7 @@ pub mod scale {
     ///
     /// Will be removed in favor of just [`DecodeVersioned::decode_all_versioned`] in the future.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
     /// # use iroha_data_model::prelude::*;

@@ -34,7 +34,8 @@ use syn::{
 /// 2) When any of the argument count literals are not unique.
 /// 3) When the colon-separated form has spaces in the provided name.
 ///
-/// # Examples:
+/// # Examples
+///
 /// ```rust
 /// use warp::{Rejection, Filter};
 /// use std::{convert::Infallible, marker::PhantomData};

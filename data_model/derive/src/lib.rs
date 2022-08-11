@@ -25,7 +25,8 @@ mod id;
 ///
 /// # Examples
 ///
-/// ```
+/// TODO Remove `ignore` #2604. Ignored just for avoiding conflicts with another PR
+/// ```ignore
 /// use iroha_data_model_derive::IdOrdEqHash;
 /// use iroha_data_model::Identifiable;
 ///
@@ -44,7 +45,8 @@ mod id;
 ///
 /// Deriving [`IdOrdEqHash`] for `Struct` expands as follows:
 ///
-/// ```
+/// TODO Remove `ignore` #2604. Ignored just for avoiding conflicts with another PR
+/// ```ignore
 /// # use iroha_data_model::Identifiable;
 /// #
 /// # #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -111,7 +113,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// TODO Remove `ignore` #2604
+/// TODO Remove `ignore` #2604. Needs to be fixed
 /// ```ignore
 /// use iroha_data_model_derive::{Filter, IdOrdEqHash};
 /// use iroha_data_model::prelude::{HasOrigin, Identifiable};
@@ -178,7 +180,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///
 /// Deriving [`Filter`] for `LayerEvent` expands as follows:
 ///  
-/// TODO Remove `ignore` #2604
+/// TODO Remove `ignore` #2604. Needs to be fixed
 /// ```ignore
 /// # use iroha_data_model_derive::{Filter, IdOrdEqHash};
 /// # use iroha_data_model::prelude::{HasOrigin, Identifiable};

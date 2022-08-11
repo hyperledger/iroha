@@ -6,14 +6,14 @@ on:
     types: [closed]
 
 jobs:
-  upload_coverage:
+  update_with_artifact:
     if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v3
-      - name: Download codecov report artifact
+      - name: Download artifact
         uses: dawidd6/action-download-artifact@v2.21.1
         with:
           workflow: iroha2-dev-pr.yml

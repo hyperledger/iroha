@@ -29,7 +29,7 @@ const CONTENT_FIELD_NAME: &str = "content";
 ///
 /// Adds support for both scale codec and json serialization. To declare only with json support use [`version_with_json()`], for scale - [`version_with_scale()`].
 ///
-/// ### Arguments:
+/// ### Arguments
 /// - named `n: u8` - what version this particular struct represents.
 /// - named `versioned: String` - to which versioned container to link this struct. Versioned containers are created with [`declare_versioned`](`declare_versioned()`).
 ///
@@ -68,8 +68,9 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// 1. positional `versioned_enum_name`
 /// 2. positional `supported_version_range`
 ///
-/// ### Example
-/// ```
+/// ### Examples
+///
+/// ```rust
 /// use parity_scale_codec::{Decode, Encode};
 /// use serde::{Deserialize, Serialize};
 /// use iroha_version_derive::{declare_versioned, version};

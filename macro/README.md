@@ -12,7 +12,7 @@ Add the following to the manifest file of your Rust project:
 iroha_derive = { git = "https://github.com/hyperledger/iroha/", branch="iroha2-dev" }
 ```
 
-## Example
+## Examples
 
 ```rust
 use iroha_derive::FromVariant;

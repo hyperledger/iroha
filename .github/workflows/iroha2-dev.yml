@@ -11,7 +11,7 @@ env:
 # no point in burning our AWS self-hosted runners' time. Hence
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
-  publish:
+  publish_image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -54,7 +54,7 @@ jobs:
           workflow_file_name: load-rs-push-from-dev.yaml
           ref: iroha2-dev
 
-  archive-and-publish-schema:
+  archive_binaries_and_schema:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -63,32 +63,32 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Build
         run: mold --run cargo build --release --verbose
-      - name: Archive build
-        uses: actions/upload-artifact@v2
+      - name: Archive iroha
+        uses: actions/upload-artifact@v3
         with:
           name: cargo-build-release
           path: target/release/iroha
-      - name: Archive Client CLI build
-        uses: actions/upload-artifact@v2
+      - name: Archive iroha_client_cli
+        uses: actions/upload-artifact@v3
         with:
           name: cargo-client-cli-build-release
           path: target/release/iroha_client_cli
-      - name: Archive Crypto CLI build
-        uses: actions/upload-artifact@v2
+      - name: Archive kagami
+        uses: actions/upload-artifact@v3
         with:
           name: cargo-crypto-cli-build-release
           path: target/release/kagami
-      - name: Run schema generation
+      - name: Generate schema
         run: |
           mkdir -p target/schema
           cargo run --bin kagami -- schema >target/schema/schema.json
-      - name: Upload schema
-        uses: actions/upload-artifact@v2
+      - name: Archive schema
+        uses: actions/upload-artifact@v3
         with:
           name: schema
           path: target/schema
 
-  print-telemetry:
+  print_and_archive_telemetry:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -100,7 +100,7 @@ jobs:
           TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
         run: |
           mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features -- unstable_network || true
+          mold --run cargo test -p iroha_client --all-features -- unstable_network || true
       - name: Run release tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/release.json.lz4
@@ -134,7 +134,7 @@ jobs:
           github_token: ${{ secrets.github_token }}
         continue-on-error: true
       - name: Archive telemetry
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: telemetry
           path: target/telemetry

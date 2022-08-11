@@ -135,6 +135,7 @@ impl ToTokens for MetricSpec {
 /// should prefix the quoted metric with the `+` symbol.
 ///
 /// # Examples
+///
 /// ```rust
 /// use iroha_core::wsv::{World, WorldStateView};
 /// use iroha_telemetry_derive::metrics;

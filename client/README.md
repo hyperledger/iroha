@@ -19,7 +19,7 @@ Add the following to the manifest file of your Rust project:
 iroha_client = { git = "https://github.com/hyperledger/iroha/", branch="iroha2-dev" }
 ```
 
-## Example
+## Examples
 
 ```rust
 let configuration =

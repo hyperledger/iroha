@@ -351,9 +351,9 @@ impl_try_as_for_asset_value! {
 
 /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```
+/// ```rust
 /// use iroha_data_model::asset::DefinitionId;
 ///
 /// let definition_id = "xor#soramitsu".parse::<DefinitionId>().expect("Valid");

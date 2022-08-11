@@ -409,9 +409,9 @@ impl FromIterator<Account> for crate::Value {
 
 /// Identification of an Account. Consists of Account's name and Domain's name.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```
+/// ```rust
 /// use iroha_data_model::account::Id;
 ///
 /// let id = "user@company".parse::<Id>().expect("Valid");
