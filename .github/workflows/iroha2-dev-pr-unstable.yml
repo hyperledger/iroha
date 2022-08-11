@@ -21,7 +21,7 @@ env:
 
 jobs:
   test:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     timeout-minutes: 60

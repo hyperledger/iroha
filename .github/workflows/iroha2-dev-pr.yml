@@ -45,7 +45,7 @@ jobs:
         run: mold --run cargo build --target wasm32-unknown-unknown --quiet
 
   tests_with_coverage:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     strategy:
