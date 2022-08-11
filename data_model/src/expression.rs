@@ -24,6 +24,142 @@ use serde::{Deserialize, Serialize};
 
 use super::{query::QueryBox, Value, ValueBox};
 
+/// Generate expression structure and basic impls for it.
+///
+/// # Syntax
+///
+/// Basic syntax:
+///
+/// ```ignore
+/// gen_expr_and_impls! {
+///     /// Comment
+///     #[derive(Derives)]
+///     pub Expr(Type1, Type2, Type3, ...) -> OutputType
+/// }
+/// ```
+///
+/// Has 3 syntax forms to specify parameters:
+/// - One unnamed parameter. In that case, the parameter name will be `expression`.
+/// - Two unnamed parameters.
+/// In that case, the parameters names will be `left` and `right` respectively.
+/// - Any number of named parameters.
+///
+/// Has 2 syntax forms to specify result:
+/// - With actual result type after the arrow (`->`).
+/// In that case an `impl From<$i> for EvaluatesTo<$result_type>` will be generated.
+/// - With `?` sign as a result type.
+/// In that case **no** `impl From<$i> for EvaluatesTo<$result_type>` will be generated.
+///
+/// See example and further usage to more details.
+///
+/// # Example
+///
+/// ```ignore
+/// gen_expr_and_impls! {
+///     /// Evaluates to the sum of right and left expressions.
+///     #[derive(Debug)]
+///     pub Add(u32, u32) -> u32
+/// }
+///
+/// // Will generate the following code:
+///
+/// /// Evaluates to the sum of right and left expressions.
+/// #[derive(Debug)]
+/// pub struct Add {
+///     #[allow(missing_docs)]
+///     pub left: EvaluatesTo<u32>,
+///     #[allow(missing_docs)]
+///     pub right: EvaluatesTo<u32>,
+/// }
+///
+/// impl Add {
+///     /// Number of underneath expressions
+///     #[inline]
+///     pub fn len(&self) -> usize {
+///         self.left.len() + self.right.len() + 1
+///     }
+///     /// Construct new [`Add`] expression
+///     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+///         Self {
+///             left: left.into(),
+///             right: right.into(),
+///         }
+///     }
+/// }
+///
+/// impl From<Add> for ExpressionBox {
+///     fn from(expression: Add) -> Self {
+///         Expression::Add(expression).into()
+///     }
+/// }
+///
+/// impl From<Add> for EvaluatesTo<u32> {
+///     fn from(expression: Add) -> Self {
+///         EvaluatesTo::new_unchecked(expression.into())
+///     }
+/// }
+/// ```
+macro_rules! gen_expr_and_impls {
+    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> $result_type:ty) => {
+        gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> $result_type);
+    };
+    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> ?) => {
+        gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> ?);
+    };
+    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> $result_type:ty) => {
+        gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> $result_type);
+    };
+    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> ?) => {
+        gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> ?);
+    };
+    ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> ?) => {
+        gen_expr_and_impls!(impl_basic $(#[$me])* $v $i($($param_name: $param_type),*));
+    };
+    ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> $result_type:ty) => {
+        gen_expr_and_impls!(impl_basic $(#[$me])* $v $i($($param_name: $param_type),*));
+        gen_expr_and_impls!(impl_extra_convert $i $result_type);
+    };
+    (impl_basic $(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?)) => {
+        $(#[$me])*
+        $v struct $i {
+            $(
+                #[allow(missing_docs)]
+                pub $param_name: EvaluatesTo<$param_type>,
+            )*
+        }
+
+        impl $i {
+            /// Number of underneath expressions.
+            #[inline]
+            pub fn len(&self) -> usize {
+                $(self.$param_name.len() +)* 1
+            }
+
+            #[doc = concat!(" Construct new [`", stringify!($i), "`] expression")]
+            pub fn new(
+                $($param_name: impl Into<EvaluatesTo<$param_type>>),*
+            ) -> Self {
+                Self {
+                    $($param_name: $param_name.into()),*
+                }
+            }
+        }
+
+        impl From<$i> for ExpressionBox {
+            fn from(expression: $i) -> Self {
+                Expression::$i(expression).into()
+            }
+        }
+    };
+    (impl_extra_convert $i:ident $result_type:ty) => {
+        impl From<$i> for EvaluatesTo<$result_type> {
+            fn from(expression: $i) -> Self {
+                EvaluatesTo::new_unchecked(expression.into())
+            }
+        }
+    };
+}
+
 /// Bound name for a value.
 pub type ValueName = String;
 
@@ -121,7 +257,6 @@ impl EvaluatesTo<Value> {
 }
 
 impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
-    #[inline]
     fn type_name() -> String {
         format!("{}::EvaluatesTo<{}>", module_path!(), V::type_name())
     }
@@ -318,7 +453,6 @@ impl Expression {
 }
 
 impl<T: Into<Value>> From<T> for ExpressionBox {
-    #[inline]
     fn from(value: T) -> Self {
         Expression::Raw(Box::new(value.into())).into()
     }
@@ -326,6 +460,8 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
 
 /// Get a temporary value by name.
 /// The values are brought into [`Context`] by [`Where`] expression.
+//
+// Can't use `gen_expr_and_impls!` here because we need special type for `value_name`
 #[derive(
     Debug,
     Display,
@@ -369,645 +505,273 @@ impl From<ContextValue> for ExpressionBox {
     }
 }
 
-/// Evaluates to the multiplication of right and left expressions.
-/// Works only for [`Value::U32`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
+gen_expr_and_impls! {
+    /// Evaluates to the multiplication of right and left expressions.
+    /// Works only for [`Value::U32`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
     fmt = "{}*{}", // Keep without spaces
-    "left.parenthesise(Operation::Multiply)",
-    "right.parenthesise(Operation::Multiply)"
-)]
-pub struct Multiply {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
+        "self.left.parenthesise(Operation::Multiply)",
+        "self.right.parenthesise(Operation::Multiply)"
+    )]
+    pub Multiply(u32, u32) -> u32
 }
 
-impl Multiply {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Multiply` expression.
-    #[inline]
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
+gen_expr_and_impls! {
+    /// Evaluates to the division of right and left expressions.
+    /// Works only for [`Value::U32`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}/{}", // Keep without spaces
+        "self.left.parenthesise(Operation::Divide)",
+        "self.right.parenthesise(Operation::Divide)"
+    )]
+    pub Divide(u32, u32) -> u32
 }
 
-impl From<Multiply> for ExpressionBox {
-    #[inline]
-    fn from(expression: Multiply) -> Self {
-        Expression::Multiply(expression).into()
-    }
+gen_expr_and_impls! {
+    /// Evaluates to the modulus of right and left expressions.
+    /// Works only for [`Value::U32`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{} % {}",
+        "self.left.parenthesise(Operation::Mod)",
+        "self.right.parenthesise(Operation::Mod)"
+    )]
+    pub Mod(u32, u32) -> u32
 }
 
-impl From<Multiply> for EvaluatesTo<u32> {
-    #[inline]
-    fn from(expression: Multiply) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
+gen_expr_and_impls! {
+    /// Evaluates to the right expression in power of left expressions.
+    /// Works only for [`Value::U32`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}**{}",
+        "self.left.parenthesise(Operation::RaiseTo)",
+        "self.right.parenthesise(Operation::RaiseTo)"
+    )]
+    pub RaiseTo(u32, u32) -> u32
 }
 
-/// Evaluates to the division of right and left expressions.
-/// Works only for [`Value::U32`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}/{}", // Keep without spaces
-    "left.parenthesise(Operation::Divide)",
-    "right.parenthesise(Operation::Divide)"
-)]
-pub struct Divide {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
+gen_expr_and_impls! {
+    /// Evaluates to the sum of right and left expressions.
+    /// Works only for [`Value::U32`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}+{}",
+        "self.left.parenthesise(Operation::Add)",
+        "self.right.parenthesise(Operation::Add)"
+    )]
+    pub Add(u32, u32) -> u32
 }
 
-impl Divide {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Multiply` expression.
-    #[inline]
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
+gen_expr_and_impls! {
+    /// Evaluates to the difference of right and left expressions.
+    /// Works only for [`Value::U32`]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}-{}",
+        "self.left.parenthesise(Operation::Subtract)",
+        "self.right.parenthesise(Operation::Subtract)"
+    )]
+    pub Subtract(u32, u32) -> u32
 }
 
-impl From<Divide> for ExpressionBox {
-    #[inline]
-    fn from(expression: Divide) -> Self {
-        Expression::Divide(expression).into()
-    }
+gen_expr_and_impls! {
+    /// Returns whether the `left` expression is greater than the `right`.
+    /// Works only for [`Value::U32`].
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{} > {}",
+        "self.left.parenthesise(Operation::Greater)",
+        "self.right.parenthesise(Operation::Greater)"
+    )]
+    pub Greater(u32, u32) -> bool
 }
 
-impl From<Divide> for EvaluatesTo<u32> {
-    #[inline]
-    fn from(expression: Divide) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
+gen_expr_and_impls! {
+    /// Returns whether the `left` expression is less than the `right`.
+    /// Works only for [`Value::U32`].
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{} < {}",
+        "self.left.parenthesise(Operation::Less)",
+        "self.right.parenthesise(Operation::Less)"
+    )]
+    pub Less(u32, u32) -> bool
 }
 
-/// Evaluates to the modulus of right and left expressions.
-/// Works only for [`Value::U32`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{} % {}",
-    "left.parenthesise(Operation::Mod)",
-    "right.parenthesise(Operation::Mod)"
-)]
-pub struct Mod {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
+gen_expr_and_impls! {
+    /// Negates the result of the `expression`.
+    /// Works only for `Value::Bool`.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(fmt = "!{}", "self.expression.parenthesise(Operation::Not)")]
+    pub Not(bool) -> bool
 }
 
-impl Mod {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Mod` expression.
-    #[inline]
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
+gen_expr_and_impls! {
+    /// Applies the logical `and` to two `Value::Bool` operands.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{} && {}",
+        "self.left.parenthesise(Operation::And)",
+        "self.right.parenthesise(Operation::And)"
+    )]
+    pub And(bool, bool) -> bool
 }
 
-impl From<Mod> for ExpressionBox {
-    #[inline]
-    fn from(expression: Mod) -> Self {
-        Expression::Mod(expression).into()
-    }
-}
-
-impl From<Mod> for EvaluatesTo<u32> {
-    #[inline]
-    fn from(expression: Mod) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Evaluates to the right expression in power of left expressions.
-/// Works only for [`Value::U32`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}**{}",
-    "left.parenthesise(Operation::RaiseTo)",
-    "right.parenthesise(Operation::RaiseTo)"
-)]
-pub struct RaiseTo {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
-}
-
-impl RaiseTo {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `RaiseTo` expression.
-    #[inline]
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<RaiseTo> for ExpressionBox {
-    #[inline]
-    fn from(expression: RaiseTo) -> Self {
-        Expression::RaiseTo(expression).into()
-    }
-}
-
-impl From<RaiseTo> for EvaluatesTo<u32> {
-    #[inline]
-    fn from(expression: RaiseTo) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Evaluates to the sum of right and left expressions.
-/// Works only for [`Value::U32`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}+{}",
-    "left.parenthesise(Operation::Add)",
-    "right.parenthesise(Operation::Add)"
-)]
-pub struct Add {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
-}
-
-impl Add {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Add` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<Add> for ExpressionBox {
-    #[inline]
-    fn from(expression: Add) -> Self {
-        Expression::Add(expression).into()
-    }
-}
-
-impl From<Add> for EvaluatesTo<u32> {
-    #[inline]
-    fn from(expression: Add) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Evaluates to the difference of right and left expressions.
-/// Works only for [`Value::U32`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}-{}",
-    "left.parenthesise(Operation::Subtract)",
-    "right.parenthesise(Operation::Subtract)"
-)]
-
-pub struct Subtract {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
-}
-
-impl Subtract {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Subtract` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<Subtract> for ExpressionBox {
-    #[inline]
-    fn from(expression: Subtract) -> Self {
-        Expression::Subtract(expression).into()
-    }
-}
-
-impl From<Subtract> for EvaluatesTo<u32> {
-    #[inline]
-    fn from(expression: Subtract) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Returns whether the `left` expression is greater than the `right`.
-/// Works only for [`Value::U32`].
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{} > {}",
-    "left.parenthesise(Operation::Greater)",
-    "right.parenthesise(Operation::Greater)"
-)]
-pub struct Greater {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
-}
-
-impl Greater {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Greater` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<Greater> for ExpressionBox {
-    #[inline]
-    fn from(expression: Greater) -> Self {
-        Expression::Greater(expression).into()
-    }
-}
-
-impl From<Greater> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: Greater) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Returns whether the `left` expression is less than the `right`.
-/// Works only for [`Value::U32`].
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{} < {}",
-    "left.parenthesise(Operation::Less)",
-    "right.parenthesise(Operation::Less)"
-)]
-pub struct Less {
-    /// Left operand.
-    pub left: EvaluatesTo<u32>,
-    /// Right operand.
-    pub right: EvaluatesTo<u32>,
-}
-
-impl Less {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Less` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<Less> for ExpressionBox {
-    #[inline]
-    fn from(expression: Less) -> Self {
-        Expression::Less(expression).into()
-    }
-}
-
-impl From<Less> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: Less) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Negates the result of the `expression`.
-/// Works only for `Value::Bool`.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(fmt = "!{}", "expression.parenthesise(Operation::Not)")]
-pub struct Not {
-    /// Expression that should evaluate to `Value::Bool`.
-    pub expression: EvaluatesTo<bool>,
-}
-
-impl Not {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.expression.len() + 1
-    }
-
-    /// Constructs `Not` expression.
-    #[inline]
-    pub fn new<E: Into<EvaluatesTo<bool>>>(expression: E) -> Self {
-        Self {
-            expression: expression.into(),
-        }
-    }
-}
-
-impl From<Not> for ExpressionBox {
-    #[inline]
-    fn from(expression: Not) -> Self {
-        Expression::Not(expression).into()
-    }
-}
-
-impl From<Not> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: Not) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Applies the logical `and` to two `Value::Bool` operands.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{} && {}",
-    "left.parenthesise(Operation::And)",
-    "right.parenthesise(Operation::And)"
-)]
-pub struct And {
-    /// Left operand.
-    pub left: EvaluatesTo<bool>,
-    /// Right operand.
-    pub right: EvaluatesTo<bool>,
-}
-
-impl And {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `And` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<And> for ExpressionBox {
-    #[inline]
-    fn from(expression: And) -> Self {
-        Expression::And(expression).into()
-    }
-}
-
-impl From<And> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: And) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Applies the logical `or` to two `Value::Bool` operands.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{} || {}",
-    "left.parenthesise(Operation::Or)",
-    "right.parenthesise(Operation::Or)"
-)]
-pub struct Or {
-    /// Left operand.
-    pub left: EvaluatesTo<bool>,
-    /// Right operand.
-    pub right: EvaluatesTo<bool>,
-}
-
-impl Or {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Or` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<Or> for ExpressionBox {
-    #[inline]
-    fn from(expression: Or) -> Self {
-        Expression::Or(expression).into()
-    }
-}
-
-impl From<Or> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: Or) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
+gen_expr_and_impls! {
+    /// Applies the logical `or` to two `Value::Bool` operands.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{} || {}",
+        "self.left.parenthesise(Operation::Or)",
+        "self.right.parenthesise(Operation::Or)"
+    )]
+    pub Or(bool, bool) -> bool
 }
 
 /// Builder for [`If`] expression.
@@ -1025,7 +789,6 @@ pub struct IfBuilder {
 
 impl IfBuilder {
     ///Sets the `condition`.
-    #[inline]
     pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
         IfBuilder {
             condition: condition.into(),
@@ -1035,7 +798,6 @@ impl IfBuilder {
     }
 
     /// Sets `then_expression`.
-    #[inline]
     pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
         IfBuilder {
             then_expression: Some(expression.into()),
@@ -1044,7 +806,6 @@ impl IfBuilder {
     }
 
     /// Sets `else_expression`.
-    #[inline]
     pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
         IfBuilder {
             else_expression: Some(expression.into()),
@@ -1068,315 +829,130 @@ impl IfBuilder {
     }
 }
 
-/// If expression. Returns either a result of `then_expression`, or a result of `else_expression`
-/// based on the `condition`.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "if {} {{ {} }} else {{ {} }}",
-    condition,
-    then_expression,
-    else_expression
-)]
-pub struct If {
-    /// Condition expression, which should evaluate to `Value::Bool`.
-    pub condition: EvaluatesTo<bool>,
-    /// Expression evaluated and returned if the condition is `true`.
-    pub then_expression: EvaluatesTo<Value>,
-    /// Expression evaluated and returned if the condition is `false`.
-    pub else_expression: EvaluatesTo<Value>,
+gen_expr_and_impls! {
+    /// If expression. Returns either a result of `then_expression`, or a result of `else_expression`
+    /// based on the `condition`.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "if {} {{ {} }} else {{ {} }}",
+        condition,
+        then_expression,
+        else_expression
+    )]
+    pub If(condition: bool, then_expression: Value, else_expression: Value) -> ?
 }
 
-impl If {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.condition.len() + self.then_expression.len() + self.else_expression.len() + 1
-    }
-
-    /// Constructs `If` expression.
-    #[inline]
-    pub fn new<
-        C: Into<EvaluatesTo<bool>>,
-        T: Into<EvaluatesTo<Value>>,
-        E: Into<EvaluatesTo<Value>>,
-    >(
-        condition: C,
-        then_expression: T,
-        else_expression: E,
-    ) -> Self {
-        Self {
-            condition: condition.into(),
-            then_expression: then_expression.into(),
-            else_expression: else_expression.into(),
-        }
-    }
+gen_expr_and_impls! {
+    /// `Contains` expression.
+    /// Returns `true` if `collection` contains an `element`, `false` otherwise.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}.contains({})",
+        "collection.parenthesise(Operation::MethodCall)",
+        "element"
+    )]
+    pub Contains(collection: Vec<Value>, element: Value) -> bool
 }
 
-impl From<If> for ExpressionBox {
-    fn from(if_expression: If) -> Self {
-        Expression::If(if_expression).into()
-    }
+gen_expr_and_impls! {
+    /// `ContainsAll` expression.
+    /// Returns `true` if `collection` contains all `elements`, `false` otherwise.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}.contains_all({})",
+        "collection.parenthesise(Operation::MethodCall)",
+        "elements"
+    )]
+
+    pub ContainsAll(collection: Vec<Value>, elements: Vec<Value>) -> bool
 }
 
-/// `Contains` expression.
-/// Returns `true` if `collection` contains an `element`, `false` otherwise.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}.contains({})",
-    "collection.parenthesise(Operation::MethodCall)",
-    "element"
-)]
-pub struct Contains {
-    /// Expression, which should evaluate to `Value::Vec`.
-    pub collection: EvaluatesTo<Vec<Value>>,
-    /// Element expression.
-    pub element: EvaluatesTo<Value>,
+gen_expr_and_impls! {
+    /// `ContainsAny` expression.
+    /// Returns `true` if `collection` contains any element out of the `elements`, `false` otherwise.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{}.contains_any({})",
+        "collection.parenthesise(Operation::MethodCall)",
+        "elements"
+    )]
+    pub ContainsAny(collection: Vec<Value>, elements: Vec<Value>) -> bool
 }
 
-impl Contains {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.collection.len() + self.element.len() + 1
-    }
-
-    /// Constructs `Contains` expression.
-    #[inline]
-    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Value>>>(
-        collection: C,
-        element: E,
-    ) -> Self {
-        Self {
-            collection: collection.into(),
-            element: element.into(),
-        }
-    }
-}
-
-impl From<Contains> for ExpressionBox {
-    #[inline]
-    fn from(expression: Contains) -> Self {
-        Expression::Contains(expression).into()
-    }
-}
-
-impl From<Contains> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: Contains) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// `Contains` expression.
-/// Returns `true` if `collection` contains all `elements`, `false` otherwise.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}.contains_all({})",
-    "collection.parenthesise(Operation::MethodCall)",
-    "elements"
-)]
-
-pub struct ContainsAll {
-    /// Expression, which should evaluate to `Value::Vec`.
-    pub collection: EvaluatesTo<Vec<Value>>,
-    /// Expression, which should evaluate to `Value::Vec`.
-    pub elements: EvaluatesTo<Vec<Value>>,
-}
-
-impl ContainsAll {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.collection.len() + self.elements.len() + 1
-    }
-
-    /// Constructs `Contains` expression.
-    #[inline]
-    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
-        collection: C,
-        elements: E,
-    ) -> Self {
-        Self {
-            collection: collection.into(),
-            elements: elements.into(),
-        }
-    }
-}
-
-impl From<ContainsAll> for ExpressionBox {
-    #[inline]
-    fn from(expression: ContainsAll) -> Self {
-        Expression::ContainsAll(expression).into()
-    }
-}
-
-impl From<ContainsAll> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: ContainsAll) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// `Contains` expression.
-/// Returns `true` if `collection` contains any element out of the `elements`, `false` otherwise.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{}.contains_any({})",
-    "collection.parenthesise(Operation::MethodCall)",
-    "elements"
-)]
-pub struct ContainsAny {
-    /// Expression, which should evaluate to `Value::Vec`.
-    pub collection: EvaluatesTo<Vec<Value>>,
-    /// Expression, which should evaluate to `Value::Vec`.
-    pub elements: EvaluatesTo<Vec<Value>>,
-}
-
-impl ContainsAny {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.collection.len() + self.elements.len() + 1
-    }
-
-    /// Constructs `Contains` expression.
-    #[inline]
-    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
-        collection: C,
-        elements: E,
-    ) -> Self {
-        Self {
-            collection: collection.into(),
-            elements: elements.into(),
-        }
-    }
-}
-
-impl From<ContainsAny> for ExpressionBox {
-    #[inline]
-    fn from(expression: ContainsAny) -> Self {
-        Expression::ContainsAny(expression).into()
-    }
-}
-
-impl From<ContainsAny> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: ContainsAny) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
-}
-
-/// Returns `true` if `left` operand is equal to the `right` operand.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-#[display(
-    fmt = "{} == {}",
-    "left.parenthesise(Operation::Equal)",
-    "right.parenthesise(Operation::Equal)"
-)]
-pub struct Equal {
-    /// Left operand.
-    pub left: EvaluatesTo<Value>,
-    /// Right operand.
-    pub right: EvaluatesTo<Value>,
-}
-
-impl Equal {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left.len() + self.right.len() + 1
-    }
-
-    /// Constructs `Or` expression.
-    #[inline]
-    pub fn new<L: Into<EvaluatesTo<Value>>, R: Into<EvaluatesTo<Value>>>(
-        left: L,
-        right: R,
-    ) -> Self {
-        Self {
-            left: left.into(),
-            right: right.into(),
-        }
-    }
-}
-
-impl From<Equal> for ExpressionBox {
-    #[inline]
-    fn from(equal: Equal) -> Self {
-        Expression::Equal(equal).into()
-    }
-}
-
-impl From<Equal> for EvaluatesTo<bool> {
-    #[inline]
-    fn from(expression: Equal) -> Self {
-        EvaluatesTo::new_unchecked(expression.into())
-    }
+gen_expr_and_impls! {
+    /// Returns `true` if `left` operand is equal to the `right` operand.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+    )]
+    #[display(
+        fmt = "{} == {}",
+        "self.left.parenthesise(Operation::Equal)",
+        "self.right.parenthesise(Operation::Equal)"
+    )]
+    pub Equal(Value, Value) -> bool
 }
 
 /// [`Where`] builder.
@@ -1390,7 +966,6 @@ pub struct WhereBuilder {
 
 impl WhereBuilder {
     /// Sets the `expression` to be evaluated.
-    #[inline]
     #[must_use]
     pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> Self {
         Self {
@@ -1400,7 +975,6 @@ impl WhereBuilder {
     }
 
     /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
-    #[inline]
     #[must_use]
     pub fn with_value<E: Into<EvaluatesTo<Value>>>(
         mut self,
@@ -1421,6 +995,8 @@ impl WhereBuilder {
 
 /// Adds a local context of `values` for the `expression`.
 /// It is similar to *Haskell's where syntax* although, evaluated eagerly.
+//
+// Can't use `gen_expr_and_impls!` here because we need special type for `values`
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
 )]
@@ -1456,9 +1032,8 @@ impl Where {
         self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
     }
 
-    /// Constructs `Or` expression.
+    /// Construct [`Where`] expression
     #[must_use]
-    #[inline]
     pub fn new<E: Into<EvaluatesTo<Value>>>(
         expression: E,
         values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
@@ -1471,7 +1046,6 @@ impl Where {
 }
 
 impl From<Where> for ExpressionBox {
-    #[inline]
     fn from(where_expression: Where) -> Self {
         Expression::Where(where_expression).into()
     }
@@ -1486,7 +1060,6 @@ impl QueryBox {
 }
 
 impl From<QueryBox> for ExpressionBox {
-    #[inline]
     fn from(query: QueryBox) -> Self {
         Expression::Query(query).into()
     }

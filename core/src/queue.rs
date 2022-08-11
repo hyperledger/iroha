@@ -49,8 +49,16 @@ pub enum Error {
     #[error("Transaction is already applied")]
     InBlockchain,
     /// Signature condition check failed
-    #[error("Failure during signature condition execution")]
-    SignatureCondition(#[from] Report),
+    #[error("{0}")]
+    SignatureCondition(#[from] SignatureConditionError),
+}
+
+/// Signature condition check error
+#[derive(Error, Debug)]
+#[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
+pub struct SignatureConditionError {
+    tx_hash: HashOf<VersionedTransaction>,
+    reason: Report,
 }
 
 impl Queue {
@@ -99,13 +107,20 @@ impl Queue {
         if tx.is_in_blockchain(&self.wsv) {
             return Err(Error::InBlockchain);
         }
-        if !*tx.check_signature_condition(&self.wsv)? {
-            return Err(Error::SignatureCondition(eyre!(
-                "Signature condition check failed"
-            )));
-        }
-
-        Ok(())
+        tx.check_signature_condition(&self.wsv)
+            .and_then(|success| {
+                success
+                    .into_inner()
+                    .then(|| ())
+                    .ok_or_else(|| eyre!("Signature condition check failed"))
+            })
+            .map_err(|reason| {
+                SignatureConditionError {
+                    tx_hash: tx.hash(),
+                    reason,
+                }
+                .into()
+            })
     }
 
     /// Pushes transaction into queue.
