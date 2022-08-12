@@ -53,6 +53,7 @@ impl FfiStruct {
     }
 
     /// With params
+    // Note: `-> FfiStruct` used instead of `-> Self` to showcase that such signature supported by `#[ffi_export]`
     #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> FfiStruct {
         self.params = params.into_iter().collect();

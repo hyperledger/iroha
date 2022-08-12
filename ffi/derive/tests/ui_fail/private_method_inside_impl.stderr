@@ -1,4 +1,4 @@
-error: Methods defined in the inherit impl block must be public
+error: Methods defined in the inherent `impl` block must be public
  --> tests/ui_fail/private_method_inside_impl.rs:9:1
   |
 9 | #[ffi_export]

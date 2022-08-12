@@ -59,6 +59,7 @@ fn resolve_src_type(self_type: Option<&syn::Path>, mut arg_type: Type) -> Type {
 
     arg_type
 }
+
 pub struct ImplDescriptor<'ast> {
     /// Associated types in the impl block
     pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
@@ -134,7 +135,7 @@ impl<'ast> ImplDescriptor<'ast> {
 }
 
 impl FnDescriptor {
-    pub(crate) fn from_impl_method(
+    pub fn from_impl_method(
         self_ty: &syn::Path,
         trait_name: Option<&syn::Path>,
         node: &syn::ImplItemMethod,
@@ -145,7 +146,7 @@ impl FnDescriptor {
         FnDescriptor::from_visitor(visitor)
     }
 
-    pub(crate) fn from_fn(node: &syn::ItemFn) -> Self {
+    pub fn from_fn(node: &syn::ItemFn) -> Self {
         let mut visitor = FnVisitor::new(None, None);
 
         visitor.visit_item_fn(node);
@@ -268,7 +269,7 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
         if node.unsafety.is_some() {
             // NOTE: Its's irrelevant
         }
-        self.trait_name = node.trait_.as_ref().map(|trait_| &trait_.1);
+        self.trait_name = node.trait_.as_ref().map(|(_, trait_, _)| trait_);
         self.visit_self_type(&*node.self_ty);
 
         let self_ty = self.self_ty.expect_or_abort("Defined");
@@ -299,7 +300,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         if self.trait_name.is_none() && !matches!(node.vis, syn::Visibility::Public(_)) {
             abort!(
                 node.vis,
-                "Methods defined in the inherit impl block must be public"
+                "Methods defined in the inherent `impl` block must be public"
             );
         }
 
