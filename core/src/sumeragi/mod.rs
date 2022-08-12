@@ -192,7 +192,6 @@ impl Sumeragi {
             .lock()
             .unwrap()
             .blocks_after_hash(block_hash)
-            .collect()
     }
 
     pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {

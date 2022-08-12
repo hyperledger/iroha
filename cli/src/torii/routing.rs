@@ -422,7 +422,6 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) ->
 async fn handle_status(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<Json> {
     sumeragi.update_metrics(network);
     let status = Status::from(&sumeragi.wsv_clone().metrics);
-    println!("{:?}", status);
     Ok(reply::json(&status))
 }
 
