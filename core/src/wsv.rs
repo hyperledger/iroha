@@ -46,6 +46,8 @@ pub struct World {
     pub(crate) domains: DomainsMap,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: crate::RolesMap,
+    /// Registered permission token ids.
+    pub(crate) permission_token_definitions: crate::PermissionTokenDefinitionsMap,
     /// Triggers
     pub(crate) triggers: TriggerSet,
 }
@@ -513,6 +515,12 @@ impl WorldStateView {
     #[inline]
     pub fn roles(&self) -> &crate::RolesMap {
         &self.world.roles
+    }
+
+    /// Get all permission token ids
+    #[inline]
+    pub fn permission_token_definitions(&self) -> &crate::PermissionTokenDefinitionsMap {
+        &self.world.permission_token_definitions
     }
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].

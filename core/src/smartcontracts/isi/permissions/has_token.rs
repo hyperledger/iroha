@@ -43,7 +43,7 @@ pub trait HasToken {
 #[derive(Debug, Display)]
 #[display(
     fmt = "Allow if the signer has the corresponding `{}` permission token",
-    "H::Token::name()"
+    "H::Token::definition_id()"
 )]
 pub struct HasTokenAsValidator<H: HasToken> {
     has_token: H,
