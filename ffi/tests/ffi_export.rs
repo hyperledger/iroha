@@ -342,10 +342,8 @@ fn invoke_trait_method() {
             FfiReturn::Ok,
             FfiStruct__Target__target(IntoFfi::into_ffi(ffi_struct), output.as_mut_ptr())
         );
-        let output = output.assume_init();
-
-        assert!(!output.is_null());
-        assert_eq!(Name(String::from("X")), *output);
+        let name = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).unwrap();
+        assert_eq!(Name(String::from("X")), name);
     }
 }
 

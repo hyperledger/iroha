@@ -142,7 +142,9 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     if let Some(arg) = &fn_descriptor.receiver {
         let arg_name = &arg.name();
 
-        stmts = if matches!(arg.src_type(), syn::Type::Path(_)) {
+        stmts = if matches!(arg.src_type(), syn::Type::Path(_))
+            && Some(arg.name()) == fn_descriptor.output_arg.as_ref().map(Arg::name)
+        {
             quote! {let __tmp_handle = #arg_name.read();}
         } else {
             crate::util::gen_arg_ffi_to_src(arg, false)
@@ -162,7 +164,9 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 
     let receiver = fn_descriptor.receiver.as_ref();
     let self_arg_name = receiver.map_or_else(Vec::new, |arg| {
-        if matches!(arg.src_type(), syn::Type::Path(_)) {
+        if matches!(arg.src_type(), syn::Type::Path(_))
+            && Some(arg.name()) == fn_descriptor.output_arg.as_ref().map(Arg::name)
+        {
             return vec![Ident::new("__tmp_handle", proc_macro2::Span::call_site())];
         }
 
