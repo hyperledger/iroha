@@ -24,7 +24,7 @@ use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
 use crate::{
-    block::VersionedCommittedBlock, block_sync::ContinueSync, handler::ThreadHandler, prelude::*,
+    block::VersionedCommittedBlock, handler::ThreadHandler, prelude::*,
     sumeragi,
 };
 
@@ -211,7 +211,6 @@ impl Kura {
                                 .lock()
                                 .expect("lock on block hash array")
                                 .push(block_hash);
-                            kura.broker.issue_send_sync(&ContinueSync);
                         }
                         Err(error) => {
                             error!(%error, "Failed to write block. Kura will now init again.");
