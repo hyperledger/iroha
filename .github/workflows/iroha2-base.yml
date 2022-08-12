@@ -9,10 +9,6 @@ on:
       - iroha2-lts
     paths:
       - "Dockerfile.base"
-  # XXX EXPERIMENT
-  pull_request_target:
-    branches:
-      - iroha2-dev
 
 jobs:
   publish_image:
