@@ -20,7 +20,7 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
 
 use crate::{
-    block_sync::message::VersionedMessage as BlockSyncMessage, prelude::*,
+    block_sync::VersionedMessage as BlockSyncMessage, prelude::*,
     sumeragi::message::VersionedMessage as SumeragiMessage,
 };
 
