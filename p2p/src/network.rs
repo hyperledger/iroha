@@ -248,6 +248,14 @@ where
         };
         debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
         self.untrusted_peers.insert(ip(&peer.p2p_addr));
+
+        let online_peer_keys = self.peers.keys().cloned().collect();
+        self.broker
+            .issue_send(NetworkBaseRelayOnlinePeers {
+                online_peers: online_peer_keys,
+            })
+            .await;
+
         self.broker.issue_send(StopSelf::Peer(peer.conn_id)).await
     }
 }
@@ -328,7 +336,7 @@ where
                 self.broker.issue_send(*msg).await;
             }
         };
-        let mut online_peer_keys = self.peers.keys().cloned().collect();
+        let online_peer_keys = self.peers.keys().cloned().collect();
 
         self.broker
             .issue_send(NetworkBaseRelayOnlinePeers {
