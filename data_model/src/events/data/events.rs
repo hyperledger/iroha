@@ -157,6 +157,31 @@ mod role {
     pub enum RoleEvent {
         Created(RoleId),
         Deleted(RoleId),
+        /// [`PermissionToken`]s with particular [`PermissionTokenDefinitionId`] were
+        /// removed from the role.
+        PermissionRemoved(PermissionRemoved),
+    }
+
+    /// Information about permissions removed from [`Role`]
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct PermissionRemoved {
+        /// Role id
+        pub role_id: RoleId,
+        /// [`PermissionTokenDefinition`] id. All [`PermissionToken`]s with this definition id were removed.
+        pub permission_definition_id: <PermissionTokenDefinition as Identifiable>::Id,
     }
 
     impl HasOrigin for RoleEvent {
@@ -164,7 +189,48 @@ mod role {
 
         fn origin_id(&self) -> &<Role as Identifiable>::Id {
             match self {
-                Self::Created(id) | Self::Deleted(id) => id,
+                Self::Created(role_id)
+                | Self::Deleted(role_id)
+                | Self::PermissionRemoved(PermissionRemoved { role_id, .. }) => role_id,
+            }
+        }
+    }
+}
+
+mod permission_token {
+    //! This module contains [`PermissionTokenEvent`] and its impls
+
+    use super::*;
+
+    #[derive(
+        Clone,
+        Hash,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
+    )]
+    #[non_exhaustive]
+    #[allow(missing_docs)]
+    pub enum PermissionTokenEvent {
+        DefinitionCreated(PermissionTokenDefinition),
+        DefinitionDeleted(PermissionTokenDefinition),
+    }
+
+    impl HasOrigin for PermissionTokenEvent {
+        type Origin = PermissionTokenDefinition;
+
+        fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id {
+            match self {
+                PermissionTokenEvent::DefinitionCreated(definition)
+                | PermissionTokenEvent::DefinitionDeleted(definition) => definition.id(),
             }
         }
     }
@@ -352,6 +418,7 @@ pub enum WorldEvent {
     Domain(domain::DomainEvent),
     Role(role::RoleEvent),
     Trigger(trigger::TriggerEvent),
+    PermissionToken(permission_token::PermissionTokenEvent),
 }
 
 /// Event
@@ -385,6 +452,8 @@ pub enum Event {
     Trigger(trigger::TriggerEvent),
     /// Role event
     Role(role::RoleEvent),
+    /// Permission token event
+    PermissionToken(permission_token::PermissionTokenEvent),
 }
 
 impl Event {
@@ -396,7 +465,7 @@ impl Event {
             Self::AssetDefinition(event) => Some(&event.origin_id().domain_id),
             Self::Asset(event) => Some(&event.origin_id().definition_id.domain_id),
             Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
-            Self::Peer(_) | Self::Role(_) => None,
+            Self::Peer(_) | Self::Role(_) | Self::PermissionToken(_) => None,
         }
     }
 }
@@ -427,6 +496,9 @@ impl From<WorldEvent> for SmallVec<[Event; 3]> {
             WorldEvent::Role(role_event) => {
                 events.push(DataEvent::Role(role_event));
             }
+            WorldEvent::PermissionToken(token_event) => {
+                events.push(DataEvent::PermissionToken(token_event));
+            }
             WorldEvent::Trigger(trigger_event) => {
                 events.push(DataEvent::Trigger(trigger_event));
             }
@@ -445,7 +517,8 @@ pub mod prelude {
         },
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
-        role::{RoleEvent, RoleEventFilter, RoleFilter},
+        permission_token::PermissionTokenEvent,
+        role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{TriggerEvent, TriggerEventFilter, TriggerFilter},
         Event as DataEvent, HasOrigin, WorldEvent,
     };

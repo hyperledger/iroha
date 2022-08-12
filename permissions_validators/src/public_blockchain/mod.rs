@@ -1,7 +1,7 @@
 //! Permission checks asociated with use cases that can be summarized as public blockchains.
 
 use iroha_core::smartcontracts::permissions::Result;
-use iroha_macro::FromVariant;
+use iroha_macro::{FromVariant, VariantCount};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,9 @@ pub mod transfer;
 pub mod unregister;
 
 /// Enum listing preconfigured permission tokens
-#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, FromVariant, IntoSchema)]
+#[derive(
+    Debug, Clone, Encode, Decode, Serialize, Deserialize, FromVariant, IntoSchema, VariantCount,
+)]
 pub enum PredefinedPermissionToken {
     /// Can burn asset with the corresponding asset definition.
     BurnAssetWithDefinition(burn::CanBurnAssetWithDefinition),
@@ -62,6 +64,26 @@ impl From<PredefinedPermissionToken> for PermissionToken {
             PredefinedPermissionToken::UnregisterAssetWithDefinition(inner) => inner.into(),
         }
     }
+}
+
+/// List ids of all predefined permission tokens, e.g. for easier
+/// registration in genesis block.
+pub fn default_permission_token_definitions(
+) -> [&'static PermissionTokenDefinition; PredefinedPermissionToken::VARIANT_COUNT] {
+    [
+        unregister::CanUnregisterAssetWithDefinition::definition(),
+        burn::CanBurnAssetWithDefinition::definition(),
+        burn::CanBurnUserAssets::definition(),
+        key_value::CanSetKeyValueInUserAssets::definition(),
+        key_value::CanRemoveKeyValueInUserAssets::definition(),
+        key_value::CanSetKeyValueInUserMetadata::definition(),
+        key_value::CanRemoveKeyValueInUserMetadata::definition(),
+        key_value::CanSetKeyValueInAssetDefinition::definition(),
+        key_value::CanRemoveKeyValueInAssetDefinition::definition(),
+        mint::CanMintUserAssetDefinitions::definition(),
+        transfer::CanTransferUserAssets::definition(),
+        transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::definition(),
+    ]
 }
 
 /// A preconfigured set of permissions for simple use cases.
@@ -157,7 +179,10 @@ pub fn check_asset_creator_for_asset_definition(
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{collections::BTreeSet, str::FromStr as _};
+    use std::{
+        collections::{BTreeSet, HashSet},
+        str::FromStr as _,
+    };
 
     use iroha_core::wsv::World;
 
@@ -654,5 +679,14 @@ mod tests {
         assert!(key_value::AssetDefinitionRemoveOnlyForSignerAccount
             .check(&bob_id, &set, &wsv)
             .is_deny());
+    }
+
+    #[test]
+    fn default_permission_token_definitions_are_unique() {
+        let permissions_set = HashSet::from(default_permission_token_definitions());
+        assert_eq!(
+            permissions_set.len(),
+            default_permission_token_definitions().len()
+        );
     }
 }

@@ -23,8 +23,11 @@ use iroha_core::{
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
-use iroha_permissions_validators::public_blockchain::{
-    burn::CanBurnAssetWithDefinition, mint::CanMintUserAssetDefinitions,
+use iroha_permissions_validators::{
+    private_blockchain,
+    public_blockchain::{
+        self, burn::CanBurnAssetWithDefinition, mint::CanMintUserAssetDefinitions,
+    },
 };
 use iroha_primitives::small;
 use rand::seq::IteratorRandom;
@@ -106,6 +109,12 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         let burn_rose_permission: PermissionToken =
             CanBurnAssetWithDefinition::new(rose_definition_id.clone()).into();
 
+        genesis.transactions[0].isi.extend(
+            public_blockchain::default_permission_token_definitions()
+                .into_iter()
+                .chain(private_blockchain::default_permission_token_definitions().into_iter())
+                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
+        );
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::quantity(
                 AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),

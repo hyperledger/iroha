@@ -114,6 +114,37 @@ pub mod isi {
         }
     }
 
+    impl Execute for Register<PermissionTokenDefinition> {
+        type Error = Error;
+
+        #[metrics(+"register_token")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let definition = self.object;
+            let definition_id = definition.id().clone();
+
+            wsv.modify_world(|world| {
+                if world
+                    .permission_token_definitions
+                    .contains_key(&definition_id)
+                {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::PermissionTokenDefinitionId(definition_id),
+                    ));
+                }
+
+                world
+                    .permission_token_definitions
+                    .insert(definition_id, definition.clone());
+                Ok(PermissionTokenEvent::DefinitionCreated(definition).into())
+            })
+        }
+    }
+
     impl Execute for Register<Role> {
         type Error = Error;
 
@@ -127,6 +158,17 @@ pub mod isi {
 
             wsv.modify_world(|world| {
                 let role_id = role.id().clone();
+
+                for token_definition_id in role.permissions().map(PermissionToken::definition_id) {
+                    if !world
+                        .permission_token_definitions
+                        .contains_key(token_definition_id)
+                    {
+                        return Err(Error::Find(Box::new(FindError::PermissionTokenDefinition(
+                            token_definition_id.clone(),
+                        ))));
+                    }
+                }
 
                 if world.roles.contains_key(&role_id) {
                     return Err(Error::Repetition(
@@ -184,6 +226,106 @@ pub mod isi {
             })
         }
     }
+
+    impl Execute for Unregister<PermissionTokenDefinition> {
+        type Error = Error;
+
+        #[metrics("unregister_permission_token")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let definition_id = self.object_id;
+
+            remove_token_from_roles(wsv, &definition_id)?;
+            remove_token_from_accounts(wsv, &definition_id)?;
+
+            wsv.modify_world(|world| {
+                match world.permission_token_definitions.remove(&definition_id) {
+                    Some((_, definition)) => {
+                        Ok(PermissionTokenEvent::DefinitionDeleted(definition).into())
+                    }
+                    None => Err(FindError::PermissionTokenDefinition(definition_id).into()),
+                }
+            })?;
+
+            Ok(())
+        }
+    }
+
+    /// Remove all tokens with specified definition id from all registered roles
+    fn remove_token_from_roles(
+        wsv: &WorldStateView,
+        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
+    ) -> Result<(), Error> {
+        let mut roles_containing_token = Vec::new();
+
+        for role_entry in wsv.roles().iter() {
+            let (role_id, role) = role_entry.pair();
+            if role
+                .permissions()
+                .any(|token| token.definition_id() == target_definition_id)
+            {
+                roles_containing_token.push(role_id.clone())
+            }
+        }
+
+        for role_id in roles_containing_token {
+            wsv.modify_world(|world| match world.roles.get_mut(&role_id) {
+                Some(mut role) => {
+                    role.remove_permissions(target_definition_id);
+                    Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
+                        role_id,
+                        permission_definition_id: target_definition_id.clone(),
+                    })
+                    .into())
+                }
+                None => {
+                    error!(%role_id, "role not found - this is a bug");
+                    Err(FindError::Role(role_id.clone()).into())
+                }
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove all tokens with specified definition id from all accounts in all domains
+    fn remove_token_from_accounts(
+        wsv: &WorldStateView,
+        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
+    ) -> Result<(), Error> {
+        let mut accounts_with_token = std::collections::HashMap::new();
+
+        for domain in wsv.domains().iter() {
+            let account_ids = domain.accounts().map(|account| {
+                (
+                    account.id().clone(),
+                    account
+                        .permissions()
+                        .filter(|token| token.definition_id() == target_definition_id)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                )
+            });
+
+            accounts_with_token.extend(account_ids);
+        }
+
+        for (account_id, tokens) in accounts_with_token {
+            for token in tokens {
+                wsv.modify_account(&account_id, |account| {
+                    if !account.remove_permission(&token) {
+                        error!(%token, "token not found - this is a bug");
+                    }
+
+                    Ok(AccountEvent::PermissionRemoved(account_id.clone()))
+                })?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Query module provides `IrohaQuery` Peer related implementations.
@@ -239,6 +381,19 @@ pub mod query {
         #[metrics("find_all_peers")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             Ok(wsv.peers())
+        }
+    }
+
+    impl ValidQuery for FindAllPermissionTokenDefinitions {
+        #[metrics("find_all_token_ids")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            Ok(wsv
+                .permission_token_definitions()
+                .iter()
+                // Can't use `.cloned()` since `token_definition` here is a 
+                // `dashmap::mapref::multiple::RefMulti`, not a vanilla Rust reference
+                .map(|token_definition| token_definition.clone())
+                .collect())
         }
     }
 }

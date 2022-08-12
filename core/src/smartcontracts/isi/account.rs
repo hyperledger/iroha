@@ -195,6 +195,12 @@ pub mod isi {
             let account_id = self.destination_id;
             let permission = self.object;
 
+            wsv.permission_token_definitions()
+                .get(permission.definition_id())
+                .ok_or_else(|| {
+                    FindError::PermissionTokenDefinition(permission.definition_id().clone())
+                })?;
+
             wsv.modify_account(&account_id.clone(), |account| {
                 if account.contains_permission(&permission) {
                     return Err(ValidationError::new("Permission already exists").into());
@@ -217,6 +223,13 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 if !account.remove_permission(&permission) {
                     return Err(ValidationError::new("Permission not found").into());
+                }
+
+                if !wsv
+                    .permission_token_definitions()
+                    .contains_key(permission.definition_id())
+                {
+                    error!(%permission, "Revoking non-existent token");
                 }
 
                 Ok(AccountEvent::PermissionRemoved(account_id.clone()))

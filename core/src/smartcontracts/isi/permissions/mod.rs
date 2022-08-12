@@ -239,16 +239,16 @@ pub type DenialReason = String;
 ///
 /// impl PermissionTokenTrait for ExampleToken {
 ///     #[inline]
-///     fn name() -> &'static Name {
-///         static NAME: once_cell::sync::Lazy<Name> =
-///             once_cell::sync::Lazy::new(|| "example_token".parse().expect("Valid"));
-///         &NAME
+///     fn definition() -> &'static PermissionTokenDefinition {
+///         static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
+///             once_cell::sync::Lazy::new(|| PermissionTokenDefinition::new("example_token".parse().expect("Valid")));
+///         &DEFINITION
 ///     }
 /// }
 ///
 /// impl From<ExampleToken> for PermissionToken {
 ///     fn from(example_token: ExampleToken) -> Self {
-///         PermissionToken::new(ExampleToken::name().clone())
+///         PermissionToken::new(ExampleToken::definition_id().clone())
 ///             .with_params([(
 ///                 "param".parse().expect("Valid"),
 ///                 Value::String(example_token.param)
@@ -263,10 +263,10 @@ pub type DenialReason = String;
 ///         static PARAM_NAME: once_cell::sync::Lazy<Name> =
 ///             once_cell::sync::Lazy::new(|| "param".parse().expect("Valid"));
 ///
-///         if token.name() != Self::name() {
+///         if token.definition_id() != Self::definition_id() {
 ///             return Err(
-///                 PredefinedTokenConversionError::Name(
-///                     token.name().clone()
+///                 PredefinedTokenConversionError::Id(
+///                     token.definition_id().clone()
 ///                 )
 ///             );
 ///         }
@@ -281,19 +281,22 @@ pub type DenialReason = String;
 pub trait PermissionTokenTrait:
     Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
 {
-    /// Name of the permission token.
-    ///
-    /// Cannot use an associated constant because [`Name`] cannot be created at *const* context.
-    fn name() -> &'static Name;
+    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition).
+    fn definition() -> &'static PermissionTokenDefinition;
+
+    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition) id.
+    fn definition_id() -> &'static <PermissionTokenDefinition as Identifiable>::Id {
+        Self::definition().id()
+    }
 }
 
 /// Errors that may appear when converting specialized permission tokens
 /// to universal `[PermissionToken]`
 #[derive(Debug, thiserror::Error)]
 pub enum PredefinedTokenConversionError {
-    /// Wrong token name
-    #[error("Wrong token name: {0}")]
-    Name(Name),
+    /// Wrong token definition id
+    #[error("Wrong token definition id: {0}")]
+    Id(<PermissionTokenDefinition as Identifiable>::Id),
     /// Parameter not present in token parameters
     #[error("Parameter {0} not found")]
     Param(&'static Name),
@@ -373,26 +376,30 @@ mod tests {
 
     impl PermissionTokenTrait for TestToken {
         #[inline]
-        fn name() -> &'static Name {
-            static NAME: once_cell::sync::Lazy<Name> =
-                once_cell::sync::Lazy::new(|| "test_token".parse().expect("Valid"));
-            &NAME
+        fn definition() -> &'static PermissionTokenDefinition {
+            static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
+                once_cell::sync::Lazy::new(|| {
+                    PermissionTokenDefinition::new("test_token".parse().expect("Valid"))
+                });
+            &DEFINITION
         }
     }
 
     impl From<TestToken> for PermissionToken {
         fn from(_: TestToken) -> Self {
-            PermissionToken::new(TestToken::name().clone())
+            PermissionToken::new(TestToken::definition_id().clone())
         }
     }
 
     impl TryFrom<PermissionToken> for TestToken {
         type Error = PredefinedTokenConversionError;
         fn try_from(token: PermissionToken) -> std::result::Result<Self, Self::Error> {
-            if token.name() == Self::name() {
+            if token.definition_id() == Self::definition_id() {
                 Ok(Self)
             } else {
-                Err(PredefinedTokenConversionError::Name(token.name().clone()))
+                Err(PredefinedTokenConversionError::Id(
+                    token.definition_id().clone(),
+                ))
             }
         }
     }

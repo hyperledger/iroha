@@ -13,10 +13,44 @@ use test_network::{PeerBuilder, *};
 
 use super::Configuration;
 
-fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
+fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> Vec<Asset> {
     iroha_client
         .request(client::asset::by_account_id(id.clone()))
         .expect("Failed to execute request.")
+}
+
+#[test]
+fn permissions_require_registration_before_grant() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new()
+        .with_instruction_judge(public_blockchain::default_permissions())
+        .start_with_runtime();
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+
+    // Given
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
+    let token = PermissionToken::new("can_do_stuff".parse().expect("valid"));
+
+    let grant_permission = GrantBox::new(token.clone(), alice_id);
+    let register_role = RegisterBox::new(
+        Role::new("staff_that_does_stuff".parse().unwrap()).add_permission(token.clone()),
+    );
+
+    // We shouldn't be able to grant unregistered permission tokens
+    // or roles containing unregistered permission tokens
+    assert!(iroha_client
+        .submit_blocking(grant_permission.clone())
+        .is_err());
+    assert!(iroha_client.submit_blocking(register_role.clone()).is_err());
+
+    let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
+        token.definition_id().clone(),
+    ));
+
+    iroha_client.submit_blocking(register_permission).unwrap();
+
+    // Should be okay after registering the token id.
+    assert!(iroha_client.submit_blocking(grant_permission).is_ok());
+    assert!(iroha_client.submit_blocking(register_role).is_ok());
 }
 
 #[test]
@@ -28,8 +62,8 @@ fn permissions_disallow_asset_transfer() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-    let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
+    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland").expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
@@ -84,7 +118,7 @@ fn permissions_disallow_asset_burn() {
     thread::sleep(pipeline_time * 5);
 
     let alice_id = "alice@wonderland".parse().expect("Valid");
-    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let bob_id: <Account as Identifiable>::Id = "bob@wonderland".parse().expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());

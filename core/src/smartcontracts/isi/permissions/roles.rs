@@ -39,7 +39,7 @@ pub trait IsGrantAllowed: Display {
 #[derive(Debug, Display)]
 #[display(
     fmt = "Allow to grant `{}` permission token if `{}`",
-    "G::Token::name()",
+    "G::Token::definition_id()",
     is_grant_allowed
 )]
 pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed + Display> {
@@ -102,7 +102,7 @@ pub trait IsRevokeAllowed {
 #[derive(Debug, Display)]
 #[display(
     fmt = "Allow to revoke `{}` permission token if `{}`",
-    "R::Token::name()",
+    "R::Token::definition_id()",
     is_revoke_allowed
 )]
 pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed + Display> {

@@ -95,6 +95,12 @@ impl Role {
     pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.permissions.iter()
     }
+
+    /// Remove permission tokens with specified id from `Role`
+    pub fn remove_permissions(&mut self, definition_id: &crate::permissions::Id) {
+        self.permissions
+            .retain(|token| token.definition_id() != definition_id);
+    }
 }
 
 impl Registered for Role {
