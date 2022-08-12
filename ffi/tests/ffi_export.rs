@@ -346,4 +346,3 @@ fn invoke_trait_method() {
         assert_eq!(Name(String::from("X")), name);
     }
 }
-

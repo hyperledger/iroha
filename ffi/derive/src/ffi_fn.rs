@@ -6,13 +6,7 @@ use crate::impl_visitor::{ffi_output_arg, Arg, FnDescriptor};
 
 pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_fn_name(fn_descriptor);
-
-    let self_ty = fn_descriptor
-        .self_ty
-        .as_ref()
-        .and_then(syn::Path::get_ident);
-
-    let ffi_fn_doc = gen_doc(self_ty, &fn_descriptor.sig.ident);
+    let ffi_fn_doc = gen_doc(fn_descriptor);
     let fn_signature = gen_signature(&ffi_fn_name, fn_descriptor);
 
     quote! {
@@ -25,13 +19,7 @@ pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
 
 pub fn gen_definition(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_fn_name(fn_descriptor);
-
-    let self_ty = fn_descriptor
-        .self_ty
-        .as_ref()
-        .and_then(syn::Path::get_ident);
-
-    let ffi_fn_doc = gen_doc(self_ty, &fn_descriptor.sig.ident);
+    let ffi_fn_doc = gen_doc(fn_descriptor);
     let fn_signature = gen_signature(&ffi_fn_name, fn_descriptor);
     let ffi_fn_body = gen_body(fn_descriptor);
 
@@ -76,12 +64,27 @@ pub fn gen_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
     )
 }
 
-fn gen_doc(self_type: Option<&Ident>, method_name: &Ident) -> String {
+fn gen_doc(fn_descriptor: &FnDescriptor) -> String {
     // NOTE: [#docs = "some_doc"] expands to ///some_doc, therefore the leading space
+    let method_name = &fn_descriptor.sig.ident;
+    let self_type = fn_descriptor
+        .self_ty
+        .as_ref()
+        .and_then(syn::Path::get_ident);
+    let trait_name = fn_descriptor
+        .trait_name
+        .as_ref()
+        .and_then(syn::Path::get_ident);
 
     let path = self_type.map_or_else(
         || method_name.to_string(),
-        |self_ty| format!("{}::{}", self_ty, method_name),
+        |self_ty| {
+            trait_name.map_or_else(
+                || format!("{}::{}", self_ty, method_name),
+                // NOTE: Fully-qualified syntax currently not supported
+                |trait_| format!("{}::{}", trait_, method_name),
+            )
+        },
     );
 
     format!(
@@ -161,6 +164,7 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ident = &fn_descriptor.sig.ident;
     let self_type = &fn_descriptor.self_ty;
+    let trait_name = &fn_descriptor.trait_name;
 
     let receiver = fn_descriptor.receiver.as_ref();
     let self_arg_name = receiver.map_or_else(Vec::new, |arg| {
@@ -174,9 +178,15 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     });
 
     let fn_arg_names = fn_descriptor.input_args.iter().map(Arg::name);
-    let self_ty = self_type
-        .as_ref()
-        .map_or_else(|| quote!(), |self_ty| quote! {#self_ty::});
+    let self_ty = self_type.as_ref().map_or_else(
+        || quote!(),
+        |self_ty| {
+            trait_name.as_ref().map_or_else(
+                || quote! {#self_ty::},
+                |trait_| quote! {<#self_ty as #trait_>::},
+            )
+        },
+    );
     let method_call = quote! {#self_ty #ident(#(#self_arg_name,)* #(#fn_arg_names),*)};
 
     fn_descriptor.output_arg.as_ref().map_or_else(
