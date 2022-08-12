@@ -531,11 +531,16 @@ impl WorldStateView {
     pub fn blocks_after_hash(
         &self,
         hash: HashOf<VersionedCommittedBlock>,
-    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
-        self.blocks
-            .iter()
-            .skip_while(move |block_entry| block_entry.value().header().previous_block_hash != hash)
-            .map(|block_entry| block_entry.value().clone())
+    ) -> Vec<VersionedCommittedBlock> {
+        let mut iterator = self.blocks.iter();
+        if Hash::zeroed() != hash.into() {
+            for block in &mut iterator {
+                if block.hash() == hash {
+                    break;
+                }
+            }
+        }
+        return iterator.map(|b| b.clone()).collect();
     }
 
     /// Get `World` and pass it to closure to modify it
@@ -1010,6 +1015,7 @@ mod tests {
 
         assert!(wsv
             .blocks_after_hash(block_hashes[6])
+            .iter()
             .map(|block| block.hash())
             .eq(block_hashes.into_iter().skip(7)));
     }

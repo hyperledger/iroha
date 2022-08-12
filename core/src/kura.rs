@@ -24,7 +24,7 @@ use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::{block::VersionedCommittedBlock, block_sync::ContinueSync, prelude::*, sumeragi};
+use crate::{block::VersionedCommittedBlock, prelude::*, sumeragi};
 
 /// The interface of Kura subsystem
 pub struct Kura {
@@ -204,7 +204,6 @@ impl Kura {
                                 .lock()
                                 .expect("lock on block hash array")
                                 .push(block_hash);
-                            strong_kura_reference.broker.issue_send_sync(&ContinueSync);
                         }
                         Err(error) => {
                             error!(%error, "Failed to write block. Kura will now init again.");
