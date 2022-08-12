@@ -43,10 +43,7 @@ use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    account::SignatureCheckCondition, name::Name, permission::Token as PermissionToken,
-    transaction::TransactionValue,
-};
+use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
 
 pub mod account;
 pub mod asset;
@@ -319,6 +316,8 @@ pub enum IdBox {
     TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
     RoleId(<role::Role as Identifiable>::Id),
+    /// [`PermissionTokenId`](`permission::Id`) variant.
+    PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
     /// [`Validator`](`permission::Validator`) variant.
     ValidatorId(<permission::Validator as Identifiable>::Id),
 }
@@ -342,6 +341,8 @@ pub enum RegistrableBox {
     Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<<role::Role as Registered>::With>),
+    /// [`PermissionTokenId`](`permission::Id`) variant.
+    PermissionTokenDefinition(Box<<permission::token::Definition as Registered>::With>),
     /// [`Validator`](`permission::Validator`) variant.
     Validator(Box<<permission::Validator as Registered>::With>),
 }
@@ -387,6 +388,8 @@ pub enum IdentifiableBox {
     Trigger(Box<trigger::Trigger<FilterBox>>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<role::Role>),
+    /// [`PermissionTokenDefinition`](`permission::token::Definition`) variant.
+    PermissionTokenDefinition(Box<permission::token::Definition>),
     /// [`Validator`](`permission::Validator`) variant.
     Validator(Box<permission::Validator>),
 }
@@ -409,6 +412,7 @@ impl IdentifiableBox {
             IdentifiableBox::Asset(a) => a.id().clone().into(),
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
+            IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
             IdentifiableBox::Validator(a) => a.id().clone().into(),
         }
     }
@@ -499,8 +503,8 @@ pub enum Value {
     TransactionValue(TransactionValue),
     /// Transaction Query
     TransactionQueryResult(TransactionQueryResult),
-    /// [`PermissionToken`].
-    PermissionToken(PermissionToken),
+    /// [`PermissionToken`](permission::Token).
+    PermissionToken(permission::Token),
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
@@ -761,7 +765,7 @@ from_and_try_from_value_identifiablebox!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::token::Definition>),
 );
 
 from_and_try_from_value_identifiable!(
@@ -774,7 +778,7 @@ from_and_try_from_value_identifiable!(
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
-    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::token::Definition>),
 );
 
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
@@ -838,6 +842,9 @@ impl From<RegistrableBox> for IdentifiableBox {
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(trigger),
+            PermissionTokenDefinition(token_definition) => {
+                IdentifiableBox::PermissionTokenDefinition(token_definition)
+            }
             Validator(validator) => IdentifiableBox::NewValidator(validator),
         }
     }
@@ -1001,7 +1008,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1010,7 +1017,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1018,7 +1025,7 @@ pub mod ffi {
                 account::Account,
                 asset::Asset,
                 domain::Domain,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1027,7 +1034,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1063,17 +1070,22 @@ pub mod prelude {
         asset::prelude::*,
         block_value::prelude::*,
         domain::prelude::*,
+        events::prelude::*,
+        expression::prelude::*,
+        isi::prelude::*,
+        metadata::prelude::*,
         name::prelude::*,
         pagination::{prelude::*, Pagination},
         peer::prelude::*,
-        permission::Token as PermissionToken,
+        permission::{
+            token::{Definition as PermissionTokenDefinition, Id as PermissionTokenId},
+            Token as PermissionToken,
+        },
+        query::prelude::*,
         role::prelude::*,
+        transaction::prelude::*,
         trigger::prelude::*,
         EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
         PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
-    };
-    pub use crate::{
-        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permission::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
     };
 }

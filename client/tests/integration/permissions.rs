@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::{prelude::*, smartcontracts::permissions::HasToken};
+use iroha_core::{prelude::*, smartcontracts::permission::HasToken};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{
     private_blockchain,

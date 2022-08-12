@@ -390,7 +390,7 @@ pub mod permissions {
     use crate::{permission, prelude::*};
 
     /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-    /// [`PermissionTokenDefinition`][crate::permissions::PermissionTokenDefinition]s
+    /// [`PermissionTokenDefinition`][crate::permission::PermissionTokenDefinition]s
     #[derive(
         Debug,
         Display,

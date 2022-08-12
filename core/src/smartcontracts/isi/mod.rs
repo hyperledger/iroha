@@ -158,9 +158,9 @@ pub mod error {
         /// Failed to find Role by id.
         #[error("Failed to find role by id: `{0}`")]
         Role(RoleId),
-        /// Failed to find PermissionToken by id.
+        /// Failed to find [`PermissionToken`] by id.
         #[error("Failed to find permission definition token by id: `{0}`")]
-        PermissionTokenDefinition(PermissionTokenDefinitionId),
+        PermissionTokenDefinition(PermissionTokenId),
     }
 
     /// Generic structure used to represent a mismatch
@@ -275,6 +275,10 @@ impl Execute for RegisterBox {
                 Register::<Trigger<FilterBox>>::new(*trigger).execute(authority, wsv)
             }
             RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
+            RegistrableBox::PermissionTokenDefinition(token_definition) => {
+                Register::<PermissionTokenDefinition>::new(*token_definition)
+                    .execute(authority, wsv)
+            }
             RegistrableBox::Validator(validator) => {
                 todo!()
                 // Register::<Validator>::new(*validator).execute(authority, wsv),

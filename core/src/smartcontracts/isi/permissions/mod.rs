@@ -231,8 +231,8 @@ pub type DenialReason = String;
 ///
 /// # Examples
 ///
-/// ```rust
-/// use iroha_core::smartcontracts::isi::permissions::{
+/// ```
+/// use iroha_core::smartcontracts::isi::permission::{
 ///     PermissionTokenTrait, PredefinedTokenConversionError,
 /// };
 /// use iroha_data_model::prelude::*;
@@ -285,10 +285,10 @@ pub type DenialReason = String;
 pub trait PermissionTokenTrait:
     Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
 {
-    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition).
+    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::PermissionTokenDefinition).
     fn definition() -> &'static PermissionTokenDefinition;
 
-    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition) id.
+    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::PermissionTokenDefinition) id.
     fn definition_id() -> &'static <PermissionTokenDefinition as Identifiable>::Id {
         Self::definition().id()
     }

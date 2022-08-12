@@ -28,13 +28,15 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "mutable_api")]
 use crate::Registrable;
 use crate::{
-    asset::{prelude::AssetId, AssetsMap},
+    asset::{
+        prelude::{Asset, AssetId},
+        AssetsMap,
+    },
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     ffi::ffi_item,
     metadata::Metadata,
     permission::prelude::{Permissions, Token as PermissionToken},
-    prelude::Asset,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
 };

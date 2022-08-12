@@ -21,7 +21,7 @@ use iroha_core::{
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
-    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
+    smartcontracts::permission::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::{Sumeragi, SumeragiTrait},
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
