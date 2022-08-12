@@ -99,7 +99,7 @@ impl Token {
 )]
 pub struct Id {
     /// [`PermissionToken`] name
-    name: Name,
+    pub name: Name,
 }
 
 ffi_item! {

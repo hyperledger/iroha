@@ -1,12 +1,20 @@
 //! Structures, traits and impls related to `Validator`s.
 
+#![allow(unused_imports)] // TODO
+
 use super::*;
+use crate::{
+    expression::Expression,
+    isi::Instruction,
+    query::QueryBox,
+    transaction::{Transaction, WasmSmartContract},
+};
 
 ffi_item! {
     /// Permission validator that checks if some operation satisfies some conditions.
     ///
-    /// Can be used with things like [`Transaction`](crate::transaction::Transaction)s,
-    /// [`Instruction`](crate::isi::Instruction)s and etc.
+    /// Can be used with things like [`Transaction`]s,
+    /// [`Instruction`]s and etc.
     #[derive(
         Debug,
         Display,
@@ -28,6 +36,9 @@ ffi_item! {
     #[id(type = "Id")]
     pub struct Validator {
         id: <Self as Identifiable>::Id,
+        validator_type: Type,
+        // TODO: use another type like `WasmValidator`?
+        wasm: WasmSmartContract,
     }
 }
 
@@ -80,4 +91,69 @@ ffi_item! {
 pub struct Id {
     /// Name given to validator by its creator.
     pub name: Name,
+}
+
+/// Type of validator
+#[derive(
+    Debug, Display, Copy, Clone, PartialEq, Eq, Encode, Decode, Deserialize, Serialize, IntoSchema,
+)]
+pub enum Type {
+    /// Validator checking [`Transaction`]
+    // TODO: implement other infrastructure for this variant
+    Transaction,
+    /// Validator checking [`Instruction`]
+    Instruction,
+    /// Validator checking [`QueryBox`]
+    Query,
+    /// Validator checking [`Expression`]
+    Expression,
+}
+
+/// Operation for which the permission should be checked
+pub trait NeedsPermission {
+    /// Get the type of validator required to check the operation
+    ///
+    /// Accepts `self` because of the [`NeedsPermissionBox`]
+    fn required_validator_type(&self) -> Type;
+}
+
+impl NeedsPermission for Instruction {
+    fn required_validator_type(&self) -> Type {
+        Type::Instruction
+    }
+}
+
+impl NeedsPermission for QueryBox {
+    fn required_validator_type(&self) -> Type {
+        Type::Query
+    }
+}
+
+// Expression might contain a query, therefore needs to be checked.
+impl NeedsPermission for Expression {
+    fn required_validator_type(&self) -> Type {
+        Type::Expression
+    }
+}
+
+/// Boxed version of [`NeedsPermission`]
+#[derive(Debug, derive_more::From, derive_more::TryInto)]
+pub enum NeedsPermissionBox {
+    /// [`Instruction`] operation
+    Instruction(Instruction),
+    /// [`QueryBox`] operation
+    Query(QueryBox),
+    /// [`Expression`] operation
+    Expression(Expression),
+    // TODO: Transaction variant
+}
+
+impl NeedsPermission for NeedsPermissionBox {
+    fn required_validator_type(&self) -> Type {
+        match self {
+            NeedsPermissionBox::Instruction(_) => Type::Instruction,
+            NeedsPermissionBox::Query(_) => Type::Query,
+            NeedsPermissionBox::Expression(_) => Type::Expression,
+        }
+    }
 }
