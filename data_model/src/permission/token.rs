@@ -1,7 +1,5 @@
 //! Permission Token and related impls
 
-use derive_more::FromStr;
-
 use super::*;
 use crate::utils::format_comma_separated;
 
@@ -99,7 +97,6 @@ impl Token {
     TryFromReprC,
     IntoFfi,
 )]
-#[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct Id {
     /// [`PermissionToken`] name
     name: Name,

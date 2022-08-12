@@ -61,6 +61,7 @@ ffi_item! {
     Debug,
     Display,
     Constructor,
+    FromStr,
     Clone,
     PartialEq,
     Eq,

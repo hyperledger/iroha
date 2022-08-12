@@ -15,7 +15,7 @@ use std::{
     collections::{btree_map, btree_set},
 };
 
-use derive_more::{Constructor, Display};
+use derive_more::{Constructor, Display, FromStr};
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
 use iroha_ffi::{IntoFfi, TryFromReprC};
@@ -31,7 +31,7 @@ pub mod validator;
 pub use token::Token;
 pub use validator::Validator;
 
-/// Collection of [`PermissionToken`]s
+/// Collection of [`Token`]s
 pub type Permissions = btree_set::BTreeSet<token::Token>;
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
