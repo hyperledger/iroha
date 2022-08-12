@@ -170,21 +170,30 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             res
         };
 
+        let mut connected_to_peers_by_key = self.get_online_peer_keys();
+
         for peer_to_be_connected in peers_expected.iter() {
-            self.broker.issue_send_sync(&ConnectPeer {
-                peer: peer_to_be_connected.clone(),
-            })
+            if connected_to_peers_by_key.contains(&peer_to_be_connected.public_key) {
+                let index = connected_to_peers_by_key
+                    .iter()
+                    .position(|x| x == &peer_to_be_connected.public_key)
+                    .expect("I just checked that it contains the value in the statement above.");
+                connected_to_peers_by_key.remove(index);
+                // By removing the connected to peers that we should be connected to,
+                // all that remain are the unwelcome and to-be disconnected peers.
+            } else {
+                self.broker.issue_send_sync(&ConnectPeer {
+                    peer: peer_to_be_connected.clone(),
+                });
+            }
         }
 
-        /* TODO FIX
-        for peer_to_be_disconnected in
-            peers_online.difference(&peers_expected.into_iter().map(|id| id.public_key).collect())
-        {
-            info!(%peer_to_be_disconnected, "Disconnecting peer");
-            self.broker
-                .issue_send_sync(&DisconnectPeer(peer_to_be_disconnected.clone()))
+        let to_disconnect_peers = connected_to_peers_by_key;
+
+        for peer in to_disconnect_peers {
+            info!(%peer, "Disconnecting peer");
+            self.broker.issue_send_sync(&DisconnectPeer(peer));
         }
-        */
     }
 
     /// If `suggested_chain` of view change proofs is bigger than the the current one - replace the current one.
@@ -269,7 +278,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
 
     pub fn wait_for_peers(&self, network_topology: &Topology) {
         iroha_logger::info!("Waiting for active peers",);
-        for i in 0..80 {
+        for i in 0..120 {
             self.connect_peers(&network_topology);
 
             let online_peers = self.current_online_peers_by_public_key.lock().unwrap();
@@ -280,7 +289,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
                 return;
             }
 
-            let reconnect_in_ms = 100;
+            let reconnect_in_ms = 250;
             std::thread::sleep(Duration::from_millis(reconnect_in_ms));
         }
         panic!("Timed out waiting for peers to come online");
@@ -374,8 +383,6 @@ pub fn run_sumeragi_main_loop<F>(
                                 self.txs_awaiting_receipts.clear();
                                 self.votes_for_view_change.clear();
                                 */
-                                state_machine_guard.latest_block_height =
-                                    signed_block.header().height;
 
                                 sumeragi.broadcast_msg(
                                     BlockCommitted::from(signed_block.clone()),
@@ -393,6 +400,9 @@ pub fn run_sumeragi_main_loop<F>(
                                     trace!(?event);
                                     drop(sumeragi.events_sender.send(event));
                                 }
+
+                                state_machine_guard.latest_block_height = block.header().height;
+                                state_machine_guard.latest_block_hash = block.hash();
 
                                 let previous_role =
                                     state_machine_guard.current_topology.role(&sumeragi.peer_id);
@@ -501,6 +511,106 @@ pub fn run_sumeragi_main_loop<F>(
                         match incoming_message_receiver.try_recv() {
                             Ok(msg) => {
                                 match msg {
+                                    Message::BlockCommitted(block_committed) => {
+                                        // If we recieve a committed genesis block that is valid, use it without question.
+                                        let block = block_committed.block;
+
+                                        // During the genesis round we blindly take on the network topology described in
+                                        // the provided genesis block.
+                                        let block_header = block.header();
+                                        if block_header.is_genesis()
+                                            && state_machine_guard.latest_block_height == 0
+                                            && block_header.genesis_topology.is_some()
+                                        {
+                                            info!("Using network topology from genesis block");
+                                            state_machine_guard.current_topology = block_header
+                                                .genesis_topology
+                                                .clone()
+                                                .take()
+                                                .expect("We just checked that it is some");
+                                        } else {
+                                            continue;
+                                        }
+
+                                        let network_topology =
+                                            state_machine_guard.current_topology.clone();
+
+                                        let verified_signatures = block
+                                            .verified_signatures()
+                                            .cloned()
+                                            .collect::<Vec<_>>();
+                                        let valid_signatures = network_topology
+                                            .filter_signatures_by_roles(
+                                                &[
+                                                    Role::ValidatingPeer,
+                                                    Role::Leader,
+                                                    Role::ProxyTail,
+                                                ],
+                                                &verified_signatures,
+                                            );
+                                        let proxy_tail_signatures = network_topology
+                                            .filter_signatures_by_roles(
+                                                &[Role::ProxyTail],
+                                                &verified_signatures,
+                                            );
+                                        if valid_signatures.len()
+                                            >= network_topology.min_votes_for_commit()
+                                            && proxy_tail_signatures.len() == 1
+                                            && state_machine_guard.latest_block_hash
+                                                == block.header().previous_block_hash
+                                        {
+                                            {
+                                                /*
+                                                TODO: purge the unneeded of these
+                                                self.invalidated_blocks_hashes.clear();
+                                                self.txs_awaiting_created_block.clear();
+                                                self.txs_awaiting_receipts.clear();
+                                                self.votes_for_view_change.clear();
+                                                */
+
+                                                let block = block.commit();
+                                                let block_hash = block.hash();
+
+                                                let mut wsv_guard = sumeragi.wsv.lock().unwrap();
+
+                                                if let Err(error) = wsv_guard.apply(block.clone()) {
+                                                    panic!("Failed to apply block on WSV. This is absolutely not acceptable.");
+                                                }
+
+                                                for event in Vec::<Event>::from(&block) {
+                                                    trace!(?event);
+                                                    drop(sumeragi.events_sender.send(event));
+                                                }
+
+                                                state_machine_guard.latest_block_height =
+                                                    block.header().height;
+                                                state_machine_guard.latest_block_hash =
+                                                    block.hash();
+
+                                                let previous_role = state_machine_guard
+                                                    .current_topology
+                                                    .role(&sumeragi.peer_id);
+                                                state_machine_guard
+                                                    .current_topology
+                                                    .apply_block(block_hash);
+                                                info!(
+                                                    prev_peer_role = ?previous_role,
+                                                    new_peer_role = ?state_machine_guard.current_topology.role(&sumeragi.peer_id),
+                                                    new_block_height = %state_machine_guard.latest_block_height,
+                                                    %block_hash,
+                                                    "Committing block"
+                                                );
+                                                sumeragi.kura.blocking_store_block(block);
+                                                SumeragiWithFault::<F>::update_network_topology(
+                                                    &mut state_machine_guard.current_topology,
+                                                    &wsv_guard,
+                                                );
+                                                voting_block_option = None;
+                                                println!("We missed the genesis but have been given the genesis block.");
+                                                break;
+                                            }
+                                        }
+                                    }
                                     Message::BlockCreated(block_created) => {
                                         let block = block_created.block;
 
@@ -628,6 +738,9 @@ pub fn run_sumeragi_main_loop<F>(
                     let voting_block = voting_block_option.take().expect("take voting block");
                     let voting_block_hash = voting_block.block.hash();
                     loop {
+                        if state_machine_guard.latest_block_height > 1 {
+                            break;
+                        }
                         if state_machine_guard.sumeragi_thread_should_exit {
                             return;
                         }
@@ -714,8 +827,6 @@ pub fn run_sumeragi_main_loop<F>(
                                         self.txs_awaiting_receipts.clear();
                                         self.votes_for_view_change.clear();
                                         */
-                                        state_machine_guard.latest_block_height =
-                                            block.header().height;
 
                                         let block = block.commit();
                                         let block_hash = block.hash();
@@ -729,6 +840,10 @@ pub fn run_sumeragi_main_loop<F>(
                                             trace!(?event);
                                             drop(sumeragi.events_sender.send(event));
                                         }
+
+                                        state_machine_guard.latest_block_height =
+                                            block.header().height;
+                                        state_machine_guard.latest_block_hash = block.hash();
 
                                         let previous_role = state_machine_guard
                                             .current_topology
@@ -769,6 +884,9 @@ pub fn run_sumeragi_main_loop<F>(
                     }
                 } else {
                     loop {
+                        if state_machine_guard.latest_block_height > 1 {
+                            break;
+                        }
                         if state_machine_guard.sumeragi_thread_should_exit {
                             return;
                         }
@@ -805,8 +923,6 @@ pub fn run_sumeragi_main_loop<F>(
                                             self.txs_awaiting_receipts.clear();
                                             self.votes_for_view_change.clear();
                                             */
-                                            state_machine_guard.latest_block_height =
-                                                block.header().height;
 
                                             let block = block.commit();
                                             let block_hash = block.hash();
@@ -820,6 +936,10 @@ pub fn run_sumeragi_main_loop<F>(
                                                 trace!(?event);
                                                 drop(sumeragi.events_sender.send(event));
                                             }
+
+                                            state_machine_guard.latest_block_height =
+                                                block.header().height;
+                                            state_machine_guard.latest_block_hash = block.hash();
 
                                             let previous_role = state_machine_guard
                                                 .current_topology
@@ -897,6 +1017,8 @@ pub fn run_sumeragi_main_loop<F>(
             if state_machine_guard.sumeragi_thread_should_exit {
                 return;
             }
+
+            sumeragi.connect_peers(&state_machine_guard.current_topology);
 
             let mut wsv_guard = sumeragi.wsv.lock().unwrap();
 
@@ -977,6 +1099,74 @@ pub fn run_sumeragi_main_loop<F>(
                     let incoming_message = maybe_incoming_message.take().unwrap();
                     match incoming_message {
                         Message::BlockCreated(_) => {}
+                        Message::BlockCommitted(block_committed) => {
+                            let block = block_committed.block;
+                            let network_topology = state_machine_guard.current_topology.clone();
+
+                            let verified_signatures =
+                                block.verified_signatures().cloned().collect::<Vec<_>>();
+                            let valid_signatures = network_topology.filter_signatures_by_roles(
+                                &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
+                                &verified_signatures,
+                            );
+                            let proxy_tail_signatures = network_topology
+                                .filter_signatures_by_roles(
+                                    &[Role::ProxyTail],
+                                    &verified_signatures,
+                                );
+                            if valid_signatures.len() >= network_topology.min_votes_for_commit()
+                                && proxy_tail_signatures.len() == 1
+                                && state_machine_guard.latest_block_hash
+                                    == block.header().previous_block_hash
+                            {
+                                {
+                                    /*
+                                    TODO: purge the unneeded of these
+                                    self.invalidated_blocks_hashes.clear();
+                                    self.txs_awaiting_created_block.clear();
+                                    self.txs_awaiting_receipts.clear();
+                                    self.votes_for_view_change.clear();
+                                     */
+
+                                    let block = block.commit();
+                                    let block_hash = block.hash();
+
+                                    if let Err(error) = wsv_guard.apply(block.clone()) {
+                                        panic!("Failed to apply block on WSV. This is absolutely not acceptable.");
+                                    }
+
+                                    for event in Vec::<Event>::from(&block) {
+                                        trace!(?event);
+                                        drop(sumeragi.events_sender.send(event));
+                                    }
+
+                                    state_machine_guard.latest_block_height = block.header().height;
+                                    state_machine_guard.latest_block_hash = block.hash();
+
+                                    let previous_role = state_machine_guard
+                                        .current_topology
+                                        .role(&sumeragi.peer_id);
+                                    state_machine_guard.current_topology.apply_block(block_hash);
+                                    info!(
+                                        prev_peer_role = ?previous_role,
+                                        new_peer_role = ?state_machine_guard.current_topology.role(&sumeragi.peer_id),
+                                        new_block_height = %state_machine_guard.latest_block_height,
+                                        %block_hash,
+                                        "Committing block"
+                                    );
+                                    sumeragi.kura.blocking_store_block(block);
+                                    SumeragiWithFault::<F>::update_network_topology(
+                                        &mut state_machine_guard.current_topology,
+                                        &wsv_guard,
+                                    );
+                                    has_sent_transactions = false;
+                                    voting_block_option = None;
+                                    println!(
+                                        "Observing peer has committed a valid block it was given."
+                                    );
+                                }
+                            }
+                        }
                         _ => {
                             println!("Observing peer not handling message {:?}", incoming_message);
                         }
@@ -1040,8 +1230,7 @@ pub fn run_sumeragi_main_loop<F>(
                                     self.txs_awaiting_created_block.clear();
                                     self.txs_awaiting_receipts.clear();
                                     self.votes_for_view_change.clear();
-                                    */
-                                    state_machine_guard.latest_block_height = block.header().height;
+                                     */
 
                                     let block = block.commit();
                                     let block_hash = block.hash();
@@ -1054,6 +1243,9 @@ pub fn run_sumeragi_main_loop<F>(
                                         trace!(?event);
                                         drop(sumeragi.events_sender.send(event));
                                     }
+
+                                    state_machine_guard.latest_block_height = block.header().height;
+                                    state_machine_guard.latest_block_hash = block.hash();
 
                                     let previous_role = state_machine_guard
                                         .current_topology
@@ -1119,8 +1311,7 @@ pub fn run_sumeragi_main_loop<F>(
                             self.txs_awaiting_created_block.clear();
                             self.txs_awaiting_receipts.clear();
                             self.votes_for_view_change.clear();
-                            */
-                            state_machine_guard.latest_block_height = signed_block.header().height;
+                             */
 
                             sumeragi.broadcast_msg(
                                 BlockCommitted::from(signed_block.clone()),
@@ -1138,6 +1329,9 @@ pub fn run_sumeragi_main_loop<F>(
                                 trace!(?event);
                                 drop(sumeragi.events_sender.send(event));
                             }
+
+                            state_machine_guard.latest_block_height = block.header().height;
+                            state_machine_guard.latest_block_hash = block.hash();
 
                             let previous_role =
                                 state_machine_guard.current_topology.role(&sumeragi.peer_id);
@@ -1326,8 +1520,7 @@ pub fn run_sumeragi_main_loop<F>(
                                     self.txs_awaiting_created_block.clear();
                                     self.txs_awaiting_receipts.clear();
                                     self.votes_for_view_change.clear();
-                                    */
-                                    state_machine_guard.latest_block_height = block.header().height;
+                                     */
 
                                     let block = block.commit();
                                     let block_hash = block.hash();
@@ -1340,6 +1533,9 @@ pub fn run_sumeragi_main_loop<F>(
                                         trace!(?event);
                                         drop(sumeragi.events_sender.send(event));
                                     }
+
+                                    state_machine_guard.latest_block_height = block.header().height;
+                                    state_machine_guard.latest_block_hash = block.hash();
 
                                     let previous_role = state_machine_guard
                                         .current_topology
@@ -1551,8 +1747,7 @@ pub fn run_sumeragi_main_loop<F>(
                             self.txs_awaiting_created_block.clear();
                             self.txs_awaiting_receipts.clear();
                             self.votes_for_view_change.clear();
-                            */
-                            state_machine_guard.latest_block_height = block.header().height;
+                             */
 
                             let block = block.commit();
                             let block_hash = block.hash();
@@ -1565,6 +1760,9 @@ pub fn run_sumeragi_main_loop<F>(
                                 trace!(?event);
                                 drop(sumeragi.events_sender.send(event));
                             }
+
+                            state_machine_guard.latest_block_height = block.header().height;
+                            state_machine_guard.latest_block_hash = block.hash();
 
                             let previous_role =
                                 state_machine_guard.current_topology.role(&sumeragi.peer_id);
