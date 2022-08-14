@@ -59,7 +59,7 @@ fn gen_shared_fns() {
             cloned
         };
 
-        let mut is_equal = MaybeUninit::<u8>::new(1);
+        let mut is_equal = MaybeUninit::new(1);
         let cloned_ptr = IntoFfi::into_ffi(&cloned);
 
         __eq(
@@ -72,8 +72,7 @@ fn gen_shared_fns() {
             TryFromReprC::try_from_repr_c(is_equal.assume_init(), &mut ()).unwrap();
         assert!(is_equal);
 
-        // TODO: Fix
-        let mut ordering = MaybeUninit::<i8>::new(1);
+        let mut ordering = MaybeUninit::new(1);
         __ord(
             FfiStruct1::ID,
             ffi_struct1.cast(),
