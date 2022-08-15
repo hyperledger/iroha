@@ -145,7 +145,7 @@ impl NeedsPermission for Expression {
 }
 
 /// Boxed version of [`NeedsPermission`]
-#[derive(Debug, derive_more::From, derive_more::TryInto)]
+#[derive(Debug, Display, Clone, derive_more::From, derive_more::TryInto)]
 pub enum NeedsPermissionBox {
     /// [`Instruction`] operation
     Instruction(Instruction),
@@ -183,6 +183,15 @@ pub enum Verdict {
     Pass,
     /// Operation is denied
     Deny(DenialReason),
+}
+
+impl From<Verdict> for Result<(), DenialReason> {
+    fn from(verdict: Verdict) -> Self {
+        match verdict {
+            Verdict::Pass => Ok(()),
+            Verdict::Deny(reason) => Err(reason),
+        }
+    }
 }
 
 /// Reason for denying the execution of a particular instruction.

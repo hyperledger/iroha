@@ -9,6 +9,7 @@ pub mod queue;
 pub mod smartcontracts;
 pub mod sumeragi;
 pub mod tx;
+pub mod validator;
 pub mod wsv;
 
 use core::time::Duration;
