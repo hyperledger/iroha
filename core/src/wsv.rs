@@ -58,6 +58,8 @@ pub struct World {
     pub(crate) permission_token_definitions: crate::PermissionTokenDefinitionsMap,
     /// Triggers
     pub(crate) triggers: TriggerSet,
+    /// Chain of *runtime* validators
+    pub(crate) validators: crate::validator::Chain,
 }
 
 impl World {
@@ -875,9 +877,9 @@ impl WorldStateView {
         &self.world.triggers
     }
 
-    /// Get triggers set and modify it with `f`
+    /// Get trigger set and modify it with `f`
     ///
-    /// Produces trigger event from `f`
+    /// Produces [`TriggerEvent`] event from `f`
     ///
     /// # Errors
     /// Throws up `f` errors
@@ -897,16 +899,25 @@ impl WorldStateView {
     /// then *trigger* will be executed on the **current** block
     /// - If this method is called by ISI inside *trigger*,
     /// then *trigger* will be executed on the **next** block
-    ///
-    /// # Panics
-    /// (Rare) Panics if can't lock `self.events` for writing
-    #[allow(clippy::expect_used)]
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
         let event = ExecuteTriggerEvent::new(trigger_id, authority);
         self.world
             .triggers
             .handle_execute_trigger_event(event.clone());
         self.produce_event(event);
+    }
+
+    /// Get chain of validators and modify it with `f`
+    ///
+    /// Produces [`PermissionValidatorEvent`] from `f`
+    ///
+    /// # Errors
+    /// Throws up `f` errors
+    pub fn modify_validators<F>(&self, f: F) -> Result<(), Error>
+    where
+        F: FnOnce(&crate::validator::Chain) -> Result<PermissionValidatorEvent, Error>,
+    {
+        self.modify_world(|world| f(&world.validators).map(WorldEvent::PermissionValidator))
     }
 }
 

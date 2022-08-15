@@ -388,7 +388,7 @@ pub mod query {
             Ok(wsv
                 .permission_token_definitions()
                 .iter()
-                // Can't use `.cloned()` since `token_definition` here is a 
+                // Can't use `.cloned()` since `token_definition` here is a
                 // `dashmap::mapref::multiple::RefMulti`, not a vanilla Rust reference
                 .map(|token_definition| token_definition.clone())
                 .collect())
