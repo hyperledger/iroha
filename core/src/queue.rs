@@ -49,16 +49,13 @@ pub enum Error {
     #[error("Transaction is already applied")]
     InBlockchain,
     /// Signature condition check failed
-    #[error("{0}")]
-    SignatureCondition(#[from] SignatureConditionError),
-}
-
-/// Signature condition check error
-#[derive(Error, Debug)]
-#[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
-pub struct SignatureConditionError {
-    tx_hash: HashOf<VersionedTransaction>,
-    reason: Report,
+    #[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
+    SignatureCondition {
+        /// Transaction hash
+        tx_hash: HashOf<VersionedTransaction>,
+        /// Failure reason
+        reason: Report,
+    },
 }
 
 impl Queue {
@@ -114,12 +111,9 @@ impl Queue {
                     .then(|| ())
                     .ok_or_else(|| eyre!("Signature condition check failed"))
             })
-            .map_err(|reason| {
-                SignatureConditionError {
-                    tx_hash: tx.hash(),
-                    reason,
-                }
-                .into()
+            .map_err(|reason| Error::SignatureCondition {
+                tx_hash: tx.hash(),
+                reason,
             })
     }
 
@@ -369,7 +363,7 @@ mod tests {
 
         assert!(matches!(
             queue.push(accepted_tx("alice@wonderland", 100_000, key_pair)),
-            Err((_, Error::SignatureCondition(_)))
+            Err((_, Error::SignatureCondition { .. }))
         ));
     }
 
