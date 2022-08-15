@@ -418,34 +418,6 @@ impl IdentifiableBox {
     }
 }
 
-impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
-    type Error = ();
-
-    fn try_from(
-        v: &'idbox IdentifiableBox,
-    ) -> Result<&'idbox (dyn HasMetadata + 'idbox), Self::Error> {
-        match v {
-            IdentifiableBox::NewDomain(v) => Ok(v.as_ref()),
-            IdentifiableBox::NewAccount(v) => Ok(v.as_ref()),
-            IdentifiableBox::NewAssetDefinition(v) => Ok(v.as_ref()),
-            IdentifiableBox::Domain(v) => Ok(v.as_ref()),
-            IdentifiableBox::Account(v) => Ok(v.as_ref()),
-            IdentifiableBox::AssetDefinition(v) => Ok(v.as_ref()),
-            _ => Err(()),
-        }
-    }
-}
-
-/// Create a [`Vec`] containing the arguments, which should satisfy `Into<Value>` bound.
-///
-/// Syntax is the same as in [`vec`](macro@vec)
-#[macro_export]
-macro_rules! val_vec {
-    () => { Vec::new() };
-    ($elem:expr; $n:expr) => { vec![iroha_data_model::Value::from($elem); $n] };
-    ($($x:expr),+ $(,)?) => { vec![$(iroha_data_model::Value::from($x),)+] };
-}
-
 /// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 
@@ -1083,9 +1055,14 @@ pub mod prelude {
         },
         query::prelude::*,
         role::prelude::*,
+        sorting::prelude::*,
         transaction::prelude::*,
         trigger::prelude::*,
         EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
         PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
+    };
+    pub use crate::{
+        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
+        permission::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
     };
 }
