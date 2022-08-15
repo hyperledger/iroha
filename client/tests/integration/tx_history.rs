@@ -58,10 +58,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let transactions = iroha_client
         .request_with_pagination(
             transaction::by_account_id(account_id.clone()),
-            Pagination {
-                start: Some(1),
-                limit: Some(50),
-            },
+            Pagination::new(Some(1), Some(50)),
         )
         .expect("Failed to get transaction history")
         .only_output();

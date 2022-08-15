@@ -139,9 +139,7 @@ impl Metadata {
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.map.iter()
     }
-}
 
-impl Metadata {
     /// Get the `Some(&Value)` associated to `key`. Return `None` if not found.
     #[inline]
     pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&Value>

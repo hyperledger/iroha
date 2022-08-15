@@ -426,7 +426,6 @@ ffi_item! {
     )]
     #[id(type = "<AssetDefinition as Identifiable>::Id")]
     #[display(fmt = "{id} {mintable}{value_type}")]
-    #[allow(clippy::multiple_inherent_impl)]
     pub struct NewAssetDefinition {
         id: <AssetDefinition as Identifiable>::Id,
         value_type: AssetValueType,
@@ -457,6 +456,11 @@ impl HasMetadata for NewAssetDefinition {
     }
 }
 
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewAssetDefinition {
     /// Create a [`NewAssetDefinition`], reserved for internal use.
     fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
@@ -473,14 +477,7 @@ impl NewAssetDefinition {
     pub(crate) fn id(&self) -> &<AssetDefinition as Identifiable>::Id {
         &self.id
     }
-}
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl NewAssetDefinition {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
     #[must_use]

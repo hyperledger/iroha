@@ -7,6 +7,8 @@
 
 extern crate alloc;
 
+use alloc::vec::Vec;
+
 pub use iroha_ffi_derive::*;
 use owned::Local;
 
@@ -107,6 +109,8 @@ pub trait Output: Sized {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i8)]
 pub enum FfiReturn {
+    /// The input argument provided to FFI function can't be converted into inner rust representation.
+    ConversionFailed = -7,
     /// The input argument provided to FFI function has a trap representation.
     TrapRepresentation = -6,
     /// FFI function execution panicked.
@@ -313,6 +317,40 @@ macro_rules! impl_tuple {
             fn into_ffi(self) -> Self::Target {
                 let ($($ty,)+) = Clone::clone(self);
                 Local::new($ffi_ty($( <$ty as IntoFfi>::into_ffi($ty),)+))
+            }
+        }
+
+        impl<$($ty: IntoFfi),+> $crate::owned::IntoFfiVec for ($( $ty, )+) {
+            type Target = $crate::owned::LocalSlice<<Self as IntoFfi>::Target>;
+
+            fn into_ffi(source: Vec<Self>) -> Self::Target {
+                source.into_iter().map(IntoFfi::into_ffi).collect()
+            }
+        }
+
+        impl<'itm, $($ty: TryFromReprC<'itm>),+> $crate::owned::TryFromReprCVec<'itm> for ($( $ty, )+) {
+            type Source = $crate::slice::SliceRef<'itm, <Self as TryFromReprC<'itm>>::Source>;
+            type Store = Vec<<Self as TryFromReprC<'itm>>::Store>;
+
+            unsafe fn try_from_repr_c(
+                source: Self::Source,
+                store: &'itm mut Self::Store,
+            ) -> Result<Vec<Self>> {
+                let prev_store_len = store.len();
+                let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
+                store.extend(core::iter::repeat_with(Default::default).take(slice.len()));
+
+                let mut substore = &mut store[prev_store_len..];
+                let mut res = Vec::with_capacity(slice.len());
+
+                let mut i = 0;
+                while let Some((first, rest)) = substore.split_first_mut() {
+                    res.push(TryFromReprC::try_from_repr_c(slice[i], first)?);
+                    substore = rest;
+                    i += 1;
+                }
+
+                Ok(res)
             }
         }
     };

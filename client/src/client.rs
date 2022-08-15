@@ -611,6 +611,7 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
+        sorting: Sorting,
         filter: PredicateBox,
     ) -> Result<(B, QueryResponseHandler<R>)>
     where
@@ -619,6 +620,7 @@ impl Client {
         B: RequestBuilder,
     {
         let pagination: Vec<_> = pagination.into();
+        let sorting: Vec<_> = sorting.into();
         let request = QueryRequest::new(request.into(), self.account_id.clone(), filter);
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
 
@@ -628,16 +630,62 @@ impl Client {
                 format!("{}/{}", &self.torii_url, uri::QUERY),
             )
             .params(pagination)
+            .params(sorting)
             .headers(self.headers.clone())
             .body(request.encode_versioned()),
             QueryResponseHandler::default(),
         ))
     }
 
-    /// Create a request with pagination and add the filter.
+    /// Create a request with pagination, sorting and add the filter.
     ///
     /// # Errors
-    /// Forwards from [`Self::prepare_query_request`].
+    /// Fails if sending request fails
+    pub fn request_with_pagination_and_filter_and_sorting<R>(
+        &self,
+        request: R,
+        pagination: Pagination,
+        sorting: Sorting,
+        filter: PredicateBox,
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
+    {
+        iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
+        let (req, resp_handler) = self.prepare_query_request::<R, DefaultRequestBuilder>(
+            request, pagination, sorting, filter,
+        )?;
+        let response = req.build()?.send()?;
+        resp_handler.handle(response)
+    }
+
+    /// Create a request with pagination and sorting.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
+    pub fn request_with_pagination_and_sorting<R>(
+        &self,
+        request: R,
+        pagination: Pagination,
+        sorting: Sorting,
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    {
+        self.request_with_pagination_and_filter_and_sorting(
+            request,
+            pagination,
+            sorting,
+            PredicateBox::default(),
+        )
+    }
+
+    /// Create a request with pagination, sorting, and the given filter.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
     pub fn request_with_pagination_and_filter<R>(
         &self,
         request: R,
@@ -648,11 +696,12 @@ impl Client {
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
-        iroha_logger::trace!(?request, %pagination, ?filter);
-        let (req, resp_handler) =
-            self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination, filter)?;
-        let response = req.build()?.send()?;
-        resp_handler.handle(response)
+        self.request_with_pagination_and_filter_and_sorting(
+            request,
+            pagination,
+            Sorting::default(),
+            filter,
+        )
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
@@ -672,6 +721,22 @@ impl Client {
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination_and_filter(request, pagination, PredicateBox::default())
+    }
+
+    /// Query API entry point. Requests queries from `Iroha` peers with sorting.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
+    pub fn request_with_sorting<R>(
+        &self,
+        request: R,
+        sorting: Sorting,
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    {
+        self.request_with_pagination_and_sorting(request, Pagination::default(), sorting)
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
