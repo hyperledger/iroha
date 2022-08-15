@@ -1,0 +1,5 @@
+error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__private` in this scope
+  --> tests/ui_fail/private_method_inside_impl_are_skipped.rs:19:9
+   |
+19 |         FfiStruct__private(IntoFfi::into_ffi(s));
+   |         ^^^^^^^^^^^^^^^^^^ not found in this scope

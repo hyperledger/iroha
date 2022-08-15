@@ -147,7 +147,6 @@ ffi_item! {
         IntoSchema,
     )]
     #[id(type = "<Account as Identifiable>::Id")]
-    #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "[{id}]")]
     pub struct NewAccount {
         /// Identification
@@ -184,6 +183,11 @@ impl HasMetadata for NewAccount {
     }
 }
 
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewAccount {
     fn new(
         id: <Account as Identifiable>::Id,
@@ -200,14 +204,7 @@ impl NewAccount {
     pub(crate) fn id(&self) -> &<Account as Identifiable>::Id {
         &self.id
     }
-}
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {

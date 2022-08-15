@@ -8,12 +8,14 @@ pub struct FfiStruct;
 
 #[ffi_export]
 impl FfiStruct {
+    /// Private methods are skipped
     fn private(self) {}
 }
 
 fn main() {
     let s = FfiStruct;
     unsafe {
+        // Function not found
         FfiStruct__private(IntoFfi::into_ffi(s));
     }
 }

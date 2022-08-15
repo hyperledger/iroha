@@ -60,9 +60,7 @@ fn resolve_src_type(self_type: Option<&syn::Path>, mut arg_type: Type) -> Type {
     arg_type
 }
 
-pub struct ImplDescriptor<'ast> {
-    /// Associated types in the impl block
-    pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
+pub struct ImplDescriptor {
     /// Functions in the impl block
     pub fns: Vec<FnDescriptor>,
 }
@@ -87,9 +85,8 @@ pub struct FnDescriptor {
 }
 
 struct ImplVisitor<'ast> {
+    /// Trait name
     trait_name: Option<&'ast syn::Path>,
-    /// Associated types in the impl block
-    associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Resolved type of the `Self` type
     self_ty: Option<&'ast syn::Path>,
     /// Collection of FFI functions
@@ -118,19 +115,16 @@ struct FnVisitor<'ast> {
     curr_arg_name: Option<&'ast Ident>,
 }
 
-impl<'ast> ImplDescriptor<'ast> {
-    pub fn from_impl(node: &'ast syn::ItemImpl) -> Self {
+impl ImplDescriptor {
+    pub fn from_impl(node: &syn::ItemImpl) -> Self {
         let mut visitor = ImplVisitor::new();
         visitor.visit_item_impl(node);
 
         ImplDescriptor::from_visitor(visitor)
     }
 
-    fn from_visitor(visitor: ImplVisitor<'ast>) -> Self {
-        Self {
-            fns: visitor.fns,
-            associated_types: visitor.associated_types,
-        }
+    fn from_visitor(visitor: ImplVisitor) -> Self {
+        Self { fns: visitor.fns }
     }
 }
 
@@ -180,7 +174,6 @@ impl<'ast> ImplVisitor<'ast> {
     const fn new() -> Self {
         Self {
             trait_name: None,
-            associated_types: Vec::new(),
             self_ty: None,
             fns: vec![],
         }
@@ -273,22 +266,23 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
         self.visit_self_type(&*node.self_ty);
 
         let self_ty = self.self_ty.expect_or_abort("Defined");
-        for it in &node.items {
-            match it {
-                syn::ImplItem::Method(method) => self.fns.push(FnDescriptor::from_impl_method(
-                    self_ty,
-                    self.trait_name,
-                    method,
-                )),
-                syn::ImplItem::Type(type_) => {
-                    self.associated_types.push((&type_.ident, &type_.ty));
+        self.fns
+            .extend(node.items.iter().filter_map(|item| match item {
+                syn::ImplItem::Method(method) => {
+                    // NOTE: private methods in inherent impl are skipped
+                    if self.trait_name.is_none()
+                        && !matches!(method.vis, syn::Visibility::Public(_))
+                    {
+                        return None;
+                    }
+                    Some(FnDescriptor::from_impl_method(
+                        self_ty,
+                        self.trait_name,
+                        method,
+                    ))
                 }
-                _ => abort!(
-                    node,
-                    "Only methods or types are supported inside impl blocks"
-                ),
-            }
-        }
+                _ => None,
+            }));
     }
 }
 
@@ -296,11 +290,10 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
         self.doc = find_doc_attr(&node.attrs).cloned();
 
-        // NOTE: only public method in inherit impls are allowed
         if self.trait_name.is_none() && !matches!(node.vis, syn::Visibility::Public(_)) {
             abort!(
                 node.vis,
-                "Methods defined in the inherent `impl` block must be public"
+                "Private methods defined in an inherent `impl` block should not be exported, this is a bug in the library",
             );
         }
 
