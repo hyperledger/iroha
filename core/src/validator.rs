@@ -75,6 +75,11 @@ impl Chain {
         Ok(())
     }
 
+    /// Get constant view to the [`Chain`] without interior mutability
+    pub fn view(&self) -> ChainView {
+        ChainView { chain: self }
+    }
+
     fn execute_validator(
         &self,
         validator: &Validator,
@@ -82,5 +87,27 @@ impl Chain {
         operation: NeedsPermissionBox,
     ) -> Result<(), DenialReason> {
         todo!()
+    }
+}
+
+/// Constant view to the [`Chain`].
+///
+/// Provides [`Chain`] const methods without interior mutability.
+#[derive(Debug, Copy, Clone)]
+pub struct ChainView<'chain> {
+    chain: &'chain Chain,
+}
+
+impl<'chain> ChainView<'chain> {
+    /// Wrapper around [`Chain::validate`].
+    ///
+    /// # Errors
+    /// See [`Chain::validate`].
+    pub fn validate(
+        self,
+        wsv: &WorldStateView,
+        operation: impl Into<NeedsPermissionBox>,
+    ) -> Result<(), DenialReason> {
+        self.chain.validate(wsv, operation)
     }
 }

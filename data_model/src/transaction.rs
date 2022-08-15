@@ -293,7 +293,10 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 /// via network.  Direct usage in business logic is strongly
 /// prohibited. Before any interactions `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "{self:?}")] // TODO ?
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,

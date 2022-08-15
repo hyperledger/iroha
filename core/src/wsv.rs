@@ -919,6 +919,13 @@ impl WorldStateView {
     {
         self.modify_world(|world| f(&world.validators).map(WorldEvent::PermissionValidator))
     }
+
+    /// Get constant view to the validators chain.
+    ///
+    /// View guarantees that no interior-mutability can be performed.
+    pub fn validators_view(&self) -> crate::validator::ChainView {
+        self.world.validators.view()
+    }
 }
 
 #[cfg(test)]

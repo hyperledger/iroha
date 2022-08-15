@@ -8,8 +8,6 @@
 //! The architecture of the new validators is quite different from the old ones.
 //! That's why some parts of this module are may not be used anywhere yet.
 
-#![allow(unused_imports)] // TODO
-
 use super::*;
 use crate::{
     expression::Expression,
@@ -107,7 +105,6 @@ pub struct Id {
 )]
 pub enum Type {
     /// Validator checking [`Transaction`]
-    // TODO: implement other infrastructure for this variant
     Transaction,
     /// Validator checking [`Instruction`]
     Instruction,
@@ -147,18 +144,20 @@ impl NeedsPermission for Expression {
 /// Boxed version of [`NeedsPermission`]
 #[derive(Debug, Display, Clone, derive_more::From, derive_more::TryInto)]
 pub enum NeedsPermissionBox {
+    /// [`Transaction`] application
+    Transaction(Transaction),
     /// [`Instruction`] operation
     Instruction(Instruction),
     /// [`QueryBox`] operation
     Query(QueryBox),
     /// [`Expression`] operation
     Expression(Expression),
-    // TODO: Transaction variant
 }
 
 impl NeedsPermission for NeedsPermissionBox {
     fn required_validator_type(&self) -> Type {
         match self {
+            NeedsPermissionBox::Transaction(_) => Type::Transaction,
             NeedsPermissionBox::Instruction(_) => Type::Instruction,
             NeedsPermissionBox::Query(_) => Type::Query,
             NeedsPermissionBox::Expression(_) => Type::Expression,
