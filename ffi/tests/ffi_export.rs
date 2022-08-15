@@ -53,8 +53,9 @@ impl FfiStruct {
     }
 
     /// With params
+    // Note: `-> FfiStruct` used instead of `-> Self` to showcase that such signature supported by `#[ffi_export]`
     #[must_use]
-    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> FfiStruct {
         self.params = params.into_iter().collect();
         self
     }
@@ -93,6 +94,21 @@ impl FfiStruct {
 /// Return byte
 pub fn simple(byte: u8) -> u8 {
     byte
+}
+
+pub trait Target {
+    type Target;
+
+    fn target(self) -> Self::Target;
+}
+
+#[ffi_export]
+impl Target for FfiStruct {
+    type Target = Option<Name>;
+
+    fn target(self) -> <Self as Target>::Target {
+        self.name
+    }
 }
 
 fn get_new_struct() -> FfiStruct {
@@ -314,5 +330,20 @@ fn conversion_failed() {
             FfiReturn::ConversionFailed,
             __simple(byte, output.as_mut_ptr())
         )
+    }
+}
+
+#[test]
+fn invoke_trait_method() {
+    let ffi_struct = get_new_struct_with_params();
+    let mut output = MaybeUninit::<*mut Name>::new(core::ptr::null_mut());
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            FfiStruct__Target__target(IntoFfi::into_ffi(ffi_struct), output.as_mut_ptr())
+        );
+        let name = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).unwrap();
+        assert_eq!(Name(String::from("X")), name);
     }
 }

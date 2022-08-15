@@ -88,53 +88,16 @@ impl AsRef<str> for Name {
     }
 }
 
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl FromStr for Name {
     type Err = ParseError;
 
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
         Self::validate_str(candidate).map(|_| Self(ConstString::from(candidate)))
-    }
-}
-
-/// FFI function equivalent of [`Name::from_str`]
-///
-/// # Safety
-///
-/// All of the given pointers must be valid
-#[no_mangle]
-#[allow(non_snake_case, unsafe_code)]
-#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-pub unsafe extern "C" fn Name__from_str<'itm>(
-    candidate: <&'itm str as iroha_ffi::TryFromReprC<'itm>>::Source,
-    out_ptr: <<Name as iroha_ffi::IntoFfi>::Target as iroha_ffi::Output>::OutPtr,
-) -> iroha_ffi::FfiReturn {
-    let res = std::panic::catch_unwind(|| {
-        // False positive - doesn't compile otherwise
-        #[allow(clippy::let_unit_value)]
-        let fn_body = || {
-            let mut store = Default::default();
-            let candidate: &str = iroha_ffi::TryFromReprC::try_from_repr_c(candidate, &mut store)?;
-            let method_res = iroha_ffi::IntoFfi::into_ffi(
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                Name::from_str(candidate).map_err(|_e| iroha_ffi::FfiReturn::ExecutionFail)?,
-            );
-            iroha_ffi::OutPtrOf::write(out_ptr, method_res)?;
-            Ok(())
-        };
-
-        if let Err(err) = fn_body() {
-            return err;
-        }
-
-        iroha_ffi::FfiReturn::Ok
-    });
-
-    match res {
-        Ok(res) => res,
-        Err(_) => {
-            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-            iroha_ffi::FfiReturn::UnrecoverableError
-        }
     }
 }
 
@@ -193,33 +156,5 @@ mod tests {
 
             assert!(name.is_err());
         }
-    }
-
-    #[test]
-    #[allow(unsafe_code)]
-    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-    fn ffi_name_from_str() -> Result<(), ParseError> {
-        use iroha_ffi::Handle;
-        let candidate = "Name";
-
-        unsafe {
-            let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
-
-            assert_eq!(
-                iroha_ffi::FfiReturn::Ok,
-                Name__from_str(candidate.into_ffi(), name.as_mut_ptr())
-            );
-
-            let name = name.assume_init();
-            assert_ne!(core::ptr::null_mut(), name);
-            assert_eq!(Name::from_str(candidate)?, *name);
-
-            assert_eq!(
-                iroha_ffi::FfiReturn::Ok,
-                crate::ffi::__drop(Name::ID, name.cast())
-            );
-        }
-
-        Ok(())
     }
 }

@@ -122,7 +122,6 @@ impl Registered for Role {
     TryFromReprC,
     IntoSchema,
 )]
-#[allow(clippy::multiple_inherent_impl)]
 #[id(type = "<Role as Identifiable>::Id")]
 pub struct NewRole {
     inner: Role,
@@ -145,16 +144,6 @@ impl crate::Registrable for NewRole {
 )]
 #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewRole {
-    /// Add permission to the [`Role`]
-    #[must_use]
-    #[inline]
-    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
-        self.inner.permissions.insert(perm.into());
-        self
-    }
-}
-
-impl NewRole {
     /// Constructor
     #[must_use]
     #[inline]
@@ -171,6 +160,14 @@ impl NewRole {
     #[inline]
     pub(crate) fn id(&self) -> &<Role as Identifiable>::Id {
         &self.inner.id
+    }
+
+    /// Add permission to the [`Role`]
+    #[must_use]
+    #[inline]
+    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+        self.inner.permissions.insert(perm.into());
+        self
     }
 }
 
