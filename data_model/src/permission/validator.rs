@@ -1,4 +1,12 @@
-//! Structures, traits and impls related to `Validator`s.
+//! Structures, traits and impls related to *runtime* `Validator`s.
+//!
+//! # Note
+//!
+//! Currently Iroha 2 has only builtin validators (see `core/src/smartcontracts/permissions`).
+//! They are partly using API from this module.
+//! In the future they will be replaced with *runtime validators* using WASM.
+//! The architecture of the new validators is quite different from the old ones.
+//! That's why some parts of this module are may not be used anywhere yet.
 
 #![allow(unused_imports)] // TODO
 
@@ -157,3 +165,25 @@ impl NeedsPermission for NeedsPermissionBox {
         }
     }
 }
+
+/// Validation verdict. All *runtime validators* should return this type.
+///
+/// All operations are considered to be **valid** unless proven otherwise.
+/// Validators are allowed to either pass an operation to the next validator or to deny an operation.
+///
+/// # Note
+///
+/// There is no `Allow` variant because it has a wrong connotation and suggests an
+/// incorrect interpretation of validators system. All operations are allowed by default.
+/// Validators are checking for operation **incorrectness**, not for operation correctness.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Deserialize, Serialize, IntoSchema)]
+pub enum Verdict {
+    /// Operation is approved to pass to the next validator
+    /// or to be executed if there are no more validators
+    Pass,
+    /// Operation is denied
+    Deny(DenialReason),
+}
+
+/// Reason for denying the execution of a particular instruction.
+pub type DenialReason = String;

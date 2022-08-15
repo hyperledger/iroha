@@ -11,7 +11,11 @@ use core::{fmt::Display, marker::PhantomData, ops::Deref};
 pub use checks::*;
 use derive_more::Display;
 pub use has_token::*;
-use iroha_data_model::{permission::validator::NeedsPermission, prelude::*, utils::*};
+use iroha_data_model::{
+    permission::validator::{DenialReason, NeedsPermission},
+    prelude::*,
+    utils::*,
+};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -165,9 +169,6 @@ impl From<Result<()>> for ValidatorVerdict {
     }
 }
 
-/// Reason for denying the execution of a particular instruction.
-pub type DenialReason = String;
-
 /// Trait for hard-coded strongly-typed permission tokens.
 ///
 /// # Examples
@@ -260,7 +261,7 @@ pub mod prelude {
             QueryJudgeArc,
         },
         roles::{IsGrantAllowed, IsRevokeAllowed},
-        DenialReason, IsAllowed, ValidatorVerdict,
+        IsAllowed, ValidatorVerdict,
     };
 }
 
