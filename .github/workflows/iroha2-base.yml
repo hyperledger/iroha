@@ -11,7 +11,7 @@ on:
       - "Dockerfile.base"
 
 jobs:
-  publish_image:
+  dockerhub:
     strategy:
       matrix:
         tag: [dev, stable, lts]

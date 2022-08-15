@@ -3,7 +3,7 @@ name: I2::Dev::Nightly::Publish
 on: workflow_dispatch
 
 jobs:
-  publish_image:
+  dockerhub:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

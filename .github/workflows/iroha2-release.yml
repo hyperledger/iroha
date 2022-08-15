@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  publish_image:
+  dockerhub:
     runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest

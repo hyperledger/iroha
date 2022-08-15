@@ -11,7 +11,7 @@ env:
 # no point in burning our AWS self-hosted runners' time. Hence
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
-  publish_image:
+  dockerhub:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -88,7 +88,7 @@ jobs:
           name: schema
           path: target/schema
 
-  print_and_archive_telemetry:
+  telemetry:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
