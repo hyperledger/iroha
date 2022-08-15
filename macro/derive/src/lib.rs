@@ -213,8 +213,11 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
 }
 
 /// [`VariantCount`] derives an associated constant `VARIANT_COUNT: usize` for enums
-/// that is equal to the count of variants in enum. E.g.
-/// ```
+/// that is equal to the count of variants in enum.
+///
+/// # Examples
+/// TODO Remove `ignore` #2623
+/// ```ignore
 /// #[derive(VariantCount)]
 /// enum MyEnum {
 ///   First,
