@@ -1,5 +1,12 @@
 //! Trigger execution event and filter
 
+#[cfg(not(feature = "std"))]
+use alloc::alloc::alloc;
+#[cfg(feature = "std")]
+use std::alloc::alloc;
+
+use iroha_ffi::{IntoFfi, TryFromReprC};
+
 use super::*;
 use crate::prelude::*;
 
@@ -36,6 +43,8 @@ impl Event {
     Hash,
     Serialize,
     Deserialize,
+    IntoFfi,
+    TryFromReprC,
 )]
 pub struct EventFilter {
     /// Id of trigger catch executions of

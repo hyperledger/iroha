@@ -2,10 +2,44 @@
 
 use core::{fmt::Debug, hash::Hash};
 
+use iroha_ffi::{IntoFfi, ReprC, TryFromReprC};
+
 use super::*;
 
 /// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ReprCEventFilter {
+    tag: u8,
+    //payload: <EntityFilter as TryFromReprC<'itm>>::Source,
+}
+
+impl<'itm> iroha_ffi::Output for ReprCEventFilter {
+    type OutPtr = *mut Self;
+}
+
+// TODO: Temporary manual implementation
+unsafe impl ReprC for ReprCEventFilter {}
+impl<'itm> TryFromReprC<'itm> for EventFilter {
+    type Source = ReprCEventFilter;
+    type Store = ();
+
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'itm mut Self::Store,
+    ) -> iroha_ffi::Result<Self> {
+        unimplemented!()
+    }
+}
+impl IntoFfi for EventFilter {
+    type Target = ReprCEventFilter;
+
+    fn into_ffi(source: Self::Target) -> Self::Target {
+        unimplemented!()
+    }
+}
 
 #[derive(
     Clone,

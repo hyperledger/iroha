@@ -1,42 +1,59 @@
 //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{alloc::alloc, format, string::String, vec::Vec};
 use core::{
     cmp::Ordering,
     hash::{Hash, Hasher},
 };
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use derive_more::Display;
 use iroha_data_model_derive::IdOrdEqHash;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Identifiable, PublicKey, Registered, Value};
+use crate::{ffi, Identifiable, PublicKey, Registered, Value};
 
-/// Peer represents Iroha instance.
-#[derive(
-    Debug, Display, Clone, IdOrdEqHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[display(fmt = "@@{}", "id.address")]
-#[id(type = "Id")]
-pub struct Peer {
-    /// Peer Identification.
-    pub id: <Self as Identifiable>::Id,
+ffi::ffi_item! {
+    /// Peer represents Iroha instance.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdOrdEqHash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    #[display(fmt = "@@{}", "id.address")]
+    #[id(type = "Id")]
+    pub struct Peer {
+        /// Peer Identification.
+        pub id: <Self as Identifiable>::Id,
+    }
 }
 
-/// Peer's identification.
-///
-/// Equality is tested by `public_key` field only.
-/// Each peer should have a unique public key.
-#[derive(Debug, Display, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-#[display(fmt = "{public_key}@@{address}")]
-pub struct Id {
-    /// Address of the [`Peer`]'s entrypoint.
-    pub address: String,
-    /// Public Key of the [`Peer`].
-    pub public_key: PublicKey,
+ffi::ffi_item! {
+    /// Peer's identification.
+    ///
+    /// Equality is tested by `public_key` field only.
+    /// Each peer should have a unique public key.
+    #[derive(Debug, Display, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoFfi, TryFromReprC, IntoSchema)]
+    #[display(fmt = "{public_key}@@{address}")]
+    pub struct Id {
+        /// Address of the [`Peer`]'s entrypoint.
+        pub address: String,
+        /// Public Key of the [`Peer`].
+        pub public_key: PublicKey,
+    }
 }
 
 impl PartialEq for Id {

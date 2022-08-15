@@ -1,13 +1,16 @@
 //! Types used for Fixed-point operations. Uses [`fixnum::FixedPoint`].
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use derive_more::Display;
 use fixnum::{
     ops::{Bounded, CheckedAdd, CheckedSub, Zero},
     ArithmeticError,
 };
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -43,6 +46,8 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
 pub struct Fixed(FixNum);

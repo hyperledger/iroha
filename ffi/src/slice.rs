@@ -3,7 +3,7 @@
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{
-    owned::LocalSlice, AsReprCRef, FfiReturn, IntoFfi, OutPtrOf, Output, ReprC, Result,
+    owned::LocalSlice, AsReprC, FfiReturn, IntoFfi, OutPtrOf, Output, ReprC, Result,
     TryFromReprC,
 };
 
@@ -265,7 +265,7 @@ unsafe impl<T> ReprC for OutSliceRef<T> {}
 unsafe impl<T> ReprC for OutSliceMut<T> {}
 unsafe impl<T: ReprC> ReprC for OutBoxedSlice<T> {}
 
-impl<'slice, T: 'slice> AsReprCRef<'slice> for SliceRef<'slice, T> {
+impl<'slice, T: 'slice> AsReprC<'slice> for SliceRef<'slice, T> {
     type Target = Self;
 
     fn as_ref(&self) -> Self::Target {

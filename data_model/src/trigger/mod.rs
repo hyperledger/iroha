@@ -1,20 +1,43 @@
 //! Structures traits and impls related to `Trigger`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{alloc::alloc, format, string::String, vec::Vec};
 use core::{cmp, str::FromStr};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use derive_more::Display;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    events::prelude::*, metadata::Metadata, prelude::Domain, transaction::Executable, Identifiable,
-    Name, ParseError, Registered,
+    events::prelude::*, ffi, metadata::Metadata, prelude::Domain, transaction::Executable,
+    Identifiable, Name, ParseError, Registered,
 };
 
 pub mod set;
+
+impl<'itm> TryFromReprC<'itm> for Trigger<FilterBox> {
+    type Source = *mut Trigger<FilterBox>;
+    type Store = ();
+
+    unsafe fn try_from_repr_c(
+        source: Self::Source,
+        store: &'itm mut Self::Store,
+    ) -> iroha_ffi::Result<Self> {
+        unimplemented!()
+    }
+}
+
+impl IntoFfi for Trigger<FilterBox> {
+    type Target = *mut Trigger<FilterBox>;
+
+    fn into_ffi(source: Self::Target) -> Self::Target {
+        unimplemented!()
+    }
+}
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
@@ -145,26 +168,30 @@ impl Identifiable for Trigger<FilterBox> {
     }
 }
 
-/// Identification of a `Trigger`.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-pub struct Id {
-    /// Name given to trigger by its creator.
-    pub name: Name,
-    /// DomainId of domain of the trigger.
-    pub domain_id: Option<<Domain as Identifiable>::Id>,
+ffi::ffi_item! {
+    /// Identification of a `Trigger`.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+        IntoSchema,
+    )]
+    pub struct Id {
+        /// Name given to trigger by its creator.
+        pub name: Name,
+        /// DomainId of domain of the trigger.
+        pub domain_id: Option<<Domain as Identifiable>::Id>,
+    }
 }
 
 impl Id {

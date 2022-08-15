@@ -1,9 +1,12 @@
 //! Pipeline events.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{alloc::alloc, format, string::String, vec::Vec};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
 
 use iroha_crypto::Hash;
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -28,6 +31,8 @@ pub use crate::transaction::RejectionReason as PipelineRejectionReason;
     Hash,
     Serialize,
     Deserialize,
+    IntoFfi,
+    TryFromReprC,
 )]
 pub struct EventFilter {
     /// If `Some::<EntityKind>` filters by the [`EntityKind`]. If `None` accepts all the [`EntityKind`].

@@ -5,7 +5,7 @@ use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 
 use crate::{
     slice::{OutBoxedSlice, SliceRef},
-    AsReprCRef, FfiReturn, IntoFfi, Output, ReprC, Result, TryFromReprC,
+    AsReprC, FfiReturn, IntoFfi, Output, ReprC, Result, TryFromReprC,
 };
 
 /// Trait that facilitates the implementation of [`IntoFfi`] for vectors of foreign types
@@ -81,14 +81,14 @@ impl<A: ReprC> FromIterator<A> for LocalSlice<A> {
     }
 }
 
-impl<'itm, T: ReprC + 'itm> AsReprCRef<'itm> for Local<T> {
+impl<'itm, T: ReprC + 'itm> AsReprC<'itm> for Local<T> {
     type Target = *const T;
 
     fn as_ref(&self) -> Self::Target {
         &(self.0)
     }
 }
-impl<'slice, T: ReprC + 'slice> AsReprCRef<'slice> for LocalSlice<T> {
+impl<'slice, T: ReprC + 'slice> AsReprC<'slice> for LocalSlice<T> {
     type Target = SliceRef<'slice, T>;
 
     fn as_ref(&self) -> Self::Target {

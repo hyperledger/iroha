@@ -264,6 +264,8 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
     Encode,
     Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
 pub enum Parameter {
@@ -295,6 +297,8 @@ pub enum Parameter {
     Deserialize,
     Serialize,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
@@ -354,6 +358,8 @@ pub enum RegistrableBox {
     Deserialize,
     Serialize,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 )]
 pub enum IdentifiableBox {
@@ -444,7 +450,6 @@ pub type ValueBox = Box<Value>;
     IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
-#[repr(u8)]
 pub enum Value {
     /// [`u32`] integer.
     U32(u32),
@@ -459,11 +464,9 @@ pub enum Value {
     /// [`fixed::Fixed`] value
     Fixed(fixed::Fixed),
     /// [`Vec`] of `Value`.
-    Vec(
-        #[skip_from]
-        #[skip_try_from]
-        Vec<Value>,
-    ),
+    #[skip_from]
+    #[skip_try_from]
+    Vec(ValueVec),
     /// Recursive inclusion of LimitedMetadata,
     LimitedMetadata(metadata::Metadata),
     /// `Id` of `Asset`, `Account`, etc.
@@ -490,49 +493,77 @@ pub enum Value {
     BlockHeader(BlockHeaderValue),
 }
 
-/// Cross-platform wrapper for `BlockValue`.
-#[cfg(not(target_arch = "aarch64"))]
+/// Vector of [`Value`]s
 #[derive(
-    AsRef,
-    Clone,
     Debug,
-    Decode,
-    Deref,
-    Deserialize,
-    Encode,
-    Eq,
-    From,
-    Into,
-    Ord,
+    Clone,
     PartialEq,
+    Eq,
     PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
     Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
 )]
-#[serde(transparent)]
-pub struct BlockValueWrapper(BlockValue);
+pub struct ValueVec(Vec<Value>);
 
-/// Cross-platform wrapper for `BlockValue`.
+#[cfg(not(target_arch = "aarch64"))]
+ffi::ffi_item! {
+    /// Cross-platform wrapper for `BlockValue`.
+    #[derive(
+        AsRef,
+        Clone,
+        Debug,
+        Decode,
+        Deref,
+        Deserialize,
+        Encode,
+        Eq,
+        From,
+        Into,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+    )]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    pub struct BlockValueWrapper(BlockValue);
+}
+
 #[cfg(target_arch = "aarch64")]
-#[derive(
-    AsRef,
-    Clone,
-    Debug,
-    Decode,
-    Deref,
-    Deserialize,
-    Encode,
-    Eq,
-    From,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-)]
-#[as_ref(forward)]
-#[deref(forward)]
-#[from(forward)]
-#[serde(transparent)]
-pub struct BlockValueWrapper(Box<BlockValue>);
+ffi::ffi_item! {
+    /// Cross-platform wrapper for `BlockValue`.
+    #[derive(
+        AsRef,
+        Clone,
+        Debug,
+        Decode,
+        Deref,
+        Deserialize,
+        Encode,
+        Eq,
+        From,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+        IntoFfi,
+        TryFromReprC,
+    )]
+    #[as_ref(forward)]
+    #[deref(forward)]
+    #[from(forward)]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    pub struct BlockValueWrapper(Box<BlockValue>);
+}
 
 #[cfg(target_arch = "aarch64")]
 impl From<BlockValueWrapper> for BlockValue {

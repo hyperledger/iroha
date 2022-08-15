@@ -22,7 +22,7 @@ pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::{IntoFfi, ReprC, TryFromReprC};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
@@ -42,6 +42,13 @@ use ursa::{
         SignatureScheme,
     },
 };
+
+#[derive(Debug, Clone, ReprC)]
+pub enum Kita {
+    A(u32),
+    B(PublicKey),
+    C,
+}
 
 // Hiding constants is a bad idea. For one, you're forcing the user to
 // create temporaries, but also you're not actually hiding any

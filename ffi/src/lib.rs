@@ -42,7 +42,8 @@ pub unsafe trait Handle {
 pub unsafe trait ReprC: Sized {}
 
 /// Used to do a cheap reference-to-[`ReprC`]-reference conversion
-pub trait AsReprCRef<'itm> {
+// TODO: With GATs it should be possible to remove the `itm parameter
+pub trait AsReprC<'itm> {
     /// Robust C ABI compliant representation of &[`Self`]
     type Target: ReprC + 'itm;
 
@@ -51,8 +52,11 @@ pub trait AsReprCRef<'itm> {
 }
 
 /// Conversion from a type that implements [`ReprC`].
+/// Except for opaque pointer types, ownership transfer over FFI is not permitted
+// TODO: With GATs it should be possible to remove the `itm parameter
 pub trait TryFromReprC<'itm>: Sized + 'itm {
     /// Robust C ABI compliant representation of [`Self`]
+    // NOTE: Type is `Copy` to indicate that there can be no ownership transfer
     type Source: ReprC + Copy;
 
     /// Type into which state can be stored during conversion. Useful for returning
@@ -86,7 +90,8 @@ pub trait IntoFfi: Sized {
 }
 
 /// Type that can be returned from an FFI function as an out-pointer function argument
-pub trait OutPtrOf<T>: ReprC {
+// NOTE: Type is `Copy` to indicate that there can be no ownership transfer
+pub trait OutPtrOf<T>: ReprC + Copy {
     /// Try to write `T` into [`Self`] out-pointer and return whether or not it was successful
     ///
     /// # Errors
@@ -127,10 +132,27 @@ pub enum FfiReturn {
     Ok = 0,
 }
 
+/// Wrapper around struct/enum opaque pointer. When wrapped with the [`ffi`] macro in the
+/// crate linking dynamically to some `cdylib` crate, it replaces struct/enum body definition
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct Opaque {
+    __data: [u8; 0],
+
+    // Required for !Send & !Sync & !Unpin.
+    //
+    // - `*mut u8` is !Send & !Sync. It must be in `PhantomData` to not
+    //   affect alignment.
+    //
+    // - `PhantomPinned` is !Unpin. It must be in `PhantomData` because
+    //   its memory representation is not considered FFI-safe.
+    __marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
+}
+
 unsafe impl<T> ReprC for *const T {}
 unsafe impl<T> ReprC for *mut T {}
 
-impl<'itm, T: ReprC + Copy + 'itm> AsReprCRef<'itm> for T
+impl<'itm, T: ReprC + Copy + 'itm> AsReprC<'itm> for T
 where
     T: IntoFfi<Target = Self>,
 {
@@ -140,7 +162,7 @@ where
         *self
     }
 }
-impl<'itm, T: 'itm> AsReprCRef<'itm> for *const T {
+impl<'itm, T: 'itm> AsReprC<'itm> for *const T {
     type Target = Self;
 
     fn as_ref(&self) -> Self::Target {
@@ -164,6 +186,14 @@ impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
         source.as_mut().ok_or(FfiReturn::ArgIsNull)
     }
 }
+impl<'itm, T: TryFromReprC<'itm>> TryFromReprC<'itm> for alloc::boxed::Box<T> {
+    type Source = T::Source;
+    type Store = T::Store;
+
+    unsafe fn try_from_repr_c(source: Self::Source, store: &'itm mut Self::Store) -> Result<Self> {
+        Ok(alloc::boxed::Box::new(TryFromReprC::try_from_repr_c(source, store)?))
+    }
+}
 
 impl<T: ReprC + Copy> IntoFfi for &T
 where
@@ -185,30 +215,15 @@ where
         Self::Target::from(self)
     }
 }
+impl<T: IntoFfi> IntoFfi for alloc::boxed::Box<T> where {
+    type Target = T::Target;
 
-impl<T> OutPtrOf<*mut T> for *mut *mut T {
-    unsafe fn write(self, source: *mut T) -> Result<()> {
-        if self.is_null() {
-            return Err(FfiReturn::ArgIsNull);
-        }
-
-        self.write(source);
-        Ok(())
+    fn into_ffi(self) -> Self::Target {
+        (*self).into_ffi()
     }
 }
-impl<T> OutPtrOf<*const T> for *mut *const T {
-    unsafe fn write(self, source: *const T) -> Result<()> {
-        if self.is_null() {
-            return Err(FfiReturn::ArgIsNull);
-        }
 
-        self.write(source);
-        Ok(())
-    }
-}
 impl<T: ReprC> OutPtrOf<T> for *mut T
-where
-    T: IntoFfi<Target = T>,
 {
     unsafe fn write(self, source: T) -> Result<()> {
         if self.is_null() {
@@ -244,23 +259,6 @@ where
     type OutPtr = *mut Self;
 }
 
-/// Wrapper around struct/enum opaque pointer. When wrapped with the [`ffi`] macro in the
-/// crate linking dynamically to some `cdylib`, it replaces struct/enum body definition
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct Opaque {
-    __data: [u8; 0],
-
-    // Required for !Send & !Sync & !Unpin.
-    //
-    // - `*mut u8` is !Send & !Sync. It must be in `PhantomData` to not
-    //   affect alignment.
-    //
-    // - `PhantomPinned` is !Unpin. It must be in `PhantomData` because
-    //   its memory representation is not considered FFI-safe.
-    __marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
-}
-
 macro_rules! impl_tuple {
     ( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ) => {
         /// FFI-compatible tuple with n elements
@@ -278,7 +276,7 @@ macro_rules! impl_tuple {
 
         unsafe impl<$($ty: ReprC),+> ReprC for $ffi_ty<$($ty),+> {}
 
-        impl<'itm, $($ty: ReprC + 'itm),+> AsReprCRef<'itm> for $ffi_ty<$($ty),+> {
+        impl<'itm, $($ty: ReprC + 'itm),+> AsReprC<'itm> for $ffi_ty<$($ty),+> {
             type Target = *const Self;
 
             fn as_ref(&self) -> Self::Target {

@@ -3,8 +3,8 @@
 use std::{alloc::alloc, collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
-    def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, AsReprCRef, FfiReturn, FfiTuple2,
-    Handle, IntoFfi, TryFromReprC,
+    def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, AsReprC, FfiReturn, FfiTuple2, Handle,
+    IntoFfi, TryFromReprC,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
@@ -12,27 +12,37 @@ pub struct Name(String);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
 pub struct Value(String);
 
-/// FfiStruct
+/// Opaque structure
 #[derive(Clone, IntoFfi, TryFromReprC)]
-#[ffi_export]
-pub struct FfiStruct {
+pub struct OpaqueStruct {
     name: Option<Name>,
     tokens: Vec<Value>,
     params: BTreeMap<Name, Value>,
 }
 
-fn get_default_params() -> [(Name, Value); 2] {
-    [
-        (Name(String::from("Nomen")), Value(String::from("Omen"))),
-        (Name(String::from("Nomen2")), Value(String::from("Omen2"))),
-    ]
+/// Fieldless enum
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, IntoFfi, TryFromReprC)]
+pub enum FieldlessEnum {
+    A,
+    B,
+    C,
 }
 
-handles! {0, FfiStruct}
-def_ffi_fn! {Drop: FfiStruct}
+/// Data-carrying enum
+#[derive(Clone, IntoFfi, TryFromReprC)]
+pub enum DataCarryingEnum {
+    A(OpaqueStruct),
+    B(u32),
+    // TODO: Fix this
+    //C,
+}
+
+handles! {0, OpaqueStruct}
+def_ffi_fn! {Drop: OpaqueStruct}
 
 #[ffi_export]
-impl FfiStruct {
+impl OpaqueStruct {
     /// New
     pub fn new(name: Name) -> Self {
         Self {
@@ -91,11 +101,30 @@ impl FfiStruct {
 
 #[ffi_export]
 /// Return byte
-pub fn simple(byte: u8) -> u8 {
+pub fn freestanding_with_primitive(byte: u8) -> u8 {
     byte
 }
 
-fn get_new_struct() -> FfiStruct {
+#[ffi_export]
+/// Return fieldless enum
+pub fn freestanding_with_fieldless_enum(enum_: FieldlessEnum) -> FieldlessEnum {
+    enum_
+}
+
+#[ffi_export]
+/// Return data-carrying enum
+pub fn freestanding_with_data_carrying_enum(enum_: DataCarryingEnum) -> DataCarryingEnum {
+    enum_
+}
+
+fn get_default_params() -> [(Name, Value); 2] {
+    [
+        (Name(String::from("Nomen")), Value(String::from("Omen"))),
+        (Name(String::from("Nomen2")), Value(String::from("Omen2"))),
+    ]
+}
+
+fn get_new_struct() -> OpaqueStruct {
     let name = Name(String::from("X"));
 
     unsafe {
@@ -103,7 +132,7 @@ fn get_new_struct() -> FfiStruct {
 
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__new(IntoFfi::into_ffi(name), ffi_struct.as_mut_ptr())
+            OpaqueStruct__new(IntoFfi::into_ffi(name), ffi_struct.as_mut_ptr())
         );
 
         let ffi_struct = ffi_struct.assume_init();
@@ -113,13 +142,13 @@ fn get_new_struct() -> FfiStruct {
 }
 
 #[allow(trivial_casts)]
-fn get_new_struct_with_params() -> FfiStruct {
+fn get_new_struct_with_params() -> OpaqueStruct {
     let mut ffi_struct = get_new_struct();
     let params = get_default_params();
 
     let params_ffi = params.into_ffi();
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), params_ffi.as_ref())
+        OpaqueStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), params_ffi.as_ref())
     });
 
     ffi_struct
@@ -135,7 +164,7 @@ fn constructor() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(OpaqueStruct::ID, ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -153,7 +182,7 @@ fn builder_method() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(OpaqueStruct::ID, ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -165,7 +194,7 @@ fn consume_self() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__consume_self(ffi_struct.into_ffi().cast())
+            OpaqueStruct__consume_self(ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -184,7 +213,7 @@ fn into_iter_item_impl_into() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__with_tokens(IntoFfi::into_ffi(&mut ffi_struct), tokens_ffi.as_ref())
+            OpaqueStruct__with_tokens(IntoFfi::into_ffi(&mut ffi_struct), tokens_ffi.as_ref())
         );
 
         assert_eq!(2, ffi_struct.tokens.len());
@@ -192,7 +221,7 @@ fn into_iter_item_impl_into() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(OpaqueStruct::ID, ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -206,7 +235,7 @@ fn return_option() {
 
     let name1 = Name(String::from("Non"));
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), &name1, param1.as_mut_ptr())
+        OpaqueStruct__get_param(IntoFfi::into_ffi(&ffi_struct), &name1, param1.as_mut_ptr())
     });
     let param1 = unsafe { param1.assume_init() };
     assert!(param1.is_null());
@@ -217,7 +246,7 @@ fn return_option() {
 
     let name2 = Name(String::from("Nomen"));
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), &name2, param2.as_mut_ptr())
+        OpaqueStruct__get_param(IntoFfi::into_ffi(&ffi_struct), &name2, param2.as_mut_ptr())
     });
 
     unsafe {
@@ -228,7 +257,7 @@ fn return_option() {
         assert_eq!(Some(&Value(String::from("Omen"))), param2);
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(OpaqueStruct::ID, ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -243,12 +272,12 @@ fn empty_return_iterator() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
+            OpaqueStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
         );
         assert!(params_len.assume_init() == 2);
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(OpaqueStruct::ID, ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -267,7 +296,7 @@ fn return_iterator() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
+            OpaqueStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
         );
 
         assert_eq!(params_len.assume_init(), 2);
@@ -280,7 +309,7 @@ fn return_iterator() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(OpaqueStruct::ID, ffi_struct.into_ffi().cast())
         );
     }
 }
@@ -292,27 +321,99 @@ fn return_result() {
     unsafe {
         assert_eq!(
             FfiReturn::ExecutionFail,
-            FfiStruct__fallible_int_output(From::from(false), output.as_mut_ptr())
+            OpaqueStruct__fallible_int_output(From::from(false), output.as_mut_ptr())
         );
         assert_eq!(0, output.assume_init());
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__fallible_int_output(From::from(true), output.as_mut_ptr())
+            OpaqueStruct__fallible_int_output(From::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
     }
 }
 
-#[cfg(feature = "wasm")]
 #[test]
-fn conversion_failed() {
+fn primitive_conversion() {
+    let byte: u8 = 1;
+    let mut output = MaybeUninit::new(0);
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_primitive(byte.into_ffi(), output.as_mut_ptr())
+        );
+
+        let ret_val = output.assume_init();
+        #[cfg(feature = "wasm")]
+        let ret_val: u8 =
+            TryFromReprC::try_from_repr_c(ret_val, &mut ()).expect("Conversion failed");
+
+        assert_eq!(1, ret_val);
+    }
+}
+
+#[test]
+fn fieldless_enum_conversion() {
+    let fieldless_enum = FieldlessEnum::A;
+    let mut output = MaybeUninit::new(2);
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_fieldless_enum(fieldless_enum.into_ffi(), output.as_mut_ptr())
+        );
+
+        let ret_val = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ());
+        assert_eq!(FieldlessEnum::A, ret_val.expect("Conversion failed"));
+    }
+}
+
+#[test]
+fn data_carrying_enum_conversion() {
+    let data_carrying_enum = DataCarryingEnum::A(get_new_struct());
+    let mut output = MaybeUninit::new(DataCarryingEnum::B(42));
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_data_carrying_enum(data_carrying_enum.into_ffi(), output.as_mut_ptr())
+        );
+
+        let ret_val = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ());
+        assert_eq!(data_carrying_enum, ret_val.expect("Conversion failed"));
+    }
+}
+
+#[test]
+#[cfg(feature = "wasm")]
+fn primitive_conversion_failed() {
     let byte: u32 = u32::MAX;
     let mut output = MaybeUninit::new(0);
 
     unsafe {
         assert_eq!(
             FfiReturn::ConversionFailed,
-            __simple(byte, output.as_mut_ptr())
-        )
+            __freestanding_with_primitive(byte, output.as_mut_ptr())
+        );
+
+        let ret_val = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ());
+        assert_eq!(0_u8, ret_val.expect("Conversion failed"));
+    }
+}
+
+#[test]
+#[cfg(feature = "wasm")]
+fn fieldless_enum_conversion_failed() {
+    let byte: u32 = u32::MAX;
+    let mut output = MaybeUninit::new(0);
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::ConversionFailed,
+            __freestanding_with_fieldless_enum(byte, output.as_mut_ptr())
+        );
+
+        let ret_val = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ());
+        assert_eq!(FieldlessEnum::A, ret_val.expect("Conversion failed"));
     }
 }

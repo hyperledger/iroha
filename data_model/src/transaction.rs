@@ -1,17 +1,22 @@
 //! [`Transaction`] structures and related implementations.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
+use alloc::{
+    alloc::alloc, boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec,
+};
 use core::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
 };
 #[cfg(feature = "std")]
+use std::alloc::alloc;
+#[cfg(feature = "std")]
 use std::{collections::btree_set, time::Duration, vec};
 
 use derive_more::Display;
 use iroha_crypto::{Hash, SignatureOf, SignaturesOf};
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
@@ -20,7 +25,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+use crate::{account::Account, ffi, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -195,6 +200,8 @@ declare_versioned!(
     PartialEq,
     Eq,
     FromVariant,
+    IntoFfi,
+    TryFromReprC,
     IntoSchema,
 );
 
@@ -256,7 +263,7 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 /// via network.  Direct usage in business logic is strongly
 /// prohibited. Before any interactions `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoFfi, TryFromReprC, IntoSchema)]
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
@@ -401,7 +408,19 @@ impl IntoIterator for PendingTransactions {
 }
 
 /// Transaction Value used in Instructions and Queries
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoFfi,
+    TryFromReprC,
+    IntoSchema,
+)]
 pub enum TransactionValue {
     /// Committed transaction
     Transaction(Box<VersionedTransaction>),
@@ -439,13 +458,15 @@ impl PartialOrd for TransactionValue {
     }
 }
 
-/// `TransactionQueryResult` is used in `FindAllTransactions` query
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct TransactionQueryResult {
-    /// Transaction
-    pub tx_value: TransactionValue,
-    /// The hash of the block to which `tx` belongs to
-    pub block_hash: Hash,
+ffi::ffi_item! {
+    /// `TransactionQueryResult` is used in `FindAllTransactions` query
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoFfi, TryFromReprC, IntoSchema)]
+    pub struct TransactionQueryResult {
+        /// Transaction
+        pub tx_value: TransactionValue,
+        /// The hash of the block to which `tx` belongs to
+        pub block_hash: Hash,
+    }
 }
 
 impl TransactionQueryResult {
@@ -532,7 +553,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoFfi, TryFromReprC, IntoSchema);
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
@@ -573,7 +594,7 @@ impl Txn for VersionedRejectedTransaction {
 
 /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
 #[version(n = 1, versioned = "VersionedRejectedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoFfi, TryFromReprC, IntoSchema)]
 pub struct RejectedTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,

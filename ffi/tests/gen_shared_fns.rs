@@ -2,18 +2,16 @@
 
 use std::{alloc::alloc, cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{def_ffi_fn, ffi, ffi_export, handles, FfiReturn, Handle, IntoFfi, TryFromReprC};
+use iroha_ffi::{def_ffi_fn, ffi_export, handles, FfiReturn, Handle, IntoFfi, TryFromReprC};
 
-ffi! {
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
-    pub struct FfiStruct1 {
-        name: String,
-    }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+pub struct FfiStruct1 {
+    name: String,
+}
 
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
-    pub struct FfiStruct2 {
-        name: String,
-    }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
+pub struct FfiStruct2 {
+    name: String,
 }
 
 handles! {0, FfiStruct1, FfiStruct2}

@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 
+use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
@@ -160,6 +161,8 @@ pub trait Filter {
     Hash,
     Serialize,
     Deserialize,
+    IntoFfi,
+    TryFromReprC,
 )]
 pub enum FilterBox {
     /// Listen to pipeline events with filter.

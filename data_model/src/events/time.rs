@@ -1,6 +1,12 @@
 //! Time event and filter
 
+#[cfg(not(feature = "std"))]
+use alloc::alloc::alloc;
 use core::{ops::Range, time::Duration};
+#[cfg(feature = "std")]
+use std::alloc::alloc;
+
+use iroha_ffi::{IntoFfi, TryFromReprC};
 
 use super::*;
 
@@ -41,7 +47,10 @@ impl Event {
     Hash,
     Serialize,
     Deserialize,
+    IntoFfi,
+    TryFromReprC,
 )]
+#[repr(transparent)]
 pub struct EventFilter(pub ExecutionTime);
 
 impl Filter for EventFilter {

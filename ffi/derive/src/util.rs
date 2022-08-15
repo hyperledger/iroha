@@ -123,8 +123,8 @@ pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
 
     quote! {
         #ffi_conversion
-        // NOTE: `AsReprCRef` prevents ownerhip transfer over FFI
-        let #arg_name = iroha_ffi::AsReprCRef::as_ref(&#arg_name);
+        // NOTE: `AsReprC` prevents ownerhip transfer over FFI
+        let #arg_name = iroha_ffi::AsReprC::as_ref(&#arg_name);
     }
 }
 

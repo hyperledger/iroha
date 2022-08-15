@@ -278,7 +278,6 @@ pub enum AssetValueType {
     TryFromReprC,
     IntoSchema,
 )]
-#[repr(u8)]
 pub enum AssetValue {
     /// Asset's Quantity.
     #[display(fmt = "{_0}q")]

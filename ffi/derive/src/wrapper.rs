@@ -4,7 +4,7 @@ use quote::quote;
 
 use crate::{
     ffi_fn,
-    impl_visitor::{Arg, FnDescriptor, ReturnArg},
+    impl_visitor::{Arg, FnDescriptor},
     util::{gen_arg_ffi_to_src, gen_arg_src_to_ffi},
 };
 
@@ -96,7 +96,7 @@ fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     }
 }
 
-fn gen_return_stmt(arg: &ReturnArg) -> TokenStream {
+fn gen_return_stmt(arg: &Arg) -> TokenStream {
     let (arg_name, output_arg_conversion) = (arg.name(), gen_arg_ffi_to_src(arg, true));
 
     quote! {
