@@ -34,7 +34,7 @@ use super::{query::QueryBox, Value, ValueBox};
 /// gen_expr_and_impls! {
 ///     /// Comment
 ///     #[derive(Derives)]
-///     pub Expr(Type1, Type2, Type3, ...) -> OutputType
+///     pub Expr(param1: Type1, param2: Type2, param3: Type3, ...) -> OutputType
 /// }
 /// ```
 ///
