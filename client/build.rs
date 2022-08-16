@@ -60,15 +60,15 @@ fn main() {
             .current_dir(smartcontract_path)
             .args(&[
                 "+nightly-2022-08-15",
-                "build",
-                "--release",
-                "-Z",
-                "build-std",
-                "-Z",
-                "build-std-features=panic_immediate_abort",
-                "--target",
-                "wasm32-unknown-unknown",
-            ])
+            "build",
+            "--release",
+            "-Z",
+            "build-std",
+            "-Z",
+            "build-std-features=panic_immediate_abort",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
             .status()
             .expect("Failed to run `cargo build` on smartcontract");
         if !build.success() {
