@@ -10,7 +10,7 @@ use derive_more::Display;
 use iroha_core::{
     prelude::*,
     smartcontracts::{
-        permission::{
+        permissions::{
             judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
             HasToken, PermissionTokenTrait as _,
             ValidatorVerdict::*,
@@ -68,7 +68,7 @@ macro_rules! declare_token {
         #[allow(missing_copy_implementations)]
         $(#[$outer_meta])*
         ///
-        /// A wrapper around [PermissionToken](iroha_data_model::permission::PermissionToken).
+        /// A wrapper around [PermissionToken](iroha_data_model::permission::Token).
         #[derive(
             Clone,
             Debug,
@@ -111,8 +111,8 @@ macro_rules! declare_token {
             }
         }
 
-        impl iroha_core::smartcontracts::isi::permission::PermissionTokenTrait for $ident {
-            /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::PermissionTokenDefinition).
+        impl iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait for $ident {
+            /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::TokenDefinition).
             fn definition() -> &'static PermissionTokenDefinition {
                 static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
                     once_cell::sync::Lazy::new(|| {
@@ -122,13 +122,13 @@ macro_rules! declare_token {
             }
         }
 
-        impl From<$ident> for iroha_data_model::permission::PermissionToken {
+        impl From<$ident> for iroha_data_model::permission::Token {
             #[allow(unused)] // `value` can be unused if token has no params
             fn from(value: $ident) -> Self {
-                iroha_data_model::permission::PermissionToken::new(
+                iroha_data_model::permission::Token::new(
                     <
                         $ident as
-                        iroha_core::smartcontracts::isi::permission::PermissionTokenTrait
+                        iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
                     >::definition_id().clone()
                 )
                 .with_params([
@@ -137,16 +137,16 @@ macro_rules! declare_token {
             }
         }
 
-        impl TryFrom<iroha_data_model::permission::PermissionToken> for $ident {
-            type Error = iroha_core::smartcontracts::isi::permission::PredefinedTokenConversionError;
+        impl TryFrom<iroha_data_model::permission::Token> for $ident {
+            type Error = iroha_core::smartcontracts::isi::permissions::PredefinedTokenConversionError;
 
             #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
-                token: iroha_data_model::permission::PermissionToken
+                token: iroha_data_model::permission::Token
             ) -> std::result::Result<Self, Self::Error> {
                 if token.definition_id() != <
                     Self as
-                    iroha_core::smartcontracts::isi::permission::PermissionTokenTrait
+                    iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
                 >::definition_id() {
                     return Err(Self::Error::Id(token.definition_id().clone()))
                 }

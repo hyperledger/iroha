@@ -418,6 +418,24 @@ impl IdentifiableBox {
     }
 }
 
+impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
+    type Error = ();
+
+    fn try_from(
+        v: &'idbox IdentifiableBox,
+    ) -> Result<&'idbox (dyn HasMetadata + 'idbox), Self::Error> {
+        match v {
+            IdentifiableBox::NewDomain(v) => Ok(v.as_ref()),
+            IdentifiableBox::NewAccount(v) => Ok(v.as_ref()),
+            IdentifiableBox::NewAssetDefinition(v) => Ok(v.as_ref()),
+            IdentifiableBox::Domain(v) => Ok(v.as_ref()),
+            IdentifiableBox::Account(v) => Ok(v.as_ref()),
+            IdentifiableBox::AssetDefinition(v) => Ok(v.as_ref()),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 

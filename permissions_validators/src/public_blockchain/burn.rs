@@ -1,6 +1,6 @@
 //! Module with permission for burning
 
-use iroha_core::smartcontracts::permission::ValidatorVerdict;
+use iroha_core::smartcontracts::permissions::ValidatorVerdict;
 use iroha_data_model::asset::DefinitionId;
 
 use super::*;

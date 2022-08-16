@@ -1,6 +1,6 @@
 //! Query Permissions.
 
-use iroha_core::smartcontracts::permission::ValidatorVerdict;
+use iroha_core::smartcontracts::permissions::ValidatorVerdict;
 
 use super::*;
 

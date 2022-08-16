@@ -80,6 +80,12 @@ impl Chain {
         ChainView { chain: self }
     }
 
+    #[allow(
+        clippy::restriction,
+        clippy::unused_self,
+        clippy::needless_pass_by_value,
+        unused_variables
+    )] // TODO
     fn execute_validator(
         &self,
         validator: &Validator,

@@ -19,7 +19,7 @@ use iroha_core::{
     },
     smartcontracts::{
         isi::query::{Error as QueryError, ValidQueryRequest},
-        permission::prelude::*,
+        permissions::prelude::*,
     },
 };
 use iroha_crypto::SignatureOf;

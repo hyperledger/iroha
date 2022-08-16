@@ -21,7 +21,7 @@ use iroha_core::{
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
-    smartcontracts::permission::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
+    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::{Sumeragi, SumeragiTrait},
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
@@ -238,7 +238,7 @@ where
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
             transaction_validator
-                .validate_every(genesis)
+                .validate_every(genesis.iter().cloned())
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
 

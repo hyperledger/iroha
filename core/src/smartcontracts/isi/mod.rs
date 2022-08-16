@@ -252,6 +252,7 @@ impl Execute for Instruction {
     }
 }
 
+#[allow(clippy::restriction, unused_variables)] // TODO
 impl Execute for RegisterBox {
     type Error = Error;
 
@@ -287,6 +288,7 @@ impl Execute for RegisterBox {
     }
 }
 
+#[allow(clippy::restriction, unused_variables)] // TODO
 impl Execute for UnregisterBox {
     type Error = Error;
 

@@ -1,6 +1,6 @@
 //! Permission checks asociated with use cases that can be summarized as public blockchains.
 
-use iroha_core::smartcontracts::permission::Result;
+use iroha_core::smartcontracts::permissions::Result;
 use iroha_macro::{FromVariant, VariantCount};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
