@@ -124,7 +124,7 @@ impl Error {
             Config(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
-                queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
+                queue::Error::SignatureCondition { .. } => StatusCode::UNAUTHORIZED,
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]

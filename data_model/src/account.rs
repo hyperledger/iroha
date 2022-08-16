@@ -117,14 +117,15 @@ impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
     }
 }
 
-/// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
+/// Default signature condition check for accounts.
+/// Returns true if any of the signatories have signed the transaction.
 impl Default for SignatureCheckCondition {
     #[inline]
     fn default() -> Self {
         Self(
             ContainsAny::new(
-                ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
-                ContextValue::new(ACCOUNT_SIGNATORIES_VALUE),
+                EvaluatesTo::new_unchecked(ContextValue::new(TRANSACTION_SIGNATORIES_VALUE).into()),
+                EvaluatesTo::new_unchecked(ContextValue::new(ACCOUNT_SIGNATORIES_VALUE).into()),
             )
             .into(),
         )

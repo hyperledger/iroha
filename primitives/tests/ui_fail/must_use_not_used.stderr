@@ -1,0 +1,11 @@
+error: unused `MustUse` that must be used
+ --> tests/ui_fail/must_use_not_used.rs:6:5
+  |
+6 |     MustUse::new(5);
+  |     ^^^^^^^^^^^^^^^^
+  |
+note: the lint level is defined here
+ --> tests/ui_fail/must_use_not_used.rs:1:9
+  |
+1 | #![deny(unused_must_use)]
+  |         ^^^^^^^^^^^^^^^

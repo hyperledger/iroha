@@ -28,7 +28,7 @@ iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.7", default-featur
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 fixnum = { version = "0.6.1", default-features = false, features = ["serde", "parity", "i64"]}
-derive_more = { version = "0.99.16", default-features = false, features = ["display"] }
+derive_more = { version = "0.99.16", default-features = false, features = ["display", "as_ref", "as_mut", "deref", "constructor"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 smallvec = { version = "1.8.0", default-features = false, features = ["serde", "union"] }
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }

@@ -36,26 +36,32 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
     let _instruction = Pair::new(
         TransferBox::new(
             IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
-            Expression::Query(
-                FindAssetQuantityById::new(asset_id_new(
-                    "btc2eth_rate",
-                    "exchange",
-                    "dex",
-                    "exchange",
-                ))
+            EvaluatesTo::new_evaluates_to_value(
+                Expression::Query(
+                    FindAssetQuantityById::new(asset_id_new(
+                        "btc2eth_rate",
+                        "exchange",
+                        "dex",
+                        "exchange",
+                    ))
+                    .into(),
+                )
                 .into(),
             ),
             IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
         ),
         TransferBox::new(
             IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
-            Expression::Query(
-                FindAssetQuantityById::new(asset_id_new(
-                    "btc2eth_rate",
-                    "exchange",
-                    "dex",
-                    "exchange",
-                ))
+            EvaluatesTo::new_evaluates_to_value(
+                Expression::Query(
+                    FindAssetQuantityById::new(asset_id_new(
+                        "btc2eth_rate",
+                        "exchange",
+                        "dex",
+                        "exchange",
+                    ))
+                    .into(),
+                )
                 .into(),
             ),
             IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
@@ -67,12 +73,15 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
 fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
     let _instruction = IfInstruction::new(
         Not::new(Greater::new(
-            QueryBox::from(FindAssetQuantityById::new(asset_id_new(
-                "btc2eth_rate",
-                "exchange",
-                "dex",
-                "exchange",
-            ))),
+            EvaluatesTo::new_unchecked(
+                QueryBox::from(FindAssetQuantityById::new(asset_id_new(
+                    "btc2eth_rate",
+                    "exchange",
+                    "dex",
+                    "exchange",
+                )))
+                .into(),
+            ),
             10_u32,
         )),
         FailBox::new("rate is less or equal to value"),
@@ -97,12 +106,15 @@ impl FindRateAndCheckItGreaterThanValue {
     pub fn into_isi(self) -> IfInstruction {
         IfInstruction::new(
             Not::new(Greater::new(
-                QueryBox::from(FindAssetQuantityById::new(AssetId::new(
-                    format!("{}2{}_rate#exchange", self.from_currency, self.to_currency)
-                        .parse()
-                        .expect("Valid"),
-                    AccountId::from_str("dex@exchange").expect("Valid"),
-                ))),
+                EvaluatesTo::new_unchecked(
+                    QueryBox::from(FindAssetQuantityById::new(AssetId::new(
+                        format!("{}2{}_rate#exchange", self.from_currency, self.to_currency)
+                            .parse()
+                            .expect("Valid"),
+                        AccountId::from_str("dex@exchange").expect("Valid"),
+                    )))
+                    .into(),
+                ),
                 self.value,
             )),
             FailBox::new("rate is less or equal to value"),
@@ -214,26 +226,32 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             Pair::new(
                 TransferBox::new(
                     IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
-                    Expression::Query(
-                        FindAssetQuantityById::new(asset_id_new(
-                            "btc2eth_rate",
-                            "exchange",
-                            "dex",
-                            "exchange",
-                        ))
+                    EvaluatesTo::new_evaluates_to_value(
+                        Expression::Query(
+                            FindAssetQuantityById::new(asset_id_new(
+                                "btc2eth_rate",
+                                "exchange",
+                                "dex",
+                                "exchange",
+                            ))
+                            .into(),
+                        )
                         .into(),
                     ),
                     IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
                 ),
                 TransferBox::new(
                     IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
-                    Expression::Query(
-                        FindAssetQuantityById::new(asset_id_new(
-                            "btc2eth_rate",
-                            "exchange",
-                            "dex",
-                            "exchange",
-                        ))
+                    EvaluatesTo::new_evaluates_to_value(
+                        Expression::Query(
+                            FindAssetQuantityById::new(asset_id_new(
+                                "btc2eth_rate",
+                                "exchange",
+                                "dex",
+                                "exchange",
+                            ))
+                            .into(),
+                        )
                         .into(),
                     ),
                     IdBox::AssetId(asset_id_new("eth", "crypto", "seller", "company")),
