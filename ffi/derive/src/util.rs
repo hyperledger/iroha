@@ -218,7 +218,7 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
 #[allow(clippy::expect_used)]
 fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature {
     let field_name = field.ident.as_ref().expect("Field name not defined");
-    let (field_vis, field_ty) = (&field.vis, &field.ty);
+    let field_ty = &field.ty;
 
     let method_name = Ident::new(
         &match derive {
@@ -231,13 +231,13 @@ fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature 
 
     match derive {
         Derive::Setter => parse_quote! {
-            #field_vis fn #method_name(&mut self, #field)
+            fn #method_name(&mut self, #field)
         },
         Derive::Getter => parse_quote! {
-            #field_vis fn #method_name(&self) -> & #field_ty
+            fn #method_name(&self) -> & #field_ty
         },
         Derive::MutGetter => parse_quote! {
-            #field_vis fn #method_name(&mut self) -> &mut #field_ty
+            fn #method_name(&mut self) -> &mut #field_ty
         },
     }
 }
