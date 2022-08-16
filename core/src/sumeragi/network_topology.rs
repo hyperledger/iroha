@@ -14,7 +14,6 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use super::view_change::{self, ProofChain as ViewChangeProofs};
 use crate::block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock};
 
 /// Sorts peers based on the `hash`.
@@ -133,7 +132,6 @@ impl GenesisBuilder {
         Ok(Topology {
             sorted_peers,
             at_block: EmptyChainHash::default().into(),
-            view_change_proofs: ViewChangeProofs::empty(),
         })
     }
 }
@@ -146,8 +144,6 @@ pub struct Builder {
     peers: Option<HashSet<PeerId>>,
     /// Hash of the last committed block.
     at_block: Option<HashOf<VersionedCommittedBlock>>,
-    /// [`ViewChangeProofs`] accumulated during this round.
-    view_change_proofs: ViewChangeProofs,
 }
 
 impl Builder {
@@ -168,38 +164,31 @@ impl Builder {
         self
     }
 
-    /// Set number of view changes after the latest committed block. Default: 0
-    pub fn with_view_changes(mut self, view_change_proofs: ViewChangeProofs) -> Self {
-        self.view_change_proofs = view_change_proofs;
-        self
-    }
-
     /// Build and get topology.
     ///
     /// # Errors
     /// 1. Required field is omitted.
     /// 2. No peer exists.
-    pub fn build(self) -> Result<Topology> {
+    pub fn build(self, number_of_view_changes_this_round: u64) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
         if peers.is_empty() {
             return Err(eyre!("There must be at least one peer in the network."));
         }
         let at_block = field_is_some_or_err!(self.at_block)?;
         let peers: Vec<_> = peers.into_iter().collect();
-        let n_view_changes = self.view_change_proofs.len();
-        let since_last_shuffle = n_view_changes % peers.len();
+        let n_view_changes = number_of_view_changes_this_round;
+        let since_last_shuffle = n_view_changes % (peers.len() as u64);
         let is_full_circle = since_last_shuffle == 0;
         let sorted_peers = if is_full_circle {
-            sort_peers_by_hash_and_counter(peers, &at_block, n_view_changes as u64)
+            sort_peers_by_hash_and_counter(peers, &at_block, n_view_changes)
         } else {
             let last_shuffled_at = n_view_changes - since_last_shuffle;
-            let peers = sort_peers_by_hash_and_counter(peers, &at_block, last_shuffled_at as u64);
-            shift_peers_by_n(peers, since_last_shuffle as u64)
+            let peers = sort_peers_by_hash_and_counter(peers, &at_block, last_shuffled_at);
+            shift_peers_by_n(peers, since_last_shuffle)
         };
         Ok(Topology {
             sorted_peers,
             at_block,
-            view_change_proofs: self.view_change_proofs,
         })
     }
 }
@@ -211,8 +200,6 @@ pub struct Topology {
     sorted_peers: Vec<PeerId>,
     /// Hash of the last committed block.
     at_block: HashOf<VersionedCommittedBlock>,
-    /// [`ViewChangeProofs`] accumulated during this round.
-    view_change_proofs: ViewChangeProofs,
 }
 
 impl Topology {
@@ -226,35 +213,27 @@ impl Topology {
         Builder {
             peers: Some(self.sorted_peers.into_iter().collect()),
             at_block: Some(self.at_block),
-            view_change_proofs: self.view_change_proofs,
         }
     }
 
     /// Apply new committed block hash.
     #[allow(clippy::expect_used)]
-    pub fn apply_block(&mut self, block: HashOf<VersionedCommittedBlock>) {
-        /*
-        /// TODO: reimplement view changes before merging into dev (https://github.com/hyperledger/iroha/issues/2561)
+    pub fn refresh_at_new_block(&mut self, block: HashOf<VersionedCommittedBlock>) {
         *self = self
             .clone()
             .into_builder()
             .at_block(block)
-            .with_view_changes(ViewChangeProofs::empty())
-            .build()
-        .expect("Given a valid Topology, it is impossible to have error here.")
-        */
+            .build(0)
+            .expect("Given a valid Topology, it is impossible to have error here.");
     }
 
     /// Apply a view change - change topology in case there were faults in the consensus round.
     #[allow(clippy::expect_used)]
-    pub fn apply_view_change(&mut self, proof: view_change::Proof) {
-        let mut view_change_proofs = self.view_change_proofs.clone();
-        view_change_proofs.push(proof);
+    pub fn rebuild_with_new_view_change_count(&mut self, view_change_count: u64) {
         *self = self
             .clone()
             .into_builder()
-            .with_view_changes(view_change_proofs)
-            .build()
+            .build(view_change_count)
             .expect("Given a valid Topology, it is impossible to have error here.")
     }
 
@@ -375,11 +354,6 @@ impl Topology {
     /// Block hash on which this topology is based.
     pub const fn at_block(&self) -> &HashOf<VersionedCommittedBlock> {
         &self.at_block
-    }
-
-    /// Number of view changes.
-    pub const fn view_change_proofs(&self) -> &ViewChangeProofs {
-        &self.view_change_proofs
     }
 
     /// Maximum number of faulty peers that the network will tolerate.
@@ -551,26 +525,21 @@ mod tests {
     #[test]
     fn topology_shifts_or_shuffles() -> Result<()> {
         let peers = topology_test_peers();
-        let n_peers = peers.len();
-        let dummy_hash = Hash::prehashed([0_u8; Hash::LENGTH]).typed();
-        let dummy_proof = crate::sumeragi::Proof::commit_timeout(
-            dummy_hash,
-            dummy_hash.transmute(),
-            dummy_hash.transmute(),
-            KeyPair::generate()?,
-        )?;
+        let n_peers = peers.len() as u64;
+        let mut number_of_view_changes: u64 = 0;
         let mut last_topology = Builder::new()
             .with_peers(peers)
-            .at_block(dummy_hash.transmute())
-            .build()?;
+            .at_block(Hash::zeroed().typed())
+            .build(number_of_view_changes)?;
         for _a_view_change in 0..2 * n_peers {
             let mut topology = last_topology.clone();
             // When
             last_topology.sorted_peers.rotate_right(1);
-            topology.apply_view_change(dummy_proof.clone());
+            number_of_view_changes += 1;
+            topology.rebuild_with_new_view_change_count(number_of_view_changes);
             // Then
             let is_shifted_by_one = last_topology.sorted_peers == topology.sorted_peers;
-            let nth_view_change = topology.view_change_proofs.len();
+            let nth_view_change = number_of_view_changes;
             let is_full_circle = nth_view_change % n_peers == 0;
             if is_full_circle {
                 // `topology` should have shuffled

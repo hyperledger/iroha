@@ -229,7 +229,7 @@ pub mod isi {
             let permission = self.object;
 
             let wsv_clone = wsv.clone();
-            
+
             wsv.modify_account(&account_id, |account| {
                 if !account.remove_permission(&permission) {
                     return Err(ValidationError::new("Permission not found").into());

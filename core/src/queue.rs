@@ -31,7 +31,7 @@ pub struct Queue {
     ///
     /// DashMap right now just iterates over itself and calculates its length like this:
     /// self.txs.iter().len()
-    txs_in_block: usize,
+    pub txs_in_block: usize,
     max_txs: usize,
     ttl: Duration,
     future_threshold: Duration,
@@ -334,7 +334,10 @@ mod tests {
 
         for _ in 0..max_txs_in_queue {
             queue
-                .push(accepted_tx("alice@wonderland", 100_000, key_pair.clone()), &wsv)
+                .push(
+                    accepted_tx("alice@wonderland", 100_000, key_pair.clone()),
+                    &wsv,
+                )
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -429,17 +432,18 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            },
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
         for _ in 0..5 {
             queue
-                .push(accepted_tx("alice@wonderland", 100_000, alice_key.clone()), &wsv)
+                .push(
+                    accepted_tx("alice@wonderland", 100_000, alice_key.clone()),
+                    &wsv,
+                )
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -478,14 +482,12 @@ mod tests {
             .public_key()
             .clone()])));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            }
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
@@ -499,23 +501,27 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 200,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            },
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 200,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
         for _ in 0..(max_block_tx - 1) {
             queue
-                .push(accepted_tx("alice@wonderland", 100, alice_key.clone()), &wsv)
+                .push(
+                    accepted_tx("alice@wonderland", 100, alice_key.clone()),
+                    &wsv,
+                )
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         queue
-            .push(accepted_tx("alice@wonderland", 200, alice_key.clone()), &wsv)
+            .push(
+                accepted_tx("alice@wonderland", 200, alice_key.clone()),
+                &wsv,
+            )
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 1);
@@ -535,14 +541,12 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..Configuration::default()
-            },
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..Configuration::default()
+        });
         queue
             .push(accepted_tx("alice@wonderland", 100_000, alice_key), &wsv)
             .expect("Failed to push tx into queue");
