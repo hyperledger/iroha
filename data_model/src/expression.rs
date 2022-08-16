@@ -38,32 +38,32 @@ use super::{query::QueryBox, Value, ValueBox};
 /// }
 /// ```
 ///
-/// Has 3 syntax forms to specify parameters:
+/// The macro has three syntax forms to specify parameters:
 /// - One unnamed parameter. In that case, the parameter name will be `expression`.
 /// - Two unnamed parameters.
-/// In that case, the parameters names will be `left` and `right` respectively.
+///   In that case, the parameter names will be `left` and `right` respectively.
 /// - Any number of named parameters.
 ///
-/// Has 2 syntax forms to specify result:
-/// - With actual result type after the arrow (`->`).
-/// In that case an `impl From<$i> for EvaluatesTo<$result_type>` will be generated.
+/// The macro has two syntax forms to specify result:
+/// - With the actual result type after the arrow (`->`).
+///   In that case, `impl From<$i> for EvaluatesTo<$result_type>` will be generated.
 /// - With `?` sign as a result type.
-/// In that case **no** `impl From<$i> for EvaluatesTo<$result_type>` will be generated.
+///   In that case `impl From<$i> for EvaluatesTo<$result_type>` **won't** be generated.
 ///
-/// See example and further usage to more details.
+/// See the example and further usage for more details.
 ///
 /// # Example
 ///
 /// ```ignore
 /// gen_expr_and_impls! {
-///     /// Evaluates to the sum of right and left expressions.
+///     /// Evaluates to the sum of left and right expressions.
 ///     #[derive(Debug)]
 ///     pub Add(u32, u32) -> u32
 /// }
 ///
 /// // Will generate the following code:
 ///
-/// /// Evaluates to the sum of right and left expressions.
+/// /// Evaluates to the sum of left and right expressions.
 /// #[derive(Debug)]
 /// pub struct Add {
 ///     #[allow(missing_docs)]
@@ -100,25 +100,32 @@ use super::{query::QueryBox, Value, ValueBox};
 /// }
 /// ```
 macro_rules! gen_expr_and_impls {
+    // Case: one unnamed parameter with known result type
     ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> $result_type:ty) => {
         gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> $result_type);
     };
+    // Case: one unnamed parameter with unknown result type
     ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> ?) => {
         gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> ?);
     };
+    // Case: two unnamed parameters with known result type
     ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> $result_type:ty) => {
         gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> $result_type);
     };
+    // Case: two unnamed parameters with unknown result type
     ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> ?) => {
         gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> ?);
     };
+    // Case: any number of named parameters with unknown result type
     ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> ?) => {
         gen_expr_and_impls!(impl_basic $(#[$me])* $v $i($($param_name: $param_type),*));
     };
+    // Case: any number of named parameters with known result type
     ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> $result_type:ty) => {
         gen_expr_and_impls!(impl_basic $(#[$me])* $v $i($($param_name: $param_type),*));
         gen_expr_and_impls!(impl_extra_convert $i $result_type);
     };
+    // Internal usage: generate basic code for the expression
     (impl_basic $(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?)) => {
         $(#[$me])*
         $v struct $i {
@@ -151,6 +158,7 @@ macro_rules! gen_expr_and_impls {
             }
         }
     };
+    // Internal usage: generate extra `From` impl for expressions with known result type
     (impl_extra_convert $i:ident $result_type:ty) => {
         impl From<$i> for EvaluatesTo<$result_type> {
             fn from(expression: $i) -> Self {
@@ -506,7 +514,7 @@ impl From<ContextValue> for ExpressionBox {
 }
 
 gen_expr_and_impls! {
-    /// Evaluates to the multiplication of right and left expressions.
+    /// Evaluates to the multiplication of left and right expressions.
     /// Works only for [`Value::U32`]
     #[derive(
         Debug,
@@ -531,7 +539,7 @@ gen_expr_and_impls! {
 }
 
 gen_expr_and_impls! {
-    /// Evaluates to the division of right and left expressions.
+    /// Evaluates to the left expression divided by the right expression.
     /// Works only for [`Value::U32`]
     #[derive(
         Debug,
@@ -556,7 +564,7 @@ gen_expr_and_impls! {
 }
 
 gen_expr_and_impls! {
-    /// Evaluates to the modulus of right and left expressions.
+    /// Evaluates to the left expression modulo the right expression.
     /// Works only for [`Value::U32`]
     #[derive(
         Debug,
@@ -581,7 +589,7 @@ gen_expr_and_impls! {
 }
 
 gen_expr_and_impls! {
-    /// Evaluates to the right expression in power of left expressions.
+    /// Evaluates to the left expression in the power of right expression.
     /// Works only for [`Value::U32`]
     #[derive(
         Debug,
@@ -606,7 +614,7 @@ gen_expr_and_impls! {
 }
 
 gen_expr_and_impls! {
-    /// Evaluates to the sum of right and left expressions.
+    /// Evaluates to the sum of left and right expressions.
     /// Works only for [`Value::U32`]
     #[derive(
         Debug,
@@ -631,7 +639,7 @@ gen_expr_and_impls! {
 }
 
 gen_expr_and_impls! {
-    /// Evaluates to the difference of right and left expressions.
+    /// Evaluates to the left expression minus the right expression.
     /// Works only for [`Value::U32`]
     #[derive(
         Debug,
@@ -779,7 +787,8 @@ gen_expr_and_impls! {
 #[must_use = ".build() not used"]
 pub struct IfBuilder {
     /// Condition expression, which should evaluate to `Value::Bool`.
-    /// If it is `true` then the evaluated `then_expression` will be returned, else - evaluated `else_expression`.
+    /// If it is `true`, then the evaluated `then_expression` is returned.
+    /// Otherwise, the evaluated `else_expression` is returned.
     pub condition: EvaluatesTo<bool>,
     /// Expression evaluated and returned if the condition is `true`.
     pub then_expression: Option<EvaluatesTo<Value>>,
@@ -788,7 +797,7 @@ pub struct IfBuilder {
 }
 
 impl IfBuilder {
-    ///Sets the `condition`.
+    /// Sets the `condition`.
     pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
         IfBuilder {
             condition: condition.into(),
@@ -813,11 +822,11 @@ impl IfBuilder {
         }
     }
 
-    /// Returns [`If`] expression, if all the fields are filled.
+    /// Returns [`If`] expression if all the fields are filled.
     ///
     /// # Errors
     ///
-    /// Fails if some of fields are not filled.
+    /// Fails if some of the fields are not filled.
     pub fn build(self) -> Result<If, &'static str> {
         if let (Some(then_expression), Some(else_expression)) =
             (self.then_expression, self.else_expression)
@@ -830,8 +839,8 @@ impl IfBuilder {
 }
 
 gen_expr_and_impls! {
-    /// If expression. Returns either a result of `then_expression`, or a result of `else_expression`
-    /// based on the `condition`.
+    /// If expression. Based on the `condition`, returns the result of
+    /// either `then_expression`  or `else_expression`.
     #[derive(
         Debug,
         Display,
@@ -994,7 +1003,7 @@ impl WhereBuilder {
 }
 
 /// Adds a local context of `values` for the `expression`.
-/// It is similar to *Haskell's where syntax* although, evaluated eagerly.
+/// It is similar to **where** syntax in *Haskell* although evaluated eagerly.
 //
 // Can't use `gen_expr_and_impls!` here because we need special type for `values`
 #[derive(
@@ -1003,7 +1012,7 @@ impl WhereBuilder {
 pub struct Where {
     /// Expression to be evaluated.
     pub expression: EvaluatesTo<Value>,
-    /// Context values for the context binded to their `String` names.
+    /// Context values for the context bonded to their `String` names.
     pub values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
 }
 
