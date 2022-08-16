@@ -256,26 +256,24 @@ async fn handle_post_configuration(
 
 #[iroha_futures::telemetry_future]
 async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) -> eyre::Result<()> {
-    /*
-        TODO REDO
+    let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
+    let mut from_height = subscription_request.into_v1().try_into()?;
 
-        let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
-        let mut from_height = subscription_request.into_v1().try_into()?;
+    stream
+        .send(VersionedBlockPublisherMessage::from(
+            BlockPublisherMessage::SubscriptionAccepted,
+        ))
+        .await?;
 
-        stream
-            .send(VersionedBlockPublisherMessage::from(
-                BlockPublisherMessage::SubscriptionAccepted,
-            ))
-            .await?;
+    let wsv = sumeragi.wsv_clone();
 
-        let mut rx = wsv.subscribe_to_new_block_notifications();
+    let mut rx = wsv.subscribe_to_new_block_notifications();
+    stream_blocks(&mut from_height, &wsv, &mut stream).await?;
+
+    loop {
+        rx.changed().await?;
         stream_blocks(&mut from_height, &wsv, &mut stream).await?;
-
-        loop {
-            rx.changed().await?;
-            stream_blocks(&mut from_height, wsv, &mut stream).await?;
     }
-         */
     Ok(())
 }
 
@@ -284,8 +282,6 @@ async fn stream_blocks(
     wsv: &WorldStateView,
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
-    /*
-    TODO REDO
     #[allow(clippy::expect_used)]
     for block in wsv.blocks_from_height(
         (*from_height)
@@ -305,7 +301,7 @@ async fn stream_blocks(
             return Err(eyre!("Expected `BlockReceived` message"));
         }
     }
-    */
+
     Ok(())
 }
 
@@ -394,28 +390,28 @@ mod subscription {
 #[cfg(feature = "telemetry")]
 async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     use iroha_version::Version;
-    /*
-        TODO REDO
-        #[allow(clippy::expect_used)]
-        reply::json(
-            &wsv.blocks()
-                .last()
-                .expect("At least genesis should always exist")
-                .value()
-                .version()
-                .to_string(),
-    )
-         */
-    warp::reply::json(b"Not implemented")
+
+    let wsv = sumeragi.wsv_clone();
+
+    #[allow(clippy::expect_used)]
+    let string = wsv
+        .blocks()
+        .last()
+        .expect("At least genesis should always exist")
+        .value()
+        .version()
+        .to_string();
+    reply::json(&string)
 }
 
 #[cfg(feature = "telemetry")]
 async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<String> {
-    /*
-        update_metrics(&wsv, network).await?;
-        wsv.metrics.try_to_string().map_err(Error::Prometheus)
-    */
-    Ok("".to_owned())
+    sumeragi.update_metrics(network);
+    sumeragi
+        .wsv_clone()
+        .metrics
+        .try_to_string()
+        .map_err(Error::Prometheus)
 }
 
 #[cfg(feature = "telemetry")]
@@ -424,37 +420,6 @@ async fn handle_status(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> 
     let status = Status::from(&sumeragi.wsv_clone().metrics);
     Ok(reply::json(&status))
 }
-
-/*
-#[cfg(feature = "telemetry")]
-async fn update_metrics(wsv: &WorldStateView, network: Addr<IrohaNetwork>) -> Result<()> {
-    let peers = network
-        .send(iroha_p2p::network::GetConnectedPeers)
-        .await
-        .map_err(Error::Status)?
-        .peers
-        .len() as u64;
-    #[allow(clippy::cast_possible_truncation)]
-    if let Some(timestamp) = wsv.genesis_timestamp() {
-        // this will overflow in 584942417years.
-        wsv.metrics
-            .uptime_since_genesis_ms
-            .set((current_time().as_millis() - timestamp) as u64)
-    };
-    let domains = wsv.domains();
-    wsv.metrics.domains.set(domains.len() as u64);
-    wsv.metrics.connected_peers.set(peers);
-    for domain in domains {
-        wsv.metrics
-            .accounts
-            .get_metric_with_label_values(&[domain.id().name.as_ref()])
-            .wrap_err("Failed to compose domains")
-            .map_err(Error::Prometheus)?
-            .set(domain.accounts().len() as u64);
-    }
-    Ok(())
-}
-*/
 
 impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
