@@ -114,37 +114,6 @@ pub mod isi {
         }
     }
 
-    impl Execute for Register<PermissionTokenDefinition> {
-        type Error = Error;
-
-        #[metrics(+"register_token")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
-            let definition = self.object;
-            let definition_id = definition.id().clone();
-
-            wsv.modify_world(|world| {
-                if world
-                    .permission_token_definitions
-                    .contains_key(&definition_id)
-                {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::PermissionTokenDefinitionId(definition_id),
-                    ));
-                }
-
-                world
-                    .permission_token_definitions
-                    .insert(definition_id, definition.clone());
-                Ok(PermissionTokenEvent::DefinitionCreated(definition).into())
-            })
-        }
-    }
-
     impl Execute for Register<Role> {
         type Error = Error;
 
@@ -223,6 +192,37 @@ pub mod isi {
                 }
 
                 Ok(RoleEvent::Deleted(role_id).into())
+            })
+        }
+    }
+
+    impl Execute for Register<PermissionTokenDefinition> {
+        type Error = Error;
+
+        #[metrics(+"register_token")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let definition = self.object;
+            let definition_id = definition.id().clone();
+
+            wsv.modify_world(|world| {
+                if world
+                    .permission_token_definitions
+                    .contains_key(&definition_id)
+                {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::PermissionTokenDefinitionId(definition_id),
+                    ));
+                }
+
+                world
+                    .permission_token_definitions
+                    .insert(definition_id, definition.clone());
+                Ok(PermissionTokenEvent::DefinitionCreated(definition).into())
             })
         }
     }
