@@ -26,14 +26,14 @@ jobs:
   wasm32:
     runs-on: [self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
 
       # Static analysis
       - name: Format check
-        run: cargo +nightly-2022-08-09 fmt --all -- --check
+        run: cargo +nightly-2022-08-15 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --benches --tests --examples --quiet --no-default-features
         if: always()
@@ -47,4 +47,4 @@ jobs:
 
       # Tests
       - name: Run tests
-        run: mold --run cargo +nightly-2022-08-09 test --tests --quiet --no-fail-fast
+        run: mold --run cargo +nightly-2022-08-15 test --tests --quiet --no-fail-fast

@@ -23,10 +23,10 @@ jobs:
   test:
     runs-on: [self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold --run cargo +nightly-2022-08-09 test -p iroha_client --tests unstable_network --quiet
+        run: mold --run cargo +nightly-2022-08-15 test -p iroha_client --tests unstable_network --quiet

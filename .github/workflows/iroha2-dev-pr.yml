@@ -23,7 +23,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
@@ -46,7 +46,7 @@ jobs:
   tests_with_coverage:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       # TODO Remove these steps #2165
@@ -74,7 +74,7 @@ jobs:
   integration_tests:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v3

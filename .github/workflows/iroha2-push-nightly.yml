@@ -6,7 +6,7 @@ jobs:
   tag-nightly:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - name: Login to DockerHub
