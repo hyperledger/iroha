@@ -9,16 +9,13 @@ pub fn derive_try_from_repr_c(input: &DeriveInput) -> TokenStream2 {
     if !matches!(input.vis, syn::Visibility::Public(_)) {
         abort!(input.vis, "Only public items are supported");
     }
-    if !input.generics.params.is_empty() {
-        abort!(input.generics, "Generics are not supported");
-    }
 
     if is_opaque(input) {
         if is_opaque_wrapper(input) {
-            return derive_try_from_repr_c_for_opaque_item_wrapper(&input.ident);
+            return derive_try_from_repr_c_for_opaque_item_wrapper(input);
         }
 
-        return derive_try_from_repr_c_for_opaque_item(&input.ident);
+        return derive_try_from_repr_c_for_opaque_item(input);
     }
 
     match &input.data {
@@ -40,16 +37,13 @@ pub fn derive_into_ffi(input: &DeriveInput) -> TokenStream2 {
     if !matches!(input.vis, syn::Visibility::Public(_)) {
         abort!(input.vis, "Only public items are supported");
     }
-    if !input.generics.params.is_empty() {
-        abort!(input.generics, "Generics are not supported");
-    }
 
     if is_opaque(input) {
         if is_opaque_wrapper(input) {
-            return derive_into_ffi_for_opaque_item_wrapper(&input.ident);
+            return derive_into_ffi_for_opaque_item_wrapper(input);
         }
 
-        return derive_into_ffi_for_opaque_item(&input.ident);
+        return derive_into_ffi_for_opaque_item(input);
     }
 
     match &input.data {
@@ -85,19 +79,26 @@ fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
     })
 }
 
-fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
+fn derive_try_from_repr_c_for_opaque_item_wrapper(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let mut generics = input.generics.clone();
+    let lifetime: syn::Lifetime = syn::parse_quote!('itm);
+    let lifetimes = &[lifetime.clone()];
+    let (generic_params, ty_generics, where_clause) =
+        add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
+
     let opaque_item_slice_try_from_repr_c_derive =
-        derive_try_from_repr_c_for_opaque_item_slice(name);
-    let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
+        derive_try_from_repr_c_for_opaque_item_slice(input);
+    let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(input);
 
     quote! {
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for #name {
+        impl #generic_params iroha_ffi::TryFromReprC<#lifetime> for #name #ty_generics #where_clause {
             type Source = *mut iroha_ffi::Opaque;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source,
+                _: &mut <Self as iroha_ffi::TryFromReprC<#lifetime>>::Store
             ) -> iroha_ffi::Result<Self> {
                 if source.is_null() {
                     return Err(iroha_ffi::FfiReturn::ArgIsNull);
@@ -107,13 +108,13 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
             }
         }
 
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #name {
+        impl #generic_params iroha_ffi::TryFromReprC<#lifetime> for &#lifetime #name #ty_generics #where_clause {
             type Source = *const iroha_ffi::Opaque;
             type Store = Option<#name>;
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                store: &'itm mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source,
+                store: &#lifetime mut <Self as iroha_ffi::TryFromReprC<#lifetime>>::Store
             ) -> iroha_ffi::Result<Self> {
                 if source.is_null() {
                     return iroha_ffi::FfiReturn::ArgIsNull;
@@ -124,13 +125,13 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
             }
         }
 
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #name {
+        impl #generic_params iroha_ffi::TryFromReprC<#lifetime> for &#lifetime mut #name #ty_generics #where_clause {
             type Source = *mut iroha_ffi::Opaque;
             type Store = Option<#name>;
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                store: &'itm mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source,
+                store: &#lifetime mut <Self as iroha_ffi::TryFromReprC<#lifetime>>::Store
             ) -> iroha_ffi::Result<Self> {
                 if source.is_null() {
                     return iroha_ffi::FfiReturn::ArgIsNull;
@@ -146,19 +147,26 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
     }
 }
 
-fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
+fn derive_try_from_repr_c_for_opaque_item(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let mut generics = input.generics.clone();
+    let lifetime: syn::Lifetime = syn::parse_quote!('itm);
+    let lifetimes = &[lifetime.clone()];
+    let (generic_params, ty_generics, where_clause) =
+        add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
+
     let opaque_item_slice_try_from_repr_c_derive =
-        derive_try_from_repr_c_for_opaque_item_slice(name);
-    let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
+        derive_try_from_repr_c_for_opaque_item_slice(input);
+    let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(input);
 
     quote! {
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for #name {
+        impl<#generic_params> iroha_ffi::TryFromReprC<#lifetime> for #name #ty_generics #where_clause {
             type Source = *mut Self;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source,
+                _: &mut <Self as iroha_ffi::TryFromReprC<#lifetime>>::Store
             ) -> iroha_ffi::Result<Self> {
                 if source.is_null() {
                     return Err(iroha_ffi::FfiReturn::ArgIsNull);
@@ -168,25 +176,25 @@ fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
             }
         }
 
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #name {
-            type Source = *const #name;
+        impl<#generic_params> iroha_ffi::TryFromReprC<#lifetime> for &#lifetime #name #ty_generics #where_clause {
+            type Source = *const #name #ty_generics;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source,
+                _: &mut <Self as iroha_ffi::TryFromReprC<#lifetime>>::Store
             ) -> iroha_ffi::Result<Self> {
                 source.as_ref().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
             }
         }
 
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #name {
-            type Source = *mut #name;
+        impl<#generic_params> iroha_ffi::TryFromReprC<#lifetime> for &#lifetime mut #name #ty_generics #where_clause {
+            type Source = *mut #name #ty_generics;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source,
+                _: &mut <Self as iroha_ffi::TryFromReprC<#lifetime>>::Store
             ) -> iroha_ffi::Result<Self> {
                 source.as_mut().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
             }
@@ -197,16 +205,24 @@ fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
     }
 }
 
-fn derive_try_from_repr_c_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
+fn derive_try_from_repr_c_for_opaque_item_slice(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let mut generics = input.generics.clone();
+    let lifetime: syn::Lifetime = syn::parse_quote!('slice);
+    let lifetimes = &[lifetime.clone()];
+    let trait_bounds = &[syn::parse_quote!(core::clone::Clone)];
+    let (generic_params, ty_generics, where_clause) =
+        add_bounds_and_split_generics(&mut generics, lifetimes, trait_bounds);
+
     quote! {
-        impl<'slice> iroha_ffi::slice::TryFromReprCSliceRef<'slice> for #name {
-            type Source = iroha_ffi::slice::SliceRef<'slice, <&'slice Self as iroha_ffi::TryFromReprC<'slice>>::Source>;
+        impl<#generic_params> iroha_ffi::slice::TryFromReprCSliceRef<#lifetime> for #name #ty_generics #where_clause {
+            type Source = iroha_ffi::slice::SliceRef<#lifetime, <&#lifetime Self as iroha_ffi::TryFromReprC<#lifetime>>::Source>;
             type Store = Vec<Self>;
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Source,
-                store: &'slice mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Store
-            ) -> iroha_ffi::Result<&'slice [Self]> {
+                source: <Self as iroha_ffi::slice::TryFromReprCSliceRef<#lifetime>>::Source,
+                store: &#lifetime mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<#lifetime>>::Store
+            ) -> iroha_ffi::Result<&#lifetime [Self]> {
                 let source = source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
 
                 for elem in source {
@@ -219,15 +235,22 @@ fn derive_try_from_repr_c_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
     }
 }
 
-fn derive_try_from_repr_c_for_opaque_item_vec(name: &Ident) -> TokenStream2 {
+fn derive_try_from_repr_c_for_opaque_item_vec(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let mut generics = input.generics.clone();
+    let lifetime: syn::Lifetime = syn::parse_quote!('itm);
+    let lifetimes = &[lifetime.clone()];
+    let (generic_params, ty_generics, where_clause) =
+        add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
+
     quote! {
-        impl<'itm> iroha_ffi::owned::TryFromReprCVec<'itm> for #name {
-            type Source = iroha_ffi::slice::SliceRef<'itm, <Self as iroha_ffi::TryFromReprC<'itm>>::Source>;
+        impl<#generic_params> iroha_ffi::owned::TryFromReprCVec<#lifetime> for #name #ty_generics #where_clause {
+            type Source = iroha_ffi::slice::SliceRef<#lifetime, <Self as iroha_ffi::TryFromReprC<#lifetime>>::Source>;
             type Store = ();
 
             unsafe fn try_from_repr_c(
                 source: Self::Source,
-                _: &'itm mut <Self as iroha_ffi::owned::TryFromReprCVec<'itm>>::Store,
+                _: &#lifetime mut <Self as iroha_ffi::owned::TryFromReprCVec<#lifetime>>::Store,
             ) -> iroha_ffi::Result<Vec<Self>> {
                 let slice = source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
                 let mut res = Vec::with_capacity(slice.len());
@@ -352,12 +375,15 @@ fn derive_try_from_repr_c_for_fieldless_enum(
     }
 }
 
-fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
-    let opaque_item_slice_into_ffi_derive = derive_into_ffi_for_opaque_item_slice(name);
-    let opaque_item_vec_into_ffi_derive = derive_into_ffi_for_opaque_item_vec(name);
+fn derive_into_ffi_for_opaque_item_wrapper(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let opaque_item_slice_into_ffi_derive = derive_into_ffi_for_opaque_item_slice(input);
+    let opaque_item_vec_into_ffi_derive = derive_into_ffi_for_opaque_item_vec(input);
+
+    let (impl_generics, ty_generics, where_clause) = &input.generics.split_for_impl();
 
     quote! {
-        impl iroha_ffi::IntoFfi for #name {
+        impl #impl_generics iroha_ffi::IntoFfi for #name #ty_generics #where_clause {
             type Target = *mut iroha_ffi::Opaque;
 
             fn into_ffi(self) -> Self::Target {
@@ -365,7 +391,7 @@ fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
             }
         }
 
-        impl iroha_ffi::IntoFfi for &#name {
+        impl #impl_generics iroha_ffi::IntoFfi for &#name #ty_generics #where_clause {
             type Target = *const iroha_ffi::Opaque;
 
             fn into_ffi(self) -> Self::Target {
@@ -373,7 +399,7 @@ fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
             }
         }
 
-        impl iroha_ffi::IntoFfi for &mut #name {
+        impl #impl_generics iroha_ffi::IntoFfi for &mut #name #ty_generics #where_clause {
             type Target = *mut iroha_ffi::Opaque;
 
             fn into_ffi(self) -> Self::Target {
@@ -386,12 +412,15 @@ fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
     }
 }
 
-fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
-    let opaque_item_slice_into_ffi_derive = derive_into_ffi_for_opaque_item_slice(name);
-    let opaque_item_vec_into_ffi_derive = derive_into_ffi_for_opaque_item_vec(name);
+fn derive_into_ffi_for_opaque_item(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let opaque_item_slice_into_ffi_derive = derive_into_ffi_for_opaque_item_slice(input);
+    let opaque_item_vec_into_ffi_derive = derive_into_ffi_for_opaque_item_vec(input);
+
+    let (impl_generics, ty_generics, where_clause) = &input.generics.split_for_impl();
 
     quote! {
-        impl iroha_ffi::IntoFfi for #name {
+        impl #impl_generics iroha_ffi::IntoFfi for #name #ty_generics #where_clause {
             type Target = *mut Self;
 
             fn into_ffi(self) -> Self::Target {
@@ -405,16 +434,16 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
             }
         }
 
-        impl iroha_ffi::IntoFfi for &#name {
-            type Target = *const #name;
+        impl #impl_generics iroha_ffi::IntoFfi for &#name #ty_generics #where_clause {
+            type Target = *const #name #ty_generics;
 
             fn into_ffi(self) -> Self::Target {
                 <*const _>::from(self)
             }
         }
 
-        impl iroha_ffi::IntoFfi for &mut #name {
-            type Target = *mut #name;
+        impl #impl_generics iroha_ffi::IntoFfi for &mut #name #ty_generics #where_clause {
+            type Target = *mut #name #ty_generics;
 
             fn into_ffi(self) -> Self::Target {
                 <*mut _>::from(self)
@@ -426,10 +455,17 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     }
 }
 
-fn derive_into_ffi_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
+fn derive_into_ffi_for_opaque_item_slice(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let mut generics = input.generics.clone();
+    let lifetime: syn::Lifetime = syn::parse_quote!('slice);
+    let lifetimes = &[lifetime.clone()];
+    let (generic_params, ty_generics, where_clause) =
+        add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
+
     quote! {
-        impl<'slice> iroha_ffi::slice::IntoFfiSliceRef<'slice> for #name {
-            type Target = iroha_ffi::owned::LocalSlice<<&'slice Self as IntoFfi>::Target>;
+        impl<#generic_params> iroha_ffi::slice::IntoFfiSliceRef<#lifetime> for #name #ty_generics #where_clause {
+            type Target = iroha_ffi::owned::LocalSlice<<&#lifetime Self as IntoFfi>::Target>;
 
             fn into_ffi(source: &[Self]) -> Self::Target {
                 source.iter().map(iroha_ffi::IntoFfi::into_ffi).collect()
@@ -438,10 +474,13 @@ fn derive_into_ffi_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
     }
 }
 
-fn derive_into_ffi_for_opaque_item_vec(name: &Ident) -> TokenStream2 {
+fn derive_into_ffi_for_opaque_item_vec(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = &input.generics.split_for_impl();
+
     quote! {
-        impl iroha_ffi::owned::IntoFfiVec for #name {
-            type Target = iroha_ffi::owned::LocalSlice<<#name as iroha_ffi::IntoFfi>::Target>;
+        impl #impl_generics iroha_ffi::owned::IntoFfiVec for #name #ty_generics #where_clause {
+            type Target = iroha_ffi::owned::LocalSlice<<Self as iroha_ffi::IntoFfi>::Target>;
 
             fn into_ffi(source: Vec<Self>) -> Self::Target {
                 source.into_iter().map(IntoFfi::into_ffi).collect()
@@ -489,4 +528,26 @@ fn derive_into_ffi_for_fieldless_enum(enum_name: &Ident, repr: &[syn::NestedMeta
 fn is_opaque_wrapper(input: &DeriveInput) -> bool {
     let opaque_attr = parse_quote! {#[opaque_wrapper]};
     input.attrs.iter().any(|a| *a == opaque_attr)
+}
+
+fn add_bounds_and_split_generics<'generics>(
+    generics: &'generics mut syn::Generics,
+    lifetimes: &'generics [syn::Lifetime],
+    trait_bounds: &'generics [syn::TraitBound],
+) -> (
+    syn::punctuated::Punctuated<syn::GenericParam, syn::Token![,]>,
+    syn::TypeGenerics<'generics>,
+    Option<&'generics syn::WhereClause>,
+) {
+    let where_predicate: syn::WherePredicate =
+        syn::parse_quote!(Self: #(#lifetimes +)* #(#trait_bounds)+*);
+    generics
+        .make_where_clause()
+        .predicates
+        .push(where_predicate);
+    let (_, ty_generics, where_clause) = generics.split_for_impl();
+    let params = &generics.params;
+    // NOTE: Put lifetimes first
+    let generic_params = syn::parse_quote!(#(#lifetimes,)* #params);
+    (generic_params, ty_generics, where_clause)
 }
