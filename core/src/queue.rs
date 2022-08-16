@@ -31,7 +31,7 @@ pub struct Queue {
     ///
     /// DashMap right now just iterates over itself and calculates its length like this:
     /// self.txs.iter().len()
-    txs_in_block: usize,
+    pub txs_in_block: usize,
     max_txs: usize,
     ttl: Duration,
     future_threshold: Duration,
@@ -345,7 +345,10 @@ mod tests {
 
         for _ in 0..max_txs_in_queue {
             queue
-                .push(accepted_tx("alice@wonderland", 100_000, key_pair.clone()), &wsv)
+                .push(
+                    accepted_tx("alice@wonderland", 100_000, key_pair.clone()),
+                    &wsv,
+                )
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -462,7 +465,10 @@ mod tests {
         );
         for _ in 0..5 {
             queue
-                .push(accepted_tx("alice@wonderland", 100_000, alice_key.clone()), &wsv)
+                .push(
+                    accepted_tx("alice@wonderland", 100_000, alice_key.clone()),
+                    &wsv,
+                )
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -539,13 +545,19 @@ mod tests {
         );
         for _ in 0..(max_block_tx - 1) {
             queue
-                .push(accepted_tx("alice@wonderland", 100, alice_key.clone()), &wsv)
+                .push(
+                    accepted_tx("alice@wonderland", 100, alice_key.clone()),
+                    &wsv,
+                )
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         queue
-            .push(accepted_tx("alice@wonderland", 200, alice_key.clone()), &wsv)
+            .push(
+                accepted_tx("alice@wonderland", 200, alice_key.clone()),
+                &wsv,
+            )
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 1);
