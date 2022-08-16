@@ -1,4 +1,4 @@
-    # For all clippy lints please visit: https://rust-lang.github.io/rust-clippy/master/
+# For all clippy lints please visit: https://rust-lang.github.io/rust-clippy/master/
 deny = [
     'anonymous_parameters',
     'clippy::all',
