@@ -2,7 +2,7 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Configurable, Configuration};
+use iroha_config_base::derive::{view, Combine, Documented};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, Deserialize, Serialize, Configuration, Configurable)]
+    #[derive(Debug, Clone, Deserialize, Serialize, Combine, Documented)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]

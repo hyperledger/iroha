@@ -2,7 +2,7 @@
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Configurable, Configuration};
+use iroha_config_base::derive::{view, Combine, Documented};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ view! {
     /// `Sumeragi` configuration.
     /// [`struct@Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and a list of `TRUSTED_PEERS`.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configuration, Configurable)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Combine)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]

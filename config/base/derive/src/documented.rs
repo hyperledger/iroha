@@ -1,38 +1,22 @@
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::quote;
-use syn::{Ident, LitStr, Type};
+use syn::{Lit, LitStr, Meta};
 
-use super::utils::{
-    extract_field_attrs, extract_field_idents, extract_field_types, field_has_inner_attr, gen_docs,
-    gen_field_env, gen_lvalues, get_env_prefix, StructWithFields,
-};
+use super::utils::StructWithFields;
 
-pub(super) fn impl_configuration(ast: &StructWithFields) -> TokenStream {
+pub fn impl_documented(ast: &StructWithFields) -> TokenStream {
     let name = &ast.ident;
+    let docs = gen_docs(ast);
 
-    let prefix = get_env_prefix(ast);
+    let get_docs = impl_get_docs(docs.clone(), ast);
+    let get_inner_docs = impl_get_inner_docs(docs.clone(), ast);
+    let get_doc_recursive = impl_get_doc_recursive(docs, ast);
 
-    let field_idents = extract_field_idents(&ast.fields);
-
-    let field_attrs = extract_field_attrs(&ast.fields);
-
-    let field_ty = extract_field_types(&ast.fields);
-    let inner = field_has_inner_attr(&field_attrs);
-
-    let field_env = gen_field_env(&field_idents, &prefix);
-
-    let docs = gen_docs(&field_attrs, &field_env, &field_ty);
-
-    let (lvalue_read, _lvalue_write) = gen_lvalues(&field_ty, &field_idents);
-
-    let get_recursive = impl_get_recursive(&field_idents, &inner, &lvalue_read);
-    let get_doc_recursive =
-        impl_get_doc_recursive(&field_ty, &field_idents, inner.clone(), docs.clone());
-    let get_inner_docs = impl_get_inner_docs(&field_ty, &field_idents, inner.clone(), docs.clone());
-    let get_docs = impl_get_docs(&field_ty, &field_idents, inner, docs);
+    let get_recursive = impl_get_recursive(ast);
 
     let out = quote! {
-        impl iroha_config_base::proxy::Configuration for #name {
+        impl iroha_config_base::proxy::Documented for #name {
             type Error = iroha_config_base::derive::Error;
 
             #get_recursive
@@ -44,13 +28,8 @@ pub(super) fn impl_configuration(ast: &StructWithFields) -> TokenStream {
     out.into()
 }
 
-fn impl_get_doc_recursive(
-    field_ty: &[Type],
-    field_idents: &[&Ident],
-    inner: Vec<bool>,
-    docs: Vec<LitStr>,
-) -> proc_macro2::TokenStream {
-    if field_idents.is_empty() {
+fn impl_get_doc_recursive(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_macro2::TokenStream {
+    if ast.fields.is_empty() {
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
@@ -62,21 +41,23 @@ fn impl_get_doc_recursive(
             }
         };
     }
-    let variants = field_idents
+
+    let variants = ast.fields
         .iter()
-        .zip(inner)
         .zip(docs)
-        .zip(field_ty)
-        .map(|(((ident, inner_thing), documentation), ty)| {
+        .map(|(field, documentation)| {
+            let inner_thing = field.has_inner;
+            let ty = &field.ty;
+            let ident = &field.ident;
             if inner_thing {
                 quote! {
                     [stringify!(#ident)] => {
                         let curr_doc = #documentation;
-                        let inner_docs = <#ty as iroha_config_base::proxy::Configuration>::get_inner_docs();
+                        let inner_docs = <#ty as iroha_config_base::proxy::Documented>::get_inner_docs();
                         let total_docs = format!("{}\n\nHas following fields:\n\n{}\n", curr_doc, inner_docs);
                         Some(total_docs)
                     },
-                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config_base::proxy::Configuration>::get_doc_recursive(rest)?,
+                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config_base::proxy::Documented>::get_doc_recursive(rest)?,
                 }
             } else {
                 quote! { [stringify!(#ident)] => Some(#documentation.to_owned()), }
@@ -100,28 +81,24 @@ fn impl_get_doc_recursive(
     }
 }
 
-fn impl_get_inner_docs(
-    field_ty: &[Type],
-    field_idents: &[&Ident],
-    inner: Vec<bool>,
-    docs: Vec<LitStr>,
-) -> proc_macro2::TokenStream {
-    let inserts = field_idents.iter().zip(inner).zip(docs).zip(field_ty).map(
-        |(((ident, inner_thing), documentation), ty)| {
-            let doc = if inner_thing {
-                quote! { <#ty as iroha_config_base::proxy::Configuration>::get_inner_docs().as_str() }
-            } else {
-                quote! { #documentation.into() }
-            };
+fn impl_get_inner_docs(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_macro2::TokenStream {
+    let inserts = ast.fields.iter().zip(docs).map(|(field, documentation)| {
+        let inner_thing = field.has_inner;
+        let ty = &field.ty;
+        let ident = &field.ident;
+        let doc = if inner_thing {
+            quote! { <#ty as iroha_config_base::proxy::Documented>::get_inner_docs().as_str() }
+        } else {
+            quote! { #documentation.into() }
+        };
 
-            quote! {
-                inner_docs.push_str(stringify!(#ident));
-                inner_docs.push_str(": ");
-                inner_docs.push_str(#doc);
-                inner_docs.push_str("\n\n");
-            }
-        },
-    );
+        quote! {
+            inner_docs.push_str(stringify!(#ident));
+            inner_docs.push_str(": ");
+            inner_docs.push_str(#doc);
+            inner_docs.push_str("\n\n");
+        }
+    });
 
     quote! {
         fn get_inner_docs() -> String {
@@ -132,23 +109,19 @@ fn impl_get_inner_docs(
     }
 }
 
-fn impl_get_docs(
-    field_ty: &[Type],
-    field_idents: &[&Ident],
-    inner: Vec<bool>,
-    docs: Vec<LitStr>,
-) -> proc_macro2::TokenStream {
-    let inserts = field_idents.iter().zip(inner).zip(docs).zip(field_ty).map(
-        |(((ident, inner_thing), documentation), ty)| {
-            let doc = if inner_thing {
-                quote! { <#ty as iroha_config_base::proxy::Configuration>::get_docs().into() }
-            } else {
-                quote! { #documentation.into() }
-            };
+fn impl_get_docs(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_macro2::TokenStream {
+    let inserts = ast.fields.iter().zip(docs).map(|(field, documentation)| {
+        let ident = &field.ident;
+        let ty = &field.ty;
+        let inner_thing = field.has_inner;
+        let doc = if inner_thing {
+            quote! { <#ty as iroha_config_base::proxy::Documented>::get_docs().into() }
+        } else {
+            quote! { #documentation.into() }
+        };
 
-            quote! { map.insert(stringify!(#ident).to_owned(), #doc); }
-        },
-    );
+        quote! { map.insert(stringify!(#ident).to_owned(), #doc); }
+    });
 
     quote! {
         fn get_docs() -> serde_json::Value {
@@ -159,12 +132,8 @@ fn impl_get_docs(
     }
 }
 
-fn impl_get_recursive(
-    field_idents: &[&Ident],
-    inner: &[bool],
-    lvalue: &[proc_macro2::TokenStream],
-) -> proc_macro2::TokenStream {
-    if field_idents.is_empty() {
+fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
+    if ast.fields.is_empty() {
         return quote! {
             fn get_recursive<'a, T>(
                 &self,
@@ -179,11 +148,13 @@ fn impl_get_recursive(
             }
         };
     }
-    let variants = field_idents
+
+    let variants = ast.fields
         .iter()
-        .zip(inner)
-        .zip(lvalue.iter())
-        .map(|((ident, &inner_thing), l_value)| {
+        .map(|field | {
+            let inner_thing = field.has_inner;
+            let ident = &field.ident;
+            let l_value = &field.lvalue_read;
             let inner_thing2 = if inner_thing {
                 quote! {
                     [stringify!(#ident), rest @ ..] => {
@@ -220,4 +191,37 @@ fn impl_get_recursive(
             Ok(value)
         }
     }
+}
+
+/// Generate documentation for all fields based on their type and already existing documentation
+pub fn gen_docs(ast: &StructWithFields) -> Vec<LitStr> {
+    ast.fields
+        .iter()
+        .map(|field| {
+            let field_ty = &field.ty;
+            let env = &field.env_str;
+            let real_doc = field
+                .attrs
+                .iter()
+                .filter_map(|attr| attr.parse_meta().ok())
+                .find_map(|metadata| {
+                    if let Meta::NameValue(meta) = metadata {
+                        if meta.path.is_ident("doc") {
+                            if let Lit::Str(s) = meta.lit {
+                                return Some(s);
+                            }
+                        }
+                    }
+                    None
+                });
+            let real_doc = real_doc.map(|doc| doc.value() + "\n\n").unwrap_or_default();
+            let docs = format!(
+                "{}Has type `{}`. Can be configured via environment variable `{}`",
+                real_doc,
+                quote! { #field_ty }.to_string().replace(' ', ""),
+                env
+            );
+            LitStr::new(&docs, Span::mixed_site())
+        })
+        .collect::<Vec<_>>()
 }

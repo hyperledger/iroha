@@ -1,11 +1,11 @@
 //! Module for telemetry-related configuration and structs.
 
-use iroha_config_base::derive::{Configurable, Configuration};
+use iroha_config_base::derive::{Combine, Documented};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 /// Configuration parameters container
-#[derive(Clone, Deserialize, Serialize, Debug, Configuration, Configurable, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Combine, Documented, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "TELEMETRY_")]

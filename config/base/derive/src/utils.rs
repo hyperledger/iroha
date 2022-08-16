@@ -1,8 +1,8 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
-    Attribute, Field, GenericArgument, Ident, Lit, LitStr, Meta, PathArguments, Token, Type,
+    Attribute, GenericArgument, Ident, LitStr, PathArguments, Token, Type,
 };
 
 /// Keywords used inside `#[view(...)]` and `#[config(...)]`
@@ -22,7 +22,7 @@ pub trait AttrParser<Inner: Parse> {
 
     fn parse(attr: &syn::Attribute) -> syn::Result<Inner> {
         attr.path
-            .is_ident(<Self as AttrParser<_>>::IDENT)
+            .is_ident(&<Self as AttrParser<_>>::IDENT)
             .then(|| attr.parse_args::<Inner>())
             .map_or_else(
                 || {
@@ -84,12 +84,11 @@ pub struct View<Inner: Parse>(std::marker::PhantomData<Inner>);
 /// [`Inner`] is responsible for parsing attribute arguments
 struct Config<Inner: Parse>(std::marker::PhantomData<Inner>);
 
-impl<Inner: Parse> AttrParser<Inner> for Config<Inner> {
-    const IDENT: &'static str = "config";
-}
-
 impl<Inner: Parse> AttrParser<Inner> for View<Inner> {
     const IDENT: &'static str = "view";
+}
+impl<Inner: Parse> AttrParser<Inner> for Config<Inner> {
+    const IDENT: &'static str = "config";
 }
 
 attr_struct! {
@@ -132,22 +131,89 @@ impl From<ViewFieldType> for Type {
     }
 }
 
+#[derive(Clone)]
+pub struct StructField {
+    pub ident: Ident,
+    pub ty: Type,
+    pub vis: syn::Visibility,
+    pub attrs: Vec<Attribute>,
+    pub env_str: String,
+    pub has_inner: bool,
+    pub has_option: bool,
+    pub has_as_str: bool,
+    pub lvalue_read: TokenStream,
+    pub lvalue_write: TokenStream,
+}
+
+impl StructField {
+    fn from_ast(field: syn::Field, env_prefix: &str) -> Self {
+        #[allow(clippy::expect_used)]
+        let field_ident = field
+            .ident
+            .expect("Already checked for named fields at parsing");
+        let (lvalue_read, lvalue_write) = gen_lvalue(&field.ty, &field_ident);
+        StructField {
+            has_inner: field
+                .attrs
+                .iter()
+                .any(|attr| Config::<ConfigInner>::parse(attr).is_ok()),
+            has_as_str: field
+                .attrs
+                .iter()
+                .any(|attr| Config::<ConfigAsStr>::parse(attr).is_ok()),
+            has_option: is_option_type(&field.ty),
+            env_str: env_prefix.to_owned() + &field_ident.to_string().to_uppercase(),
+            attrs: field.attrs,
+            ident: field_ident,
+            ty: field.ty,
+            vis: field.vis,
+            lvalue_read,
+            lvalue_write,
+        }
+    }
+}
+
+impl ToTokens for StructField {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let StructField {
+            attrs,
+            ty,
+            ident,
+            vis,
+            ..
+        } = self;
+        let stream = quote! {
+            #(#attrs)*
+            #vis #ident: #ty
+        };
+        tokens.extend(stream);
+    }
+}
+
 /// Parsed struct with named fields used in proc macros of this crate
 #[derive(Clone)]
 pub struct StructWithFields {
     pub attrs: Vec<Attribute>,
+    pub env_prefix: String,
     pub vis: syn::Visibility,
     _struct_token: Token![struct],
     pub ident: Ident,
     pub generics: syn::Generics,
-    pub fields: Vec<Field>,
+    pub fields: Vec<StructField>,
     _semi_token: Option<Token![;]>,
 }
 
 impl Parse for StructWithFields {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
+        let env_prefix = attrs
+            .iter()
+            .map(Config::<ConfigEnvPrefix>::parse)
+            .find_map(Result::ok)
+            .map(|pref| pref.prefix.value())
+            .unwrap_or_default();
         Ok(Self {
-            attrs: input.call(Attribute::parse_outer)?,
+            attrs,
             vis: input.parse()?,
             _struct_token: input.parse()?,
             ident: input.parse()?,
@@ -156,7 +222,9 @@ impl Parse for StructWithFields {
                 .parse::<syn::FieldsNamed>()?
                 .named
                 .into_iter()
+                .map(|field| StructField::from_ast(field, &env_prefix))
                 .collect(),
+            env_prefix,
             _semi_token: input.parse()?,
         })
     }
@@ -187,29 +255,14 @@ pub fn remove_attr(attrs: &mut Vec<Attribute>, attr_ident: &str) {
     attrs.retain(|attr| !attr.path.is_ident(attr_ident));
 }
 
-pub fn extract_field_idents(fields: &[Field]) -> Vec<&Ident> {
-    fields
-        .iter()
-        .map(|field| {
-            #[allow(clippy::expect_used)]
-            field
-                .ident
-                .as_ref()
-                .expect("Should always be set for named structures")
-        })
-        .collect::<Vec<_>>()
+pub fn extract_field_idents(fields: &[StructField]) -> Vec<&Ident> {
+    fields.iter().map(|field| &field.ident).collect::<Vec<_>>()
 }
 
-pub fn extract_field_types(fields: &[Field]) -> Vec<Type> {
+pub fn extract_field_types(fields: &[StructField]) -> Vec<Type> {
     fields
         .iter()
         .map(|field| field.ty.clone())
-        .collect::<Vec<_>>()
-}
-pub fn extract_field_attrs(fields: &[Field]) -> Vec<&[Attribute]> {
-    fields
-        .iter()
-        .map(|field| field.attrs.as_slice())
         .collect::<Vec<_>>()
 }
 
@@ -250,38 +303,6 @@ pub fn is_arc_rwlock(ty: &Type) -> bool {
     get_type_argument("RwLock", dearced_ty).is_some()
 }
 
-/// Receives a [`Vec`] with all the attributes on fields, returns a [`Vec<bool>`]
-/// showing if any of them had a [`#[config(inner)]`].
-pub fn field_has_inner_attr(field_attrs: &[&[Attribute]]) -> Vec<bool> {
-    field_attrs
-        .iter()
-        .map(|attrs| {
-            attrs
-                .iter()
-                .any(|attr| Config::<ConfigInner>::parse(attr).is_ok())
-        })
-        .collect::<Vec<_>>()
-}
-
-/// Receives a [`Vec`] with all the attributes on fields, returns a [`Vec<bool>`]
-/// showing if any of them had a [`#[config(serde_as_str)]`].
-pub fn field_has_as_str_attr(field_attrs: &[&[Attribute]]) -> Vec<bool> {
-    field_attrs
-        .iter()
-        .map(|attrs| {
-            attrs
-                .iter()
-                .any(|attr| Config::<ConfigAsStr>::parse(attr).is_ok())
-        })
-        .collect::<Vec<_>>()
-}
-
-/// Receives a [`Vec`] with all the attributes on fields, returns a [`Vec<bool>`]
-/// showing if any of them are wrapped in [`Option<..>`].
-pub fn field_has_option_type(field_ty: &[Type]) -> Vec<bool> {
-    field_ty.iter().map(is_option_type).collect::<Vec<_>>()
-}
-
 /// Check if the provided type is of the form [`Option<..>`]
 pub fn is_option_type(ty: &Type) -> bool {
     get_type_argument("Option", ty).is_some()
@@ -296,85 +317,21 @@ pub fn remove_attr_struct(ast: &mut StructWithFields, attr_ident: &str) {
     remove_attr(attrs, attr_ident);
 }
 
-pub fn get_env_prefix(ast: &StructWithFields) -> String {
-    ast.attrs
-        .iter()
-        .map(Config::<ConfigEnvPrefix>::parse)
-        .find_map(Result::ok)
-        .map(|pref| pref.prefix.value())
-        .unwrap_or_default()
-}
-
-/// Generate documentation for all fields based on their type and already existing documentation
-pub fn gen_docs(
-    field_attrs: &[&[Attribute]],
-    field_env: &[String],
-    field_ty: &[Type],
-) -> Vec<LitStr> {
-    field_attrs
-        .iter()
-        .zip(field_env.iter())
-        .zip(field_ty.iter())
-        .map(|((attrs, env), field_type)| {
-            let real_doc = attrs
-                .iter()
-                .filter_map(|attr| attr.parse_meta().ok())
-                .find_map(|metadata| {
-                    if let Meta::NameValue(meta) = metadata {
-                        if meta.path.is_ident("doc") {
-                            if let Lit::Str(s) = meta.lit {
-                                return Some(s);
-                            }
-                        }
-                    }
-                    None
-                });
-            let real_doc = real_doc.map(|doc| doc.value() + "\n\n").unwrap_or_default();
-            let docs = format!(
-                "{}Has type `{}`. Can be configured via environment variable `{}`",
-                real_doc,
-                quote! { #field_type }.to_string().replace(' ', ""),
-                env
-            );
-            LitStr::new(&docs, Span::mixed_site())
-        })
-        .collect::<Vec<_>>()
-}
-
-/// Generate lvalue forms for all struct fields, taking [`Arc<RwLock<..>>`] types
+/// Generate lvalue forms for a struct field, taking [`Arc<RwLock<..>>`] types
 /// into account as well. Returns a 2-tuple of read and write forms.
-pub fn gen_lvalues(
-    field_ty: &[Type],
-    field_idents: &[&Ident],
-) -> (Vec<TokenStream>, Vec<TokenStream>) {
-    let lvalue = field_ty.iter().map(is_arc_rwlock).zip(field_idents.iter());
-    let lvalue_read = lvalue
-        .clone()
-        .map(|(is_arc_rwlock, ident)| {
-            if is_arc_rwlock {
-                quote! { self.#ident.read().await }
-            } else {
-                quote! { self.#ident }
-            }
-        })
-        .collect::<Vec<_>>();
+pub fn gen_lvalue(field_ty: &Type, field_ident: &Ident) -> (TokenStream, TokenStream) {
+    let is_lvalue = is_arc_rwlock(field_ty);
+    let lvalue_read = if is_lvalue {
+        quote! { self.#field_ident.read().await }
+    } else {
+        quote! { self.#field_ident }
+    };
 
-    let lvalue_write = lvalue
-        .clone()
-        .map(|(is_arc_rwlock, ident)| {
-            if is_arc_rwlock {
-                quote! { self.#ident.write().await }
-            } else {
-                quote! { self.#ident }
-            }
-        })
-        .collect::<Vec<_>>();
+    let lvalue_write = if is_lvalue {
+        quote! { self.#field_ident.write().await }
+    } else {
+        quote! { self.#field_ident }
+    };
+
     (lvalue_read, lvalue_write)
-}
-
-pub fn gen_field_env(field_idents: &[&Ident], prefix: &str) -> Vec<String> {
-    field_idents
-        .iter()
-        .map(|ident| prefix.to_owned() + &ident.to_string().to_uppercase())
-        .collect::<Vec<_>>()
 }

@@ -24,7 +24,7 @@ mod id;
 /// as all the derived traits here rely on the fact of that uniqueness.
 ///
 /// Example:
-/// ```rust
+/// ```rust,ignore
 ///
 /// // For a struct decorated like this
 /// #[derive(IdOrdEqHash)]
@@ -43,35 +43,35 @@ mod id;
 /// }
 ///
 /// // The following impls will be derived
-/// // impl Identifiable for Domain {
-/// //     type Id = Id;
-/// //     #[inline]
-/// //     fn id(&self) -> &Self::Id {
-/// //         &self.id
-/// //     }
-/// // }
-/// // impl core::cmp::PartialOrd for Domain {
-/// //     #[inline]
-/// //     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-/// //         Some(self.cmp(other))
-/// //     }
-/// // }
-/// // impl core::cmp::Ord for Domain {
-/// //     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-/// //         self.id().cmp(other.id())
-/// //     }
-/// // }
-/// // impl core::cmp::PartialEq for Domain {
-/// //     fn eq(&self, other: &Self) -> bool {
-/// //         self.id() == other.id()
-/// //     }
-/// // }
-/// // impl core::cmp::Eq for Domain {}
-/// // impl core::hash::Hash for Domain {
-/// //     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-/// //         self.id().hash(state);
-/// //     }
-/// // }
+/// impl Identifiable for Domain {
+///     type Id = Id;
+///     #[inline]
+///     fn id(&self) -> &Self::Id {
+///         &self.id
+///     }
+/// }
+/// impl core::cmp::PartialOrd for Domain {
+///     #[inline]
+///     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+///         Some(self.cmp(other))
+///     }
+/// }
+/// impl core::cmp::Ord for Domain {
+///     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+///         self.id().cmp(other.id())
+///     }
+/// }
+/// impl core::cmp::PartialEq for Domain {
+///     fn eq(&self, other: &Self) -> bool {
+///         self.id() == other.id()
+///     }
+/// }
+/// impl core::cmp::Eq for Domain {}
+/// impl core::hash::Hash for Domain {
+///     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+///         self.id().hash(state);
+///     }
+/// }
 /// ```
 #[proc_macro_derive(IdOrdEqHash, attributes(id))]
 pub fn id_derive(input: TokenStream) -> TokenStream {
@@ -91,7 +91,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// of them, as well as that all `Event` inner fields precede `Id` fields in the enum definition.
 ///
 /// Example:
-/// ```rust
+/// ```rust,ignore
 /// // For a struct decorated like this
 /// #[derive(Filter)]
 /// pub enum DomainEvent {
@@ -104,105 +104,105 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// // The following lengthy code will be derived
-/// // #[derive(
-/// //     Clone,
-/// //     PartialEq,
-/// //     PartialOrd,
-/// //     Ord,
-/// //     Eq,
-/// //     Debug,
-/// //     Decode,
-/// //     Encode,
-/// //     Deserialize,
-/// //     Serialize,
-/// //     IntoSchema,
-/// //     Hash,
-/// // )]
-/// // #[doc = " A filter for DomainFilter"]
-/// // pub struct DomainFilter {
-/// //     origin_filter: crate::prelude::FilterOpt<
-/// //             crate::prelude::OriginFilter<crate::prelude::DomainEvent>
-/// //         >,
-/// //     event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
-/// // }
-/// // impl DomainFilter {
-/// //     #[doc = "DomainFilter"]
-/// //     pub const fn new(
-/// //         origin_filter: crate::prelude::FilterOpt<
-/// //                 crate::prelude::OriginFilter<<crate::prelude::DomainEvent>
-/// //             >,
-/// //         event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
-/// //     ) -> Self {
-/// //         Self {
-/// //             origin_filter,
-/// //             event_filter,
-/// //         }
-/// //     }
-/// //     #[doc = r" Get `origin_filter`"]
-/// //     #[inline]
-/// //     pub const fn origin_filter(
-/// //         &self,
-/// //     ) -> &crate::prelude::FilterOpt<
-/// //             crate::prelude::OriginFilter<crate::prelude::DomainEvent>
-/// //         > {
-/// //         &self.origin_filter
-/// //     }
-/// //     #[doc = r" Get `event_filter`"]
-/// //     #[inline]
-/// //     pub const fn event_filter(&self) -> &crate::prelude::FilterOpt<DomainEventFilter> {
-/// //         &self.event_filter
-/// //     }
-/// // }
-/// // impl Filter for DomainFilter {
-/// //     type EventType = crate::prelude::DomainEvent;
-/// //     fn matches(&self, event: &Self::EventType) -> bool {
-/// //         self.origin_filter.matches(event) && self.event_filter.matches(event)
-/// //     }
-/// // }
-/// // #[derive(
-/// //     Clone,
-/// //     PartialEq,
-/// //     PartialOrd,
-/// //     Ord,
-/// //     Eq,
-/// //     Debug,
-/// //     Decode,
-/// //     Encode,
-/// //     Deserialize,
-/// //     Serialize,
-/// //     IntoSchema,
-/// //     Hash,
-/// // )]
-/// // #[allow(clippy::enum_variant_names, missing_docs)]
-/// // pub enum DomainEventFilter {
-/// //     ByCreated,
-/// //     ByDeleted,
-/// //     ByMetadataInserted,
-/// //     ByMetadataRemoved,
-/// //     ByAccount(crate::prelude::FilterOpt<AccountFilter>),
-/// //     ByAssetDefinition(crate::prelude::FilterOpt<AssetDefinitionFilter>),
-/// // }
-/// // impl Filter for DomainEventFilter {
-/// //     type EventType = crate::prelude::DomainEvent;
-/// //     fn matches(&self, event: &crate::prelude::DomainEvent) -> bool {
-/// //         match (self, event) {
-/// //             (Self::ByCreated, crate::prelude::DomainEvent::Created(_))
-/// //                 | (Self::ByDeleted, crate::prelude::DomainEvent::Deleted(_))
-/// //                 | (Self::ByMetadataInserted, crate::prelude::DomainEvent::MetadataInserted(_))
-/// //                 | (Self::ByMetadataRemoved, crate::prelude::DomainEvent::MetadataRemoved(_)) => {
-/// //                     true
-/// //                 }
-/// //             (Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {
-/// //                 filter_opt.matches(event)
-/// //             }
-/// //             (
-/// //                 Self::ByAssetDefinition(filter_opt),
-/// //                 crate::prelude::DomainEvent::AssetDefinition(event),
-/// //             ) => filter_opt.matches(event),
-/// //             _ => false,
-/// //         }
-/// //     }
-/// // }
+/// #[derive(
+///     Clone,
+///     PartialEq,
+///     PartialOrd,
+///     Ord,
+///     Eq,
+///     Debug,
+///     Decode,
+///     Encode,
+///     Deserialize,
+///     Serialize,
+///     IntoSchema,
+///     Hash,
+/// )]
+/// #[doc = " A filter for DomainFilter"]
+/// pub struct DomainFilter {
+///     origin_filter: crate::prelude::FilterOpt<
+///             crate::prelude::OriginFilter<crate::prelude::DomainEvent>
+///         >,
+///     event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
+/// }
+/// impl DomainFilter {
+///     #[doc = "DomainFilter"]
+///     pub const fn new(
+///         origin_filter: crate::prelude::FilterOpt<
+///                 crate::prelude::OriginFilter<<crate::prelude::DomainEvent>
+///             >,
+///         event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
+///     ) -> Self {
+///         Self {
+///             origin_filter,
+///             event_filter,
+///         }
+///     }
+///     #[doc = r" Get `origin_filter`"]
+///     #[inline]
+///     pub const fn origin_filter(
+///         &self,
+///     ) -> &crate::prelude::FilterOpt<
+///             crate::prelude::OriginFilter<crate::prelude::DomainEvent>
+///         > {
+///         &self.origin_filter
+///     }
+///     #[doc = r" Get `event_filter`"]
+///     #[inline]
+///     pub const fn event_filter(&self) -> &crate::prelude::FilterOpt<DomainEventFilter> {
+///         &self.event_filter
+///     }
+/// }
+/// impl Filter for DomainFilter {
+///     type EventType = crate::prelude::DomainEvent;
+///     fn matches(&self, event: &Self::EventType) -> bool {
+///         self.origin_filter.matches(event) && self.event_filter.matches(event)
+///     }
+/// }
+/// #[derive(
+///     Clone,
+///     PartialEq,
+///     PartialOrd,
+///     Ord,
+///     Eq,
+///     Debug,
+///     Decode,
+///     Encode,
+///     Deserialize,
+///     Serialize,
+///     IntoSchema,
+///     Hash,
+/// )]
+/// #[allow(clippy::enum_variant_names, missing_docs)]
+/// pub enum DomainEventFilter {
+///     ByCreated,
+///     ByDeleted,
+///     ByMetadataInserted,
+///     ByMetadataRemoved,
+///     ByAccount(crate::prelude::FilterOpt<AccountFilter>),
+///     ByAssetDefinition(crate::prelude::FilterOpt<AssetDefinitionFilter>),
+/// }
+/// impl Filter for DomainEventFilter {
+///     type EventType = crate::prelude::DomainEvent;
+///     fn matches(&self, event: &crate::prelude::DomainEvent) -> bool {
+///         match (self, event) {
+///             (Self::ByCreated, crate::prelude::DomainEvent::Created(_))
+///                 | (Self::ByDeleted, crate::prelude::DomainEvent::Deleted(_))
+///                 | (Self::ByMetadataInserted, crate::prelude::DomainEvent::MetadataInserted(_))
+///                 | (Self::ByMetadataRemoved, crate::prelude::DomainEvent::MetadataRemoved(_)) => {
+///                     true
+///                 }
+///             (Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {
+///                 filter_opt.matches(event)
+///             }
+///             (
+///                 Self::ByAssetDefinition(filter_opt),
+///                 crate::prelude::DomainEvent::AssetDefinition(event),
+///             ) => filter_opt.matches(event),
+///             _ => false,
+///         }
+///     }
+/// }
 /// ```
 #[proc_macro_derive(Filter)]
 pub fn filter_derive(input: TokenStream) -> TokenStream {

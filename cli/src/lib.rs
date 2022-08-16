@@ -104,7 +104,6 @@ where
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
-        // TODO: make entrypoint use proxy
         let mut config = match Configuration::from_path(&args.config_path) {
             Ok(config) => config,
             Err(_) => Configuration::default(),

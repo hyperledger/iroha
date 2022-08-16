@@ -7,7 +7,7 @@ use std::num::TryFromIntError;
 use eyre::WrapErr;
 use iroha_actor::Addr;
 use iroha_config::{
-    base::proxy::Configuration as ConfigurationTrait,
+    base::proxy::Documented,
     iroha::{Configuration, ConfigurationView},
     torii::uri,
     GetConfiguration, PostConfiguration,
@@ -218,7 +218,7 @@ async fn handle_get_configuration(
     use GetConfiguration::*;
 
     match get_cfg {
-        Docs(field) => <Configuration as ConfigurationTrait>::get_doc_recursive(
+        Docs(field) => <Configuration as Documented>::get_doc_recursive(
             field.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
         )
         .wrap_err("Failed to get docs {:?field}")

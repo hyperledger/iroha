@@ -1,14 +1,12 @@
 //! Module for wasm-related configuration and structs.
-use iroha_config_base::derive::{Configurable, Configuration};
+use iroha_config_base::derive::{Combine, Documented};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
 const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
 
 /// `WebAssembly Runtime` configuration.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configuration, Configurable,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Combine)]
 #[config(env_prefix = "WASM_")]
 #[serde(rename_all = "UPPERCASE", default)]
 pub struct Configuration {
