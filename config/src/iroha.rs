@@ -71,7 +71,7 @@ impl Default for Configuration {
             public_key,
             private_key,
             disable_panic_terminal_colors: bool::default(),
-            shutdown_on_panic: false,
+            shutdown_on_panic: true,
             kura: kura::Configuration::default(),
             sumeragi: sumeragi_configuration,
             torii: torii::Configuration::default(),
