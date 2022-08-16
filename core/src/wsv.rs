@@ -333,9 +333,7 @@ impl WorldStateView {
                                     }
                                 }
 
-                                match self.process_trigger(
-                                    action, event_type
-                                ) {
+                                match self.process_trigger(action, event_type) {
                                     Ok(()) => succeed.push(id),
                                     Err(err) => errors.push(err),
                                 }
@@ -355,9 +353,7 @@ impl WorldStateView {
                                     }
                                 }
 
-                                match self.process_trigger(
-                                    action, event_type
-                                ) {
+                                match self.process_trigger(action, event_type) {
                                     Ok(()) => succeed.push(id),
                                     Err(err) => errors.push(err),
                                 }
@@ -377,9 +373,7 @@ impl WorldStateView {
                                     }
                                 }
 
-                                match self.process_trigger(
-                                    action, event_type
-                                ) {
+                                match self.process_trigger(action, event_type) {
                                     Ok(()) => succeed.push(id),
                                     Err(err) => errors.push(err),
                                 }
@@ -399,9 +393,7 @@ impl WorldStateView {
                                     }
                                 }
 
-                                match self.process_trigger(
-                                    action, event_type
-                                ) {
+                                match self.process_trigger(action, event_type) {
                                     Ok(()) => succeed.push(id),
                                     Err(err) => errors.push(err),
                                 }

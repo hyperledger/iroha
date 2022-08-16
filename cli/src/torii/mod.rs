@@ -86,7 +86,9 @@ pub enum Error {
 }
 
 /// Status code for query error response.
-pub(crate) const fn query_status_code(query_error: &iroha_core::smartcontracts::query::Error) -> StatusCode {
+pub(crate) const fn query_status_code(
+    query_error: &iroha_core::smartcontracts::query::Error,
+) -> StatusCode {
     use iroha_core::smartcontracts::query::Error::*;
     match query_error {
         Decode(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
