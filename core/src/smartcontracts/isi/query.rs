@@ -233,11 +233,14 @@ mod tests {
 
         let first_block = PendingBlock::new(transactions.clone(), vec![])
             .chain_first()
-            .validate(&TransactionValidator::new(
-                limits,
-                Arc::new(AllowAll::new()),
-                Arc::new(AllowAll::new()),
-            ), &wsv)
+            .validate(
+                &TransactionValidator::new(
+                    limits,
+                    Arc::new(AllowAll::new()),
+                    Arc::new(AllowAll::new()),
+                ),
+                &wsv,
+            )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
@@ -248,17 +251,15 @@ mod tests {
 
         for height in 1u64..blocks {
             let block = PendingBlock::new(transactions.clone(), vec![])
-                .chain(
-                    height,
-                    curr_hash,
-                    crate::sumeragi::view_change::ProofChain::empty(),
-                    vec![],
+                .chain(height, curr_hash, Vec::new())
+                .validate(
+                    &TransactionValidator::new(
+                        limits,
+                        Arc::new(AllowAll::new()),
+                        Arc::new(AllowAll::new()),
+                    ),
+                    &wsv,
                 )
-                .validate(&TransactionValidator::new(
-                    limits,
-                    Arc::new(AllowAll::new()),
-                    Arc::new(AllowAll::new()),
-                ), &wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
                 .commit();
@@ -388,11 +389,14 @@ mod tests {
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
-            .validate(&TransactionValidator::new(
-                tx_limits,
-                Arc::new(AllowAll::new()),
-                Arc::new(AllowAll::new()),
-            ), &wsv)
+            .validate(
+                &TransactionValidator::new(
+                    tx_limits,
+                    Arc::new(AllowAll::new()),
+                    Arc::new(AllowAll::new()),
+                ),
+                &wsv,
+            )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();

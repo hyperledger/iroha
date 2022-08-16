@@ -23,7 +23,7 @@ use tokio::task;
 
 use super::{
     fault::{FaultInjection, SumeragiWithFault},
-    view_change::{self, Proof},
+    view_change::{self, Proof, ProofChain},
 };
 use crate::{
     block::BlockHeader,
@@ -92,8 +92,6 @@ pub enum Message {
     BlockSigned(BlockSigned),
     /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
     BlockCommitted(BlockCommitted),
-    /// Receipt of receiving tx from peer. Sent by a leader.
-    TransactionReceived(TransactionReceipt),
     /// Tx forwarded from client by a peer to a leader.
     TransactionForwarded(TransactionForwarded),
     /// View change is suggested due to some faulty peer or general fault in consensus.
@@ -106,18 +104,13 @@ pub enum Message {
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct ViewChangeSuggested {
     /// Proof of view change. As part of this message handling, all peers which agree with view change should sign it.
-    pub proof: view_change::Proof,
-    /// Chain
-    pub chain: view_change::ProofChain,
+    pub proofs: Vec<view_change::Proof>,
 }
 
 impl ViewChangeSuggested {
     /// Constructor.
-    pub const fn new(
-        proof: view_change::Proof,
-        chain: view_change::ProofChain,
-    ) -> ViewChangeSuggested {
-        Self { proof, chain }
+    pub const fn new(proofs: Vec<view_change::Proof>) -> ViewChangeSuggested {
+        Self { proofs }
     }
 }
 
@@ -171,16 +164,22 @@ pub struct TransactionForwarded {
     pub transaction: VersionedSignedTransaction,
     /// `PeerId` of the peer that forwarded this transaction to a leader.
     pub peer: PeerId,
+    pub view_change_proofs: Vec<Proof>,
 }
 
 impl TransactionForwarded {
     /// Constructs `TransactionForwarded` message.
-    pub fn new(transaction: VersionedAcceptedTransaction, peer: PeerId) -> TransactionForwarded {
+    pub fn new(
+        transaction: VersionedAcceptedTransaction,
+        peer: PeerId,
+        view_change_proofs: Vec<Proof>,
+    ) -> TransactionForwarded {
         TransactionForwarded {
             // Converting into non-accepted transaction because it's not possible
             // to guarantee that the sending peer checked transaction limits
             transaction: transaction.into(),
             peer,
+            view_change_proofs,
         }
     }
 }
@@ -188,7 +187,7 @@ impl TransactionForwarded {
 /// Message for gossiping batches of transactions.
 #[derive(Decode, Encode, Debug, Clone)]
 pub struct TransactionGossip {
-    txs: Vec<VersionedSignedTransaction>,
+    pub txs: Vec<VersionedSignedTransaction>,
 }
 
 impl TransactionGossip {
@@ -200,49 +199,5 @@ impl TransactionGossip {
             // to guarantee that the sending peer checked transaction limits
             txs: txs.into_iter().map(Into::into).collect(),
         }
-    }
-}
-
-/// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
-#[non_exhaustive]
-pub struct TransactionReceipt {
-    /// The hash of the transaction that the leader received.
-    pub hash: HashOf<VersionedSignedTransaction>,
-    /// The time at which the leader claims to have received this transaction.
-    pub received_at: Duration,
-    /// The signature of the leader.
-    pub signature: SignatureOf<VersionedSignedTransaction>,
-}
-
-impl TransactionReceipt {
-    /// Constructs a new receipt.
-    ///
-    /// # Errors
-    /// Can fail creating new signature
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn new(
-        transaction: &VersionedSignedTransaction,
-        key_pair: &KeyPair,
-    ) -> Result<TransactionReceipt> {
-        let hash = transaction.hash();
-        let signature = SignatureOf::from_hash(key_pair.clone(), &hash)?;
-        Ok(TransactionReceipt {
-            hash,
-            received_at: current_time(),
-            signature,
-        })
-    }
-
-    /// Checks that this `TransactionReceipt` is valid.
-    pub fn is_valid(&self, network_topology: &Topology) -> bool {
-        network_topology
-            .verify_signature_with_role(&self.signature, Role::Leader, &self.hash)
-            .is_ok()
-    }
-
-    /// Checks if the block should have been already created by the `Leader`.
-    pub fn is_block_should_be_created(&self, block_time: Duration) -> bool {
-        (current_time() - self.received_at) >= block_time
     }
 }
