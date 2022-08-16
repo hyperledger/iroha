@@ -809,7 +809,7 @@ mod tests {
         otherwise: Option<Instruction>,
     ) -> Instruction {
         let condition: ExpressionBox = c.into();
-        let condition = condition.into();
+        let condition = EvaluatesTo::new_unchecked(condition);
         If {
             condition,
             then,

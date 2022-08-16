@@ -369,6 +369,7 @@ mod tests {
 
     use eyre::Result;
     use iroha_crypto::KeyPair;
+    use iroha_data_model::val_vec;
     use iroha_macro::error::ErrorTryFromEnum;
     use parity_scale_codec::{Decode, Encode};
 
@@ -383,65 +384,83 @@ mod tests {
         let (public_key_teller_1, _) = KeyPair::generate()?.into();
         let (public_key_teller_2, _) = KeyPair::generate()?.into();
         let (manager_public_key, _) = KeyPair::generate()?.into();
-        let teller_signatory_set = Value::Vec(vec![
+        let teller_signatory_set = vec![
             Value::PublicKey(public_key_teller_1.clone()),
             Value::PublicKey(public_key_teller_2),
-        ]);
+        ];
         let one_teller_set = Value::Vec(vec![Value::PublicKey(public_key_teller_1)]);
         let manager_signatory = Value::PublicKey(manager_public_key);
         let manager_signatory_set = Value::Vec(vec![manager_signatory.clone()]);
-        let condition: ExpressionBox = IfBuilder::condition(And::new(
-            Greater::new(ContextValue::new("usd_quantity"), 500_u32),
-            Less::new(ContextValue::new("usd_quantity"), 1000_u32),
-        ))
-        .then_expression(Or::new(
-            ContainsAll::new(
-                ContextValue::new("signatories"),
-                teller_signatory_set.clone(),
+        let condition = IfBuilder::condition(And::new(
+            Greater::new(
+                EvaluatesTo::new_unchecked(ContextValue::new("usd_quantity").into()),
+                500_u32,
             ),
-            Contains::new(ContextValue::new("signatories"), manager_signatory),
+            Less::new(
+                EvaluatesTo::new_unchecked(ContextValue::new("usd_quantity").into()),
+                1000_u32,
+            ),
+        ))
+        .then_expression(EvaluatesTo::new_evaluates_to_value(
+            Or::new(
+                ContainsAll::new(
+                    EvaluatesTo::new_unchecked(ContextValue::new("signatories").into()),
+                    teller_signatory_set.clone(),
+                ),
+                Contains::new(
+                    EvaluatesTo::new_unchecked(ContextValue::new("signatories").into()),
+                    manager_signatory,
+                ),
+            )
+            .into(),
         ))
         .else_expression(true)
         .build()
-        .unwrap()
-        .into();
+        .unwrap();
         // Signed by all tellers
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value(
-                //TODO: use query to get the actual quantity of an asset from WSV
-                "usd_quantity".to_owned(),
-                asset_quantity_high.clone(),
-            )
-            .with_value("signatories".to_owned(), teller_signatory_set)
-            .build();
+        let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+            condition.clone().into(),
+        ))
+        .with_value(
+            //TODO: use query to get the actual quantity of an asset from WSV
+            "usd_quantity".to_owned(),
+            asset_quantity_high.clone(),
+        )
+        .with_value("signatories".to_owned(), teller_signatory_set)
+        .build();
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         // Signed by manager
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_owned(), asset_quantity_high.clone())
-            .with_value("signatories".to_owned(), manager_signatory_set)
-            .build();
+        let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+            condition.clone().into(),
+        ))
+        .with_value("usd_quantity".to_owned(), asset_quantity_high.clone())
+        .with_value("signatories".to_owned(), manager_signatory_set)
+        .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         // Signed by one teller
-        let expression = WhereBuilder::evaluate(condition.clone())
-            .with_value("usd_quantity".to_owned(), asset_quantity_high)
-            .with_value("signatories".to_owned(), one_teller_set.clone())
-            .build();
+        let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+            condition.clone().into(),
+        ))
+        .with_value("usd_quantity".to_owned(), asset_quantity_high)
+        .with_value("signatories".to_owned(), one_teller_set.clone())
+        .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         // Signed by one teller with less value
-        let expression = WhereBuilder::evaluate(condition)
-            .with_value("usd_quantity".to_owned(), asset_quantity_low)
-            .with_value("signatories".to_owned(), one_teller_set)
-            .build();
+        let expression =
+            WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(condition.into()))
+                .with_value("usd_quantity".to_owned(), asset_quantity_low)
+                .with_value("signatories".to_owned(), one_teller_set)
+                .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
@@ -452,10 +471,15 @@ mod tests {
     #[test]
     fn where_expression() -> Result<()> {
         assert_eq!(
-            WhereBuilder::evaluate(ContextValue::new("test_value"))
-                .with_value("test_value".to_owned(), Add::new(2_u32, 3_u32))
-                .build()
-                .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
+            WhereBuilder::evaluate(EvaluatesTo::new_unchecked(
+                ContextValue::new("test_value").into()
+            ))
+            .with_value(
+                "test_value".to_owned(),
+                EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32).into())
+            )
+            .build()
+            .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
             Value::U32(5)
         );
         Ok(())
@@ -463,14 +487,21 @@ mod tests {
 
     #[test]
     fn nested_where_expression() -> Result<()> {
-        let expression = WhereBuilder::evaluate(ContextValue::new("a"))
-            .with_value("a".to_owned(), 2_u32)
-            .build();
+        let expression =
+            WhereBuilder::evaluate(EvaluatesTo::new_unchecked(ContextValue::new("a").into()))
+                .with_value("a".to_owned(), 2_u32)
+                .build();
         let outer_expression: ExpressionBox =
-            WhereBuilder::evaluate(Add::new(expression, ContextValue::new("b")))
-                .with_value("b".to_owned(), 4_u32)
-                .build()
-                .into();
+            WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+                Add::new(
+                    EvaluatesTo::new_unchecked(expression.into()),
+                    EvaluatesTo::new_unchecked(ContextValue::new("b").into()),
+                )
+                .into(),
+            ))
+            .with_value("b".to_owned(), 4_u32)
+            .build()
+            .into();
         assert_eq!(
             outer_expression.evaluate(&WorldStateView::new(World::new()), &Context::new())?,
             Value::U32(6)
@@ -532,23 +563,35 @@ mod tests {
             "Should not be possible to subtract int and bool.",
         );
         assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
-            &And::new(1_u32, Vec::<Value>::new()),
+            &And::new(
+                EvaluatesTo::new_unchecked(1_u32.into()),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+            ),
             "Should not be possible to apply logical and to int and vec.",
         );
         assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
-            &Or::new(1_u32, Vec::<Value>::new()),
+            &Or::new(
+                EvaluatesTo::new_unchecked(1_u32.into()),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+            ),
             "Should not be possible to apply logical or to int and vec.",
         );
         assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
-            &Greater::new(1_u32, Vec::<Value>::new()),
+            &Greater::new(
+                EvaluatesTo::new_unchecked(1_u32.into()),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+            ),
             "Should not be possible to apply greater sign to int and vec.",
         );
         assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
-            &Less::new(1_u32, Vec::<Value>::new()),
+            &Less::new(
+                EvaluatesTo::new_unchecked(1_u32.into()),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+            ),
             "Should not be possible to apply greater sign to int and vec.",
         );
         assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
-            &IfExpression::new(1_u32, 2_u32, 3_u32),
+            &IfExpression::new(EvaluatesTo::new_unchecked(1_u32.into()), 2_u32, 3_u32),
             "If condition should be bool",
         );
         Ok(())
@@ -591,20 +634,20 @@ mod tests {
             Value::Bool(true)
         );
         assert_eq!(
-            Contains::new(vec![1_u32, 3_u32, 5_u32], 3_u32).evaluate(&wsv, &Context::new())?,
+            Contains::new(val_vec![1_u32, 3_u32, 5_u32], 3_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            Contains::new(vec![1_u32, 3_u32, 5_u32], 7_u32).evaluate(&wsv, &Context::new())?,
+            Contains::new(val_vec![1_u32, 3_u32, 5_u32], 7_u32).evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
         assert_eq!(
-            ContainsAll::new(vec![1_u32, 3_u32, 5_u32], vec![1_u32, 5_u32])
+            ContainsAll::new(val_vec![1_u32, 3_u32, 5_u32], val_vec![1_u32, 5_u32])
                 .evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
         );
         assert_eq!(
-            ContainsAll::new(vec![1_u32, 3_u32, 5_u32], vec![1_u32, 5_u32, 7_u32])
+            ContainsAll::new(val_vec![1_u32, 3_u32, 5_u32], val_vec![1_u32, 5_u32, 7_u32])
                 .evaluate(&wsv, &Context::new())?,
             Value::Bool(false)
         );
