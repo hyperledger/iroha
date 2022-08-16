@@ -367,7 +367,6 @@ mod tests {
         ));
     }
 
-    // #[ignore = "Multisignature is not working for now. See #2595"]
     #[test]
     fn push_multisignature_tx() {
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];

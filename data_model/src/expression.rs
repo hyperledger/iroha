@@ -100,30 +100,18 @@ use super::{query::QueryBox, Value, ValueBox};
 /// }
 /// ```
 macro_rules! gen_expr_and_impls {
-    // Case: one unnamed parameter with known result type
-    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> $result_type:ty) => {
-        gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> $result_type);
+    // Case: one unnamed parameter
+    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> $($result:tt)*) => {
+        gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> $($result)*);
     };
-    // Case: one unnamed parameter with unknown result type
-    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty $(,)?) -> ?) => {
-        gen_expr_and_impls!($(#[$me])* $v $i(expression: $first_type) -> ?);
+    // Case: two unnamed parameters
+    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> $($result:tt)*) => {
+        gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> $($result)*);
     };
-    // Case: two unnamed parameters with known result type
-    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> $result_type:ty) => {
-        gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> $result_type);
-    };
-    // Case: two unnamed parameters with unknown result type
-    ($(#[$me:meta])* $v:vis $i:ident($first_type:ty, $second_type:ty $(,)?) -> ?) => {
-        gen_expr_and_impls!($(#[$me])* $v $i(left: $first_type, right: $second_type) -> ?);
-    };
-    // Case: any number of named parameters with unknown result type
-    ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> ?) => {
+    // Case: any number of named parameters
+    ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> $($result:tt)*) => {
         gen_expr_and_impls!(impl_basic $(#[$me])* $v $i($($param_name: $param_type),*));
-    };
-    // Case: any number of named parameters with known result type
-    ($(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?) -> $result_type:ty) => {
-        gen_expr_and_impls!(impl_basic $(#[$me])* $v $i($($param_name: $param_type),*));
-        gen_expr_and_impls!(impl_extra_convert $i $result_type);
+        gen_expr_and_impls!(impl_extra_convert $i $($result)*);
     };
     // Internal usage: generate basic code for the expression
     (impl_basic $(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?)) => {
@@ -157,6 +145,9 @@ macro_rules! gen_expr_and_impls {
                 Expression::$i(expression).into()
             }
         }
+    };
+    // Internal usage: do nothing for expressions with unknown result type
+    (impl_extra_convert $i:ident ?) => {
     };
     // Internal usage: generate extra `From` impl for expressions with known result type
     (impl_extra_convert $i:ident $result_type:ty) => {
