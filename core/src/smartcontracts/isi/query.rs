@@ -249,12 +249,7 @@ mod tests {
 
         for height in 1u64..num_blocks {
             let block = PendingBlock::new(vec![], vec![])
-                .chain(
-                    height,
-                    curr_hash,
-                    crate::sumeragi::view_change::ProofChain::empty(),
-                    vec![],
-                )
+                .chain(height, curr_hash, vec![])
                 .validate(&validator, &mut wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
@@ -313,12 +308,7 @@ mod tests {
 
         for height in 1u64..=num_blocks {
             let block = PendingBlock::new(vec![valid_tx.clone(), invalid_tx.clone()], vec![])
-                .chain(
-                    height,
-                    curr_hash,
-                    crate::sumeragi::view_change::ProofChain::empty(),
-                    vec![],
-                )
+                .chain(height, curr_hash, vec![])
                 .validate(
                     &TransactionValidator::new(limits, AllowAll::new(), AllowAll::new()),
                     &mut wsv,

@@ -156,6 +156,9 @@ impl Kura {
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
     fn kura_recieve_blocks_thread(weak_kura_reference: &Weak<Kura>) {
+        let mut failed_to_store_block = None;
+        let mut failed_to_store_block_reason = None;
+
         loop {
             // Here we essentially check if the thread should keep running.
             // If all other references to `Kura` have been dropped, then
@@ -167,6 +170,12 @@ impl Kura {
                     return;
                 }
             };
+
+            if failed_to_store_block.is_some() {
+                let error = failed_to_store_block_reason.unwrap();
+                error!(%error, "Failed to write block. Kura will now init again.");
+                panic!("It is unclear what we should do here.");
+            }
 
             let mut block_reciever_guard = strong_kura_reference
                 .block_reciever
@@ -201,8 +210,16 @@ impl Kura {
                                 .push(block_hash);
                         }
                         Err(error) => {
-                            error!(%error, "Failed to write block. Kura will now init again.");
-                            panic!("It is unclear what we should do here.");
+                            failed_to_store_block = Some(serialized_block);
+                            failed_to_store_block_reason = Some(error);
+                            std::thread::sleep(std::time::Duration::from_millis(250));
+                            // Why is this sleep needed?
+                            // Well in many of our tests we have kura operate within temp directories.
+                            // When Iroha is shutdown very fast these temp directories get free'd before
+                            // this thread can exit, causing a panic due to faulty I/O. This pushing of
+                            // the pushing to the next round makes sure that we don't panic if we were going
+                            // to exit anyway. The sleep is also required to make sure that the exit code
+                            // has finished running before the next iteration of the kura thread loop.
                         }
                     }
                 }

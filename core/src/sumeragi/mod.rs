@@ -75,7 +75,7 @@ impl Sumeragi {
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
             .with_peers(configuration.trusted_peers.peers.clone())
-            .build()?;
+            .build(0)?;
 
         let sumeragi_state_machine_data = SumeragiStateMachineData {
             genesis_network,
@@ -92,25 +92,16 @@ impl Sumeragi {
             internal: SumeragiWithFault::<NoFault> {
                 key_pair: configuration.key_pair.clone(),
                 peer_id: configuration.peer_id.clone(),
-                votes_for_blocks: BTreeMap::new(),
                 events_sender,
                 wsv: std::sync::Mutex::new(wsv),
-                txs_awaiting_receipts: HashMap::new(),
-                txs_awaiting_created_block: HashSet::new(),
-                votes_for_view_change: HashMap::new(),
                 commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
-                tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_limit_ms),
                 block_time: Duration::from_millis(configuration.block_time_ms),
-                block_height: 0,
-                invalidated_blocks_hashes: Vec::new(),
-                telemetry_started,
                 transaction_limits: configuration.transaction_limits,
                 transaction_validator,
                 queue,
                 broker,
                 kura,
                 network,
-                actor_channel_capacity: configuration.actor_channel_capacity,
                 fault_injection: PhantomData,
                 gossip_batch_size: configuration.gossip_batch_size,
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),

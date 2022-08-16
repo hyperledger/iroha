@@ -25,7 +25,7 @@ pub struct Queue {
     ///
     /// DashMap right now just iterates over itself and calculates its length like this:
     /// self.txs.iter().len()
-    txs_in_block: usize,
+    pub txs_in_block: usize,
     max_txs: usize,
     ttl: Duration,
     future_threshold: Duration,
