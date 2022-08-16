@@ -310,7 +310,7 @@ mod operation {
     /// Priority of operation.
     ///
     /// [`First`](Operation::First) is the highest priority
-    /// and [`Eight`](Operation::Eight) is the lowest.
+    /// and [`Ninth`](Operation::Ninth) is the lowest.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum Priority {
         First = 1,
