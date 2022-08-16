@@ -49,28 +49,7 @@ ffi_item! {
 }
 
 impl Registered for Validator {
-    type With = NewValidator;
-}
-
-ffi_item! {
-    /// Builder which should be submitted in a transaction to create a new [`Validator`]
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoFfi,
-        TryFromReprC,
-        IntoSchema,
-    )]
-    #[id(type = "<Validator as Identifiable>::Id")]
-    pub struct NewValidator {
-        id: <Validator as Identifiable>::Id,
-    }
+    type With = Self;
 }
 
 /// Identification of an [`Validator`]. Consists of Validator's name

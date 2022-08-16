@@ -252,7 +252,6 @@ impl Execute for Instruction {
     }
 }
 
-#[allow(clippy::restriction, unused_variables)] // TODO
 impl Execute for RegisterBox {
     type Error = Error;
 
@@ -281,14 +280,13 @@ impl Execute for RegisterBox {
                     .execute(authority, wsv)
             }
             RegistrableBox::Validator(validator) => {
-                todo!()
-                // Register::<Validator>::new(*validator).execute(authority, wsv),
+                Register::<iroha_data_model::permission::Validator>::new(*validator)
+                    .execute(authority, wsv)
             }
         }
     }
 }
 
-#[allow(clippy::restriction, unused_variables)] // TODO
 impl Execute for UnregisterBox {
     type Error = Error;
 
@@ -316,8 +314,8 @@ impl Execute for UnregisterBox {
                 Unregister::<Trigger<FilterBox>>::new(trigger_id).execute(authority, wsv)
             }
             IdBox::ValidatorId(validator_id) => {
-                todo!()
-                // Unregister::<Validator>::new(validator_id).execute(authority, wsv),
+                Unregister::<iroha_data_model::permission::Validator>::new(validator_id)
+                    .execute(authority, wsv)
             }
         }
     }

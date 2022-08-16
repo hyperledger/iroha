@@ -372,8 +372,6 @@ pub enum IdentifiableBox {
     NewAssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
     /// [`NewRole`](`role::NewRole`) variant.
     NewRole(Box<<role::Role as Registered>::With>),
-    /// [`NewValidator`](`validator::NewValidator`) variant.
-    NewValidator(Box<<permission::Validator as Registered>::With>),
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
     /// [`Domain`](`domain::Domain`) variant.
@@ -404,7 +402,6 @@ impl IdentifiableBox {
             IdentifiableBox::NewAccount(a) => a.id().clone().into(),
             IdentifiableBox::NewAssetDefinition(a) => a.id().clone().into(),
             IdentifiableBox::NewRole(a) => a.id().clone().into(),
-            IdentifiableBox::NewValidator(a) => a.id().clone().into(),
             IdentifiableBox::Peer(a) => a.id().clone().into(),
             IdentifiableBox::Domain(a) => a.id().clone().into(),
             IdentifiableBox::Account(a) => a.id().clone().into(),
@@ -835,7 +832,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             PermissionTokenDefinition(token_definition) => {
                 IdentifiableBox::PermissionTokenDefinition(token_definition)
             }
-            Validator(validator) => IdentifiableBox::NewValidator(validator),
+            Validator(validator) => IdentifiableBox::Validator(validator),
         }
     }
 }
