@@ -135,7 +135,12 @@ impl Validator {
         .map_err(|error| Trap::new(error.to_string()))
     }
 
-    fn validate_query(&self, account_id: &AccountId, query: &QueryBox, wsv: &WorldStateView) -> Result<(), Trap> {
+    fn validate_query(
+        &self,
+        account_id: &AccountId,
+        query: &QueryBox,
+        wsv: &WorldStateView,
+    ) -> Result<(), Trap> {
         self.query_judge
             .judge(account_id, query, wsv)
             .map_err(Trap::new)

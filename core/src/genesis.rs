@@ -64,7 +64,6 @@ pub trait GenesisNetworkTrait:
         network: Addr<IrohaNetwork>,
     ) -> Result<Topology>;
 
-
     /// See [`Configuration`] docs.
     fn genesis_submission_delay_ms(&self) -> u64;
 }

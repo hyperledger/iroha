@@ -67,7 +67,7 @@ impl Signature {
     /// # Errors
     /// Fails if signing fails
     #[cfg(feature = "std")]
-    fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
+    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
         let (public_key, private_key) = key_pair.into();
 
         let algorithm: Algorithm = private_key.digest_function();

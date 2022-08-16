@@ -296,10 +296,10 @@ impl Set {
     pub fn handle_execute_trigger_event(&mut self, event: ExecuteTriggerEvent) {
         let pair;
         {
-        let entry = match self.by_call_triggers.get(&event.trigger_id.clone()) {
-            Some(entry) => entry,
-            None => return,
-        };
+            let entry = match self.by_call_triggers.get(&event.trigger_id.clone()) {
+                Some(entry) => entry,
+                None => return,
+            };
             pair = (entry.key().clone(), entry.value().clone());
         }
 
@@ -315,11 +315,11 @@ impl Set {
     pub fn handle_pipeline_event(&mut self, event: PipelineEvent) {
         let mut acc = Vec::new();
         for entry in self.pipeline_triggers.iter() {
-            acc.push((event.clone(), (entry.key().clone(), entry.value().clone())));            
+            acc.push((event.clone(), (entry.key().clone(), entry.value().clone())));
         }
         for (event, pair) in acc {
             self.match_and_insert_trigger(event, pair);
-        }        
+        }
     }
 
     /// Handle [`TimeEvent`].
@@ -426,7 +426,8 @@ impl Set {
         let apply_f = move |succeed_clone: &mut Vec<_>,
                             errors_clone: &mut Vec<_>,
                             id: Id,
-                            action: &dyn ActionTrait, event: Event| {
+                            action: &dyn ActionTrait,
+                            event: Event| {
             if let Repeats::Exactly(atomic) = action.repeats() {
                 if atomic.get() == 0 {
                     return;
