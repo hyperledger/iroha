@@ -215,13 +215,15 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
 /// [`VariantCount`] derives an associated constant `VARIANT_COUNT: usize` for enums
 /// that is equal to the count of variants in enum. E.g.
 /// ```
+/// use iroha_derive::VariantCount;
+///
 /// #[derive(VariantCount)]
 /// enum MyEnum {
 ///   First,
 ///   Second(i32),
 ///   Third {
-///     some: str,
-///     stuff: usize
+///     a: usize,
+///     b: usize
 ///   }
 /// }
 ///
