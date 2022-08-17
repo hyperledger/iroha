@@ -1,3 +1,4 @@
+use gen::*;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Meta, NestedMeta};
@@ -6,8 +7,6 @@ use super::utils::{
     extract_field_idents, extract_field_types, remove_attr, remove_attr_struct, AttrParser,
     StructField, StructWithFields, View, ViewFieldType, ViewIgnore,
 };
-
-use gen::*;
 
 pub fn impl_view(ast: StructWithFields) -> TokenStream {
     let original = original_struct(ast.clone());
