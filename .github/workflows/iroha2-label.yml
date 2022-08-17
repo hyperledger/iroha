@@ -6,7 +6,7 @@ on:
     types: [opened]
 
 jobs:
-  add_label:
+  add:
     runs-on: ubuntu-latest
     steps:
       - uses: actions-ecosystem/action-add-labels@v1

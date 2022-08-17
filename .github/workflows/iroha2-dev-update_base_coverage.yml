@@ -6,7 +6,7 @@ on:
     types: [closed]
 
 jobs:
-  update_with_artifact:
+  with_artifact:
     if: github.event.pull_request.merged
     runs-on: ubuntu-latest
     container:

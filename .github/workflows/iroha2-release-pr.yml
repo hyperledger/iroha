@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  cli-test:
+  cli:
     runs-on: [self-hosted, linux]
     container:
       image: 7272721/i2-ci:latest
@@ -41,7 +41,7 @@ jobs:
       - name: Panic on invalid genesis test
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
-  docker-test:
+  docker:
     # This workflow is too unreliable to enable. Even for
     # releases. The communication with docker from inside docker fails
     # sometimes, works other times it doesn't. In the interest of not
@@ -88,7 +88,7 @@ jobs:
 
   # ------------------------------ SDK tests go here ------------------------
 
-  java-api-test:
+  java-api:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -133,7 +133,7 @@ jobs:
           rm -f ~/.gradle/caches/modules-2/modules-2.lock
           rm -f ~/.gradle/caches/modules-2/gc.properties
 
-  long-tests:
+  long:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container:
       image: 7272721/i2-ci:latest

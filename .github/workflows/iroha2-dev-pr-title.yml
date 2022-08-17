@@ -6,7 +6,7 @@ on:
     types: [opened, edited, reopened]
 
 jobs:
-  check_pr_title:
+  check:
     runs-on: ubuntu-latest
     # TODO: Add labels when https://github.com/actions/first-interaction/issues/10 is fixed.
     steps:
