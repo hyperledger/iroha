@@ -316,7 +316,7 @@ pub enum IdBox {
     TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
     RoleId(<role::Role as Identifiable>::Id),
-    /// [`PermissionTokenId`](`permission::Id`) variant.
+    /// [`PermissionTokenId`](`permission::token::Id`) variant.
     PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
     /// [`Validator`](`permission::Validator`) variant.
     ValidatorId(<permission::Validator as Identifiable>::Id),
@@ -341,7 +341,7 @@ pub enum RegistrableBox {
     Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<<role::Role as Registered>::With>),
-    /// [`PermissionTokenId`](`permission::Id`) variant.
+    /// [`PermissionTokenId`](`permission::token::Id`) variant.
     PermissionTokenDefinition(Box<<permission::token::Definition as Registered>::With>),
     /// [`Validator`](`permission::Validator`) variant.
     Validator(Box<<permission::Validator as Registered>::With>),

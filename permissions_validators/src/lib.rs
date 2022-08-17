@@ -112,7 +112,7 @@ macro_rules! declare_token {
         }
 
         impl iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait for $ident {
-            /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::TokenDefinition).
+            /// Get associated [`PermissionTokenDefinition`].
             fn definition() -> &'static PermissionTokenDefinition {
                 static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
                     once_cell::sync::Lazy::new(|| {

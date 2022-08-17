@@ -1,4 +1,4 @@
-//! Macros for writing smart contracts
+//! Macro for writing smart contracts entrypoint
 
 #![allow(clippy::str_to_string)]
 

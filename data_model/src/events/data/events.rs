@@ -157,7 +157,7 @@ mod role {
     pub enum RoleEvent {
         Created(RoleId),
         Deleted(RoleId),
-        /// [`PermissionToken`]s with particular [`PermissionTokenDefinitionId`] were
+        /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::Id) were
         /// removed from the role.
         PermissionRemoved(PermissionRemoved),
     }

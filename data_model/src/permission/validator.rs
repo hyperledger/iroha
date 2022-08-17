@@ -85,7 +85,7 @@ pub struct Id {
     pub account_id: <Account as Identifiable>::Id,
 }
 
-impl std::str::FromStr for Id {
+impl core::str::FromStr for Id {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

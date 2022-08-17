@@ -227,10 +227,10 @@ impl From<Result<()>> for ValidatorVerdict {
 pub trait PermissionTokenTrait:
     Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
 {
-    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::PermissionTokenDefinition).
+    /// Get associated [`PermissionTokenDefinition`].
     fn definition() -> &'static PermissionTokenDefinition;
 
-    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permission::PermissionTokenDefinition) id.
+    /// Get associated [`PermissionTokenDefinition`] id.
     fn definition_id() -> &'static <PermissionTokenDefinition as Identifiable>::Id {
         Self::definition().id()
     }

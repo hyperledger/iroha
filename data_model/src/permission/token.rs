@@ -77,7 +77,7 @@ impl Token {
     }
 }
 
-/// Unique id of [`PermissionTokenDefinition`]
+/// Unique id of [`Definition`]
 #[derive(
     Debug,
     Display,
@@ -98,12 +98,12 @@ impl Token {
     IntoFfi,
 )]
 pub struct Id {
-    /// [`PermissionToken`] name
+    /// [`Token`] name
     pub name: Name,
 }
 
 ffi_item! {
-    /// Defines a type of [`PermissionToken`] with given id
+    /// Defines a type of [`Token`] with given id
     #[derive(
         Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema, IntoFfi, TryFromReprC
     )]
