@@ -3,8 +3,8 @@
 use std::{alloc::alloc, collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
-    def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, AsReprCRef, FfiReturn, FfiTuple2,
-    Handle, IntoFfi, TryFromReprC,
+    def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, FfiReturn, FfiTuple2, Handle, IntoFfi,
+    TryFromReprC,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi, TryFromReprC)]
@@ -119,7 +119,7 @@ fn get_new_struct() -> FfiStruct {
 
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__new(IntoFfi::into_ffi(name), ffi_struct.as_mut_ptr())
+            FfiStruct__new(name.into_ffi(&mut ()), ffi_struct.as_mut_ptr())
         );
 
         let ffi_struct = ffi_struct.assume_init();
@@ -131,11 +131,12 @@ fn get_new_struct() -> FfiStruct {
 #[allow(trivial_casts)]
 fn get_new_struct_with_params() -> FfiStruct {
     let mut ffi_struct = get_new_struct();
-    let params = get_default_params();
+    let params = get_default_params().to_vec();
+    let mut params_store = Default::default();
+    let params = IntoFfi::into_ffi(params, &mut params_store);
 
-    let params_ffi = params.into_ffi();
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), params_ffi.as_ref())
+        FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct, &mut ()), params)
     });
 
     ffi_struct
@@ -151,7 +152,7 @@ fn constructor() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(FfiStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -169,7 +170,7 @@ fn builder_method() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(FfiStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -181,7 +182,7 @@ fn consume_self() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__consume_self(ffi_struct.into_ffi().cast())
+            FfiStruct__consume_self(ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -195,12 +196,13 @@ fn into_iter_item_impl_into() {
     ];
 
     let mut ffi_struct = get_new_struct();
-    let tokens_ffi = tokens.clone().into_ffi();
+    let mut tokens_store = Default::default();
+    let tokens_ffi = tokens.clone().into_ffi(&mut tokens_store);
 
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__with_tokens(IntoFfi::into_ffi(&mut ffi_struct), tokens_ffi.as_ref())
+            FfiStruct__with_tokens(IntoFfi::into_ffi(&mut ffi_struct, &mut ()), tokens_ffi)
         );
 
         assert_eq!(2, ffi_struct.tokens.len());
@@ -208,7 +210,7 @@ fn into_iter_item_impl_into() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(FfiStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -224,7 +226,11 @@ fn return_option() {
 
     let name1 = Name(String::from("Non"));
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), &name1, param1.as_mut_ptr())
+        FfiStruct__get_param(
+            IntoFfi::into_ffi(&ffi_struct, &mut ()),
+            &name1,
+            param1.as_mut_ptr(),
+        )
     });
     let param1 = unsafe { param1.assume_init() };
     assert!(param1.is_null());
@@ -235,7 +241,11 @@ fn return_option() {
 
     let name2 = Name(String::from("Nomen"));
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), &name2, param2.as_mut_ptr())
+        FfiStruct__get_param(
+            IntoFfi::into_ffi(&ffi_struct, &mut ()),
+            &name2,
+            param2.as_mut_ptr(),
+        )
     });
 
     unsafe {
@@ -246,7 +256,7 @@ fn return_option() {
         assert_eq!(Some(&Value(String::from("Omen"))), param2);
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(FfiStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -261,12 +271,12 @@ fn empty_return_iterator() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
+            FfiStruct__params(IntoFfi::into_ffi(&ffi_struct, &mut ()), out_params)
         );
         assert!(params_len.assume_init() == 2);
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(FfiStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -285,7 +295,7 @@ fn return_iterator() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params)
+            FfiStruct__params(IntoFfi::into_ffi(&ffi_struct, &mut ()), out_params)
         );
 
         assert_eq!(params_len.assume_init(), 2);
@@ -298,7 +308,7 @@ fn return_iterator() {
 
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct::ID, ffi_struct.into_ffi().cast())
+            __drop(FfiStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
         );
     }
 }
@@ -343,7 +353,7 @@ fn invoke_trait_method() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__Target__target(IntoFfi::into_ffi(ffi_struct), output.as_mut_ptr())
+            FfiStruct__Target__target(IntoFfi::into_ffi(ffi_struct, &mut ()), output.as_mut_ptr())
         );
         let name = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).unwrap();
         assert_eq!(Name(String::from("X")), name);

@@ -30,23 +30,23 @@ impl Arg {
 
         if is_output {
             if let Some(result_type) = unwrap_result_type(&arg_type) {
-                return parse_quote! {<#result_type as iroha_ffi::IntoFfi>::Target};
+                return parse_quote! {<#result_type as iroha_ffi::FfiType>::ReprC};
             }
 
-            return parse_quote! {<#arg_type as iroha_ffi::IntoFfi>::Target};
+            return parse_quote! {<#arg_type as iroha_ffi::FfiType>::ReprC};
         }
 
         if let Type::Reference(ref_type) = &arg_type {
             let elem = &ref_type.elem;
 
             return if ref_type.mutability.is_some() {
-                parse_quote! {<&'itm mut #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+                parse_quote! {<&'itm mut #elem as iroha_ffi::FfiType>::ReprC}
             } else {
-                parse_quote! {<&'itm #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+                parse_quote! {<&'itm #elem as iroha_ffi::FfiType>::ReprC}
             };
         }
 
-        parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'itm>>::Source}
+        parse_quote! {<#arg_type as iroha_ffi::FfiType>::ReprC}
     }
 }
 

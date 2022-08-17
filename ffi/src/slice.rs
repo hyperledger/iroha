@@ -1,19 +1,91 @@
 //! Logic related to the conversion of slices to and from FFI-compatible representation
-#![allow(clippy::undocumented_unsafe_blocks)]
-use core::{marker::PhantomData, mem::MaybeUninit};
 
-use crate::{
-    owned::LocalSlice, AsReprCRef, FfiReturn, IntoFfi, OutPtrOf, Output, ReprC, Result,
-    TryFromReprC,
-};
+use core::mem::MaybeUninit;
+
+use crate::{Local, FfiReturn, FfiType, IntoFfi, NonLocal, OutPtrOf, ReprC, Result, TryFromReprC, Output};
+
+/// Indicates that the shared slice of a given type can be converted into an FFI compatible representation
+pub trait FfiSliceRef: Sized
+where
+    SliceRef<Self::ReprC>: ReprC,
+{
+    /// Corresponding FFI-compatible type
+    type ReprC;
+}
+
+/// Indicates that the mutable slice of a given type can be converted into an FFI compatible representation
+pub trait FfiSliceMut: Sized
+where
+    SliceMut<Self::ReprC>: ReprC,
+{
+    /// Corresponding FFI-compatible type
+    type ReprC;
+}
+
+/// Trait that facilitates the implementation of [`TryFromReprC`] for immutable slices of foreign types
+pub trait TryFromReprCSliceRef<'slice>: FfiSliceRef
+where
+    SliceRef<Self::ReprC>: ReprC,
+{
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
+
+    /// Convert from [`Self::ReprC`] into `&[Self]`
+    ///
+    /// # Errors
+    ///
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    unsafe fn try_from_repr_c(
+        source: SliceRef<Self::ReprC>,
+        store: &'slice mut Self::Store,
+    ) -> Result<&'slice [Self]>;
+}
+
+/// Trait that facilitates the implementation of [`TryFromReprC`] for mutable slices of foreign types
+pub trait TryFromReprCSliceMut<'slice>: FfiSliceMut
+where
+    SliceMut<Self::ReprC>: ReprC,
+{
+    /// Type into which state can be stored during conversion. Useful for returning
+    /// non-owning types but performing some conversion which requires allocation.
+    /// Serves similar purpose as does context in a closure
+    type Store: Default;
+
+    /// Perform the conversion from [`Self::ReprC`] into `&mut [Self]`
+    ///
+    /// # Errors
+    ///
+    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
+    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
+    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    unsafe fn try_from_repr_c(
+        source: SliceMut<Self::ReprC>,
+        store: &'slice mut Self::Store,
+    ) -> Result<&'slice mut [Self]>;
+}
 
 /// Trait that facilitates the implementation of [`IntoFfi`] for immutable slices of foreign types
-pub trait IntoFfiSliceRef<'slice>: Sized {
-    /// Immutable slice equivalent of [`IntoFfi::Target`]
-    type Target: ReprC;
+pub trait IntoFfiSliceRef: FfiSliceRef
+where
+    SliceRef<Self::ReprC>: ReprC,
+{
+    /// Immutable slice equivalent of [`IntoFfi::Store`]
+    type Store: Default;
 
     /// Convert from `&[Self]` into [`Self::Target`]
-    fn into_ffi(source: &'slice [Self]) -> Self::Target;
+    fn into_ffi(source: &[Self], store: &mut Self::Store) -> SliceRef<Self::ReprC>;
 }
 
 /// Trait that facilitates the implementation of [`IntoFfi`] for mutable slices of foreign types
@@ -24,75 +96,24 @@ pub trait IntoFfiSliceRef<'slice>: Sized {
 /// This is because it's not possible to mutably reference local context across FFI boundary
 /// Additionally, if implemented on a non-robust type the invariant that trap representations
 /// will never be written into values of `Self` by foreign code must be upheld at all times
-pub unsafe trait IntoFfiSliceMut<'slice>: Sized {
-    /// Mutable slice equivalent of [`IntoFfi::Target`]
-    type Target: ReprC + 'slice;
+pub unsafe trait IntoFfiSliceMut: FfiSliceMut
+where
+    SliceMut<Self::ReprC>: ReprC,
+{
+    /// Immutable slice equivalent of [`IntoFfi::Store`]
+    type Store: Default;
 
     /// Convert from `&mut [Self]` into [`Self::Target`]
-    fn into_ffi(source: &'slice mut [Self]) -> Self::Target;
-}
-
-/// Trait that facilitates the implementation of [`TryFromReprC`] for immutable slices of foreign types
-pub trait TryFromReprCSliceRef<'slice>: Sized {
-    /// Immutable slice equivalent of [`TryFromReprC::Source`]
-    type Source: ReprC + Copy;
-
-    /// Type into which state can be stored during conversion. Useful for returning
-    /// non-owning types but performing some conversion which requires allocation.
-    /// Serves similar purpose as does context in a closure
-    type Store: Default;
-
-    /// Convert from [`Self::Source`] into `&[Self]`
-    ///
-    /// # Errors
-    ///
-    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
-    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
-    ///
-    /// # Safety
-    ///
-    /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        store: &'slice mut Self::Store,
-    ) -> Result<&'slice [Self]>;
-}
-
-/// Trait that facilitates the implementation of [`TryFromReprC`] for mutable slices of foreign types
-pub trait TryFromReprCSliceMut<'slice>: Sized {
-    /// Mutable slice equivalent of [`TryFromReprC::Source`]
-    type Source: ReprC + Copy;
-
-    /// Type into which state can be stored during conversion. Useful for returning
-    /// non-owning types but performing some conversion which requires allocation.
-    /// Serves similar purpose as does context in a closure
-    type Store: Default;
-
-    /// Perform the conversion from [`Self::Source`] into `&mut [Self]`
-    ///
-    /// # Errors
-    ///
-    /// * [`FfiReturn::ArgIsNull`]          - given pointer is null
-    /// * [`FfiReturn::UnknownHandle`]      - given id doesn't identify any known handle
-    /// * [`FfiReturn::TrapRepresentation`] - given value contains trap representation
-    ///
-    /// # Safety
-    ///
-    /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        store: &'slice mut Self::Store,
-    ) -> Result<&'slice mut [Self]>;
+    fn into_ffi(source: &mut [Self], store: &mut Self::Store) -> SliceMut<Self::ReprC>;
 }
 
 /// Immutable slice with a defined C ABI layout. Consists of data pointer and length
 #[repr(C)]
-pub struct SliceRef<'data, T>(*const T, usize, PhantomData<&'data T>);
+pub struct SliceRef<T>(*const T, usize);
 
 /// Mutable slice with a defined C ABI layout. Consists of data pointer and length
 #[repr(C)]
-pub struct SliceMut<'data, T>(*mut T, usize, PhantomData<&'data mut T>);
+pub struct SliceMut<T>(*mut T, usize);
 
 /// Immutable slice with a defined C ABI layout when used as a function return argument. Provides
 /// a pointer where data pointer should be stored, and a pointer where length should be stored.
@@ -111,19 +132,19 @@ pub struct OutSliceMut<T>(*mut *mut T, *mut usize);
 ///
 /// Returned length is [`isize`] to be able to support `None` values when converting types such as [`Option<T>`]
 #[repr(C)]
-pub struct OutBoxedSlice<T: ReprC>(*mut T, usize, *mut isize);
+#[derive(Clone, Copy)]
+pub struct OutBoxedSlice<T>(*mut T, usize, *mut isize);
 
-// NOTE: raw pointers are also `Copy`
-impl<T> Copy for SliceRef<'_, T> {}
-impl<T> Clone for SliceRef<'_, T> {
+impl<T> Copy for SliceRef<T> {}
+impl<T> Clone for SliceRef<T> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1, PhantomData)
+        Self(self.0, self.1)
     }
 }
-impl<T> Copy for SliceMut<'_, T> {}
-impl<T> Clone for SliceMut<'_, T> {
+impl<T> Copy for SliceMut<T> {}
+impl<T> Clone for SliceMut<T> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1, PhantomData)
+        Self(self.0, self.1)
     }
 }
 impl<T> Copy for OutSliceRef<T> {}
@@ -138,22 +159,16 @@ impl<T> Clone for OutSliceMut<T> {
         Self(self.0, self.1)
     }
 }
-impl<T: ReprC> Copy for OutBoxedSlice<T> {}
-impl<T: ReprC> Clone for OutBoxedSlice<T> {
-    fn clone(&self) -> Self {
-        Self(self.0, self.1, self.2)
-    }
-}
 
-impl<'slice, T> SliceRef<'slice, T> {
+impl<'slice, T> SliceRef<T> {
     /// Forms a slice from a data pointer and a length.
     pub fn from_raw_parts(ptr: *const T, len: usize) -> Self {
-        Self(ptr, len, PhantomData)
+        Self(ptr, len)
     }
 
     /// Create [`Self`] from shared slice
     pub const fn from_slice(slice: &[T]) -> Self {
-        Self(slice.as_ptr(), slice.len(), PhantomData)
+        Self(slice.as_ptr(), slice.len())
     }
 
     /// Convert [`Self`] into a shared slice. Return `None` if data pointer is null
@@ -171,17 +186,17 @@ impl<'slice, T> SliceRef<'slice, T> {
 
     pub(crate) fn null() -> Self {
         // TODO: len could be uninitialized
-        Self(core::ptr::null(), 0, PhantomData)
+        Self(core::ptr::null(), 0)
     }
 
     pub(crate) fn is_null(&self) -> bool {
         self.0.is_null()
     }
 }
-impl<'slice, T> SliceMut<'slice, T> {
+impl<'slice, T> SliceMut<T> {
     /// Create [`Self`] from mutable slice
     pub fn from_slice(slice: &mut [T]) -> Self {
-        Self(slice.as_mut_ptr(), slice.len(), PhantomData)
+        Self(slice.as_mut_ptr(), slice.len())
     }
 
     /// Convert [`Self`] into a mutable slice. Return `None` if data pointer is null
@@ -199,7 +214,7 @@ impl<'slice, T> SliceMut<'slice, T> {
 
     pub(crate) fn null() -> Self {
         // TODO: len could be uninitialized
-        Self(core::ptr::null_mut(), 0, PhantomData)
+        Self(core::ptr::null_mut(), 0)
     }
 
     pub(crate) fn is_null(&self) -> bool {
@@ -235,7 +250,7 @@ impl<T> OutSliceMut<T> {
         self.0.write(core::ptr::null_mut());
     }
 }
-impl<T: ReprC + Copy> OutBoxedSlice<T> {
+impl<T> OutBoxedSlice<T> {
     const NONE: isize = -1;
 
     /// Construct `Self` from a slice of uninitialized elements
@@ -259,80 +274,76 @@ impl<T: ReprC + Copy> OutBoxedSlice<T> {
     }
 }
 
-unsafe impl<T> ReprC for SliceRef<'_, T> {}
-unsafe impl<T> ReprC for SliceMut<'_, T> {}
-unsafe impl<T> ReprC for OutSliceRef<T> {}
-unsafe impl<T> ReprC for OutSliceMut<T> {}
-unsafe impl<T: ReprC> ReprC for OutBoxedSlice<T> {}
+unsafe impl<T> ReprC for SliceRef<T> where *const T: ReprC {}
+unsafe impl<T> ReprC for SliceMut<T> where *mut T: ReprC {}
+unsafe impl<T> ReprC for OutSliceRef<T> where *const T: ReprC {}
+unsafe impl<T> ReprC for OutSliceMut<T> where *mut T: ReprC {}
+unsafe impl<T> ReprC for OutBoxedSlice<T> where T: ReprC {}
 
-impl<'slice, T: 'slice> AsReprCRef<'slice> for SliceRef<'slice, T> {
-    type Target = Self;
+unsafe impl<T> NonLocal for SliceRef<T> where *const T: NonLocal {}
+unsafe impl<T> NonLocal for SliceMut<T> where *mut T: NonLocal {}
 
-    fn as_ref(&self) -> Self::Target {
-        *self
-    }
+impl<T> Output for SliceRef<T> where *const T: NonLocal {
+    type OutPtr = OutSliceRef<T>;
+}
+impl<T> Output for SliceMut<T> where *mut T: NonLocal {
+    type OutPtr = OutSliceMut<T>;
+}
+impl<T: ReprC + NonLocal> Output for Local<SliceRef<T>> {
+    type OutPtr = OutBoxedSlice<T>;
 }
 
-impl<'slice, T: TryFromReprCSliceRef<'slice>> TryFromReprC<'slice> for &'slice [T] {
-    type Source = T::Source;
-    type Store = T::Store;
-
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        store: &'slice mut Self::Store,
-    ) -> Result<Self> {
-        TryFromReprCSliceRef::try_from_repr_c(source, store)
-    }
+impl<T: FfiSliceRef> FfiType for &[T]
+where
+    SliceRef<T::ReprC>: ReprC,
+{
+    type ReprC = SliceRef<T::ReprC>;
 }
-impl<'slice, T: TryFromReprCSliceMut<'slice>> TryFromReprC<'slice> for &'slice mut [T] {
-    type Source = T::Source;
-    type Store = T::Store;
-
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        store: &'slice mut Self::Store,
-    ) -> Result<Self> {
-        TryFromReprCSliceMut::try_from_repr_c(source, store)
-    }
+impl<T: FfiSliceMut> FfiType for &mut [T]
+where
+    SliceMut<T::ReprC>: ReprC,
+{
+    type ReprC = SliceMut<T::ReprC>;
 }
 
-impl<'slice, T: IntoFfiSliceRef<'slice>> IntoFfi for &'slice [T] {
-    type Target = T::Target;
-
-    fn into_ffi(self) -> Self::Target {
-        IntoFfiSliceRef::into_ffi(self)
-    }
+// TODO: Why is `ReprC` bound required here?
+impl<T: ReprC + FfiType<ReprC = Self>> FfiSliceRef for T
+where
+    SliceRef<T::ReprC>: ReprC,
+{
+    type ReprC = Self;
 }
-impl<'slice, T: IntoFfiSliceMut<'slice>> IntoFfi for &'slice mut [T] {
-    type Target = T::Target;
-
-    fn into_ffi(self) -> Self::Target {
-        IntoFfiSliceMut::into_ffi(self)
-    }
-}
-impl<'slice, T: IntoFfiSliceRef<'slice>> IntoFfiSliceRef<'slice> for &'slice [T] {
-    type Target = LocalSlice<T::Target>;
-
-    fn into_ffi(source: &[Self]) -> Self::Target {
-        source
-            .iter()
-            .map(|item| IntoFfiSliceRef::into_ffi(item))
-            .collect()
-    }
-}
-impl<'slice, T: IntoFfiSliceRef<'slice>> IntoFfiSliceRef<'slice> for &'slice mut [T] {
-    type Target = LocalSlice<T::Target>;
-
-    fn into_ffi(source: &'slice [Self]) -> Self::Target {
-        source
-            .iter()
-            .map(|item| IntoFfiSliceRef::into_ffi(item))
-            .collect()
-    }
+impl<T: FfiType<ReprC = Self>> FfiSliceMut for T
+where
+    SliceMut<T::ReprC>: ReprC,
+{
+    type ReprC = Self;
 }
 
-impl<'data, T> OutPtrOf<SliceRef<'data, T>> for OutSliceRef<T> {
-    unsafe fn write(self, source: SliceRef<'data, T>) -> Result<()> {
+impl<T: FfiSliceRef> FfiSliceRef for &[T]
+where
+    SliceRef<T::ReprC>: ReprC,
+{
+    type ReprC = SliceRef<T::ReprC>;
+}
+impl<T: FfiSliceRef> FfiSliceRef for &mut [T]
+where
+    SliceRef<T::ReprC>: ReprC,
+{
+    type ReprC = SliceRef<T::ReprC>;
+}
+impl<T: FfiSliceMut> FfiSliceMut for &mut [T]
+where
+    SliceMut<T::ReprC>: ReprC,
+{
+    type ReprC = SliceMut<T::ReprC>;
+}
+
+impl<T> OutPtrOf<SliceRef<T>> for OutSliceRef<T>
+where
+    *const T: ReprC + NonLocal,
+{
+    unsafe fn write(self, source: SliceRef<T>) -> Result<()> {
         if self.1.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -347,8 +358,11 @@ impl<'data, T> OutPtrOf<SliceRef<'data, T>> for OutSliceRef<T> {
         Ok(())
     }
 }
-impl<'data, T> OutPtrOf<SliceMut<'data, T>> for OutSliceMut<T> {
-    unsafe fn write(self, source: SliceMut<'data, T>) -> Result<()> {
+impl<T> OutPtrOf<SliceMut<T>> for OutSliceMut<T>
+where
+    *mut T: ReprC + NonLocal,
+{
+    unsafe fn write(self, source: SliceMut<T>) -> Result<()> {
         if self.1.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -363,15 +377,15 @@ impl<'data, T> OutPtrOf<SliceMut<'data, T>> for OutSliceMut<T> {
         Ok(())
     }
 }
-impl<T: ReprC + Copy> OutPtrOf<LocalSlice<T>> for OutBoxedSlice<T> {
-    unsafe fn write(self, source: LocalSlice<T>) -> Result<()> {
+impl<T: ReprC + NonLocal> OutPtrOf<Local<SliceRef<T>>> for OutBoxedSlice<T> {
+    unsafe fn write(self, source: Local<SliceRef<T>>) -> Result<()> {
         if self.2.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
 
         // slice len is never larger than `isize::MAX`
         #[allow(clippy::expect_used)]
-        source.into_rust().map_or_else(
+        source.0.into_rust().map_or_else(
             || self.write_none(),
             |slice| {
                 self.2
@@ -389,9 +403,126 @@ impl<T: ReprC + Copy> OutPtrOf<LocalSlice<T>> for OutBoxedSlice<T> {
     }
 }
 
-impl<'data, T> Output for SliceRef<'data, T> {
-    type OutPtr = OutSliceRef<T>;
+impl<'slice, T: TryFromReprCSliceRef<'slice>> TryFromReprC<'slice> for &'slice [T]
+where
+    SliceRef<<T as FfiSliceRef>::ReprC>: ReprC,
+{
+    type Store = T::Store;
+
+    unsafe fn try_from_repr_c(source: Self::ReprC, store: &'slice mut Self::Store) -> Result<Self> {
+        TryFromReprCSliceRef::try_from_repr_c(source, store)
+    }
 }
-impl<'data, T> Output for SliceMut<'data, T> {
-    type OutPtr = OutSliceMut<T>;
+impl<'slice, T: TryFromReprCSliceMut<'slice>> TryFromReprC<'slice> for &'slice mut [T]
+where
+    SliceMut<<T as FfiSliceMut>::ReprC>: ReprC,
+{
+    type Store = T::Store;
+
+    unsafe fn try_from_repr_c(source: Self::ReprC, store: &'slice mut Self::Store) -> Result<Self> {
+        TryFromReprCSliceMut::try_from_repr_c(source, store)
+    }
 }
+
+impl<T: FfiSliceRef<ReprC = T>> TryFromReprCSliceRef<'_> for T
+where
+    SliceRef<<T as FfiSliceRef>::ReprC>: ReprC,
+{
+    type Store = ();
+
+    unsafe fn try_from_repr_c(
+        source: SliceRef<Self::ReprC>,
+        _: &mut Self::Store,
+    ) -> Result<&[Self]> {
+        source.into_rust().ok_or(FfiReturn::ArgIsNull)
+    }
+}
+impl<T: FfiSliceMut<ReprC = Self>> TryFromReprCSliceMut<'_> for T
+where
+    SliceMut<<Self as FfiSliceMut>::ReprC>: ReprC,
+{
+    type Store = ();
+
+    unsafe fn try_from_repr_c(
+        source: SliceMut<Self::ReprC>,
+        _: &mut Self::Store,
+    ) -> Result<&mut [Self]> {
+        source.into_rust().ok_or(FfiReturn::ArgIsNull)
+    }
+}
+
+impl<T: IntoFfiSliceRef> IntoFfi for &[T]
+where
+    SliceRef<<T as FfiSliceRef>::ReprC>: ReprC,
+{
+    type Store = T::Store;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::ReprC {
+        IntoFfiSliceRef::into_ffi(self, store)
+    }
+}
+impl<T: IntoFfiSliceMut> IntoFfi for &mut [T]
+where
+    SliceMut<<T as FfiSliceMut>::ReprC>: ReprC,
+{
+    type Store = T::Store;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::ReprC {
+        IntoFfiSliceMut::into_ffi(self, store)
+    }
+}
+
+impl<T: FfiSliceRef<ReprC = Self>> IntoFfiSliceRef for T
+where
+    SliceRef<<Self as FfiSliceRef>::ReprC>: ReprC,
+{
+    type Store = ();
+
+    fn into_ffi(source: &[Self], _: &mut Self::Store) -> SliceRef<Self::ReprC> {
+        SliceRef::from_slice(source)
+    }
+}
+unsafe impl<T: FfiSliceMut<ReprC = Self>> IntoFfiSliceMut for T
+where
+    SliceMut<<Self as FfiSliceMut>::ReprC>: ReprC,
+{
+    type Store = ();
+
+    fn into_ffi(source: &mut [Self], _: &mut Self::Store) -> SliceMut<Self::ReprC> {
+        SliceMut::from_slice(source)
+    }
+}
+
+// TODO: Be sure to match the bounds correctly
+//impl<T: IntoFfiSliceRef> IntoFfiSliceRef for &[T]
+//where
+//    SliceRef<<T as FfiSliceRef>::ReprC>: ReprC,
+//{
+//    type Store = (Vec<Self::ReprC>, Vec<T::Store>);
+//
+//    fn into_ffi(source: &[Self], store: &mut Self::Store) -> SliceRef<Self::ReprC> {
+//        store.0 = source
+//            .iter()
+//            .enumerate()
+//            .map(|(i, item)| IntoFfiSliceRef::into_ffi(item, &mut store.1[i]))
+//            .collect();
+//
+//        SliceRef::from_slice(&store.0)
+//    }
+//}
+//impl<T: IntoFfiSliceRef> IntoFfiSliceRef for &mut [T]
+//where
+//    SliceRef<<T as FfiSliceRef>::ReprC>: ReprC,
+//{
+//    type Store = (Vec<Self::ReprC>, Vec<<T as IntoFfiSliceRef>::Store>);
+//
+//    fn into_ffi(source: &[Self], store: &mut Self::Store) -> SliceRef<Self::ReprC> {
+//        store.0 = source
+//            .iter()
+//            .enumerate()
+//            .map(|(i, item)| IntoFfiSliceRef::into_ffi(item, &mut store.1[i]))
+//            .collect();
+//
+//        SliceRef::from_slice(&store.0)
+//    }
+//}

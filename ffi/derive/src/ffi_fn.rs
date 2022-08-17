@@ -133,9 +133,7 @@ fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
 }
 
 fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
-    let arg_name = arg.name();
-    let arg_type = arg.ffi_type_resolved(true);
-
+    let (arg_name, arg_type) = (arg.name(), arg.ffi_type_resolved(true));
     quote! { #arg_name: <#arg_type as iroha_ffi::Output>::OutPtr }
 }
 

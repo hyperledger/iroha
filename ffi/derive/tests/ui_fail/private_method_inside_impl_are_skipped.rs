@@ -16,6 +16,6 @@ fn main() {
     let s = FfiStruct;
     unsafe {
         // Function not found
-        FfiStruct__private(IntoFfi::into_ffi(s));
+        FfiStruct__private(IntoFfi::into_ffi(s, &mut ()));
     }
 }

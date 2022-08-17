@@ -91,12 +91,23 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
     let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
 
     quote! {
+        unsafe impl iroha_ffi::NonLocal for #name {}
+
+        impl iroha_ffi::FfiType for #name {
+            type ReprC = *mut iroha_ffi::Opaque;
+        }
+        impl iroha_ffi::FfiType for &#name {
+            type ReprC = *const iroha_ffi::Opaque;
+        }
+        impl iroha_ffi::FfiType for &mut #name {
+            type ReprC = *mut iroha_ffi::Opaque;
+        }
+
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for #name {
-            type Source = *mut iroha_ffi::Opaque;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
+                source: <Self as iroha_ffi::FfiType>::ReprC,
                 _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 if source.is_null() {
@@ -104,40 +115,6 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 
                 }
 
                 Ok(Self{__opaque_ptr: source})
-            }
-        }
-
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #name {
-            type Source = *const iroha_ffi::Opaque;
-            type Store = Option<#name>;
-
-            unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                store: &'itm mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
-            ) -> iroha_ffi::Result<Self> {
-                if source.is_null() {
-                    return iroha_ffi::FfiReturn::ArgIsNull;
-                }
-
-                *store = Some(#name{__opaque_ptr: source});
-                store.as_ref().unwrap()
-            }
-        }
-
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #name {
-            type Source = *mut iroha_ffi::Opaque;
-            type Store = Option<#name>;
-
-            unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                store: &'itm mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
-            ) -> iroha_ffi::Result<Self> {
-                if source.is_null() {
-                    return iroha_ffi::FfiReturn::ArgIsNull;
-                }
-
-                *store = Some(#name{__opaque_ptr: source});
-                store.as_mut().unwrap()
             }
         }
 
@@ -152,12 +129,23 @@ fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
     let opaque_item_vec_try_from_repr_c_derive = derive_try_from_repr_c_for_opaque_item_vec(name);
 
     quote! {
+        unsafe impl iroha_ffi::NonLocal for #name {}
+
+        impl iroha_ffi::FfiType for #name {
+            type ReprC = *mut Self;
+        }
+        impl iroha_ffi::FfiType for &#name {
+            type ReprC = *const #name;
+        }
+        impl iroha_ffi::FfiType for &mut #name {
+            type ReprC = *mut #name;
+        }
+
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for #name {
-            type Source = *mut Self;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
+                source: <Self as iroha_ffi::FfiType>::ReprC,
                 _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 if source.is_null() {
@@ -168,30 +156,6 @@ fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
             }
         }
 
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #name {
-            type Source = *const #name;
-            type Store = ();
-
-            unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
-            ) -> iroha_ffi::Result<Self> {
-                source.as_ref().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
-            }
-        }
-
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #name {
-            type Source = *mut #name;
-            type Store = ();
-
-            unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
-            ) -> iroha_ffi::Result<Self> {
-                source.as_mut().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
-            }
-        }
-
         #opaque_item_slice_try_from_repr_c_derive
         #opaque_item_vec_try_from_repr_c_derive
     }
@@ -199,12 +163,15 @@ fn derive_try_from_repr_c_for_opaque_item(name: &Ident) -> TokenStream2 {
 
 fn derive_try_from_repr_c_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
     quote! {
+        impl iroha_ffi::slice::FfiSliceRef for #name {
+            type ReprC = *const #name;
+        }
+
         impl<'slice> iroha_ffi::slice::TryFromReprCSliceRef<'slice> for #name {
-            type Source = iroha_ffi::slice::SliceRef<'slice, <&'slice Self as iroha_ffi::TryFromReprC<'slice>>::Source>;
             type Store = Vec<Self>;
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Source,
+                source: iroha_ffi::slice::SliceRef<<Self as iroha_ffi::slice::FfiSliceRef>::ReprC>,
                 store: &'slice mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Store
             ) -> iroha_ffi::Result<&'slice [Self]> {
                 let source = source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
@@ -221,15 +188,21 @@ fn derive_try_from_repr_c_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
 
 fn derive_try_from_repr_c_for_opaque_item_vec(name: &Ident) -> TokenStream2 {
     quote! {
+        impl iroha_ffi::owned::FfiVec for #name {
+            type ReprC = *mut Self;
+        }
+        impl iroha_ffi::owned::FfiVec for &#name {
+            type ReprC = *const #name;
+        }
+
         impl<'itm> iroha_ffi::owned::TryFromReprCVec<'itm> for #name {
-            type Source = iroha_ffi::slice::SliceRef<'itm, <Self as iroha_ffi::TryFromReprC<'itm>>::Source>;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: Self::Source,
+                source: iroha_ffi::Local<iroha_ffi::slice::SliceRef<<Self as iroha_ffi::owned::FfiVec>::ReprC>>,
                 _: &'itm mut <Self as iroha_ffi::owned::TryFromReprCVec<'itm>>::Store,
             ) -> iroha_ffi::Result<Vec<Self>> {
-                let slice = source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
+                let slice = source.0.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
                 let mut res = Vec::with_capacity(slice.len());
 
                 for elem in slice {
@@ -276,77 +249,85 @@ fn derive_try_from_repr_c_for_fieldless_enum(
         );
 
     quote! {
+        unsafe impl iroha_ffi::NonLocal for #enum_name {}
+
+        impl iroha_ffi::FfiType for #enum_name {
+            type ReprC = <#ffi_type as iroha_ffi::FfiType>::ReprC;
+        }
+        impl iroha_ffi::FfiType for &#enum_name {
+            type ReprC = *const #ffi_type;
+        }
+        impl iroha_ffi::FfiType for &mut #enum_name {
+            type ReprC = *mut #ffi_type;
+        }
+        impl iroha_ffi::slice::FfiSliceRef for #enum_name {
+            type ReprC = #ffi_type;
+        }
+
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for #enum_name {
-            type Source = <#ffi_type as iroha_ffi::TryFromReprC<'itm>>::Source;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
+                source: <Self as iroha_ffi::FfiType>::ReprC,
                 store: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
 
-                let source: #ffi_type = iroha_ffi::TryFromReprC::try_from_repr_c(source, store)?;
-
-                match source {
+                match iroha_ffi::TryFromReprC::try_from_repr_c(source, store)? {
                     #( #discriminant_names => Ok(#enum_name::#variant_names), )*
                     _ => Err(iroha_ffi::FfiReturn::TrapRepresentation),
                 }
             }
         }
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #enum_name {
-            type Source = *const #ffi_type;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
+                source: <Self as iroha_ffi::FfiType>::ReprC,
                 _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
 
-                unsafe { match *source {
+                match *source {
                     #( | #discriminant_names )* => Ok(&*(source as *const _ as *const _)),
                     _ => Err(iroha_ffi::FfiReturn::TrapRepresentation),
-                }}
+                }
             }
         }
         impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #enum_name {
-            type Source = *mut #ffi_type;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
+                source: <Self as iroha_ffi::FfiType>::ReprC,
                 _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
 
-                unsafe { match *source {
+                match *source {
                     #( | #discriminant_names )* => Ok(&mut *(source as *mut _ as *mut _)),
                     _ => Err(iroha_ffi::FfiReturn::TrapRepresentation),
-                }}
+                }
             }
         }
 
         impl<'slice> iroha_ffi::slice::TryFromReprCSliceRef<'slice> for #enum_name {
-            type Source = iroha_ffi::slice::SliceRef<'slice, Self>;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Source,
+                source: iroha_ffi::slice::SliceRef<<Self as iroha_ffi::slice::FfiSliceRef>::ReprC>,
                 _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Store
             ) -> iroha_ffi::Result<&'slice [Self]> {
-                source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
-            }
-        }
-        impl<'slice> iroha_ffi::slice::TryFromReprCSliceMut<'slice> for #enum_name {
-            type Source = iroha_ffi::slice::SliceMut<'slice, #enum_name>;
-            type Store = ();
+                let source = source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)?;
 
-            unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::slice::TryFromReprCSliceMut<'slice>>::Source,
-                _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceMut>::Store
-            ) -> iroha_ffi::Result<&'slice mut [Self]> {
-                source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
+                #( #discriminants )*
+                for item in source {
+                    match *item {
+                        #(| #discriminant_names )* => {},
+                        _ => return Err(iroha_ffi::FfiReturn::TrapRepresentation),
+                    }
+                }
+
+                Ok(&*(source as *const [#ffi_type] as *const [#enum_name]))
             }
         }
     }
@@ -358,25 +339,23 @@ fn derive_into_ffi_for_opaque_item_wrapper(name: &Ident) -> TokenStream2 {
 
     quote! {
         impl iroha_ffi::IntoFfi for #name {
-            type Target = *mut iroha_ffi::Opaque;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
                 core::mem::ManuallyDrop::new(self).__opaque_ptr
             }
         }
-
         impl iroha_ffi::IntoFfi for &#name {
-            type Target = *const iroha_ffi::Opaque;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
                 self.__opaque_ptr
             }
         }
-
         impl iroha_ffi::IntoFfi for &mut #name {
-            type Target = *mut iroha_ffi::Opaque;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
                 self.__opaque_ptr
             }
         }
@@ -392,32 +371,16 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
 
     quote! {
         impl iroha_ffi::IntoFfi for #name {
-            type Target = *mut Self;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
                 let layout = core::alloc::Layout::for_value(&self);
 
                 unsafe {
-                    let ptr: Self::Target = alloc(layout).cast();
+                    let ptr: <Self as iroha_ffi::FfiType>::ReprC = alloc(layout).cast();
                     ptr.write(self);
                     ptr
                 }
-            }
-        }
-
-        impl iroha_ffi::IntoFfi for &#name {
-            type Target = *const #name;
-
-            fn into_ffi(self) -> Self::Target {
-                <*const _>::from(self)
-            }
-        }
-
-        impl iroha_ffi::IntoFfi for &mut #name {
-            type Target = *mut #name;
-
-            fn into_ffi(self) -> Self::Target {
-                <*mut _>::from(self)
             }
         }
 
@@ -428,11 +391,18 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
 
 fn derive_into_ffi_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
     quote! {
-        impl<'slice> iroha_ffi::slice::IntoFfiSliceRef<'slice> for #name {
-            type Target = iroha_ffi::owned::LocalSlice<<&'slice Self as IntoFfi>::Target>;
+        impl iroha_ffi::slice::IntoFfiSliceRef for #name {
+            type Store = Vec<*const #name>;
 
-            fn into_ffi(source: &[Self]) -> Self::Target {
-                source.iter().map(iroha_ffi::IntoFfi::into_ffi).collect()
+            fn into_ffi(
+                source: &[Self],
+                store: &mut <Self as iroha_ffi::slice::IntoFfiSliceRef>::Store
+            ) -> iroha_ffi::slice::SliceRef<<Self as iroha_ffi::slice::FfiSliceRef>::ReprC> {
+                *store = source.iter().enumerate().map(|(i, item)|
+                    iroha_ffi::IntoFfi::into_ffi(item, &mut ())
+                ).collect();
+
+                iroha_ffi::slice::SliceRef::from_slice(store)
             }
         }
     }
@@ -441,10 +411,17 @@ fn derive_into_ffi_for_opaque_item_slice(name: &Ident) -> TokenStream2 {
 fn derive_into_ffi_for_opaque_item_vec(name: &Ident) -> TokenStream2 {
     quote! {
         impl iroha_ffi::owned::IntoFfiVec for #name {
-            type Target = iroha_ffi::owned::LocalSlice<<#name as iroha_ffi::IntoFfi>::Target>;
+            type Store = Vec<<#name as iroha_ffi::owned::FfiVec>::ReprC>;
 
-            fn into_ffi(source: Vec<Self>) -> Self::Target {
-                source.into_iter().map(IntoFfi::into_ffi).collect()
+            fn into_ffi(
+                source: Vec<Self>,
+                store: &mut <Self as iroha_ffi::owned::IntoFfiVec>::Store
+            ) -> iroha_ffi::Local<iroha_ffi::slice::SliceRef<<Self as iroha_ffi::owned::FfiVec>::ReprC>> {
+                *store = source.into_iter().map(|item|
+                    iroha_ffi::IntoFfi::into_ffi(item, &mut ())
+                ).collect();
+
+                iroha_ffi::Local(iroha_ffi::slice::SliceRef::from_slice(store))
             }
         }
     }
@@ -461,26 +438,33 @@ fn derive_into_ffi_for_fieldless_enum(enum_name: &Ident, repr: &[syn::NestedMeta
 
     quote! {
         impl iroha_ffi::IntoFfi for #enum_name {
-            type Target = <#ffi_type as iroha_ffi::IntoFfi>::Target;
+            type Store = <#ffi_type as iroha_ffi::IntoFfi>::Store;
 
-            fn into_ffi(self) -> Self::Target {
-                (self as #ffi_type).into_ffi()
+            fn into_ffi(self, store: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
+                (self as #ffi_type).into_ffi(store)
             }
         }
-
         impl iroha_ffi::IntoFfi for &#enum_name {
-            type Target = *const #ffi_type;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
                 self as *const #enum_name as *const #ffi_type
             }
         }
-
         impl iroha_ffi::IntoFfi for &mut #enum_name {
-            type Target = *mut #ffi_type;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::FfiType>::ReprC {
                 self as *mut #enum_name as *mut #ffi_type
+            }
+        }
+        impl iroha_ffi::slice::IntoFfiSliceRef for #enum_name {
+            type Store = ();
+
+            fn into_ffi(source: &[Self], store: &mut ()) -> iroha_ffi::slice::SliceRef<<Self as iroha_ffi::slice::FfiSliceRef>::ReprC> {
+                iroha_ffi::slice::SliceRef::from_slice(unsafe {
+                    &*(source as *const [#enum_name] as *const [#ffi_type])
+                })
             }
         }
     }

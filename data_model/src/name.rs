@@ -96,7 +96,7 @@ impl AsRef<str> for Name {
 impl FromStr for Name {
     type Err = ParseError;
 
-    fn from_str(candidate: &str) -> Result<Self, Self::Err> {
+    fn from_str(candidate: &str) -> Result<Self, <Self as FromStr>::Err> {
         Self::validate_str(candidate).map(|_| Self(ConstString::from(candidate)))
     }
 }

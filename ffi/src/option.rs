@@ -1,10 +1,15 @@
 //! Logic related to the conversion of [`Option<T>`] to and from FFI-compatible representation
 
 use crate::{
-    owned::LocalSlice,
     slice::{SliceMut, SliceRef},
-    FfiReturn, IntoFfi, ReprC, TryFromReprC,
+    FfiReturn, FfiType, IntoFfi, ReprC, TryFromReprC,
 };
+
+/// Indicates that the `Option<T>` can be converted into an FFI compatible representation
+pub trait FfiOption: Sized {
+    /// Corresponding FFI-compatible type
+    type ReprC: ReprC;
+}
 
 /// Type with an FFI-compatible representation that supports [`Option::None`] values
 pub trait Nullable: ReprC {
@@ -15,19 +20,16 @@ pub trait Nullable: ReprC {
 }
 
 /// Trait that facilitates the implementation of [`IntoFfi`] for [`Option<T>`] of foreign types
-pub trait IntoFfiOption: Sized {
-    /// [`Option<T>`] equivalent of [`IntoFfi::Target`]
-    type Target: ReprC;
+pub trait IntoFfiOption: FfiOption {
+    /// [`Option<T>`] equivalent of [`IntoFfi::Store`]
+    type Store: Default;
 
     /// Convert from [`Option<Self>`] into [`Self::Target`]
-    fn into_ffi(source: Option<Self>) -> Self::Target;
+    fn into_ffi(source: Option<Self>, store: &mut Self::Store) -> Self::ReprC;
 }
 
 /// Trait that facilitates the implementation of [`TryFromReprC`] for [`Option<T>`] of foreign types
-pub trait TryFromReprCOption<'itm>: Sized + 'itm {
-    /// Type that can be converted from a [`ReprC`] type that was sent over FFI
-    type Source: ReprC + Copy;
-
+pub trait TryFromReprCOption<'itm>: FfiOption + 'itm {
     /// Type into which state can be stored during conversion. Useful for returning
     /// non-owning types but performing some conversion which requires allocation.
     /// Serves similar purpose as does context in a closure
@@ -45,12 +47,15 @@ pub trait TryFromReprCOption<'itm>: Sized + 'itm {
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
     unsafe fn try_from_repr_c(
-        source: Self::Source,
+        source: Self::ReprC,
         store: &'itm mut Self::Store,
     ) -> Result<Option<Self>, FfiReturn>;
 }
 
-impl<T> Nullable for *const T {
+impl<T> Nullable for *const T
+where
+    Self: ReprC,
+{
     fn null() -> Self {
         core::ptr::null()
     }
@@ -58,7 +63,10 @@ impl<T> Nullable for *const T {
         (*self).is_null()
     }
 }
-impl<T> Nullable for *mut T {
+impl<T> Nullable for *mut T
+where
+    Self: ReprC,
+{
     fn null() -> Self {
         core::ptr::null_mut()
     }
@@ -66,7 +74,10 @@ impl<T> Nullable for *mut T {
         (*self).is_null()
     }
 }
-impl<T> Nullable for SliceRef<'_, T> {
+impl<T> Nullable for SliceRef<T>
+where
+    Self: ReprC,
+{
     fn null() -> Self {
         SliceRef::null()
     }
@@ -74,7 +85,10 @@ impl<T> Nullable for SliceRef<'_, T> {
         self.is_null()
     }
 }
-impl<T> Nullable for SliceMut<'_, T> {
+impl<T> Nullable for SliceMut<T>
+where
+    Self: ReprC,
+{
     fn null() -> Self {
         SliceMut::null()
     }
@@ -82,36 +96,26 @@ impl<T> Nullable for SliceMut<'_, T> {
         self.is_null()
     }
 }
-impl<T: ReprC> Nullable for LocalSlice<T> {
-    fn null() -> Self {
-        LocalSlice::null()
-    }
-    fn is_null(&self) -> bool {
-        self.is_null()
-    }
+
+impl<T: FfiOption> FfiType for Option<T> {
+    type ReprC = T::ReprC;
 }
 
-impl<'itm, T: TryFromReprCOption<'itm>> TryFromReprC<'itm> for Option<T> {
-    type Source = T::Source;
-    type Store = T::Store;
-
-    unsafe fn try_from_repr_c(
-        source: Self::Source,
-        store: &'itm mut Self::Store,
-    ) -> Result<Self, FfiReturn> {
-        TryFromReprCOption::try_from_repr_c(source, store)
-    }
+impl<T: FfiType> FfiOption for T
+where
+    T::ReprC: Nullable,
+{
+    type ReprC = T::ReprC;
 }
 
 impl<'itm, T: TryFromReprC<'itm>> TryFromReprCOption<'itm> for T
 where
-    T::Source: Nullable,
+    T::ReprC: Nullable,
 {
-    type Source = T::Source;
     type Store = T::Store;
 
     unsafe fn try_from_repr_c(
-        source: Self::Source,
+        source: Self::ReprC,
         store: &'itm mut Self::Store,
     ) -> Result<Option<Self>, FfiReturn> {
         if source.is_null() {
@@ -122,21 +126,32 @@ where
     }
 }
 
-impl<T: IntoFfiOption> IntoFfi for Option<T> {
-    type Target = T::Target;
+impl<'itm, T: TryFromReprCOption<'itm>> TryFromReprC<'itm> for Option<T> {
+    type Store = T::Store;
 
-    fn into_ffi(self) -> Self::Target {
-        IntoFfiOption::into_ffi(self)
+    unsafe fn try_from_repr_c(
+        source: Self::ReprC,
+        store: &'itm mut Self::Store,
+    ) -> Result<Self, FfiReturn> {
+        TryFromReprCOption::try_from_repr_c(source, store)
+    }
+}
+
+impl<T: IntoFfiOption> IntoFfi for Option<T> {
+    type Store = T::Store;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::ReprC {
+        IntoFfiOption::into_ffi(self, store)
     }
 }
 
 impl<T: IntoFfi> IntoFfiOption for T
 where
-    T::Target: Nullable,
+    T::ReprC: Nullable,
 {
-    type Target = T::Target;
+    type Store = T::Store;
 
-    fn into_ffi(source: Option<Self>) -> Self::Target {
-        source.map_or_else(T::Target::null, IntoFfi::into_ffi)
+    fn into_ffi(source: Option<Self>, store: &mut Self::Store) -> Self::ReprC {
+        source.map_or_else(T::ReprC::null, |item| IntoFfi::into_ffi(item, store))
     }
 }

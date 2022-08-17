@@ -40,11 +40,12 @@ pub fn gen_derived_methods(item: &syn::ItemStruct) -> Vec<FnDescriptor> {
 
 pub fn gen_arg_ffi_to_src(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
+    let store_name = gen_store_name(arg_name);
 
     if is_output {
         let mut stmt = quote! {
-            let mut store = ();
-            let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
+            let mut #store_name = ();
+            let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut #store_name)?;
         };
 
         if let Type::Reference(ref_type) = &src_type {
@@ -67,14 +68,15 @@ pub fn gen_arg_ffi_to_src(arg: &Arg, is_output: bool) -> TokenStream {
     }
 
     quote! {
-        let mut store = Default::default();
-        let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
+        let mut #store_name = Default::default();
+        let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut #store_name)?;
     }
 }
 
 #[allow(clippy::expect_used)]
 pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
+    let store_name = gen_store_name(arg_name);
 
     let mut resolve_impl_trait = None;
     if let Type::ImplTrait(type_) = &src_type {
@@ -97,14 +99,16 @@ pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
 
     let ffi_conversion = quote! {
         #resolve_impl_trait
-        let #arg_name = iroha_ffi::IntoFfi::into_ffi(#arg_name);
+        let mut #store_name = Default::default();
+        let #arg_name = iroha_ffi::IntoFfi::into_ffi(#arg_name, &mut #store_name);
     };
 
     if is_output {
         if unwrap_result_type(src_type).is_some() {
             return quote! {
+                let mut #store_name = Default::default();
                 let #arg_name = if let Ok(ok) = #arg_name {
-                    iroha_ffi::IntoFfi::into_ffi(ok)
+                    iroha_ffi::IntoFfi::into_ffi(ok, &mut #store_name)
                 } else {
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     return Err(iroha_ffi::FfiReturn::ExecutionFail);
@@ -115,17 +119,7 @@ pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
         return ffi_conversion;
     }
 
-    if let Type::Reference(ref_type) = &src_type {
-        if ref_type.mutability.is_some() {
-            return ffi_conversion;
-        }
-    }
-
-    quote! {
-        #ffi_conversion
-        // NOTE: `AsReprCRef` prevents ownerhip transfer over FFI
-        let #arg_name = iroha_ffi::AsReprCRef::as_ref(&#arg_name);
-    }
+    quote! { #ffi_conversion }
 }
 
 /// Parse `getset` attributes to find out which methods it derives
@@ -240,4 +234,8 @@ fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature 
             #field_vis fn #method_name(&mut self) -> &mut #field_ty
         },
     }
+}
+
+fn gen_store_name(arg_name: &Ident) -> Ident {
+    Ident::new(&format!("{arg_name}_store"), proc_macro2::Span::call_site())
 }

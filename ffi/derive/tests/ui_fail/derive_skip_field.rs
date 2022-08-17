@@ -25,12 +25,18 @@ fn main() {
     let mut b = MaybeUninit::<*const u32>::uninit();
 
     unsafe {
-        FfiStruct__a(IntoFfi::into_ffi(&s), a.as_mut_ptr());
+        FfiStruct__a(IntoFfi::into_ffi(&s, &mut ()), a.as_mut_ptr());
         let a: &i32 = TryFromReprC::try_from_repr_c(a.assume_init(), &mut ()).unwrap();
-        FfiStruct__set_a(IntoFfi::into_ffi(&mut s), IntoFfi::into_ffi(*a));
+        FfiStruct__set_a(
+            IntoFfi::into_ffi(&mut s, &mut ()),
+            IntoFfi::into_ffi(*a, &mut ()),
+        );
 
-        FfiStruct__b(IntoFfi::into_ffi(&s), b.as_mut_ptr());
+        FfiStruct__b(IntoFfi::into_ffi(&s, &mut ()), b.as_mut_ptr());
         let b: &u32 = TryFromReprC::try_from_repr_c(b.assume_init(), &mut ()).unwrap();
-        FfiStruct__set_b(IntoFfi::into_ffi(&mut s), IntoFfi::into_ffi(*b));
+        FfiStruct__set_b(
+            IntoFfi::into_ffi(&mut s, &mut ()),
+            IntoFfi::into_ffi(*b, &mut ()),
+        );
     }
 }

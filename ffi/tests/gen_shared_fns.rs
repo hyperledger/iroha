@@ -36,7 +36,7 @@ fn gen_shared_fns() {
 
     let ffi_struct1 = unsafe {
         let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
-        assert_eq! {FfiReturn::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str()), ffi_struct.as_mut_ptr())};
+        assert_eq! {FfiReturn::Ok, FfiStruct1__new(IntoFfi::into_ffi(name.as_str(), &mut ()), ffi_struct.as_mut_ptr())};
         let ffi_struct = ffi_struct.assume_init();
         assert!(!ffi_struct.is_null());
         assert_eq!(FfiStruct1 { name }, *ffi_struct);
@@ -60,7 +60,7 @@ fn gen_shared_fns() {
         };
 
         let mut is_equal = MaybeUninit::new(1);
-        let cloned_ptr = IntoFfi::into_ffi(&cloned);
+        let cloned_ptr = IntoFfi::into_ffi(&cloned, &mut ());
 
         __eq(
             FfiStruct1::ID,
@@ -86,7 +86,7 @@ fn gen_shared_fns() {
         assert_eq!(FfiReturn::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct1::ID, cloned.into_ffi().cast())
+            __drop(FfiStruct1::ID, cloned.into_ffi(&mut ()).cast())
         );
     }
 }

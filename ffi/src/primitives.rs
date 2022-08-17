@@ -3,12 +3,9 @@
 use alloc::vec::Vec;
 
 use crate::{
-    owned::{IntoFfiVec, LocalSlice, TryFromReprCVec},
-    slice::{
-        IntoFfiSliceMut, IntoFfiSliceRef, SliceMut, SliceRef, TryFromReprCSliceMut,
-        TryFromReprCSliceRef,
-    },
-    FfiReturn, IntoFfi, ReprC, Result, TryFromReprC,
+    owned::{IntoFfiVec, TryFromReprCVec},
+    slice::{FfiSliceRef, IntoFfiSliceRef, SliceRef, TryFromReprCSliceRef},
+    FfiReturn, FfiType, IntoFfi, Local, NonLocal, ReprC, Result, TryFromReprC,
 };
 
 #[inline]
@@ -16,12 +13,23 @@ const fn is_valid_bool(source: u8) -> bool {
     source == 0 || source == 1
 }
 
+// NOTE: &mut bool is not FFI-safe
+impl FfiType for bool {
+    type ReprC = <u8 as FfiType>::ReprC;
+}
+impl FfiType for &bool {
+    type ReprC = *const u8;
+}
+
+impl FfiSliceRef for bool {
+    type ReprC = u8;
+}
+
 impl<'itm> TryFromReprC<'itm> for bool {
-    type Source = <u8 as TryFromReprC<'itm>>::Source;
     type Store = ();
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
-        let source: u8 = TryFromReprC::try_from_repr_c(source, &mut ())?;
+    unsafe fn try_from_repr_c(source: Self::ReprC, store: &mut ()) -> Result<Self> {
+        let source: u8 = TryFromReprC::try_from_repr_c(source, store)?;
 
         if !is_valid_bool(source) {
             return Err(FfiReturn::TrapRepresentation);
@@ -31,14 +39,12 @@ impl<'itm> TryFromReprC<'itm> for bool {
     }
 }
 impl<'itm> TryFromReprC<'itm> for &'itm bool {
-    type Source = <&'itm u8 as TryFromReprC<'itm>>::Source;
     type Store = ();
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
-        let mut store = ();
-        let source: &u8 = TryFromReprC::try_from_repr_c(source, &mut store)?;
+    unsafe fn try_from_repr_c(source: Self::ReprC, store: &mut ()) -> Result<Self> {
+        let source: &u8 = TryFromReprC::try_from_repr_c(source, store)?;
 
         if !is_valid_bool(*source) {
             return Err(FfiReturn::TrapRepresentation);
@@ -49,14 +55,12 @@ impl<'itm> TryFromReprC<'itm> for &'itm bool {
 }
 
 impl<'slice> TryFromReprCSliceRef<'slice> for bool {
-    type Source = <u8 as TryFromReprCSliceRef<'slice>>::Source;
     type Store = ();
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<&[Self]> {
-        let mut store = ();
-        let source: &[u8] = TryFromReprC::try_from_repr_c(source, &mut store)?;
+    unsafe fn try_from_repr_c(source: SliceRef<Self::ReprC>, store: &mut ()) -> Result<&[Self]> {
+        let source: &[u8] = TryFromReprC::try_from_repr_c(source, store)?;
 
         if !source.iter().all(|item| is_valid_bool(*item)) {
             return Err(FfiReturn::TrapRepresentation);
@@ -67,35 +71,44 @@ impl<'slice> TryFromReprCSliceRef<'slice> for bool {
 }
 
 impl IntoFfi for bool {
-    type Target = <u8 as IntoFfi>::Target;
+    type Store = ();
 
-    fn into_ffi(self) -> Self::Target {
-        u8::from(self).into_ffi()
+    fn into_ffi(self, store: &mut Self::Store) -> Self::ReprC {
+        u8::from(self).into_ffi(store)
     }
 }
 impl IntoFfi for &bool {
-    type Target = *const u8;
+    type Store = ();
 
-    fn into_ffi(self) -> Self::Target {
+    fn into_ffi(self, _: &mut Self::Store) -> Self::ReprC {
         (self as *const bool).cast()
     }
 }
+impl IntoFfiSliceRef for bool {
+    type Store = ();
 
-impl<'itm> IntoFfiSliceRef<'itm> for bool {
-    type Target = SliceRef<'itm, u8>;
-
-    fn into_ffi(source: &[Self]) -> Self::Target {
+    fn into_ffi(source: &[Self], _: &mut Self::Store) -> SliceRef<Self::ReprC> {
         // SAFETY: bool has the same representation as u8
         SliceRef::from_slice(unsafe { &*(source as *const [bool] as *const [u8]) })
     }
 }
 
+// NOTE: &mut Ordering is not FFI-safe
+impl FfiType for core::cmp::Ordering {
+    type ReprC = <i8 as FfiType>::ReprC;
+}
+impl FfiType for &core::cmp::Ordering {
+    type ReprC = *const i8;
+}
+impl FfiSliceRef for core::cmp::Ordering {
+    type ReprC = i8;
+}
+
 impl<'itm> TryFromReprC<'itm> for core::cmp::Ordering {
-    type Source = <i8 as TryFromReprC<'itm>>::Source;
     type Store = ();
 
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
-        let source: i8 = TryFromReprC::try_from_repr_c(source, &mut ())?;
+    unsafe fn try_from_repr_c(source: Self::ReprC, store: &mut ()) -> Result<Self> {
+        let source: i8 = TryFromReprC::try_from_repr_c(source, store)?;
 
         match source {
             -1 => Ok(core::cmp::Ordering::Less),
@@ -106,14 +119,12 @@ impl<'itm> TryFromReprC<'itm> for core::cmp::Ordering {
     }
 }
 impl<'itm> TryFromReprC<'itm> for &'itm core::cmp::Ordering {
-    type Source = <&'itm i8 as TryFromReprC<'itm>>::Source;
     type Store = ();
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<Self> {
-        let mut store = ();
-        let source: &i8 = TryFromReprC::try_from_repr_c(source, &mut store)?;
+    unsafe fn try_from_repr_c(source: Self::ReprC, store: &mut ()) -> Result<Self> {
+        let source: &i8 = TryFromReprC::try_from_repr_c(source, store)?;
 
         if !(*source == -1 || *source == 0 || *source == 1) {
             return Err(FfiReturn::TrapRepresentation);
@@ -124,14 +135,12 @@ impl<'itm> TryFromReprC<'itm> for &'itm core::cmp::Ordering {
 }
 
 impl<'slice> TryFromReprCSliceRef<'slice> for core::cmp::Ordering {
-    type Source = <i8 as TryFromReprCSliceRef<'slice>>::Source;
     type Store = ();
 
     // False positive - doesn't compile otherwise
     #[allow(clippy::let_unit_value)]
-    unsafe fn try_from_repr_c(source: Self::Source, _: &mut ()) -> Result<&[Self]> {
-        let mut store = ();
-        let source: &[i8] = TryFromReprC::try_from_repr_c(source, &mut store)?;
+    unsafe fn try_from_repr_c(source: SliceRef<Self::ReprC>, store: &mut ()) -> Result<&[Self]> {
+        let source: &[i8] = TryFromReprC::try_from_repr_c(source, store)?;
 
         if !source.iter().all(|e| *e == -1 || *e == 0 || *e == 1) {
             return Err(FfiReturn::TrapRepresentation);
@@ -142,149 +151,116 @@ impl<'slice> TryFromReprCSliceRef<'slice> for core::cmp::Ordering {
 }
 
 impl IntoFfi for core::cmp::Ordering {
-    type Target = <i8 as IntoFfi>::Target;
+    type Store = ();
 
-    fn into_ffi(self) -> Self::Target {
-        (self as i8).into_ffi()
+    fn into_ffi(self, store: &mut Self::Store) -> Self::ReprC {
+        (self as i8).into_ffi(store)
     }
 }
 impl IntoFfi for &core::cmp::Ordering {
-    type Target = *const i8;
+    type Store = ();
 
-    fn into_ffi(self) -> Self::Target {
+    fn into_ffi(self, _: &mut Self::Store) -> Self::ReprC {
         (self as *const core::cmp::Ordering).cast()
     }
 }
-impl IntoFfi for &mut core::cmp::Ordering {
-    type Target = *mut i8;
+impl IntoFfiSliceRef for core::cmp::Ordering {
+    type Store = ();
 
-    fn into_ffi(self) -> Self::Target {
-        (self as *mut core::cmp::Ordering).cast()
-    }
-}
-
-impl<'itm> IntoFfiSliceRef<'itm> for core::cmp::Ordering {
-    type Target = SliceRef<'itm, i8>;
-
-    fn into_ffi(source: &[Self]) -> Self::Target {
+    fn into_ffi(source: &[Self], _: &mut Self::Store) -> SliceRef<Self::ReprC> {
         // SAFETY: `core::cmp::Ordering` has the same representation as i8
         unsafe { SliceRef::from_slice(&*(source as *const [_] as *const [i8])) }
     }
 }
 
-/// Trait for replacing unsupported types with supported when crossing WASM FFI-boundary
-#[cfg(feature = "wasm")]
-pub trait WasmRepr {
-    /// Type used to represent [`Self`] when crossing FFI-boundry
-    type Repr: ReprC;
-}
-
 #[cfg(feature = "wasm")]
 macro_rules! wasm_repr_impls {
-    ($src:ty = $dst:ty, $($tail:tt)+) => {
-        wasm_repr_impls! { $src = $dst }
+    ($src:ty => $dst:ty, $($tail:tt)+) => {
+        wasm_repr_impls! { $src => $dst }
         wasm_repr_impls! { $($tail)+ }
+
+        primitive_impls! { @common_impls $src }
     };
-    ($src:ty, $($tail:tt)+) => {
-        wasm_repr_impls! { $src }
-        wasm_repr_impls! { $($tail)+ }
-    };
-    ($src:ty = $dst:ty) => {
-        impl WasmRepr for $src {
-            type Repr = $dst;
+    ($src:ty => $dst:ty) => {
+        unsafe impl ReprC for SliceRef<$ty> {}
+        unsafe impl ReprC for SliceMut<$ty> {}
+
+        impl FfiType for $src {
+            type ReprC = $dst;
         }
-    };
-    ($src:ty) => {
-        impl WasmRepr for $src {
-            type Repr = Self;
+        impl FfiType for &$src {
+            type ReprC = *const $src;
+        }
+        // NOTE: &mut $ty is FFI-safe
+        impl FfiType for &mut $src {
+            type ReprC = *mut $src;
+        }
+        impl crate::owned::FfiVec for $src {
+            type ReprC = $src;
+        }
+
+        impl FfiSliceRef for $src {
+            type ReprC = $src;
+        }
+        impl crate::slice::FfiSliceMut for $src {
+            type ReprC = $src;
         }
     };
 }
 
-#[cfg(feature = "wasm")]
-wasm_repr_impls! {u8 = u32, u16 = u32, i8 = i32, i16 = i32, u32, u64, i32, i64}
-
 macro_rules! primitive_impls {
-    ( $( $ty:ty ),+ $(,)? ) => { $(
+    ( $( $ty:ty ),+ $(,)? ) => {$(
         unsafe impl ReprC for $ty {}
+        unsafe impl NonLocal for $ty {}
 
+        impl FfiType for $ty {
+            // NOTE: &mut $ty is FFI-safe
+            type ReprC = Self;
+        })+
+
+        primitive_impls! { @common_impls $( $ty ),+ }
+    };
+    (@common_impls $( $ty:ty ),+ $(,)? ) => {$(
         impl TryFromReprC<'_> for $ty {
-            #[cfg(feature = "wasm")]
-            type Source = <$ty as WasmRepr>::Repr;
-            #[cfg(not(feature = "wasm"))]
-            type Source = Self;
             type Store = ();
 
-            unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<Self> {
+            unsafe fn try_from_repr_c(source: Self::ReprC, _: &mut Self::Store) -> Result<Self> {
                 source.try_into().map_err(|_| FfiReturn::ConversionFailed)
             }
         }
 
-        impl<'itm> TryFromReprCSliceRef<'itm> for $ty {
-            type Source = SliceRef<'itm, $ty>;
+        impl<'itm> TryFromReprCVec<'itm> for $ty {
             type Store = ();
 
-            unsafe fn try_from_repr_c(source: Self::Source, _: &'itm mut Self::Store) -> Result<&[Self]> {
-                source.into_rust().ok_or(FfiReturn::ArgIsNull)
-            }
-        }
-
-        impl<'slice> TryFromReprCSliceMut<'slice> for $ty {
-            type Source = SliceMut<'slice, $ty>;
-            type Store = ();
-
-            unsafe fn try_from_repr_c(source: Self::Source, _: &mut Self::Store) -> Result<&'slice mut [Self]> {
-                source.into_rust().ok_or(FfiReturn::ArgIsNull)
+            unsafe fn try_from_repr_c(
+                source: Local<SliceRef<Self::ReprC>>,
+                _: &'itm mut Self::Store,
+            ) -> Result<Vec<Self>> {
+                source.0.into_rust().ok_or(FfiReturn::ArgIsNull).map(alloc::borrow::ToOwned::to_owned)
             }
         }
 
         impl IntoFfi for $ty {
-            #[cfg(feature = "wasm")]
-            type Target = <$ty as WasmRepr>::Repr;
-            #[cfg(not(feature = "wasm"))]
-            type Target = Self;
+            type Store = ();
 
-            fn into_ffi(self) -> Self::Target {
+            fn into_ffi(self, _: &mut Self::Store) -> Self::ReprC {
                 self.into()
             }
         }
 
-        impl<'itm> IntoFfiSliceRef<'itm> for $ty {
-            type Target = SliceRef<'itm, $ty>;
-
-            fn into_ffi(source: &[Self]) -> Self::Target {
-                SliceRef::from_slice(source)
-            }
-        }
-        unsafe impl<'slice> IntoFfiSliceMut<'slice> for $ty {
-            type Target = SliceMut<'slice, $ty>;
-
-            fn into_ffi(source: &mut [Self]) -> Self::Target {
-                SliceMut::from_slice(source)
-            }
-        }
-
-        impl IntoFfiVec for $ty
-        {
-            type Target = LocalSlice<$ty>;
-
-            fn into_ffi(source: Vec<$ty>) -> Self::Target {
-                source.into_iter().collect()
-            }
-        }
-
-        impl<'itm> TryFromReprCVec<'itm> for $ty {
-            type Source = SliceRef<'itm, $ty>;
+        impl IntoFfiVec for $ty {
             type Store = ();
 
-            unsafe fn try_from_repr_c(
-                source: Self::Source,
-                _: &'itm mut Self::Store,
-            ) -> Result<Vec<Self>> {
-                source.into_rust().ok_or(FfiReturn::ArgIsNull).map(alloc::borrow::ToOwned::to_owned)
+            fn into_ffi(source: Vec<Self>, _: &mut Self::Store) -> Local<SliceRef<Self::ReprC>> {
+                Local(SliceRef::from_slice(&source))
             }
         }
     )+};
 }
 
-primitive_impls! {u8, u16, u32, u64, i8, i16, i32, i64}
+#[cfg(not(feature = "wasm"))]
+primitive_impls! {u8, i8, u16, i16}
+primitive_impls! {u32, i32, u64, i64}
+
+#[cfg(feature = "wasm")]
+wasm_repr_impls! {u8 => u32, i8 => i32, u16 => u32, i16 => i32}
