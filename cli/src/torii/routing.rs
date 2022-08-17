@@ -7,7 +7,10 @@ use std::num::TryFromIntError;
 use eyre::WrapErr;
 use iroha_actor::Addr;
 use iroha_config::{
-    base::Configurable, iroha::ConfigurationView, torii::uri, GetConfiguration, PostConfiguration,
+    base::proxy::Documented,
+    iroha::{Configuration, ConfigurationView},
+    torii::uri,
+    GetConfiguration, PostConfiguration,
 };
 use iroha_core::{
     block::stream::{
@@ -31,10 +34,7 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::task;
 
 use super::*;
-use crate::{
-    stream::{Sink, Stream},
-    Configuration,
-};
+use crate::stream::{Sink, Stream};
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
@@ -218,11 +218,11 @@ async fn handle_get_configuration(
     use GetConfiguration::*;
 
     match get_cfg {
-        Docs(field) => {
-            Configuration::get_doc_recursive(field.iter().map(AsRef::as_ref).collect::<Vec<&str>>())
-                .wrap_err("Failed to get docs {:?field}")
-                .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs"))
-        }
+        Docs(field) => <Configuration as Documented>::get_doc_recursive(
+            field.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+        )
+        .wrap_err("Failed to get docs {:?field}")
+        .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs")),
         // Cast to configuration view to hide private keys.
         Value => serde_json::to_value(ConfigurationView::from(iroha_cfg))
             .wrap_err("Failed to serialize value"),
