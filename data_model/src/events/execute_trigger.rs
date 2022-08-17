@@ -1,5 +1,7 @@
 //! Trigger execution event and filter
 
+use iroha_ffi::FfiType;
+
 use super::*;
 use crate::prelude::*;
 
@@ -36,6 +38,7 @@ impl Event {
     Hash,
     Serialize,
     Deserialize,
+    FfiType,
 )]
 pub struct EventFilter {
     /// Id of trigger catch executions of

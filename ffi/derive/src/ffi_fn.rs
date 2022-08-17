@@ -107,22 +107,22 @@ fn gen_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStre
     let output_arg = ffi_output_arg(fn_descriptor).map(gen_out_ptr_arg);
 
     quote! {
-        fn #ffi_fn_name<'__iroha_ffi_itm>(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
+        fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
     }
 }
 
 fn gen_input_arg(arg: &Arg) -> TokenStream {
     let arg_name = arg.name();
-    let arg_type = arg.ffi_type_resolved(false);
+    let arg_type = arg.ffi_type_resolved();
 
     quote! { #arg_name: #arg_type }
 }
 
 fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
     let arg_name = arg.name();
-    let arg_type = arg.ffi_type_resolved(true);
+    let arg_type = arg.src_type_resolved(true);
 
-    quote! { #arg_name: <#arg_type as iroha_ffi::Output>::OutPtr }
+    quote! { #arg_name: <#arg_type as iroha_ffi::FfiOutPtr>::OutPtr }
 }
 
 fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
@@ -143,11 +143,11 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     let mut stmts = quote! {};
 
     if let Some(arg) = &fn_descriptor.receiver {
-        stmts = crate::util::gen_arg_ffi_to_src(arg, false)
+        stmts = crate::util::gen_arg_ffi_to_src(arg)
     }
 
     for arg in &fn_descriptor.input_args {
-        stmts.extend(crate::util::gen_arg_ffi_to_src(arg, false));
+        stmts.extend(crate::util::gen_arg_ffi_to_src(arg));
     }
 
     stmts
@@ -189,11 +189,12 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     match &fn_descriptor.output_arg {
         Some(output_arg) => {
-            let (arg_name, arg_type) = (output_arg.name(), output_arg.ffi_type_resolved(true));
+            let (arg_name, arg_type) = (output_arg.name(), output_arg.src_type_resolved(true));
             let output_arg_conversion = crate::util::gen_arg_src_to_ffi(output_arg, true);
+
             quote! {
                 #output_arg_conversion
-                iroha_ffi::OutPtrOf::<#arg_type>::write(__out_ptr, #arg_name)?;
+                <<#arg_type as iroha_ffi::FfiOutPtr>::OutPtr as iroha_ffi::OutPtrOf<_>>::write(__out_ptr, #arg_name)?;
             }
         }
         None => quote! {},

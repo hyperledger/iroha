@@ -1,9 +1,7 @@
-use std::alloc::alloc;
-
-use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, FfiConvert, FfiType};
 
 /// FfiStruct
-#[derive(Clone, IntoFfi, TryFromReprC)]
+#[derive(Clone, FfiType)]
 pub struct FfiStruct;
 
 #[ffi_export]
@@ -16,6 +14,6 @@ fn main() {
     let s = FfiStruct;
     unsafe {
         // Function not found
-        FfiStruct__private(IntoFfi::into_ffi(s));
+        FfiStruct__private(FfiConvert::into_ffi(s, &mut ()));
     }
 }

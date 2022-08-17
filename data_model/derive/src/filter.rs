@@ -213,6 +213,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
             Encode,
             Deserialize,
             Serialize,
+            iroha_ffi::FfiType,
             IntoSchema,
             Hash,
         )]

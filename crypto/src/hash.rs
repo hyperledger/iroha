@@ -1,8 +1,9 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{alloc::alloc, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
+use iroha_ffi::FfiType;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -12,26 +13,33 @@ use ursa::blake2::{
     VarBlake2b,
 };
 
-/// Hash of Iroha entities. Currently supports only blake2b-32.
-#[derive(
-    Clone,
-    Copy,
-    Display,
-    DebugCustom,
-    Hash,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-#[display(fmt = "{}", "hex::encode(_0)")]
-#[debug(fmt = "{{ Hash({}) }}", "hex::encode(_0)")]
-pub struct Hash([u8; Self::LENGTH]);
+use crate::ffi;
+
+ffi::ffi_item! {
+    /// Hash of Iroha entities. Currently supports only blake2b-32.
+    #[derive(
+        Clone,
+        Copy,
+        Display,
+        DebugCustom,
+        Hash,
+        Eq,
+        PartialEq,
+        Ord,
+        PartialOrd,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        FfiType,
+    )]
+    // TODO: Make transparent
+    //#[repr(transparent)]
+    #[display(fmt = "{}", "hex::encode(_0)")]
+    #[debug(fmt = "{{ Hash({}) }}", "hex::encode(_0)")]
+    pub struct Hash([u8; Self::LENGTH]);
+}
 
 impl Hash {
     /// Length of hash
@@ -99,6 +107,7 @@ impl<T> From<HashOf<T>> for Hash {
 #[display(fmt = "{}", _0)]
 #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
 #[serde(transparent)]
+#[repr(transparent)]
 pub struct HashOf<T>(
     #[deref]
     #[deref_mut]
