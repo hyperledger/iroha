@@ -27,13 +27,13 @@ jobs:
 
       - name: Format check
         run: cargo +nightly-2022-04-20 fmt --all -- --check
-      - name: Static analysis without features
+      - name: Lints without features
         run: cargo +nightly-2022-04-20 lints clippy --workspace --benches --tests --examples --quiet --no-default-features
         if: always()
-      - name: Static analysis with all features enabled
+      - name: Lints with all features enabled
         run: cargo +nightly-2022-04-20 lints clippy --workspace --benches --tests --examples --quiet --all-features
         if: always()
-      - name: Verify iroha_data_model still supports no_std
+      - name: no_std compatibility check
         run: cargo nono check --package iroha_data_model --no-default-features
         if: always()
       - name: Documentation check

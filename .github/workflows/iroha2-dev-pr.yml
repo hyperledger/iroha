@@ -28,12 +28,12 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
-      - name: Documentation check
+      - name: Check config.md
         if: always()
         run: |
           cargo doc --no-deps --quiet
           ./scripts/check.sh docs
-      - name: Check genesis
+      - name: Check genesis.json
         if: always()
         run: |
           ./scripts/check.sh genesis
