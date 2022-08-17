@@ -563,9 +563,10 @@ mod tests {
             AccountId::from_str("alice@test").expect("Valid"),
         );
         let wsv = WorldStateView::new(World::new());
+        let key: Name = "key".parse().expect("Valid");
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetId(alice_xor_id),
-            Value::from("key".to_owned()),
+            key,
             Value::from("value".to_owned()),
         ));
         assert!(key_value::AssetSetOnlyForSignerAccount
@@ -585,10 +586,9 @@ mod tests {
             AccountId::from_str("alice@test").expect("Valid"),
         );
         let wsv = WorldStateView::new(World::new());
-        let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
-            IdBox::AssetId(alice_xor_id),
-            Value::from("key".to_owned()),
-        ));
+        let key: Name = "key".parse().expect("Valid");
+        let set =
+            Instruction::RemoveKeyValue(RemoveKeyValueBox::new(IdBox::AssetId(alice_xor_id), key));
         assert!(key_value::AssetRemoveOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
             .is_allow());
@@ -602,9 +602,10 @@ mod tests {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
+        let key: Name = "key".parse().expect("Valid");
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
-            Value::from("key".to_owned()),
+            key,
             Value::from("value".to_owned()),
         ));
         assert!(key_value::AccountSetOnlyForSignerAccount
@@ -620,9 +621,10 @@ mod tests {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
+        let key: Name = "key".parse().expect("Valid");
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
-            Value::from("key".to_owned()),
+            key,
         ));
         assert!(key_value::AccountRemoveOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)
@@ -644,9 +646,10 @@ mod tests {
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
         let wsv = WorldStateView::new(World::with([domain], []));
+        let key: Name = "key".parse().expect("Valid");
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
-            Value::from("key".to_owned()),
+            key,
             Value::from("value".to_owned()),
         ));
         assert!(key_value::AssetDefinitionSetOnlyForSignerAccount
@@ -669,9 +672,10 @@ mod tests {
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
         let wsv = WorldStateView::new(World::with([domain], []));
+        let key: Name = "key".parse().expect("Valid");
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
-            Value::from("key".to_owned()),
+            key,
         ));
         assert!(key_value::AssetDefinitionRemoveOnlyForSignerAccount
             .check(&alice_id, &set, &wsv)

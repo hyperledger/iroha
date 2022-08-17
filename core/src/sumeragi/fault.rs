@@ -3,6 +3,7 @@
 //! used in code.
 
 use iroha_config::sumeragi::Configuration;
+use iroha_primitives::must_use::MustUse;
 
 use super::*;
 
@@ -526,7 +527,7 @@ impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
             "Forwarding tx to leader"
         );
         // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
-        if let Ok(true) = tx.check_signature_condition(&self.wsv) {
+        if let Ok(MustUse(true)) = tx.check_signature_condition(&self.wsv) {
             self.txs_awaiting_receipts.insert(tx.hash(), Instant::now());
         }
         let no_tx_receipt = view_change::Proof::no_transaction_receipt_received(

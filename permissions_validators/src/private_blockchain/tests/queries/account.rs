@@ -68,9 +68,10 @@ fn find_account_key_value_by_id_and_key() {
         ..
     } = TestEnv::new();
 
+    let name: Name = "name".parse().expect("Valid");
     let op = QueryBox::FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey::new(
         alice_id.clone(),
-        "name".to_owned(),
+        name,
     ));
 
     {
@@ -100,7 +101,8 @@ fn find_account_by_name() {
         ..
     } = TestEnv::new();
 
-    let op = QueryBox::FindAccountsByName(FindAccountsByName::new(alice_id.clone()));
+    let name: Name = "alice".parse().expect("Valid");
+    let op = QueryBox::FindAccountsByName(FindAccountsByName::new(name));
 
     {
         let only_accounts_domain = query::OnlyAccountsDomain;
@@ -204,7 +206,9 @@ fn find_accounts_with_asset() {
         ..
     } = TestEnv::new();
 
-    let op = QueryBox::FindAccountsWithAsset(FindAccountsWithAsset::new("xor".to_owned()));
+    let asset_definition_id: <AssetDefinition as Identifiable>::Id =
+        "xor#wonderland".parse().expect("Valid");
+    let op = QueryBox::FindAccountsWithAsset(FindAccountsWithAsset::new(asset_definition_id));
 
     {
         let only_accounts_domain = query::OnlyAccountsDomain;

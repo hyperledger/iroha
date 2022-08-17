@@ -94,8 +94,9 @@ fn find_domain_key_value_by_id_and_key() {
         ..
     } = TestEnv::new();
 
+    let name: Name = "foo".parse().expect("Valid");
     let find_wonderland_key_value = QueryBox::FindDomainKeyValueByIdAndKey(
-        FindDomainKeyValueByIdAndKey::new(wonderland_id, "foo".to_owned()),
+        FindDomainKeyValueByIdAndKey::new(wonderland_id, name),
     );
 
     {

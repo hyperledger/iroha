@@ -381,9 +381,10 @@ impl RawGenesisDomainBuilder {
     /// Should only be used for testing.
     #[must_use]
     pub fn with_account_without_public_key(mut self, account_name: Name) -> Self {
+        let account_id = AccountId::new(account_name, self.domain_id.clone());
         self.transaction
             .isi
-            .push(RegisterBox::new(AccountId::new(account_name, self.domain_id.clone())).into());
+            .push(RegisterBox::new(Account::new(account_id, [])).into());
         self
     }
 
@@ -465,12 +466,19 @@ mod tests {
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
-                RegisterBox::new(AccountId::new("alice".parse().unwrap(), domain_id.clone()))
-                    .into()
+                RegisterBox::new(Account::new(
+                    AccountId::new("alice".parse().unwrap(), domain_id.clone()),
+                    []
+                ))
+                .into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[2],
-                RegisterBox::new(AccountId::new("bob".parse().unwrap(), domain_id)).into()
+                RegisterBox::new(Account::new(
+                    AccountId::new("bob".parse().unwrap(), domain_id),
+                    []
+                ))
+                .into()
             );
         }
         {
@@ -481,7 +489,11 @@ mod tests {
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
-                RegisterBox::new(AccountId::new("Cheshire_Cat".parse().unwrap(), domain_id)).into()
+                RegisterBox::new(Account::new(
+                    AccountId::new("Cheshire_Cat".parse().unwrap(), domain_id),
+                    []
+                ))
+                .into()
             );
         }
         {
