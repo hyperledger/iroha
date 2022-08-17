@@ -7,6 +7,7 @@ use iroha_data_model::{
 };
 
 use super::wsv::WorldStateView;
+use crate::smartcontracts::wasm;
 
 /// Chain of *runtime* validators. Used to validate operations, which needs permissions.
 ///
@@ -63,13 +64,14 @@ impl Chain {
         let operation = operation.into();
 
         for id_and_validator in &self.validators {
-            self.execute_validator(id_and_validator.value(), wsv, operation.clone())
-                .map_err(|err| {
+            Self::execute_validator(id_and_validator.value(), wsv, operation.clone()).map_err(
+                |err| {
                     format!(
                         "Validator `{}` denied the operation `{operation}`: `{err}`",
                         id_and_validator.key()
                     )
-                })?
+                },
+            )?
         }
 
         Ok(())
@@ -80,19 +82,22 @@ impl Chain {
         ChainView { chain: self }
     }
 
-    #[allow(
-        clippy::restriction,
-        clippy::unused_self,
-        clippy::needless_pass_by_value,
-        unused_variables
-    )] // TODO
     fn execute_validator(
-        &self,
         validator: &Validator,
         wsv: &WorldStateView,
         operation: NeedsPermissionBox,
     ) -> Result<(), DenialReason> {
-        todo!()
+        let mut runtime = wasm::Runtime::from_configuration(wsv.config.wasm_runtime_config)
+            .map_err(|err| format!("Can't create WASM runtime: {err}"))?;
+        runtime
+            .execute_permission_validator(
+                wsv,
+                validator.id().account_id.clone(),
+                validator.wasm(),
+                operation,
+            )
+            .map_err(|err| format!("Failure during validator execution: {err}"))?
+            .into()
     }
 }
 
