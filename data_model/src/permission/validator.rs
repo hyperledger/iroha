@@ -10,10 +10,12 @@
 
 use super::*;
 use crate::{
+    account::Account,
     expression::Expression,
     isi::Instruction,
     query::QueryBox,
     transaction::{Transaction, WasmSmartContract},
+    ParseError,
 };
 
 ffi_item! {
@@ -44,6 +46,8 @@ ffi_item! {
         id: <Self as Identifiable>::Id,
         validator_type: Type,
         // TODO: use another type like `WasmValidator`?
+        /// WASM code of the validator
+        #[getset(get = "pub")]
         wasm: WasmSmartContract,
     }
 }
@@ -52,12 +56,13 @@ impl Registered for Validator {
     type With = Self;
 }
 
-/// Identification of an [`Validator`]. Consists of Validator's name
+/// Identification of an [`Validator`].
+///
+/// Consists of Validator's name and account (authority) id
 #[derive(
     Debug,
     Display,
     Constructor,
-    FromStr,
     Clone,
     PartialEq,
     Eq,
@@ -76,6 +81,32 @@ impl Registered for Validator {
 pub struct Id {
     /// Name given to validator by its creator.
     pub name: Name,
+    /// Authority id.
+    pub account_id: <Account as Identifiable>::Id,
+}
+
+impl std::str::FromStr for Id {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err(ParseError {
+                reason: "`ValidatorId` cannot be empty",
+            });
+        }
+
+        let vector: Vec<&str> = s.split('%').collect();
+
+        if vector.len() != 2 {
+            return Err(ParseError {
+                reason: "Id should have format `validator%account@domain`",
+            });
+        }
+        Ok(Self {
+            name: Name::from_str(vector[0])?,
+            account_id: <Account as Identifiable>::Id::from_str(vector[1])?,
+        })
+    }
 }
 
 /// Type of validator
