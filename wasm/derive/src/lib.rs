@@ -3,6 +3,7 @@
 use proc_macro::TokenStream;
 
 mod entrypoint;
+mod validator;
 
 /// Use to annotate the user-defined function that starts the execution of a smart contract.
 ///
@@ -76,4 +77,10 @@ mod entrypoint;
 #[proc_macro_attribute]
 pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     entrypoint::impl_entrypoint(attr, item)
+}
+
+/// TODO
+#[proc_macro_attribute]
+pub fn validator_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
+    validator::impl_entrypoint(attr, item)
 }

@@ -1,4 +1,4 @@
-//! Macro for writing smart contracts entrypoint
+//! Macro for writing smart contract entrypoint
 
 #![allow(clippy::str_to_string)]
 
@@ -91,7 +91,7 @@ impl syn::parse::Parse for ParamType {
     }
 }
 
-/// [`entrypoint`](crate::entrypoint) macro implementation
+/// [`entrypoint`](crate::entrypoint()) macro implementation
 pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
         attrs,
@@ -119,7 +119,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     quote! {
-        /// Smart contract entry point
+        /// Smart contract entrypoint
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_wasm_main(
         ) {
