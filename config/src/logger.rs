@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use derive_more::{Deref, DerefMut};
 use iroha_config_base::{
-    derive::Configurable,
+    derive::{Combine, Documented},
     runtime_upgrades::{handle, ReloadError, ReloadMut},
 };
 use serde::{Deserialize, Serialize};
@@ -77,7 +77,7 @@ impl From<Level> for SyncLevel {
 }
 
 /// 'Logger' configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Deserialize, Serialize, Debug, Combine, Documented)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 pub struct Configuration {

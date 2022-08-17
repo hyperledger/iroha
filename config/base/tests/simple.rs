@@ -1,9 +1,12 @@
 #![allow(clippy::restriction)]
 
-use iroha_config_base::{derive::Configurable, Configurable};
+use iroha_config_base::{
+    derive::{Combine, Documented},
+    proxy::Documented as _,
+};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize, Configurable)]
+#[derive(Clone, Debug, Deserialize, Serialize, Documented, Combine)]
 #[config(env_prefix = "CONF_")]
 struct Configuration {
     /// Inner structure
@@ -11,7 +14,7 @@ struct Configuration {
     inner: InnerConfiguration,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Configurable, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Documented, Combine, PartialEq, Eq)]
 #[config(env_prefix = "CONF_INNER_")]
 struct InnerConfiguration {
     pub a: String,
