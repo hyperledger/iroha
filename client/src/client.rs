@@ -637,14 +637,17 @@ impl Client {
         let request = QueryRequest::new(request.into(), self.account_id.clone(), filter);
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
 
+        let request_builder_inst = B::try_new(
+            HttpMethod::POST,
+            format!("{}/{}", &self.torii_url, uri::QUERY),
+        )
+         .expect("Torii URL is valid")
+         .params(pagination)
+         .headers(self.headers.clone())
+         .body(request.encode_versioned());
+
         Ok((
-            B::new(
-                HttpMethod::POST,
-                format!("{}/{}", &self.torii_url, uri::QUERY),
-            )
-            .params(pagination)
-            .headers(self.headers.clone())
-            .body(request.encode_versioned()),
+            request_builder_inst,
             QueryResponseHandler::default(),
         ))
     }
@@ -745,10 +748,11 @@ impl Client {
     ) -> Result<Option<Transaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::new(
+            let response = DefaultRequestBuilder::try_new(
                 HttpMethod::GET,
                 format!("{}/{}", &self.torii_url, uri::PENDING_TRANSACTIONS),
             )
+            .expect("Torii URL is valid")
             .params(pagination.clone())
             .headers(self.headers.clone())
             .build()?
@@ -800,10 +804,11 @@ impl Client {
     }
 
     fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
-        let resp = DefaultRequestBuilder::new(
+        let resp = DefaultRequestBuilder::try_new(
             HttpMethod::GET,
             format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
         )
+        .expect("Torii URL is valid")
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
         .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
         .build()?
@@ -827,7 +832,8 @@ impl Client {
         let body = serde_json::to_vec(&post_config)
             .wrap_err(format!("Failed to serialize {:?}", post_config))?;
         let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
-        let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
+        let resp = DefaultRequestBuilder::try_new(HttpMethod::POST, url)
+            .expect("Torii URL is valid")
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
             .body(body)
             .build()?
@@ -885,10 +891,11 @@ impl Client {
         B: RequestBuilder,
     {
         (
-            B::new(
+            B::try_new(
                 HttpMethod::GET,
                 format!("{}/{}", &self.telemetry_url, uri::STATUS),
             )
+            .expect("Torii URL is valid")
             .headers(self.headers.clone()),
             StatusResponseHandler,
         )
@@ -954,7 +961,9 @@ pub mod events_api {
                         .encode_versioned();
 
                 InitData::new(
-                    R::new(HttpMethod::GET, url).headers(headers),
+                    R::try_new(HttpMethod::GET, url)
+                        .expect("Torii URL is valid")
+                        .headers(headers),
                     msg,
                     Handshake,
                 )

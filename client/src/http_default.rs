@@ -151,7 +151,11 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
     }
 
     fn try_new(method: Method, url: impl AsRef<str>) -> eyre::Result<Self> {
-        Ok(Self::new(method, url))
+        Ok(
+            Self(Ok(http::Request::builder()
+                .method(method)
+                .uri(url.as_ref())))
+        )
     }
 
     fn param<K, V>(self, _key: K, _val: V) -> Self {
