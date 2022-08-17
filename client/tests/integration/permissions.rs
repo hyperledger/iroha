@@ -120,8 +120,7 @@ fn permissions_disallow_asset_burn() {
     let alice_id = "alice@wonderland".parse().expect("Valid");
     let bob_id: <Account as Identifiable>::Id = "bob@wonderland".parse().expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);

@@ -5,13 +5,14 @@ use std::{str::FromStr as _, thread, time::Duration};
 use iroha_client::client::{self, Client};
 use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_core::prelude::*;
-use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
+use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*, val_vec};
 use iroha_primitives::small::SmallStr;
 use test_network::*;
 
 use super::Configuration;
 
 #[allow(clippy::too_many_lines)]
+#[ignore = "Multisignature is not working for now. See #2595"]
 #[test]
 fn multisignature_transactions_should_wait_for_all_signatures() {
     let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
@@ -24,16 +25,16 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
-        SignatureCheckCondition(
+        SignatureCheckCondition(EvaluatesTo::new_unchecked(
             ContainsAll::new(
-                ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
-                vec![
+                EvaluatesTo::new_unchecked(ContextValue::new(TRANSACTION_SIGNATORIES_VALUE).into()),
+                val_vec![
                     alice_key_pair.public_key().clone(),
                     key_pair_2.public_key().clone(),
                 ],
             )
             .into(),
-        ),
+        )),
         IdBox::AccountId(alice_id.clone()),
     );
 

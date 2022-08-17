@@ -520,16 +520,23 @@ mod tests {
         let instruction: Instruction = Pair::new(
             TransferBox::new(
                 asset_id("btc", "crypto", "seller", "company"),
-                Expression::Add(Add::new(
-                    Expression::Query(
-                        FindAssetQuantityById::new(AssetId::new(
-                            AssetDefinitionId::from_str("btc2eth_rate#exchange").expect("Valid"),
-                            AccountId::from_str("dex@exchange").expect("Valid"),
-                        ))
-                        .into(),
-                    ),
-                    10_u32,
-                )),
+                EvaluatesTo::new_evaluates_to_value(
+                    Add::new(
+                        EvaluatesTo::new_unchecked(
+                            Expression::Query(
+                                FindAssetQuantityById::new(AssetId::new(
+                                    AssetDefinitionId::from_str("btc2eth_rate#exchange")
+                                        .expect("Valid"),
+                                    AccountId::from_str("dex@exchange").expect("Valid"),
+                                ))
+                                .into(),
+                            )
+                            .into(),
+                        ),
+                        10_u32,
+                    )
+                    .into(),
+                ),
                 asset_id("btc", "crypto", "buyer", "company"),
             ),
             TransferBox::new(

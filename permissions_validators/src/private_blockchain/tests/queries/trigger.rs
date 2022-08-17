@@ -98,9 +98,10 @@ fn find_trigger_key_value_by_id_and_key() {
         ..
     } = TestEnv::new();
 
+    let name: Name = "foo".parse().expect("Valid");
     let find_trigger = QueryBox::FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey {
         id: mintbox_gold_trigger_id.into(),
-        key: "foo".to_owned().into(),
+        key: name.into(),
     });
 
     {

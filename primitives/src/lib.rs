@@ -15,6 +15,7 @@ extern crate alloc;
 pub mod atomic;
 pub mod conststr;
 pub mod fixed;
+pub mod must_use;
 pub mod small;
 
 use fixed::prelude::*;

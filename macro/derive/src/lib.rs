@@ -216,15 +216,17 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
 /// that is equal to the count of variants in enum.
 ///
 /// # Examples
-/// TODO Remove `ignore` #2623
-/// ```ignore
+///
+/// ```
+/// use iroha_derive::VariantCount;
+///
 /// #[derive(VariantCount)]
 /// enum MyEnum {
 ///   First,
 ///   Second(i32),
 ///   Third {
-///     some: str,
-///     stuff: usize
+///     a: usize,
+///     b: usize
 ///   }
 /// }
 ///

@@ -385,7 +385,9 @@ mod account {
             let file = File::open(s).wrap_err(err_msg)?;
             let condition: Box<Expression> =
                 serde_json::from_reader(file).wrap_err(deser_err_msg)?;
-            Ok(Self(SignatureCheckCondition(condition.into())))
+            Ok(Self(SignatureCheckCondition(EvaluatesTo::new_unchecked(
+                condition,
+            ))))
         }
     }
 
@@ -406,8 +408,12 @@ mod account {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
             } = self;
-            submit(MintBox::new(account, condition), cfg, metadata)
-                .wrap_err("Failed to set signature condition")
+            submit(
+                MintBox::new(account, EvaluatesTo::new_unchecked(condition.into())),
+                cfg,
+                metadata,
+            )
+            .wrap_err("Failed to set signature condition")
         }
     }
 
