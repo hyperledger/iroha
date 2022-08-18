@@ -17,7 +17,8 @@ use eyre::{eyre, Context as _, Result};
 
 #[allow(clippy::expect_used)]
 fn main() {
-    const TEST_SMARTCONTRACTS_DIR: &str = "tests/integration/smartcontracts";
+    const SMARTCONTRACT_LOCAL_PATH: &str =
+        "tests/integration/smartcontracts/create_nft_for_every_user_smartcontract";
 
     println!("cargo:rerun-if-changed={TEST_SMARTCONTRACTS_DIR}");
     // TODO: check if this was causing the recursive loop.
@@ -123,18 +124,9 @@ fn build_smartcontract(smartcontract_path: &Path, out_dir: &OsStr) -> Result<()>
             "--target",
             "wasm32-unknown-unknown",
         ])
-        .status()
-        .wrap_err(eyre!(
-            "Failed to run `cargo build` on smartcontract at path `{}`",
-            smartcontract_path.display()
-        ))?;
-
-    if !build.success() {
-        return Err(eyre!(
-            "`cargo build` returned non zero exit code ({}) then trying to build smartcontract at path `{}`",
-            build,
-            smartcontract_path.display()
-        ));
+            .status()
+            .expect("Failed to run `cargo build` on smartcontract");
+        assert!(build.success(), "Can't build smartcontract");
     }
 
     Ok(())
