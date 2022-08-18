@@ -1,6 +1,6 @@
 //! Module for `WorldStateView`-related configuration and structs.
 
-use iroha_config_base::derive::Configurable;
+use iroha_config_base::derive::{Combine, Documented};
 use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ const DEFAULT_METADATA_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20
 const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
 /// `WorldStateView` configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Combine, Documented)]
 #[config(env_prefix = "WSV_")]
 #[serde(rename_all = "UPPERCASE", default)]
 pub struct Configuration {
