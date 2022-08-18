@@ -20,8 +20,8 @@ use core::ops::RangeFrom;
 use data_model::{permission::validator::NeedsPermissionBox, prelude::*};
 pub use debug::*;
 pub use iroha_data_model as data_model;
-pub use iroha_wasm_derive::entrypoint;
-use parity_scale_codec::{Decode, Encode};
+pub use iroha_wasm_derive::{entrypoint, validator_entrypoint};
+pub use parity_scale_codec::{Decode, Encode};
 
 pub mod debug;
 
