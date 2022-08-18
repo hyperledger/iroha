@@ -17,32 +17,18 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     } = parse_macro_input!(item);
 
     let fn_name = &sig.ident;
-    let ret_type = match &sig.output {
-        syn::ReturnType::Type(_, ret_type) => ret_type,
-        syn::ReturnType::Default => {
-            panic!("Validator entrypoint must have `Verdict` return type");
-        }
-    };
+    assert!(
+        matches!(sig.output, syn::ReturnType::Type(_, _)),
+        "Validator entrypoint must have `Verdict` return type"
+    );
 
     let arg: syn::Expr = parse_quote! {
-        ::iroha_wasm::query_operation_to_validate()
+        let top_operation = ::iroha_wasm::query_operation_to_validate();
+        ::core::convert::TryInto::try_into(top_operation)
+            .dbg_expect("Failed to convert top-level operation to the concrete one")
     };
 
     quote! {
-        mod __private {
-            use super::*;
-
-            trait IsVerdict {
-                const DUMMY: () = ();
-            }
-
-            impl IsVerdict for ::iroha_wasm::data_model::permission::validator::Verdict {}
-
-            // Static check that return type is `Verdict`
-            const _: () = <#ret_type as __private::IsVerdict>::DUMMY;
-        }
-
-
         /// Validator entrypoint
         ///
         /// # Memory safety
@@ -52,7 +38,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_validator_main(
         ) -> (::iroha_wasm::WasmUsize, ::iroha_wasm::WasmUsize) {
-            let verdict = #fn_name(#arg);
+            let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#arg);
             let bytes = <
                 ::iroha_wasm::data_model::permission::validator::Verdict as
                 ::parity_scale_codec::Encode

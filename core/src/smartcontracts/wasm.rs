@@ -51,6 +51,9 @@ pub mod import {
     pub const QUERY_AUTHORITY_FN_NAME: &str = "query_authority";
     /// Name of the imported function to query event that triggered the smart contract execution
     pub const QUERY_TRIGGERING_EVENT_FN_NAME: &str = "query_triggering_event";
+    /// Name of the imported function to query operation
+    /// that needs to be validated with permission validator
+    pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
 }
@@ -311,22 +314,8 @@ impl<'wrld> Runtime<'wrld> {
                 .map_err(|e| Trap::new(e.to_string()))?,
         )?;
 
-        let res_bytes_len: WasmUsize = {
-            let res_bytes_len: Result<WasmUsize, _> = res_bytes.len().try_into();
-            res_bytes_len.map_err(|error| Trap::new(error.to_string()))?
-        };
-
-        let res_offset = {
-            let res_offset = alloc_fn
-                .call(&mut caller, res_bytes_len)
-                .map_err(|e| Trap::new(e.to_string()))?;
-
-            memory
-                .write(&mut caller, res_offset as usize, &res_bytes)
-                .map_err(|error| Trap::new(error.to_string()))?;
-
-            res_offset
-        };
+        let res_offset =
+            Self::encode_bytes_into_memory(&res_bytes, &memory, &alloc_fn, &mut caller)?;
 
         Ok(res_offset)
     }
@@ -391,6 +380,21 @@ impl<'wrld> Runtime<'wrld> {
         Ok(event_offset)
     }
 
+    fn query_operation_to_validate(mut caller: Caller<State>) -> Result<WasmUsize, Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
+        let state = caller.data();
+        let operation = state
+            .operation_to_validate
+            .as_ref()
+            .ok_or_else(|| Trap::new("There is no operation to validate".to_owned()))?;
+
+        let bytes = Self::encode_with_length_prefix(operation)?;
+        let operation_offset =
+            Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
+        Ok(operation_offset)
+    }
+
     /// Host defined function which prints given string. When calling
     /// this function, module serializes ISI to linear memory and
     /// provides offset and length as parameters
@@ -433,6 +437,13 @@ impl<'wrld> Runtime<'wrld> {
                     "iroha",
                     import::QUERY_TRIGGERING_EVENT_FN_NAME,
                     Self::query_triggering_event,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    "iroha",
+                    import::QUERY_OPERATION_TO_VALIDATE_FN_NAME,
+                    Self::query_operation_to_validate,
                 )
             })
             .and_then(|l| l.func_wrap("iroha", import::DBG_FN_NAME, Self::dbg))
@@ -511,6 +522,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if unable to construct wasm module or instance of wasm module
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
+    #[allow(unsafe_code)]
     pub fn execute_permission_validator(
         &mut self,
         wsv: &WorldStateView,
@@ -523,13 +535,44 @@ impl<'wrld> Runtime<'wrld> {
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
         let validate_fn = smart_contract
-            .get_typed_func(&mut store, export::WASM_VALIDATE_FN_NAME)
+            .get_typed_func::<_, (WasmUsize, WasmUsize), _>(
+                &mut store,
+                export::WASM_VALIDATE_FN_NAME,
+            )
             .map_err(Error::ExportNotFound)?;
 
         // NOTE: This function takes ownership of the pointer
         let (offset, len) = validate_fn
             .call(&mut store, ())
             .map_err(Error::ExportFnCall)?;
+
+        let offset_usize: usize = offset.try_into().map_err(|err| {
+            Error::Other(eyre::eyre!(
+                "`Verdict` offset is too big and cannot be represented as `usize`: {err}"
+            ))
+        })?;
+        let len_usize: usize = len.try_into().map_err(|err| {
+            Error::Other(eyre::eyre!(
+                "`Verdict` len is too big and cannot be represented as `usize`: {err}"
+            ))
+        })?;
+        // Used to deallocate memory at the end of the function,
+        // because we have took the ownership of the allocated `Verdict`.
+        //
+        // `Verdict` returned from this function will be decoded from this bytes --
+        // copied in other words. So we can freely deallocate this memory.
+        //
+        // Safety: safe until `validator` provides valid pointer
+        // TODO: Is this dangerous?
+        // Can malicious validator lead to an undefined behaviour?
+        // Double deallocation?
+        let _bytes = unsafe {
+            Box::from_raw(core::slice::from_raw_parts_mut(
+                offset_usize as *mut u8,
+                len_usize,
+            ))
+        };
+
         let memory = Self::get_memory(&mut (&smart_contract, &mut store))?;
         Self::decode_from_memory(&memory, &store, offset, len)
             .map_err(|err| Error::Other(err.into()))

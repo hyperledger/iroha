@@ -152,7 +152,17 @@ impl NeedsPermission for Expression {
 }
 
 /// Boxed version of [`NeedsPermission`]
-#[derive(Debug, Display, Clone, derive_more::From, derive_more::TryInto)]
+#[derive(
+    Debug,
+    Display,
+    Clone,
+    derive_more::From,
+    derive_more::TryInto,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+)]
 pub enum NeedsPermissionBox {
     /// [`Transaction`] application
     Transaction(Transaction),

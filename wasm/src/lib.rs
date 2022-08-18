@@ -17,7 +17,7 @@ extern crate alloc;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use data_model::prelude::*;
+use data_model::{permission::validator::NeedsPermissionBox, prelude::*};
 pub use debug::*;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
@@ -86,6 +86,7 @@ impl Execute for data_model::query::QueryBox {
     }
 }
 
+/// Query the authority of the smart contract, trigger or permission validator
 pub fn query_authority() -> <Account as Identifiable>::Id {
     #[cfg(not(test))]
     use host::query_authority as host_query_authority;
@@ -96,6 +97,11 @@ pub fn query_authority() -> <Account as Identifiable>::Id {
     unsafe { decode_with_length_prefix_from_raw(host_query_authority()) }
 }
 
+/// Query an event which have triggered trigger execution.
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was called not from a trigger.
 pub fn query_triggering_event() -> Event {
     #[cfg(not(test))]
     use host::query_triggering_event as host_query_triggering_event;
@@ -104,6 +110,21 @@ pub fn query_triggering_event() -> Event {
 
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
     unsafe { decode_with_length_prefix_from_raw(host_query_triggering_event()) }
+}
+
+/// Query an operation which needs to be validated by a permission validator.
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was called not from a permission validator.
+pub fn query_operation_to_validate() -> NeedsPermissionBox {
+    #[cfg(not(test))]
+    use host::query_operation_to_validate as host_query_operation_to_validate;
+    #[cfg(test)]
+    use tests::_iroha_wasm_query_operation_to_validate_mock as host_query_operation_to_validate;
+
+    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(host_query_operation_to_validate()) }
 }
 
 /// Host exports
@@ -132,14 +153,23 @@ mod host {
         /// Get the authority account id
         ///
         /// # Warning
+        ///
         /// This function does transfer ownership of the result to the caller
         pub(super) fn query_authority() -> *const u8;
 
-        /// Get the authority account id
+        /// Get the triggering event
         ///
         /// # Warning
+        ///
         /// This function does transfer ownership of the result to the caller
         pub(super) fn query_triggering_event() -> *const u8;
+
+        /// Get the operation to validate
+        ///
+        /// # Warning
+        ///
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn query_operation_to_validate() -> *const u8;
     }
 }
 
@@ -311,6 +341,17 @@ mod tests {
             DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(alice_rose_id))).into();
 
         ManuallyDrop::new(encode_as_vec(&event).into_boxed_slice()).as_ptr()
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn _iroha_wasm_query_operation_to_validate_mock() -> *const u8 {
+        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
+            "rose#wonderland".parse().expect("Valid");
+        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
+
+        let instruction = MintBox::new(1u32, alice_rose_id);
+        ManuallyDrop::new(encode_as_vec(&instruction).into_boxed_slice()).as_ptr()
     }
 
     #[webassembly_test]
