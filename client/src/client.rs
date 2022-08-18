@@ -153,7 +153,7 @@ impl ResponseHandler for StatusResponseHandler {
     }
 }
 
-/// Private structure to incapsulate error reporting for HTTP
+/// Private structure to encapsulate error reporting for HTTP
 /// response.
 struct ResponseReport(eyre::Report);
 
