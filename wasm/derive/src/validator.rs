@@ -44,7 +44,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         /// [`Verdict`](::iroha_wasm::data_model::permission::validator::Verdict)
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_validator_main()
-            -> (usize, usize)
+            -> u32
         {
             use ::iroha_wasm::DebugExpectExt as _;
 
@@ -54,12 +54,9 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 ::iroha_wasm::Encode
             >::encode(&verdict);
 
-            let len: usize = bytes.len().try_into()
-                .dbg_expect("Encoded `Verdict` is to big and it's length can't be \
-                             represented as `WasmUsize`");
-            let offset = bytes.as_ptr() as usize;
+            let offset = bytes.as_ptr() as u32;
             bytes.leak();
-            (offset, len)
+            offset
         }
 
         #(#attrs)*

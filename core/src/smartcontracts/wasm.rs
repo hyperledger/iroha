@@ -37,7 +37,7 @@ pub mod export {
     /// Name of the exported entry for smart contract (or trigger) execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
     /// Name of the exported entry for runtime validator execution
-    pub const WASM_VALIDATE_FN_NAME: &str = "_iroha_wasm_validate";
+    pub const WASM_VALIDATOR_MAIN_FN_NAME: &str = "_iroha_validator_main";
 }
 
 pub mod import {
@@ -64,22 +64,22 @@ pub mod import {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Engine or linker could not be created
-    #[error("Runtime initialization failure")]
+    #[error("Runtime initialization failure: {0}")]
     Initialization(#[source] anyhow::Error),
     /// Module could not be compiled or instantiated
-    #[error("Module instantiation failure")]
+    #[error("Module instantiation failure: {0}")]
     Instantiation(#[source] anyhow::Error),
     /// Expected named export not found in module
-    #[error("Named export not found")]
+    #[error("Named export not found: {0}")]
     ExportNotFound(#[source] anyhow::Error),
     /// Call to the function exported from module failed
     ///
     /// In Wasmtime v0.33, can also mean that max linear memory was
     /// consumed
-    #[error("Exported function call failed")]
+    #[error("Exported function call failed: {0}")]
     ExportFnCall(#[from] Trap),
     /// Parse Error
-    #[error("Failed to Parse valid name")]
+    #[error("Failed to Parse valid name: {0}")]
     Parse(#[source] ParseError),
     /// Some other error happened
     #[error(transparent)]
@@ -564,14 +564,19 @@ impl<'wrld> Runtime<'wrld> {
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
         let validate_fn = smart_contract
-            .get_typed_func::<_, (WasmUsize, WasmUsize), _>(
-                &mut store,
-                export::WASM_VALIDATE_FN_NAME,
-            )
+            .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_VALIDATOR_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
+        // *Hardcoding* length here, because we know that the returning object should be `Verdict`
+        //
+        // Can't just return tuple (offset, len) from wasm because of function signature
+        // optimizations which `wasmtime` cannot handle.
+        //
+        // TODO: Introduce another crate with codec or protocol to work with wasm
+        // so that it would be possible to import that codec crate from here and from ,iroha_wasm`
+        let len = std::mem::size_of::<iroha_data_model::permission::validator::Verdict>() as u32;
         // NOTE: This function takes ownership of the pointer
-        let (offset, len) = validate_fn
+        let offset = validate_fn
             .call(&mut store, ())
             .map_err(Error::ExportFnCall)?;
 
