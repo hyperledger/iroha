@@ -16,7 +16,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::judge::InstructionJudgeArc;
+use super::{permissions::judge::InstructionJudgeArc, Evaluate};
 use crate::{
     smartcontracts::{
         permissions::{check_instruction_permissions, prelude::*},
@@ -54,6 +54,8 @@ pub mod import {
     /// Name of the imported function to query operation
     /// that needs to be validated with permission validator
     pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
+    /// Name of the imported function to evaluate the expression on the host side
+    pub const EVALUATE_ON_HOST_FN_NAME: &str = "evaluate_on_host";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
 }
@@ -395,6 +397,26 @@ impl<'wrld> Runtime<'wrld> {
         Ok(operation_offset)
     }
 
+    fn evaluate_on_host(
+        mut caller: Caller<State>,
+        offset: WasmUsize,
+        len: WasmUsize,
+    ) -> Result<WasmUsize, Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+        let expression: ExpressionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        let value = expression
+            .evaluate(
+                caller.data().wsv,
+                &iroha_data_model::expression::Context::new(),
+            )
+            .map_err(|err| Trap::new(format!("Failure during expression evaluation: {err}")))?;
+
+        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
+        let bytes = Self::encode_with_length_prefix(&value)?;
+        let value_offset = Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
+        Ok(value_offset)
+    }
+
     /// Host defined function which prints given string. When calling
     /// this function, module serializes ISI to linear memory and
     /// provides offset and length as parameters
@@ -444,6 +466,13 @@ impl<'wrld> Runtime<'wrld> {
                     "iroha",
                     import::QUERY_OPERATION_TO_VALIDATE_FN_NAME,
                     Self::query_operation_to_validate,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    "iroha",
+                    import::EVALUATE_ON_HOST_FN_NAME,
+                    Self::evaluate_on_host,
                 )
             })
             .and_then(|l| l.func_wrap("iroha", import::DBG_FN_NAME, Self::dbg))

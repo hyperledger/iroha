@@ -20,10 +20,21 @@ use core::ops::RangeFrom;
 use data_model::{permission::validator::NeedsPermissionBox, prelude::*};
 pub use debug::*;
 pub use iroha_data_model as data_model;
-pub use iroha_wasm_derive::{entrypoint, validator_entrypoint};
+pub use iroha_wasm_derive::entrypoint;
 pub use parity_scale_codec::{Decode, Encode};
 
 pub mod debug;
+
+pub mod validator {
+    //! Contains `prelude` related to validators
+
+    pub mod prelude {
+        pub use iroha_data_model::{permission::validator::Verdict, prelude::*};
+        pub use iroha_wasm_derive::validator_entrypoint as entrypoint;
+
+        pub use crate::EvaluateOnHost as _;
+    }
+}
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -83,6 +94,43 @@ impl Execute for data_model::query::QueryBox {
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
         unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
+    }
+}
+
+/// Calculate the result of the expression on the host side without mutating the state.
+pub trait EvaluateOnHost {
+    /// The resulting type of the expression.
+    type Value;
+    /// Type of error
+    type Error;
+
+    /// Calculate result on the host side.
+    ///
+    /// # Errors
+    ///
+    /// Depends on the implementation.
+    fn evaluate_on_host(&self) -> Result<Self::Value, Self::Error>;
+}
+
+impl<V: TryFrom<Value> + Decode> EvaluateOnHost for EvaluatesTo<V> {
+    type Value = V;
+    type Error = <V as TryFrom<Value>>::Error;
+
+    fn evaluate_on_host(&self) -> Result<Self::Value, Self::Error> {
+        #[cfg(not(test))]
+        use host::evaluate_on_host as host_evaluate_on_host;
+        #[cfg(test)]
+        use tests::_iroha_wasm_evaluate_on_host_mock as host_evaluate_on_host;
+
+        // Safety: - `host_evaluate_on_host` doesn't take ownership of it's pointer parameter
+        //         - ownership of the returned result is transferred into `_decode_from_raw`
+        let value: data_model::prelude::Value = unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(
+                &self.expression,
+                host_evaluate_on_host,
+            ))
+        };
+        value.try_into()
     }
 }
 
@@ -170,6 +218,21 @@ mod host {
         ///
         /// This function does transfer ownership of the result to the caller
         pub(super) fn query_operation_to_validate() -> *const u8;
+
+        /// Evaluate an expression on the host side without mutating the state.
+        ///
+        /// # Input
+        ///
+        /// Expects pointer to valid [`ExpressionBox`] and its length.
+        ///
+        /// # Output
+        ///
+        /// Returns pointer to a valid [`Value`] encoded with its length at the beginning.
+        ///
+        /// # Warning
+        ///
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn evaluate_on_host(ptr: *const u8, len: usize) -> *const u8;
     }
 }
 
@@ -276,6 +339,7 @@ mod tests {
     use super::*;
 
     const QUERY_RESULT: Value = Value::U32(1234);
+    const EXPRESSION_RESULT: Value = Value::U32(5);
 
     fn encode_as_vec<T: Encode>(val: &T) -> Vec<u8> {
         let len_size_bytes = core::mem::size_of::<usize>();
@@ -303,6 +367,13 @@ mod tests {
     fn get_test_query() -> QueryBox {
         let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
         FindAccountById::new(account_id).into()
+    }
+    fn get_test_expression() -> ExpressionBox {
+        Add::new(
+            Expression::Raw(Value::U32(1).into()),
+            Expression::Raw(Value::U32(2).into()),
+        )
+        .into()
     }
 
     #[no_mangle]
@@ -352,6 +423,17 @@ mod tests {
 
         let instruction = MintBox::new(1u32, alice_rose_id);
         ManuallyDrop::new(encode_as_vec(&instruction).into_boxed_slice()).as_ptr()
+    }
+
+    pub unsafe extern "C" fn _iroha_wasm_evaluate_on_host_mock(
+        ptr: *const u8,
+        len: usize,
+    ) -> *const u8 {
+        let bytes = slice::from_raw_parts(ptr, len);
+        let expression = ExpressionBox::decode(&mut &*bytes).unwrap();
+        assert_eq!(expression, get_test_expression());
+
+        ManuallyDrop::new(encode_as_vec(&EXPRESSION_RESULT).into_boxed_slice()).as_ptr()
     }
 
     #[webassembly_test]

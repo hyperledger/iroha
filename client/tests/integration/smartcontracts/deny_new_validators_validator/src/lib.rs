@@ -7,12 +7,16 @@ extern crate alloc;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_wasm::data_model::{permission::validator::Verdict, prelude::*};
+use iroha_wasm::{validator::prelude::*, DebugExpectExt as _};
 
-#[iroha_wasm::validator_entrypoint]
+#[entrypoint]
 pub fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
-        if let RegistrableBox::Validator(_) = register.object.evaluate() {
+        if let RegistrableBox::Validator(_) = register
+            .object
+            .evaluate_on_host()
+            .dbg_expect("Failed to evaluate `Register` expression as `RegistrableBox` value")
+        {
             return Verdict::Deny("New validators are not allowed".to_owned());
         }
     }
