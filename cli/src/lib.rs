@@ -146,6 +146,24 @@ where
         let hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
             hook(info);
+
+            // What clippy suggests is much less readable in this case
+            #[allow(clippy::option_if_let_else)]
+            let panic_message = if let Some(message) = info.payload().downcast_ref::<&str>() {
+                message
+            } else if let Some(message) = info.payload().downcast_ref::<String>() {
+                message
+            } else {
+                "unspecified"
+            };
+
+            let location = match info.location() {
+                Some(location) => format!("{}:{}", location.file(), location.line()),
+                None => "unspecified".to_owned(),
+            };
+
+            iroha_logger::error!(%panic_message, %location, "A panic occured, shutting down");
+
             notify_shutdown.notify_one();
         }));
     }
