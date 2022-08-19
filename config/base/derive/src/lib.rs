@@ -13,7 +13,7 @@ pub(crate) mod view;
 #[proc_macro_derive(Combine, attributes(config))]
 pub fn combine_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as utils::StructWithFields);
-    proxy::impl_combine(&ast)
+    proxy::impl_combine(ast)
 }
 
 /// Derive for config querying and setting. More details in `iroha_config_base` reexport
