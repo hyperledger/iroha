@@ -321,15 +321,11 @@ pub mod proxy {
 
     /// Trait for building the final config from a proxy one
     pub trait Builder {
-        /// The resulting type (some `Configuration` in most cases).
-        type Target;
-        /// Error type returned by methods of this trait
-        type Error;
+        /// The return type. Could be target `Configuration`,
+        /// some `Result`, `Option` as users see fit.
+        type ReturnValue;
 
-        /// Construct [`Self::Target`] from a proxy object.
-        ///
-        /// # Errors
-        /// - If any of the fields was still [`None`].
-        fn build(self) -> Result<Self::Target, Self::Error>;
+        /// Construct [`Self::ReturnValue`] from a proxy object.
+        fn build(self) -> Self::ReturnValue;
     }
 }
