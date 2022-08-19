@@ -8,6 +8,7 @@
     clippy::std_instead_of_alloc
 )]
 
+use anyhow::anyhow;
 use eyre::Context;
 use iroha_config::wasm::Configuration;
 use iroha_data_model::{permission, prelude::*, ParseError};
@@ -81,6 +82,9 @@ pub enum Error {
     /// Parse Error
     #[error("Failed to Parse valid name: {0}")]
     Parse(#[source] ParseError),
+    /// Error during decoding object with length prefix
+    #[error("Failed to decode object from bytes with length prefix: {0}")]
+    DecodeWithPrefix(#[source] anyhow::Error),
     /// Some other error happened
     #[error(transparent)]
     Other(eyre::Error),
@@ -567,49 +571,15 @@ impl<'wrld> Runtime<'wrld> {
             .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_VALIDATOR_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
-        // *Hardcoding* length here, because we know that the returning object should be `Verdict`
-        //
-        // Can't just return tuple (offset, len) from wasm because of function signature
-        // optimizations which `wasmtime` cannot handle.
-        //
-        // TODO: Introduce another crate with codec or protocol to work with wasm
-        // so that it would be possible to import that codec crate from here and from ,iroha_wasm`
-        let len = std::mem::size_of::<iroha_data_model::permission::validator::Verdict>() as u32;
         // NOTE: This function takes ownership of the pointer
         let offset = validate_fn
             .call(&mut store, ())
             .map_err(Error::ExportFnCall)?;
 
-        let offset_usize: usize = offset.try_into().map_err(|err| {
-            Error::Other(eyre::eyre!(
-                "`Verdict` offset is too big and cannot be represented as `usize`: {err}"
-            ))
-        })?;
-        let len_usize: usize = len.try_into().map_err(|err| {
-            Error::Other(eyre::eyre!(
-                "`Verdict` len is too big and cannot be represented as `usize`: {err}"
-            ))
-        })?;
-        // Used to deallocate memory at the end of the function,
-        // because we have took the ownership of the allocated `Verdict`.
-        //
-        // `Verdict` returned from this function will be decoded from this bytes --
-        // copied in other words. So we can freely deallocate this memory.
-        //
-        // Safety: safe until `validator` provides valid pointer
-        // TODO: Is this dangerous?
-        // Can malicious validator lead to an undefined behaviour?
-        // Double deallocation?
-        let _bytes = unsafe {
-            Box::from_raw(core::slice::from_raw_parts_mut(
-                offset_usize as *mut u8,
-                len_usize,
-            ))
-        };
-
         let memory = Self::get_memory(&mut (&smart_contract, &mut store))?;
-        Self::decode_from_memory(&memory, &store, offset, len)
-            .map_err(|err| Error::Other(err.into()))
+        // Safety: safe until `validator` provides valid pointer
+        // TODO: Probably dangerous with malicious validator
+        unsafe { Self::decode_with_length_prefix_from_memory(&memory, &store, offset) }
     }
 
     /// Executes the given wasm smartcontract
@@ -646,6 +616,10 @@ impl<'wrld> Runtime<'wrld> {
     }
 
     /// Decode object from the given `memory` at the given `offset` with the given `len`
+    ///
+    /// # Warning
+    ///
+    /// This method does not take ownership of the pointer.
     fn decode_from_memory<C: wasmtime::AsContext, T: Decode>(
         memory: &wasmtime::Memory,
         context: &C,
@@ -656,6 +630,48 @@ impl<'wrld> Runtime<'wrld> {
         let mem_range = offset as usize..(offset + len) as usize;
         let mut bytes = &memory.data(context)[mem_range];
         T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
+    }
+
+    /// Decode the object from given pointer where first element is the size of the object
+    /// following it. This can be considered a custom encoding format.
+    ///
+    /// # Warning
+    ///
+    /// This method takes ownership of the given pointer.
+    ///
+    /// # Safety
+    ///
+    /// It's safe to call this function as long as it's safe to construct, from the given
+    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    unsafe fn decode_with_length_prefix_from_memory<C: wasmtime::AsContext, T: Decode>(
+        memory: &wasmtime::Memory,
+        context: &C,
+        offset: WasmUsize,
+    ) -> Result<T, Error> {
+        let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
+            .try_into()
+            .map_err(|err| {
+                Error::DecodeWithPrefix(anyhow!("Can't convert `usize` to `u32`: {err}"))
+            })?;
+        let len: WasmUsize = Self::decode_from_memory(memory, context, offset, len_size_bytes)?;
+
+        let bytes_ptr = memory.data_ptr(context).add(
+            offset
+                .try_into()
+                .expect("`u32` should always fit into `usize`"),
+        );
+        let bytes = Box::from_raw(core::slice::from_raw_parts_mut(
+            bytes_ptr,
+            len.try_into()
+                .expect("`u32` should always fit into `usize`"),
+        ));
+
+        T::decode(
+            &mut &bytes[len_size_bytes
+                .try_into()
+                .expect("`u32` should always fit into `usize`")..],
+        )
+        .map_err(|err| Error::DecodeWithPrefix(err.into()))
     }
 
     /// Encode `bytes` to the given `memory` with the given `alloc_fn` and `context`

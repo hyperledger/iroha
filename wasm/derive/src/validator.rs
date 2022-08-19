@@ -49,10 +49,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
             use ::iroha_wasm::DebugExpectExt as _;
 
             let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#arg);
-            let bytes = <
-                ::iroha_wasm::data_model::permission::validator::Verdict as
-                ::iroha_wasm::Encode
-            >::encode(&verdict);
+            let bytes = ::iroha_wasm::encode_with_length_prefix(&verdict);
 
             let offset = bytes.as_ptr() as u32;
             bytes.leak();

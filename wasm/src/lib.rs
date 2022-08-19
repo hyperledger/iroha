@@ -321,6 +321,27 @@ unsafe fn encode_and_execute<T: Encode, O>(
     fun(bytes.as_ptr(), bytes.len())
 }
 
+/// Encode the given `val` as vector of bytes with size of the object at the beginning
+//
+// TODO: Write a separate crate for codec/protocol between Iroha and smartcontract
+pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {
+    let len_size_bytes = core::mem::size_of::<usize>();
+
+    let mut r = Vec::with_capacity(len_size_bytes + val.size_hint());
+
+    // Reserve space for length
+    r.resize(len_size_bytes, 0);
+    val.encode_to(&mut r);
+
+    // Store length of encoded object as byte array at the beginning of the vec
+    for (i, byte) in r.len().to_le_bytes().into_iter().enumerate() {
+        r[i] = byte;
+    }
+
+    r
+}
+
+
 /// Most used items
 pub mod prelude {
     pub use crate::{entrypoint, Execute};
@@ -340,23 +361,6 @@ mod tests {
 
     const QUERY_RESULT: Value = Value::U32(1234);
     const EXPRESSION_RESULT: Value = Value::U32(5);
-
-    fn encode_as_vec<T: Encode>(val: &T) -> Vec<u8> {
-        let len_size_bytes = core::mem::size_of::<usize>();
-
-        let mut r = Vec::with_capacity(len_size_bytes + val.size_hint());
-
-        // Reserve space for length
-        r.resize(len_size_bytes, 0);
-        val.encode_to(&mut r);
-
-        // Store length of encoded object as byte array at the beginning of the vec
-        for (i, byte) in r.len().to_le_bytes().into_iter().enumerate() {
-            r[i] = byte;
-        }
-
-        r
-    }
 
     fn get_test_instruction() -> Instruction {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
@@ -392,14 +396,14 @@ mod tests {
         let query = QueryBox::decode(&mut &*bytes).unwrap();
         assert_eq!(query, get_test_query());
 
-        ManuallyDrop::new(encode_as_vec(&QUERY_RESULT).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&QUERY_RESULT).into_boxed_slice()).as_ptr()
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
         let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
 
-        ManuallyDrop::new(encode_as_vec(&account_id).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&account_id).into_boxed_slice()).as_ptr()
     }
 
     #[no_mangle]
@@ -411,7 +415,7 @@ mod tests {
         let event: Event =
             DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(alice_rose_id))).into();
 
-        ManuallyDrop::new(encode_as_vec(&event).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&event).into_boxed_slice()).as_ptr()
     }
 
     #[no_mangle]
@@ -422,7 +426,7 @@ mod tests {
         let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
 
         let instruction = MintBox::new(1u32, alice_rose_id);
-        ManuallyDrop::new(encode_as_vec(&instruction).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&instruction).into_boxed_slice()).as_ptr()
     }
 
     pub unsafe extern "C" fn _iroha_wasm_evaluate_on_host_mock(
@@ -433,7 +437,7 @@ mod tests {
         let expression = ExpressionBox::decode(&mut &*bytes).unwrap();
         assert_eq!(expression, get_test_expression());
 
-        ManuallyDrop::new(encode_as_vec(&EXPRESSION_RESULT).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&EXPRESSION_RESULT).into_boxed_slice()).as_ptr()
     }
 
     #[webassembly_test]
