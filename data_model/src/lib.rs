@@ -660,7 +660,7 @@ macro_rules! from_and_try_from_value_idbox {
     ( $($variant:ident( $ty:ty ),)* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+                type Error = ErrorTryFromEnum<Value, Self>;
 
                 fn try_from(value: Value) -> Result<Self, Self::Error> {
                     if let Value::Id(IdBox::$variant(id)) = value {
@@ -697,7 +697,7 @@ macro_rules! from_and_try_from_value_identifiablebox {
     ( $( $variant:ident( Box< $ty:ty > ),)* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+                type Error = ErrorTryFromEnum<Value, Self>;
 
                 fn try_from(value: Value) -> Result<Self, Self::Error> {
                     if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
@@ -720,7 +720,7 @@ macro_rules! from_and_try_from_value_identifiable {
     ( $( $variant:ident( $ty:ty ), )* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+                type Error = ErrorTryFromEnum<Value, Self>;
 
                 fn try_from(value: Value) -> Result<Self, Self::Error> {
                     if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
@@ -753,6 +753,7 @@ from_and_try_from_value_identifiablebox!(
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
+    Validator(Box<permission::Validator>),
 );
 
 from_and_try_from_value_identifiable!(
@@ -766,12 +767,13 @@ from_and_try_from_value_identifiable!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
+    Validator(Box<permission::Validator>),
 );
 
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
 
 impl TryFrom<Value> for RegistrableBox {
-    type Error = ErrorTryFromEnum<Self, Value>;
+    type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(source: Value) -> Result<Self, Self::Error> {
         if let Value::Identifiable(identifiable) = source {
@@ -792,7 +794,7 @@ impl From<RegistrableBox> for Value {
 }
 
 impl TryFrom<IdentifiableBox> for RegistrableBox {
-    type Error = ErrorTryFromEnum<Self, IdentifiableBox>;
+    type Error = ErrorTryFromEnum<IdentifiableBox, Self>;
 
     fn try_from(source: IdentifiableBox) -> Result<Self, Self::Error> {
         use IdentifiableBox::*;
@@ -810,7 +812,8 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
-            _ => Err(Self::Error::default()),
+            Validator(validator) => Ok(RegistrableBox::Validator(validator)),
+            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) => Err(Self::Error::default()),
         }
     }
 }
