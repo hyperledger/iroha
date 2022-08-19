@@ -13,6 +13,8 @@ use test_network::{PeerBuilder, *};
 
 use super::Configuration;
 
+mod runtime_validators;
+
 fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> Vec<Asset> {
     iroha_client
         .request(client::asset::by_account_id(id.clone()))

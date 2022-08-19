@@ -26,6 +26,7 @@ ffi_item! {
     #[derive(
         Debug,
         Display,
+        Constructor,
         Clone,
         IdOrdEqHash,
         Getters,
@@ -40,7 +41,7 @@ ffi_item! {
         IntoSchema,
     )]
     #[allow(clippy::multiple_inherent_impl)]
-    #[display(fmt = "({id})")]
+    #[display(fmt = "{id}")]
     #[id(type = "Id")]
     pub struct Validator {
         id: <Self as Identifiable>::Id,
