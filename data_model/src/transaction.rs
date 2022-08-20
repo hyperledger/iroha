@@ -136,50 +136,20 @@ impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
     }
 }
 
-/// Wrapper for byte representation of [`Executable::Wasm`].
-///
-/// Uses **base64** (de-)serialization format.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+/// Wrapper for byte representation of [`Executable::Wasm`].  Inline
+/// into [`Executable::Wasm`] as soon as GATs are stabilized and
+/// implementations for from byte vector can be split off from
+/// [`IntoIterator<Item = Instruction>`].
+#[derive(Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct WasmSmartContract {
     /// Raw wasm blob.
     #[serde(with = "base64")]
     pub raw_data: Vec<u8>,
 }
 
-mod base64 {
-    //! Module with (de-)serialization functions for
-    //! [`WasmSmartContract`](super::WasmSmartContract)'s bytes using `base64`.
-    //!
-    //! No extra heap allocation is performed nor for serialization nor for deserialization.
-
-    use serde::{Deserializer, Serializer};
-
-    #[cfg(not(feature = "std"))]
-    use super::Vec;
-
-    /// Serialize bytes using `base64`
-    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&base64::display::Base64Display::with_config(
-            bytes,
-            base64::STANDARD,
-        ))
-    }
-
-    /// Deserialize bytes using `base64`
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-        struct Vis;
-        impl serde::de::Visitor<'_> for Vis {
-            type Value = Vec<u8>;
-
-            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-                formatter.write_str("a base64 string")
-            }
-
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                base64::decode(v).map_err(serde::de::Error::custom)
-            }
-        }
-        deserializer.deserialize_str(Vis)
+impl core::fmt::Debug for WasmSmartContract {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "<WASM is truncated>")
     }
 }
 
