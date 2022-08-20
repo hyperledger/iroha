@@ -9,6 +9,7 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
+    str::from_utf8,
 };
 
 use eyre::{eyre, Context as _, Result};
