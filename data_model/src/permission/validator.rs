@@ -45,6 +45,8 @@ ffi_item! {
     #[id(type = "Id")]
     pub struct Validator {
         id: <Self as Identifiable>::Id,
+        #[getset(get = "pub")]
+        /// Type of the validator
         validator_type: Type,
         // TODO: use another type like `WasmValidator`?
         /// WASM code of the validator
@@ -112,7 +114,18 @@ impl core::str::FromStr for Id {
 
 /// Type of validator
 #[derive(
-    Debug, Display, Copy, Clone, PartialEq, Eq, Encode, Decode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
 )]
 pub enum Type {
     /// Validator checking [`Transaction`]
