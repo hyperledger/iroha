@@ -79,7 +79,30 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     entrypoint::impl_entrypoint(attr, item)
 }
 
-/// TODO
+/// Use to annotate the user-defined function that starts the execution of a validator.
+///
+/// Annotated function should have one parameter of type which implements
+/// `TryFrom<NeedsPermissionBox>`.
+///
+/// Validators are checking only for operation invalidness, not for operation validness.
+/// Validator can either deny the operation or pass it to the next validator if there is one.
+///
+/// # Panics
+///
+/// - If function does not have a return type
+///
+/// # Example
+///
+// `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
+//
+/// ```ignore
+/// use iroha_wasm::validator::prelude::*;
+///
+/// #[entrypoint]
+/// pub fn validate(_: QueryBox) -> Verdict {
+///     Verdict::Deny("No queries are allowed".to_owned())
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn validator_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     validator::impl_entrypoint(attr, item)
