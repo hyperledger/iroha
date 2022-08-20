@@ -156,7 +156,8 @@ impl TransactionValidator {
         Ok(())
     }
 
-    // TODO: Remove when runtime validators will replace a builtin ones
+    // TODO: Remove when runtime validators will replace the builtin ones
+    // Should we move executable execution to runtime-checks as well?
     fn validate_with_builtin_validators(
         &self,
         tx: &AcceptedTransaction,
@@ -226,9 +227,24 @@ impl TransactionValidator {
             payload,
             signatures,
         };
+
+        // Validating the transaction it-self
         wsv.validators_view()
-            .validate(wsv, pure_tx)
-            .map_err(|reason| TransactionRejectionReason::NotPermitted(NotPermittedFail { reason }))
+            .validate(wsv, pure_tx.clone())
+            .map_err(|reason| {
+                TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
+            })?;
+
+        // Validating the transaction instructions
+        if let Executable::Instructions(instructions) = pure_tx.payload.instructions {
+            for isi in instructions {
+                wsv.validators_view().validate(wsv, isi).map_err(|reason| {
+                    TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
+                })?;
+            }
+        }
+
+        Ok(())
     }
 }
 

@@ -80,7 +80,7 @@ impl Registered for Validator {
     TryFromReprC,
     IntoSchema,
 )]
-#[display(fmt = "{name}")]
+#[display(fmt = "{name}%{account_id}")]
 pub struct Id {
     /// Name given to validator by its creator.
     pub name: Name,
