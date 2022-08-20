@@ -44,16 +44,15 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         /// [`Verdict`](::iroha_wasm::data_model::permission::validator::Verdict)
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_validator_main()
-            -> u32
+            -> *const u8
         {
             use ::iroha_wasm::DebugExpectExt as _;
 
             let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#arg);
-            let bytes = ::iroha_wasm::encode_with_length_prefix(&verdict);
+            let bytes_box =
+                ::core::mem::ManuallyDrop::new(::iroha_wasm::encode_with_length_prefix(&verdict).into_boxed_slice());
 
-            let offset = bytes.as_ptr() as u32;
-            bytes.leak();
-            offset
+            bytes_box.as_ptr()
         }
 
         #(#attrs)*

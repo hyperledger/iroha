@@ -579,7 +579,7 @@ impl<'wrld> Runtime<'wrld> {
         let memory = Self::get_memory(&mut (&smart_contract, &mut store))?;
         // Safety: safe until `validator` provides valid pointer
         // TODO: Probably dangerous with malicious validator
-        unsafe { Self::decode_with_length_prefix_from_memory(&memory, &store, offset) }
+        unsafe { Self::decode_with_length_prefix_from_memory(&memory, &mut store, offset) }
     }
 
     /// Executes the given wasm smartcontract
@@ -644,35 +644,38 @@ impl<'wrld> Runtime<'wrld> {
     /// It's safe to call this function as long as it's safe to construct, from the given
     /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
     #[allow(unsafe_code, clippy::expect_used, clippy::unwrap_in_result)]
-    unsafe fn decode_with_length_prefix_from_memory<C: wasmtime::AsContext, T: Decode>(
+    unsafe fn decode_with_length_prefix_from_memory<
+        C: wasmtime::AsContextMut,
+        T: Decode + std::fmt::Debug,
+    >(
         memory: &wasmtime::Memory,
-        context: &C,
+        mut context: &mut C,
         offset: WasmUsize,
     ) -> Result<T, Error> {
+        const U32_TO_USIZE_ERROR_MES: &str = "`u32` should always fit in `usize`";
+
         let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
             .try_into()
             .map_err(|err| {
                 Error::DecodeWithPrefix(anyhow!("Can't convert `usize` to `u32`: {err}"))
             })?;
-        let len: WasmUsize = Self::decode_from_memory(memory, context, offset, len_size_bytes)?;
-
-        let bytes_ptr = memory.data_ptr(context).add(
-            offset
+        let len = u32::from_le_bytes(
+            memory.data(&mut context)[offset as usize..(offset + len_size_bytes) as usize]
                 .try_into()
-                .expect("`u32` should always fit into `usize`"),
+                .expect("Prefix length size(bytes) incorrect"),
         );
-        let bytes = Box::from_raw(core::slice::from_raw_parts_mut(
-            bytes_ptr,
-            len.try_into()
-                .expect("`u32` should always fit into `usize`"),
-        ));
 
-        T::decode(
-            &mut &bytes[len_size_bytes
-                .try_into()
-                .expect("`u32` should always fit into `usize`")..],
-        )
-        .map_err(|err| Error::DecodeWithPrefix(err.into()))
+        // TODO: Should be wrapped into Box, but that causes:
+        // mod-da9c11e78642b700(13541,0x171f2f000) malloc: *** error for object 0x30018dfd4: pointer being freed was not allocated
+        let bytes = core::slice::from_raw_parts_mut(
+            memory.data_mut(context)[offset.try_into().expect(U32_TO_USIZE_ERROR_MES)
+                ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)]
+                .as_mut_ptr(),
+            len.try_into().expect(U32_TO_USIZE_ERROR_MES),
+        );
+
+        T::decode(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
+            .map_err(|err| Error::DecodeWithPrefix(err.into()))
     }
 
     /// Encode `bytes` to the given `memory` with the given `alloc_fn` and `context`

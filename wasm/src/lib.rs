@@ -333,7 +333,7 @@ pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {
     r.resize(len_size_bytes, 0);
     val.encode_to(&mut r);
 
-    // Store length of encoded object as byte array at the beginning of the vec
+    // Store length of the whole vector as byte array at the beginning of the vec
     for (i, byte) in r.len().to_le_bytes().into_iter().enumerate() {
         r[i] = byte;
     }
