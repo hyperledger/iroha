@@ -723,20 +723,21 @@ impl std::error::Error for BlockRejectionReason {}
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionRejectionReason {
     /// Insufficient authorisation.
-    #[display(fmt = "Transaction rejected due to insufficient authorisation")]
+    #[display(fmt = "Transaction rejected due to insufficient authorisation: {}", self.0)]
     NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
     /// Failed to verify signature condition specified in the account.
-    #[display(fmt = "Transaction rejected due to an unsatisfied signature condition")]
+    #[display(fmt = "Transaction rejected due to an unsatisfied signature condition: {}", self.0)]
     UnsatisfiedSignatureCondition(
         #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
     ),
     /// Failed to validate transaction limits (e.g. number of instructions)
+    #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {}", self.0)]
     LimitCheck(#[cfg_attr(feature = "std", source)] TransactionLimitError),
     /// Failed to execute instruction.
-    #[display(fmt = "Transaction rejected due to failure in instruction execution")]
+    #[display(fmt = "Transaction rejected due to failure in instruction execution: {}", self.0)]
     InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
     /// Failed to execute WebAssembly binary.
-    #[display(fmt = "Transaction rejected due to failure in WebAssembly execution")]
+    #[display(fmt = "Transaction rejected due to failure in WebAssembly execution: {}", self.0)]
     WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
     /// Genesis account can sign only transactions in the genesis block.
     #[display(fmt = "The genesis account can only sign transactions in the genesis block.")]
@@ -760,10 +761,10 @@ pub enum TransactionRejectionReason {
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum RejectionReason {
     /// The reason for rejecting the block.
-    #[display(fmt = "Block was rejected")]
+    #[display(fmt = "Block was rejected: {}", self.0)]
     Block(#[cfg_attr(feature = "std", source)] BlockRejectionReason),
     /// The reason for rejecting transaction.
-    #[display(fmt = "Transaction was rejected")]
+    #[display(fmt = "Transaction was rejected: {}", self.0)]
     Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason),
 }
 

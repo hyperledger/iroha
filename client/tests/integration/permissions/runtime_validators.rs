@@ -31,12 +31,23 @@ fn deny_new_validators() -> Result<()> {
     let validator = Validator::new(
         "deny_new_validators%alice@wonderland".parse().unwrap(),
         validator::Type::Instruction,
-        WasmSmartContract { raw_data: wasm },
+        WasmSmartContract {
+            raw_data: wasm.clone(),
+        },
     );
-    let register_validator = RegisterBox::new(validator);
-    test_client.submit_blocking(register_validator.clone())?;
+    test_client.submit_blocking(RegisterBox::new(validator))?;
 
     // Trying to register the validator again
-    assert!(test_client.submit_blocking(register_validator).is_err());
+    let validator_2 = Validator::new(
+        "deny_new_validators_2%alice@wonderland".parse().unwrap(),
+        validator::Type::Instruction,
+        WasmSmartContract { raw_data: wasm },
+    );
+    let error_mes = test_client
+        .submit_blocking(RegisterBox::new(validator_2))
+        .expect_err("Registration of a new validator should be denied")
+        .to_string();
+    println!("Error message: {}", error_mes);
+    assert!(error_mes.contains("New validators are not allowed"));
     Ok(())
 }

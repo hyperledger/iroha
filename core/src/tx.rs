@@ -110,11 +110,8 @@ impl TransactionValidator {
         // Sanity check - should have been checked by now
         tx.check_limits(&self.transaction_limits)?;
 
-        // WSV is cloned here so that instructions don't get applied to the blockchain
-        // Therefore, this instruction execution validates before actually executing
-        let wsv = WorldStateView::clone(&self.wsv);
-
-        if !wsv
+        if !self
+            .wsv
             .domain(&account_id.domain_id)
             .map_err(|_e| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {
@@ -128,8 +125,14 @@ impl TransactionValidator {
             }));
         }
 
-        self.validate_with_builtin_validators(&tx, &wsv, is_genesis)?;
-        Self::validate_with_runtime_validators(tx, &wsv)
+        // WSV is cloned here so that instructions don't get applied to the blockchain
+        // Therefore, this instruction execution validates before actually executing
+        let wsv_for_builtin_validators = WorldStateView::clone(&self.wsv);
+        self.validate_with_builtin_validators(&tx, &wsv_for_builtin_validators, is_genesis)?;
+
+        // Making a new clone so that instructions applied in the previous step won't break validation
+        let wsv_for_runtime_validators = WorldStateView::clone(&self.wsv);
+        Self::validate_with_runtime_validators(tx, &wsv_for_runtime_validators)
     }
 
     fn validate_signatures(
