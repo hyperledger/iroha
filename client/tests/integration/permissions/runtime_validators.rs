@@ -14,7 +14,7 @@ use test_network::*;
 // TODO: Maybe activate with a feature,
 // which will be enabled in the build-script when `nightly` is enabled?
 // Same for `mint_nft_for_every_use_every_1_sec()` test.
-// #[ignore = "Only on nightly"]
+#[ignore = "Only on nightly"]
 fn deny_new_validators() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);

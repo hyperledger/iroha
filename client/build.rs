@@ -4,12 +4,12 @@
 //! doesn't allow to run build script only for tests or get info about current profile from it.
 //! See [cargo issue #4001](https://github.com/rust-lang/cargo/issues/4001)
 
+use core::str::from_utf8;
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
-    str::from_utf8,
 };
 
 use eyre::{eyre, Context as _, Result};
@@ -98,7 +98,7 @@ fn build_smartcontract(smartcontract_path: &Path, out_dir: &OsStr) -> Result<()>
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
         .args(&[
-            "+nightly-2022-04-20",
+            "+nightly-2022-08-15",
             "build",
             "--release",
             "-Z",
