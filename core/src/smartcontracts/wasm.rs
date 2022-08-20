@@ -643,6 +643,7 @@ impl<'wrld> Runtime<'wrld> {
     ///
     /// It's safe to call this function as long as it's safe to construct, from the given
     /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    #[allow(unsafe_code, clippy::expect_used, clippy::unwrap_in_result)]
     unsafe fn decode_with_length_prefix_from_memory<C: wasmtime::AsContext, T: Decode>(
         memory: &wasmtime::Memory,
         context: &C,
