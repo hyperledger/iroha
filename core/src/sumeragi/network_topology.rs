@@ -224,7 +224,7 @@ impl Topology {
             .into_builder()
             .at_block(block)
             .build(0)
-            .expect("Given a valid Topology, it is impossible to have error here.");
+            .expect("Topology was invalid.");
     }
 
     /// Apply a view change - change topology in case there were faults in the consensus round.

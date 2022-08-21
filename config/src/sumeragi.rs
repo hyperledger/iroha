@@ -8,10 +8,9 @@ use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
 
-/// Default Amount of time peer waits for the `CreatedBlock` message
-/// after getting a `TransactionReceipt`.
+/// Default Amount of time peer waits for transactions before creating a block.
 pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
-/// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
+/// Default amount of time allocated for voting on a block before a peer can ask for a view change.
 pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 2000;
 /// Default amount of time Peer waits for `TxReceipt` from the leader.
 pub const DEFAULT_TX_RECEIPT_TIME_LIMIT_MS: u64 = 500;

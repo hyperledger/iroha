@@ -583,7 +583,7 @@ impl WorldStateView {
         self.blocks.iter()
     }
 
-    /// Returns iterator over blockchain blocks after the block with the given `hash`
+    /// Returns a vector of blockchain blocks after the block with the given `hash`
     pub fn blocks_after_hash(
         &self,
         hash: HashOf<VersionedCommittedBlock>,
@@ -633,14 +633,12 @@ impl WorldStateView {
     }
 
     /// Returns iterator over blockchain blocks starting with the block of the given `height`
-    pub fn blocks_from_height(
-        &self,
-        height: usize,
-    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
+    pub fn blocks_from_height(&self, height: usize) -> Vec<VersionedCommittedBlock> {
         self.blocks
             .iter()
             .skip(height.saturating_sub(1))
             .map(|block_entry| block_entry.value().clone())
+            .collect()
     }
 
     /// Get `Domain` without an ability to modify it.
@@ -1091,6 +1089,7 @@ mod tests {
 
         assert_eq!(
             &wsv.blocks_from_height(8)
+                .iter()
                 .map(|block| block.header().height)
                 .collect::<Vec<_>>(),
             &[8, 9, 10]
