@@ -103,7 +103,7 @@ impl BlockSynchronizer {
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
         Message::GetBlocksAfter(GetBlocksAfter::new(
-            self.sumeragi.latest_block_hash(),
+            self.sumeragi.latest_block_hash_for_use_by_block_sync(),
             self.peer_id.clone(),
         ))
         .send_to(self.broker.clone(), peer_id)
@@ -188,7 +188,11 @@ impl Message {
                     warn!("Error: not sending any blocks as batch_size is equal to zero.");
                     return;
                 }
-                if *hash == block_sync.sumeragi.latest_block_hash() {
+                if *hash
+                    == block_sync
+                        .sumeragi
+                        .latest_block_hash_for_use_by_block_sync()
+                {
                     return;
                 }
 
@@ -198,6 +202,7 @@ impl Message {
                 if blocks.is_empty() {
                     warn!(%hash, "Block hash not found");
                 } else {
+                    trace!("Sharing blocks after hash: {}", hash);
                     Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                         .send_to(block_sync.broker.clone(), peer_id.clone())
                         .await;

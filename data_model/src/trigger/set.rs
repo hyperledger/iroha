@@ -295,7 +295,7 @@ impl Set {
     pub fn handle_execute_trigger_event(&mut self, event: ExecuteTriggerEvent) {
         let pair;
         {
-            let entry = match self.by_call_triggers.get(&event.trigger_id.clone()) {
+            let entry = match self.by_call_triggers.get(&event.trigger_id) {
                 Some(entry) => entry,
                 None => return,
             };

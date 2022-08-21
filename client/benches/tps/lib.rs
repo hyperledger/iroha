@@ -98,7 +98,8 @@ impl Config {
             .as_ref()
             .expect("Must be some")
             .sumeragi
-            .wsv_clone();
+            .wsv_mutex_access()
+            .clone();
         let mut blocks = blocks_wsv.blocks().skip(blocks_out_of_measure as usize);
         let (txs_accepted, txs_rejected) = (0..self.blocks)
             .map(|_| {
@@ -113,7 +114,9 @@ impl Config {
         let tps = txs_accepted as f64 / elapsed_secs;
         iroha_logger::info!(%tps, %txs_accepted, %elapsed_secs, %txs_rejected);
         if txs_rejected > 0 {
-            return Err(eyre::eyre!("{txs_rejected} transactions were rejected"));
+            // There will be rejected transactions since we submit more than the
+            // network can process.
+            println!("txs_rejected: {}", txs_rejected);
         }
 
         Ok(tps)
