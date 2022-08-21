@@ -215,12 +215,12 @@ impl Kura {
                 return;
             }
 
-            let mut block_reciever_guard = strong_kura_reference
+            let mut block_receiver_guard = strong_kura_reference
                 .block_reciever
                 .lock()
                 .expect("able to lock kura recieve block mutex");
 
-            match block_reciever_guard.try_recv() {
+            match block_receiver_guard.try_recv() {
                 Err(_) => {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
@@ -234,22 +234,26 @@ impl Kura {
                     let block_hash = new_block.hash();
                     let serialized_block: Vec<u8> = new_block.encode_versioned();
 
-                    match strong_kura_reference
+                    let io_error = strong_kura_reference
                         .block_store
                         .lock()
                         .expect("lock on block store")
                         .append_block_to_chain(&serialized_block)
-                    {
-                        Ok(()) => {
+                        .err();
+                    match io_error {
+                        None => {
                             strong_kura_reference
                                 .block_hash_array
                                 .lock()
                                 .expect("lock on block hash array")
                                 .push(block_hash);
                         }
-                        Err(error) => {
-                            error!(%error, "Failed to write block. Kura will now init again.");
-                            panic!("It is unclear what we should do here.");
+                        Some(error) => {
+                            let failed_to_store_block = serialized_block;
+                            let failed_to_store_block_reason = error;
+
+                            drop(block_receiver_guard);
+                            drop(strong_kura_reference);
                             std::thread::sleep(std::time::Duration::from_millis(250));
                             // Why is this sleep needed?
                             // Well in many of our tests we have kura operate within temp directories.
@@ -258,6 +262,21 @@ impl Kura {
                             // the pushing to the next round makes sure that we don't panic if we were going
                             // to exit anyway. The sleep is also required to make sure that the exit code
                             // has finished running before the next iteration of the kura thread loop.
+
+                            if let None = weak_kura_reference.upgrade() {
+                                info!("Kura block thread is shutting down");
+                                return;
+                            };
+
+                            if shutdown_receiver.try_recv().is_ok() {
+                                info!("Kura block thread is being forcibly shut down");
+                                return;
+                            }
+                            error!(
+                                "Failed to store block, ERROR = {}",
+                                failed_to_store_block_reason
+                            );
+                            panic!("Kura has encountered a fatal I/O error.");
                         }
                     }
                 }
