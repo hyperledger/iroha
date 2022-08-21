@@ -61,7 +61,7 @@ trait Consensus {
 /// `Sumeragi` is the implementation of the consensus.
 #[derive(Debug)]
 pub struct Sumeragi {
-    internal: SumeragiWithFault<NoFault>,
+    pub internal: SumeragiWithFault<NoFault>,
 }
 
 impl Sumeragi {
@@ -93,17 +93,21 @@ impl Sumeragi {
             latest_block_height: 0,
             current_topology: network_topology,
 
+            wsv: wsv.clone(),
+            transaction_cache: Vec::new(),
+
             sumeragi_thread_should_exit: false,
         };
 
-        let (incoming_message_sender, incoming_message_receiver) = std::sync::mpsc::channel();
+        let (incoming_message_sender, incoming_message_receiver) =
+            std::sync::mpsc::sync_channel(250);
 
         Ok(Self {
             internal: SumeragiWithFault::<NoFault> {
                 key_pair: configuration.key_pair.clone(),
                 peer_id: configuration.peer_id.clone(),
                 events_sender,
-                wsv: std::sync::Mutex::new(wsv),
+                wsv_for_public_use: std::sync::Mutex::new(wsv),
                 commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
                 block_time: Duration::from_millis(configuration.block_time_ms),
                 transaction_limits: configuration.transaction_limits,
@@ -117,7 +121,8 @@ impl Sumeragi {
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
                 sumeragi_state_machine_data: Mutex::new(sumeragi_state_machine_data),
-                current_online_peers_by_public_key: Mutex::new(Vec::new()),
+                current_online_peers: Mutex::new(Vec::new()),
+                latest_block_hash_for_use_by_block_sync: Mutex::new(Hash::zeroed().typed()),
                 incoming_message_sender: Mutex::new(incoming_message_sender),
                 incoming_message_receiver: Mutex::new(incoming_message_receiver),
             },
@@ -129,14 +134,14 @@ impl Sumeragi {
         use thiserror::Error;
         let online_peers_count: u64 = self
             .internal
-            .current_online_peers_by_public_key
+            .current_online_peers
             .lock()
             .unwrap()
             .len()
             .try_into()
             .expect("casting usize to u64");
 
-        let mut wsv_guard = self.internal.wsv.lock().unwrap();
+        let mut wsv_guard = self.internal.wsv_for_public_use.lock().unwrap();
 
         #[allow(clippy::cast_possible_truncation)]
         if let Some(timestamp) = wsv_guard.genesis_timestamp() {
@@ -160,17 +165,11 @@ impl Sumeragi {
         Ok(())
     }
 
-    pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
-        self.internal.wsv.lock().unwrap().latest_block_hash()
-    }
-
-    pub fn get_network_topology(&self, header: &BlockHeader) -> Topology {
-        // TODO: make use of block header
+    pub fn latest_block_hash_for_use_by_block_sync(&self) -> HashOf<VersionedCommittedBlock> {
         self.internal
-            .sumeragi_state_machine_data
+            .latest_block_hash_for_use_by_block_sync
             .lock()
-            .expect("Get network topology lock.")
-            .current_topology
+            .unwrap()
             .clone()
     }
 
@@ -179,27 +178,43 @@ impl Sumeragi {
         block_hash: HashOf<VersionedCommittedBlock>,
     ) -> Vec<VersionedCommittedBlock> {
         self.internal
-            .wsv
+            .wsv_for_public_use
             .lock()
             .unwrap()
             .blocks_after_hash(block_hash)
     }
 
-    pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
-        use rand::{prelude::SliceRandom, SeedableRng};
-
-        let rng = &mut rand::rngs::StdRng::from_entropy();
+    pub fn blocks_from_height(&self, block_height: usize) -> Vec<VersionedCommittedBlock> {
         self.internal
-            .wsv
+            .wsv_for_public_use
             .lock()
             .unwrap()
-            .peers()
-            .choose(rng)
-            .cloned()
+            .blocks_from_height(block_height)
     }
 
-    pub fn wsv_clone(&self) -> WorldStateView {
-        self.internal.wsv.lock().unwrap().clone()
+    pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
+        use rand::{prelude::SliceRandom, RngCore, SeedableRng};
+
+        let rng = &mut rand::rngs::StdRng::from_entropy();
+        let peers = self
+            .internal
+            .current_online_peers
+            .lock()
+            .expect("lock on online peers for get random peer")
+            .iter()
+            .map(|peer| Peer::new((*peer).clone()))
+            .collect::<Vec<Peer>>();
+        if peers.is_empty() {
+            return None;
+        } else {
+            let mut sorted_peers = peers;
+            sorted_peers.sort();
+            Some(sorted_peers[rng.next_u32() as usize % sorted_peers.len()].clone())
+        }
+    }
+
+    pub fn wsv_mutex_access(&self) -> std::sync::MutexGuard<WorldStateView> {
+        self.internal.wsv_for_public_use.lock().unwrap()
     }
 
     /// Start the Kura thread
@@ -209,13 +224,16 @@ impl Sumeragi {
         latest_block_height: u64,
     ) -> ThreadHandler {
         let sumeragi2 = sumeragi.clone();
-        let thread_handle = std::thread::spawn(move || {
-            fault::run_sumeragi_main_loop(
-                &sumeragi.internal,
-                latest_block_hash,
-                latest_block_height,
-            );
-        });
+        let thread_handle = std::thread::Builder::new()
+            .name("sumeragi thread".to_string())
+            .spawn(move || {
+                fault::run_sumeragi_main_loop(
+                    &sumeragi.internal,
+                    latest_block_hash,
+                    latest_block_height,
+                );
+            })
+            .expect("Sumeragi thread spawn should not fail.");
 
         let shutdown = move || {
             sumeragi2
@@ -229,20 +247,25 @@ impl Sumeragi {
         ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
 
-    pub fn update_online_peers(&self, online_peers: Vec<PublicKey>) {
+    pub fn update_online_peers(&self, online_peers: Vec<PeerId>) {
         *self
             .internal
-            .current_online_peers_by_public_key
+            .current_online_peers
             .lock()
-            .expect("Lock on update online peers.") = online_peers;
+            .expect("Failed to lock on update online peers.") = online_peers;
     }
 
     pub fn incoming_message(&self, msg: Message) {
-        self.internal
+        if self
+            .internal
             .incoming_message_sender
             .lock()
             .expect("Lock on sender")
-            .send(msg);
+            .try_send(msg)
+            .is_err()
+        {
+            error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+        }
     }
 }
 
