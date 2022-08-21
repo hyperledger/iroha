@@ -26,24 +26,16 @@ pub struct Proof {
 }
 
 impl Proof {
-    fn signature_payload(&self) -> Hash {
-        use byteorder::{ByteOrder, LittleEndian};
-
+    pub fn signature_payload(&self) -> Hash {
         let mut buf = [0_u8; Hash::LENGTH + std::mem::size_of::<u64>()];
-        let prev_block_hash = self.latest_block_hash.as_ref();
-        for i in 0..Hash::LENGTH {
-            buf[i] = prev_block_hash[i];
-        }
-        {
-            let mut final_buf_segment = &mut buf[Hash::LENGTH..];
-            LittleEndian::write_u64(final_buf_segment, self.view_change_index);
-        }
+        buf[..Hash::LENGTH].copy_from_slice(self.latest_block_hash.as_ref());
+        buf[Hash::LENGTH..].copy_from_slice(&self.view_change_index.to_le_bytes());
         // Now we hash the buffer to produce a payload that is completely
         // different between view change proofs in the same sumeragi round.
         Hash::new(buf)
     }
 
-    /// Signs this message with the peer's public and private key.
+    /// Sign this message with the peer's public and private key.
     /// This way peers vote for changing the view - changing the roles of peers.
     ///
     /// # Errors
@@ -54,7 +46,7 @@ impl Proof {
         Ok(())
     }
 
-    /// Verifies and adds signatures of other to this proof.
+    /// Verify the signatures of `other` and add them to this proof.
     pub fn merge_signatures(&mut self, other: &Vec<Signature>) {
         let signature_payload = self.signature_payload();
         for signature in other {
@@ -73,15 +65,15 @@ impl Proof {
             .map(|peer_id| peer_id.public_key.clone())
             .collect();
 
-        let mut valid_count = 0;
         let signature_payload = self.signature_payload();
-        for signature in &self.signatures {
-            if signature.verify(signature_payload.as_ref()).is_ok()
-                && peer_public_keys.contains(signature.public_key())
-            {
-                valid_count += 1;
-            }
-        }
+        let valid_count = self
+            .signatures
+            .iter()
+            .filter(|signature| {
+                signature.verify(signature_payload.as_ref()).is_ok()
+                    && peer_public_keys.contains(signature.public_key())
+            })
+            .count();
 
         // See Whitepaper for the information on this limit.
         #[allow(clippy::int_plus_one)]
@@ -100,13 +92,15 @@ pub trait ProofChain {
         latest_block: &HashOf<VersionedCommittedBlock>,
     ) -> usize;
 
+    fn prune(&mut self, latest_block: &HashOf<VersionedCommittedBlock>);
+
     fn insert_proof(
         &mut self,
         peers: &HashSet<PeerId>,
         max_faults: usize,
         latest_block: &HashOf<VersionedCommittedBlock>,
         new_proof: &Proof,
-    );
+    ) -> Result<(), &'static str>;
 }
 
 impl ProofChain for Vec<Proof> {
@@ -116,20 +110,25 @@ impl ProofChain for Vec<Proof> {
         max_faults: usize,
         latest_block: &HashOf<VersionedCommittedBlock>,
     ) -> usize {
-        let mut valid_view_change_counter = 0;
-        for (i, proof) in self.iter().enumerate() {
-            if proof.latest_block_hash != *latest_block {
-                break;
-            }
-            if proof.view_change_index != (i as u64) {
-                break;
-            }
-            if !proof.verify(peers, max_faults) {
-                break;
-            }
-            valid_view_change_counter += 1;
-        }
-        valid_view_change_counter
+        self.iter()
+            .enumerate()
+            .take_while(|(i, proof)| {
+                proof.latest_block_hash == *latest_block
+                    && proof.view_change_index == (*i as u64)
+                    && proof.verify(peers, max_faults)
+            })
+            .count()
+    }
+
+    fn prune(&mut self, latest_block: &HashOf<VersionedCommittedBlock>) {
+        let valid_count = self
+            .iter()
+            .enumerate()
+            .take_while(|(i, proof)| {
+                proof.latest_block_hash == *latest_block && proof.view_change_index == (*i as u64)
+            })
+            .count();
+        self.truncate(valid_count);
     }
 
     fn insert_proof(
@@ -138,13 +137,13 @@ impl ProofChain for Vec<Proof> {
         max_faults: usize,
         latest_block: &HashOf<VersionedCommittedBlock>,
         new_proof: &Proof,
-    ) {
+    ) -> Result<(), &'static str> {
         if new_proof.latest_block_hash != *latest_block {
-            return;
+            return Err("Block hash didn't match");
         }
         let next_unfinished_view_change = self.verify_with_state(peers, max_faults, latest_block);
         if new_proof.view_change_index != (next_unfinished_view_change as u64) {
-            return; // We only care about the current view change that may or may not happen.
+            return Err("Wrong view change index."); // We only care about the current view change that may or may not happen.
         }
         self.truncate(next_unfinished_view_change + 1);
         if self.len() != next_unfinished_view_change + 1 {
@@ -154,5 +153,6 @@ impl ProofChain for Vec<Proof> {
                 .expect("size must always be more than zero")
                 .merge_signatures(&new_proof.signatures);
         }
+        Ok(())
     }
 }

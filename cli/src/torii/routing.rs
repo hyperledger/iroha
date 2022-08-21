@@ -98,7 +98,6 @@ pub(crate) async fn handle_instructions(
     sumeragi: Arc<Sumeragi>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
-    let wsv = sumeragi.wsv_clone();
     let transaction: Transaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
@@ -106,7 +105,9 @@ pub(crate) async fn handle_instructions(
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    let push_result = queue.push(transaction, &wsv).map_err(|(_, err)| err);
+    let push_result = queue
+        .push(transaction, &sumeragi.wsv_mutex_access())
+        .map_err(|(_, err)| err);
     if let Err(ref error) = push_result {
         iroha_logger::warn!(%error, "Failed to push into queue")
     }
@@ -124,10 +125,12 @@ pub(crate) async fn handle_queries(
     sorting: Sorting,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let wsv = sumeragi.wsv_clone();
-    let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
-    let original_result = valid_request.execute(&wsv)?;
-    let result = filter.filter(original_result);
+    let (result, filter) = {
+        let wsv = sumeragi.wsv_mutex_access();
+        let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
+        let original_result = valid_request.execute(&wsv)?;
+        (filter.filter(original_result), filter)
+    };
 
     let (total, result) = if let Value::Vec(vec_of_val) = result {
         let len = vec_of_val.len();
@@ -203,10 +206,9 @@ async fn handle_pending_transactions(
     sumeragi: Arc<Sumeragi>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
-    let wsv = sumeragi.wsv_clone();
     Ok(Scale(
         queue
-            .all_transactions(&wsv)
+            .all_transactions(&sumeragi.wsv_mutex_access())
             .into_iter()
             .map(VersionedAcceptedTransaction::into_v1)
             .map(Transaction::from)
@@ -257,7 +259,7 @@ async fn handle_post_configuration(
 #[iroha_futures::telemetry_future]
 async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) -> eyre::Result<()> {
     let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
-    let mut from_height = subscription_request.into_v1().try_into()?;
+    let mut from_height: u64 = subscription_request.into_v1().try_into()?;
 
     stream
         .send(VersionedBlockPublisherMessage::from(
@@ -265,29 +267,21 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
         ))
         .await?;
 
-    let wsv = sumeragi.wsv_clone();
-
-    let mut rx = wsv.subscribe_to_new_block_notifications();
-    stream_blocks(&mut from_height, &wsv, &mut stream).await?;
-
     loop {
-        rx.changed().await?;
-        stream_blocks(&mut from_height, &wsv, &mut stream).await?;
+        let blocks = sumeragi.blocks_from_height(from_height.try_into().unwrap());
+        stream_blocks(&mut from_height, blocks, &mut stream).await?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
     Ok(())
 }
 
 async fn stream_blocks(
     from_height: &mut u64,
-    wsv: &WorldStateView,
+    blocks: Vec<VersionedCommittedBlock>,
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
     #[allow(clippy::expect_used)]
-    for block in wsv.blocks_from_height(
-        (*from_height)
-            .try_into()
-            .expect("Blockchain size limit reached"),
-    ) {
+    for block in blocks {
         stream
             .send(VersionedBlockPublisherMessage::from(
                 BlockPublisherMessage::from(block),
@@ -391,13 +385,12 @@ mod subscription {
 async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     use iroha_version::Version;
 
-    let wsv = sumeragi.wsv_clone();
-
     #[allow(clippy::expect_used)]
-    let string = wsv
+    let string = sumeragi
+        .wsv_mutex_access()
         .blocks()
         .last()
-        .expect("At least genesis should always exist")
+        .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .value()
         .version()
         .to_string();
@@ -408,7 +401,7 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<String> {
     sumeragi.update_metrics(network);
     sumeragi
-        .wsv_clone()
+        .wsv_mutex_access()
         .metrics
         .try_to_string()
         .map_err(Error::Prometheus)
@@ -417,7 +410,7 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) ->
 #[cfg(feature = "telemetry")]
 async fn handle_status(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<Json> {
     sumeragi.update_metrics(network);
-    let status = Status::from(&sumeragi.wsv_clone().metrics);
+    let status = Status::from(&sumeragi.wsv_mutex_access().metrics);
     Ok(reply::json(&status))
 }
 

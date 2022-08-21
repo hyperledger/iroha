@@ -33,7 +33,7 @@ pub struct Queue {
     /// self.txs.iter().len()
     pub txs_in_block: usize,
     max_txs: usize,
-    ttl: Duration,
+    pub tx_time_to_live: Duration,
     future_threshold: Duration,
 }
 
@@ -70,13 +70,13 @@ impl Queue {
             txs: DashMap::new(),
             max_txs: cfg.maximum_transactions_in_queue as usize,
             txs_in_block: cfg.maximum_transactions_in_block as usize,
-            ttl: Duration::from_millis(cfg.transaction_time_to_live_ms),
+            tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
             future_threshold: Duration::from_millis(cfg.future_threshold_ms),
         }
     }
 
     fn is_pending(&self, tx: &VersionedAcceptedTransaction, wsv: &WorldStateView) -> bool {
-        !tx.is_expired(self.ttl) && !tx.is_in_blockchain(wsv)
+        !tx.is_expired(self.tx_time_to_live) && !tx.is_in_blockchain(wsv)
     }
 
     /// Returns all pending transactions.
@@ -109,7 +109,7 @@ impl Queue {
         tx: &VersionedAcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<(), Error> {
-        if tx.is_expired(self.ttl) {
+        if tx.is_expired(self.tx_time_to_live) {
             return Err(Error::Expired);
         }
         if tx.is_in_blockchain(wsv) {
@@ -205,6 +205,36 @@ impl Queue {
             }
 
             seen.push(hash);
+            if *entry
+                .get()
+                .check_signature_condition(wsv)
+                .expect("Checked in `check_tx` just above")
+            {
+                return Some(entry.get().clone());
+            }
+        }
+    }
+
+    /// Pops a single transaction.
+    #[allow(
+        clippy::expect_used,
+        clippy::unwrap_in_result,
+        clippy::cognitive_complexity
+    )]
+    pub fn pop_without_seen(&self, wsv: &WorldStateView) -> Option<VersionedAcceptedTransaction> {
+        loop {
+            let hash = self.queue.pop()?;
+            let entry = match self.txs.entry(hash) {
+                Entry::Occupied(entry) => entry,
+                // As practice shows this code is not `unreachable!()`.
+                // When transactions are submitted quickly it can be reached.
+                Entry::Vacant(_) => continue,
+            };
+            if self.check_tx(entry.get(), wsv).is_err() {
+                entry.remove_entry();
+                continue;
+            }
+
             if *entry
                 .get()
                 .check_signature_condition(wsv)

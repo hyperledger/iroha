@@ -236,7 +236,7 @@ impl Iroha {
         .wrap_err("Unable to start P2P-network")?;
         let network_addr = network.start().await;
 
-        let (events_sender, _) = broadcast::channel(100);
+        let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
             domains(&config),
             config.sumeragi.trusted_peers.peers.clone(),
