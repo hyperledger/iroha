@@ -109,6 +109,7 @@ pub struct ViewChangeSuggested {
 
 impl ViewChangeSuggested {
     /// Constructor.
+    #[inline]
     pub const fn new(proofs: Vec<view_change::Proof>) -> ViewChangeSuggested {
         Self { proofs }
     }

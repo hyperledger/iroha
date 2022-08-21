@@ -249,11 +249,16 @@ where
         debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
         self.untrusted_peers.insert(ip(&peer.p2p_addr));
 
-        let online_peer_keys = self.peers.keys().cloned().collect();
-        self.broker
-            .issue_send(NetworkBaseRelayOnlinePeers {
-                online_peers: online_peer_keys,
+        let online_peers: Vec<PeerId> = self
+            .peers
+            .iter()
+            .map(|(key, value)| PeerId {
+                address: value.p2p_addr.clone(),
+                public_key: key.clone(),
             })
+            .collect();
+        self.broker
+            .issue_send(NetworkBaseRelayOnlinePeers { online_peers })
             .await;
 
         self.broker.issue_send(StopSelf::Peer(peer.conn_id)).await
@@ -285,7 +290,7 @@ where
 
 #[derive(Clone, iroha_actor::Message)]
 pub struct NetworkBaseRelayOnlinePeers {
-    pub online_peers: Vec<PublicKey>,
+    pub online_peers: Vec<PeerId>,
 }
 
 #[async_trait::async_trait]
@@ -336,12 +341,17 @@ where
                 self.broker.issue_send(*msg).await;
             }
         };
-        let online_peer_keys = self.peers.keys().cloned().collect();
+        let mut online_peers = self
+            .peers
+            .iter()
+            .map(|(key, value)| PeerId {
+                address: value.p2p_addr.clone(),
+                public_key: key.clone(),
+            })
+            .collect();
 
         self.broker
-            .issue_send(NetworkBaseRelayOnlinePeers {
-                online_peers: online_peer_keys,
-            })
+            .issue_send(NetworkBaseRelayOnlinePeers { online_peers })
             .await;
     }
 }
