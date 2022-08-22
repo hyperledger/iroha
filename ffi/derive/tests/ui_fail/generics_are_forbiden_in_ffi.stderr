@@ -15,3 +15,9 @@ error[E0412]: cannot find type `FfiStruct` in this scope
    |
 11 | pub struct FfiStruct<T> {
    |            ^^^^^^^^^ not found in this scope
+
+error[E0282]: type annotations needed
+  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:11:22
+   |
+11 | pub struct FfiStruct<T> {
+   |                      ^ cannot infer type for type parameter `T`
