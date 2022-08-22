@@ -40,13 +40,13 @@ impl Arg {
             let elem = &ref_type.elem;
 
             return if ref_type.mutability.is_some() {
-                parse_quote! {<&'itm mut #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+                parse_quote! {<&'__iroha_ffi_itm mut #elem as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source}
             } else {
-                parse_quote! {<&'itm #elem as iroha_ffi::TryFromReprC<'itm>>::Source}
+                parse_quote! {<&'__iroha_ffi_itm #elem as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source}
             };
         }
 
-        parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'itm>>::Source}
+        parse_quote! {<#arg_type as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source}
     }
 }
 

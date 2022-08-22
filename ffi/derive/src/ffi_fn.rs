@@ -107,7 +107,7 @@ fn gen_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStre
     let output_arg = ffi_output_arg(fn_descriptor).map(gen_out_ptr_arg);
 
     quote! {
-        fn #ffi_fn_name<'itm>(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
+        fn #ffi_fn_name<'__iroha_ffi_itm>(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
     }
 }
 
