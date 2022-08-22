@@ -82,7 +82,7 @@ fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
 fn derive_try_from_repr_c_for_opaque_item_wrapper(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let mut generics = input.generics.clone();
-    let lifetime: syn::Lifetime = syn::parse_quote!('itm);
+    let lifetime: syn::Lifetime = syn::parse_quote!('__iroha_ffi_itm);
     let lifetimes = &[lifetime.clone()];
     let (generic_params, ty_generics, where_clause) =
         add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
@@ -150,7 +150,7 @@ fn derive_try_from_repr_c_for_opaque_item_wrapper(input: &DeriveInput) -> TokenS
 fn derive_try_from_repr_c_for_opaque_item(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let mut generics = input.generics.clone();
-    let lifetime: syn::Lifetime = syn::parse_quote!('itm);
+    let lifetime: syn::Lifetime = syn::parse_quote!('__iroha_ffi_itm);
     let lifetimes = &[lifetime.clone()];
     let (generic_params, ty_generics, where_clause) =
         add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
@@ -208,7 +208,7 @@ fn derive_try_from_repr_c_for_opaque_item(input: &DeriveInput) -> TokenStream2 {
 fn derive_try_from_repr_c_for_opaque_item_slice(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let mut generics = input.generics.clone();
-    let lifetime: syn::Lifetime = syn::parse_quote!('slice);
+    let lifetime: syn::Lifetime = syn::parse_quote!('__iroha_ffi_slice);
     let lifetimes = &[lifetime.clone()];
     let trait_bounds = &[syn::parse_quote!(core::clone::Clone)];
     let (generic_params, ty_generics, where_clause) =
@@ -238,7 +238,7 @@ fn derive_try_from_repr_c_for_opaque_item_slice(input: &DeriveInput) -> TokenStr
 fn derive_try_from_repr_c_for_opaque_item_vec(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let mut generics = input.generics.clone();
-    let lifetime: syn::Lifetime = syn::parse_quote!('itm);
+    let lifetime: syn::Lifetime = syn::parse_quote!('__iroha_ffi_itm);
     let lifetimes = &[lifetime.clone()];
     let (generic_params, ty_generics, where_clause) =
         add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
@@ -299,13 +299,13 @@ fn derive_try_from_repr_c_for_fieldless_enum(
         );
 
     quote! {
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for #enum_name {
-            type Source = <#ffi_type as iroha_ffi::TryFromReprC<'itm>>::Source;
+        impl<'__iroha_ffi_itm> iroha_ffi::TryFromReprC<'__iroha_ffi_itm> for #enum_name {
+            type Source = <#ffi_type as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                store: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source,
+                store: &mut <Self as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
 
@@ -317,13 +317,13 @@ fn derive_try_from_repr_c_for_fieldless_enum(
                 }
             }
         }
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm #enum_name {
+        impl<'__iroha_ffi_itm> iroha_ffi::TryFromReprC<'__iroha_ffi_itm> for &'__iroha_ffi_itm #enum_name {
             type Source = *const #ffi_type;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source,
+                _: &mut <Self as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
 
@@ -333,13 +333,13 @@ fn derive_try_from_repr_c_for_fieldless_enum(
                 }}
             }
         }
-        impl<'itm> iroha_ffi::TryFromReprC<'itm> for &'itm mut #enum_name {
+        impl<'__iroha_ffi_itm> iroha_ffi::TryFromReprC<'__iroha_ffi_itm> for &'__iroha_ffi_itm mut #enum_name {
             type Source = *mut #ffi_type;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::TryFromReprC<'itm>>::Source,
-                _: &mut <Self as iroha_ffi::TryFromReprC<'itm>>::Store
+                source: <Self as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Source,
+                _: &mut <Self as iroha_ffi::TryFromReprC<'__iroha_ffi_itm>>::Store
             ) -> iroha_ffi::Result<Self> {
                 #( #discriminants )*
 
@@ -350,25 +350,25 @@ fn derive_try_from_repr_c_for_fieldless_enum(
             }
         }
 
-        impl<'slice> iroha_ffi::slice::TryFromReprCSliceRef<'slice> for #enum_name {
-            type Source = iroha_ffi::slice::SliceRef<'slice, Self>;
+        impl<'__iroha_ffi_slice> iroha_ffi::slice::TryFromReprCSliceRef<'__iroha_ffi_slice> for #enum_name {
+            type Source = iroha_ffi::slice::SliceRef<'__iroha_ffi_slice, Self>;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Source,
-                _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'slice>>::Store
-            ) -> iroha_ffi::Result<&'slice [Self]> {
+                source: <Self as iroha_ffi::slice::TryFromReprCSliceRef<'__iroha_ffi_slice>>::Source,
+                _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceRef<'__iroha_ffi_slice>>::Store
+            ) -> iroha_ffi::Result<&'__iroha_ffi_slice [Self]> {
                 source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
             }
         }
-        impl<'slice> iroha_ffi::slice::TryFromReprCSliceMut<'slice> for #enum_name {
-            type Source = iroha_ffi::slice::SliceMut<'slice, #enum_name>;
+        impl<'__iroha_ffi_slice> iroha_ffi::slice::TryFromReprCSliceMut<'__iroha_ffi_slice> for #enum_name {
+            type Source = iroha_ffi::slice::SliceMut<'__iroha_ffi_slice, #enum_name>;
             type Store = ();
 
             unsafe fn try_from_repr_c(
-                source: <Self as iroha_ffi::slice::TryFromReprCSliceMut<'slice>>::Source,
+                source: <Self as iroha_ffi::slice::TryFromReprCSliceMut<'__iroha_ffi_slice>>::Source,
                 _: &mut <Self as iroha_ffi::slice::TryFromReprCSliceMut>::Store
-            ) -> iroha_ffi::Result<&'slice mut [Self]> {
+            ) -> iroha_ffi::Result<&'__iroha_ffi_slice mut [Self]> {
                 source.into_rust().ok_or(iroha_ffi::FfiReturn::ArgIsNull)
             }
         }
@@ -458,7 +458,7 @@ fn derive_into_ffi_for_opaque_item(input: &DeriveInput) -> TokenStream2 {
 fn derive_into_ffi_for_opaque_item_slice(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let mut generics = input.generics.clone();
-    let lifetime: syn::Lifetime = syn::parse_quote!('slice);
+    let lifetime: syn::Lifetime = syn::parse_quote!('__iroha_ffi_slice);
     let lifetimes = &[lifetime.clone()];
     let (generic_params, ty_generics, where_clause) =
         add_bounds_and_split_generics(&mut generics, lifetimes, &[]);
