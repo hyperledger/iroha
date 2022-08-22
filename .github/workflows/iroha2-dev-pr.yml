@@ -18,10 +18,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
 
 jobs:
-  check:
+  checks:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
@@ -30,19 +29,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check config.md
         if: always()
-        run: |
-          cargo doc --no-deps --quiet
-          ./scripts/check.sh docs
+        run: ./scripts/check.sh docs
       - name: Check genesis.json
         if: always()
-        run: |
-          ./scripts/check.sh genesis
+        run: ./scripts/check.sh genesis
       - name: Wasm build check
         if: always()
-        env:
-          RUSTC_BOOTSTRAP: 1
         working-directory: wasm
-        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo +nightly-2022-08-15 build --target wasm32-unknown-unknown --quiet
 
   with_coverage:
     runs-on: [self-hosted, Linux]
@@ -93,4 +87,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
-          mold --run cargo test --test mod --${{ matrix.feature_flag }} -- integration:: --skip unstable_network
+          mold --run cargo test --test mod --${{ matrix.feature_flag }} -- \
+          integration:: --skip unstable_network

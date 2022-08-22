@@ -1,4 +1,4 @@
-name: I2::Dev::Tests (Unstable)
+name: I2::Dev::Tests::Unstable
 
 on:
   pull_request:

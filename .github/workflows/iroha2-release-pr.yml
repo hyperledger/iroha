@@ -13,18 +13,18 @@ env:
 
 jobs:
   cli:
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-      - name: Build Client CLI
-        run: mold --run cargo build
-        working-directory: client_cli
-      - name: Build Iroha Peer
-        run: mold --run cargo build
+      - name: Build iroha
         working-directory: cli
+        run: mold --run cargo build
+      - name: Build iroha_client_cli
+        working-directory: client_cli
+        run: mold --run cargo build
       - name: Mark both binaries as executable
         run: |
           chmod +x target/debug/iroha
@@ -34,8 +34,8 @@ jobs:
       - name: Genesis test
         run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0.log; false )'
       - name: Basic register and mint
-        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0.log; false )'
         if: always()
+        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0.log; false )'
       - name: Cleanup test environment
         run: bash -c './scripts/test_env.sh cleanup'
       - name: Panic on invalid genesis test
@@ -47,24 +47,20 @@ jobs:
     # sometimes, works other times it doesn't. In the interest of not
     # burning CI hours, we will instead run these tests locally, and
     # push the docker image from main only after QA passes.
-    runs-on: [self-hosted, linux]
-    if: ${{ false }}
+    if: false
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Build Client CLI
-        run: mold --run cargo build
+      - uses: docker/setup-buildx-action@v2
+      - name: Build iroha_client_cli
         working-directory: client_cli
-      - name: Build Iroha Docker image
+        run: mold --run cargo build
+      - name: Build docker image
         uses: docker/build-push-action@v3
         with:
-          context: .
-          push: false
           load: true
           tags: hyperledger/iroha2:dev
       - name: Setup test environment
@@ -108,12 +104,12 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-      - name: Build Iroha Peer
-        run: mold --run cargo build
+      - name: Build iroha
         working-directory: cli
-      - name: Build Client CLI
         run: mold --run cargo build
+      - name: Build iroha_client_cli
         working-directory: client_cli
+        run: mold --run cargo build
       - name: Mark both binaries as executable
         run: |
           chmod +x target/debug/iroha
