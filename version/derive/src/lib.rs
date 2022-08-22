@@ -2,7 +2,9 @@
     clippy::module_name_repetitions,
     missing_docs,
     clippy::shadow_reuse,
-    clippy::str_to_string
+    clippy::str_to_string,
+    clippy::arithmetic,
+    clippy::std_instead_of_core
 )]
 
 use std::{collections::HashMap, ops::Range};

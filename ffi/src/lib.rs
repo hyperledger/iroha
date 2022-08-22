@@ -1,4 +1,4 @@
-#![allow(unsafe_code)]
+#![allow(unsafe_code, clippy::undocumented_unsafe_blocks, clippy::arithmetic)]
 #![no_std]
 
 //! Structures, macros related to FFI and generation of FFI bindings.
@@ -130,16 +130,14 @@ pub enum FfiReturn {
 unsafe impl<T> ReprC for *const T {}
 unsafe impl<T> ReprC for *mut T {}
 
-impl<'itm, T: ReprC + Copy + 'itm> AsReprCRef<'itm> for T
-where
-    T: IntoFfi<Target = Self>,
-{
+impl<'itm, T: ReprC + Copy + IntoFfi<Target = Self> + 'itm> AsReprCRef<'itm> for T {
     type Target = Self;
 
     fn as_ref(&self) -> Self::Target {
         *self
     }
 }
+
 impl<'itm, T: 'itm> AsReprCRef<'itm> for *const T {
     type Target = Self;
 
@@ -156,6 +154,7 @@ impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm T {
         source.as_ref().ok_or(FfiReturn::ArgIsNull)
     }
 }
+
 impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
     type Source = *mut T;
     type Store = ();
@@ -165,20 +164,15 @@ impl<'itm, T: ReprC> TryFromReprC<'itm> for &'itm mut T {
     }
 }
 
-impl<T: ReprC + Copy> IntoFfi for &T
-where
-    T: IntoFfi<Target = T>,
-{
+impl<T: ReprC + Copy + IntoFfi<Target = T>> IntoFfi for &T {
     type Target = *const T;
 
     fn into_ffi(self) -> Self::Target {
         Self::Target::from(self)
     }
 }
-impl<T: ReprC + Copy> IntoFfi for &mut T
-where
-    T: IntoFfi<Target = T>,
-{
+
+impl<T: ReprC + Copy + IntoFfi<Target = T>> IntoFfi for &mut T {
     type Target = *mut T;
 
     fn into_ffi(self) -> Self::Target {
@@ -196,6 +190,7 @@ impl<T> OutPtrOf<*mut T> for *mut *mut T {
         Ok(())
     }
 }
+
 impl<T> OutPtrOf<*const T> for *mut *const T {
     unsafe fn write(self, source: *const T) -> Result<()> {
         if self.is_null() {
@@ -206,10 +201,8 @@ impl<T> OutPtrOf<*const T> for *mut *const T {
         Ok(())
     }
 }
-impl<T: ReprC> OutPtrOf<T> for *mut T
-where
-    T: IntoFfi<Target = T>,
-{
+
+impl<T: ReprC + IntoFfi<Target = T>> OutPtrOf<T> for *mut T {
     unsafe fn write(self, source: T) -> Result<()> {
         if self.is_null() {
             return Err(FfiReturn::ArgIsNull);
@@ -219,6 +212,7 @@ where
         Ok(())
     }
 }
+
 impl<T: ReprC + Copy> OutPtrOf<Local<T>> for *mut T {
     unsafe fn write(self, source: Local<T>) -> Result<()> {
         if self.is_null() {
@@ -233,12 +227,13 @@ impl<T: ReprC + Copy> OutPtrOf<Local<T>> for *mut T {
 impl<T> Output for *mut T {
     type OutPtr = *mut *mut T;
 }
+
 impl<T> Output for *const T {
     type OutPtr = *mut *const T;
 }
-impl<T: ReprC> Output for T
+
+impl<T: ReprC + IntoFfi<Target = Self>> Output for T
 where
-    T: IntoFfi<Target = Self>,
     *mut Self: OutPtrOf<Self>,
 {
     type OutPtr = *mut Self;
@@ -309,6 +304,7 @@ macro_rules! impl_tuple {
                 $ffi_ty($( <$ty as IntoFfi>::into_ffi($ty),)+)
             }
         }
+
         // TODO: With specialization it should be possible to avoid clone
         impl<$($ty: IntoFfi + Clone),+> IntoFfi for &($( $ty, )+) {
             type Target = Local<$ffi_ty<$($ty::Target,)+>>;
@@ -364,7 +360,7 @@ macro_rules! impl_tuple {
             }
 
             #[allow(non_snake_case)]
-            impl<'store, 'tup, $($ty: super::TryFromReprC<'tup>),+> From<&'tup mut ($($ty::Store,)+)> for Store<'tup, $($ty),+> {
+            impl<'tup, $($ty: super::TryFromReprC<'tup>),+> From<&'tup mut ($($ty::Store,)+)> for Store<'tup, $($ty),+> {
                 fn from(($($ty,)+): &'tup mut ($($ty::Store,)+)) -> Self {
                     Self {$($ty,)+}
                 }
@@ -373,6 +369,7 @@ macro_rules! impl_tuple {
     };
 }
 
+// TODO: Rewrite via proc macro
 impl_tuple! {(A) -> FfiTuple1}
 impl_tuple! {(A, B) -> FfiTuple2}
 impl_tuple! {(A, B, C) -> FfiTuple3}

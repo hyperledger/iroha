@@ -1,6 +1,6 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
-#![allow(clippy::missing_inline_in_public_items)]
+#![allow(clippy::missing_inline_in_public_items, unused_imports)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};

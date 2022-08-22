@@ -38,7 +38,7 @@ async fn create_torii() -> (Torii, KeyPair) {
         format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
-        ('a'..'z')
+        ('a'..='z')
             .map(|name| DomainId::from_str(&name.to_string()).expect("Valid"))
             .map(|domain_id| Domain::new(domain_id).build()),
         vec![],
@@ -128,19 +128,19 @@ async fn torii_pagination() {
             }
         })
     };
-
+    // 27 = a..=z
     for (start, limit, len) in [
-        (None, None, 26),
-        (Some(0), None, 26),
+        (None, None, 27),
+        (Some(0), None, 27),
         (Some(15), Some(5), 5),
         (None, Some(10), 10),
         (Some(1), Some(15), 15),
-        (Some(15), Some(15), 11),
+        (Some(15), Some(15), 12),
     ] {
         let (domains, total) = get_domains(start, limit).await;
         assert_eq!(domains.len(), len);
         // `total` counts all values that match the filtering conditions
-        assert_eq!(total, 26);
+        assert_eq!(total, 27); // Range inclusive
     }
 }
 
@@ -156,22 +156,27 @@ impl QuerySet {
     fn new() -> Self {
         Self::default()
     }
+
     fn given(mut self, instruction: Instruction) -> Self {
         self.instructions.push(instruction);
         self
     }
+
     fn account(mut self, account: AccountId) -> Self {
         self.account = Some(account);
         self
     }
+
     fn keys(mut self, keys: KeyPair) -> Self {
         self.keys = Some(keys);
         self
     }
+
     fn deny_all(mut self) -> Self {
         self.deny_all = true;
         self
     }
+
     async fn query(self, query: QueryBox) -> QueryResponseTest {
         use iroha_core::smartcontracts::Execute;
 

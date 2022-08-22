@@ -11,7 +11,7 @@ pub mod sumeragi;
 pub mod tx;
 pub mod wsv;
 
-use std::time::Duration;
+use core::time::Duration;
 
 use dashmap::{DashMap, DashSet};
 use iroha_data_model::prelude::*;

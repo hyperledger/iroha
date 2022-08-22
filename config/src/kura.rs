@@ -1,4 +1,5 @@
 //! Module for kura-related configuration and structs
+#![allow(clippy::std_instead_of_core)]
 use std::{num::NonZeroU64, path::Path};
 
 use eyre::{eyre, Result};

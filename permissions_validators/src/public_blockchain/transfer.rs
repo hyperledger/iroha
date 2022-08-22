@@ -1,6 +1,5 @@
 //! Module with permission for transfering
-
-use std::time::Duration;
+use core::time::Duration;
 
 use super::*;
 

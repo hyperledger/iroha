@@ -1,4 +1,10 @@
 //! Const-string related implementation and structs.
+#![allow(
+    clippy::std_instead_of_core,
+    clippy::undocumented_unsafe_blocks,
+    clippy::arithmetic
+)]
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::{Borrow, ToOwned},
@@ -163,9 +169,6 @@ impl PartialEq for ConstString {
 }
 
 macro_rules! impl_eq {
-    ($($ty:ty,)*) => {
-        impl_eq!($($ty),*);
-    };
     ($($ty:ty),*) => {$(
         impl PartialEq<$ty> for ConstString {
             // Not possible to write macro uniformly for different types otherwise.

@@ -57,6 +57,7 @@ allow = [
     # We often need to shadow the name of the method to specialise.
     # As soon as trait specialisation is stable we need to remove it.
     'clippy::same_name_method',
+    'clippy::pub_use',
 
     # TODO: Remove when stabilized
     ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn

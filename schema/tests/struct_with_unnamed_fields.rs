@@ -1,3 +1,4 @@
+#![allow(clippy::std_instead_of_alloc)]
 use std::collections::BTreeMap;
 
 use iroha_schema::prelude::*;

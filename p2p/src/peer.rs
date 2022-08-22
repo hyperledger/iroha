@@ -1,4 +1,7 @@
-use std::{
+//! Peer state machine and connection/handshake logic with ecnryption
+//! and actor implementations.
+#![allow(clippy::arithmetic, clippy::std_instead_of_alloc)]
+use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
 };
@@ -29,39 +32,38 @@ use tokio::{
 
 use crate::{
     network::{ConnectionId, PeerMessage, Post, Start, StopSelf},
-    Error, Message, MessageResult,
+    CryptographicError, Error, HandshakeError, Message, MessageResult,
 };
 
 /// Max message length in bytes.
-const MAX_MESSAGE_LENGTH: usize = 16 * 1024 * 1024;
-const MAX_HANDSHAKE_LENGTH: usize = 255;
+pub const MAX_MESSAGE_LENGTH: usize = 16 * 1024 * 1024;
+/// Max length of message in bytes.
+pub const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// Default associated data for AEAD
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 
-#[derive(Debug)]
 /// P2P connection
+#[derive(Debug)]
 pub struct Connection {
     /// A unique connection id
-    id: ConnectionId,
+    pub id: ConnectionId,
     /// Reading half of `TcpStream`
-    read: Option<OwnedReadHalf>,
+    pub read: Option<OwnedReadHalf>,
     /// Writing half of `TcpStream`
-    write: Option<OwnedWriteHalf>,
+    pub write: Option<OwnedWriteHalf>,
     /// A flag that stops listening stream
-    finish_sender: Option<Sender<()>>,
+    pub finish_sender: Option<Sender<()>>,
 }
 
 impl Connection {
     /// Instantiate new connection from `connection_id` and `stream`.
     pub fn new(id: ConnectionId, stream: TcpStream) -> Self {
         let (read, write) = stream.into_split();
-        // let outgoing = read.is_none() && write.is_none();
         Connection {
             id,
             read: Some(read),
             write: Some(write),
-            // outgoing,
             finish_sender: None,
         }
     }
@@ -97,15 +99,15 @@ where
     E: Encryptor + Send + 'static,
 {
     /// Secret part of keypair
-    secret_key: PrivateKey,
+    pub secret_key: PrivateKey,
     /// Public part of keypair
-    public_key: PublicKey,
+    pub public_key: PublicKey,
     /// Encryptor created from session key, that we got by Diffie-Hellman scheme
-    cipher: Option<SymmetricEncryptor<E>>,
+    pub cipher: Option<SymmetricEncryptor<E>>,
     /// Phantom
-    _key_exchange: PhantomData<K>,
+    pub _key_exchange: PhantomData<K>,
     /// Phantom2
-    _post_type: PhantomData<T>,
+    pub _post_type: PhantomData<T>,
 }
 
 impl<T, K, E> Cryptographer<T, K, E>
@@ -114,10 +116,11 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    /// Instantiate [`crate::Cryptographer`].
+    /// Instantiate [`Self`].
+    ///
     /// # Errors
     /// If key exchange fails to produce keypair (extremely rare)
-    fn default_or_err() -> Result<Self, Error> {
+    pub fn default_or_err() -> Result<Self, Error> {
         let key_exchange = K::new();
         let (public_key, secret_key) = key_exchange.keypair(None)?;
         Ok(Self {
@@ -129,32 +132,47 @@ where
         })
     }
 
-    /// Decrypt bytes. If no cipher is set, the bytes are returned as is.
-    fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    /// Decrypt bytes.
+    /// With no cipher set, the bytes are returned as is.
+    ///
+    /// # Errors
+    /// Forwards [`SymmetricEncryptor::decrypt_easy`] error
+    pub fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher.decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+            Some(cipher) => Ok(cipher
+                .decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .map_err(CryptographicError::Decrypt)?),
         }
     }
 
     /// Encrypt bytes. If no cipher is set, the bytes are returned as is.
-    fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    ///
+    /// # Errors
+    /// Forwards [`SymmetricEncryptor::decrypt_easy`] error
+    pub fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+            Some(cipher) => Ok(cipher
+                .encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .map_err(CryptographicError::Encrypt)?),
         }
     }
 
     /// Creates a shared key from two public keys - local and external,
     /// then instantiates an encryptor from that key.
-    fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
+    ///
+    /// # Errors
+    /// `CryptographicError`
+    pub fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
         let dh = K::new();
         let shared = dh.compute_shared_secret(&self.secret_key, public_key)?;
         debug!(key = ?shared.0, "Derived shared key");
         let encryptor = {
             let key: &[u8] = shared.0.as_slice();
             SymmetricEncryptor::<E>::new_with_key(key)
-        }?;
+        }
+        .map_err(CryptographicError::Encrypt)?;
         self.cipher = Some(encryptor);
         Ok(self)
     }
@@ -212,14 +230,12 @@ where
     /// If peer is either `Connecting`, `Disconnected`, or `Error`-ed
     pub fn connection_id(&self) -> Result<ConnectionId, Error> {
         match self {
-            Peer::Connecting(_, _) => Err(Error::Handshake(std::line!())),
             Peer::ConnectedTo(_, _, connection)
             | Peer::ConnectedFrom(_, _, connection)
             | Peer::SendKey(_, _, connection, _)
             | Peer::GetKey(_, _, connection, _)
             | Peer::Ready(_, _, connection, _) => Ok(connection.id),
-            Peer::Disconnected(_) => Err(Error::Handshake(std::line!())),
-            Peer::Error(_, _) => Err(Error::Handshake(std::line!())),
+            _ => Err(Error::Field),
         }
     }
 
@@ -238,7 +254,7 @@ where
     async fn handshake(&mut self) -> Result<&Self, Error> {
         trace!(peer = ?self, "Attempting handshake");
         let mut temp = Self::Disconnected(self.id().clone());
-        std::mem::swap(&mut temp, self);
+        core::mem::swap(&mut temp, self);
         let mut result = match temp {
             Self::Connecting(_, _) => {
                 temp.connect()
@@ -286,7 +302,7 @@ where
                 temp
             }
         };
-        std::mem::swap(&mut result, self);
+        core::mem::swap(&mut result, self);
         Ok(self)
     }
 
@@ -312,7 +328,7 @@ where
             Ok(Self::SendKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::State(format!("Should be `ConnectedFrom`. Got {self:?}")).into())
         }
     }
 
@@ -339,7 +355,7 @@ where
             Ok(Self::SendKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::State(format!("Should `ConnectedTo`. Got {self:?}")).into())
         }
     }
 
@@ -369,7 +385,7 @@ where
             Ok(Self::GetKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::State(format!("Should be `SendKey`. Got {self:?}")).into())
         }
     }
 
@@ -381,7 +397,7 @@ where
             let read_half = connection.read.as_mut().unwrap();
             let size = read_half.read_u8().await? as usize;
             if size >= MAX_HANDSHAKE_LENGTH {
-                return Err(Error::Handshake(std::line!()));
+                return Err(HandshakeError::Length(size).into());
             }
             // Reading public key
             read_half.as_ref().readable().await?;
@@ -396,7 +412,7 @@ where
             Ok(Self::Ready(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::State(format!("Should be `GetKey`. Got {self:?}")).into())
         }
     }
 
@@ -416,7 +432,7 @@ where
             let connection = Connection::new(rand::random(), stream);
             Ok(Self::ConnectedTo(id, broker, connection))
         } else {
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::State(format!("Should be `Connecting`. Got {self:?}")).into())
         }
     }
 }
@@ -427,7 +443,7 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Peer::Connecting(_, _) => f.debug_struct("Connecting"),
             Peer::ConnectedTo(_, _, _) => f.debug_struct("ConnectedTo"),
@@ -480,7 +496,7 @@ where
 
     async fn handle(&mut self, ctx: &mut Context<Self>, Start: Start) {
         let mut dummy = Self::Disconnected(self.id().clone());
-        std::mem::swap(&mut dummy, self);
+        core::mem::swap(&mut dummy, self);
         trace!(
             peer = ?dummy,
             "Starting connection and handshake"
@@ -502,7 +518,7 @@ where
             // Subscribe reading stream
             ctx.notify_with(read_connection_stream(read, receiver));
             dummy = Self::Ready(id, broker, connection, crypto);
-            std::mem::swap(&mut dummy, self);
+            core::mem::swap(&mut dummy, self);
         } else {
             error!(peer = ?self, "Handshake didn't fail, but the peer is not ready");
         }
@@ -539,14 +555,15 @@ where
                         Ok(data) => data,
                         Err(error) => {
                             warn!(%error, "Error decrypting message!");
-                            let mut new_self = Self::Error(id.clone(), Error::from(error));
-                            std::mem::swap(&mut new_self, self);
+                            let mut new_self =
+                                Self::Error(id.clone(), CryptographicError::Decrypt(error).into());
+                            core::mem::swap(&mut new_self, self);
                             return;
                         }
                     }
                 }
             };
-            let mut decoded: Result<T, _> = DecodeAll::decode_all(data.as_slice());
+            let mut decoded: Result<T, _> = DecodeAll::decode_all(&mut data.as_slice());
             if decoded.is_err() {
                 warn!("Error parsing message using all bytes");
                 decoded = Decode::decode(&mut data.as_slice());
@@ -588,8 +605,9 @@ where
                     Ok(data) => data,
                     Err(error) => {
                         warn!(%error, "Error encrypting message!");
-                        let mut new_self = Self::Error(id.clone(), Error::from(error));
-                        std::mem::swap(&mut new_self, self);
+                        let mut new_self =
+                            Self::Error(id.clone(), CryptographicError::Encrypt(error).into());
+                        core::mem::swap(&mut new_self, self);
                         return;
                     }
                 },
@@ -599,7 +617,7 @@ where
             if let Err(e) = send_message(connection.write.as_mut().unwrap(), data.as_slice()).await
             {
                 let mut new_self = Self::Error(id.clone(), e);
-                std::mem::swap(&mut new_self, self);
+                core::mem::swap(&mut new_self, self);
             }
         } else {
             warn!("Peer not ready. Cannot send message.");
@@ -640,7 +658,7 @@ where
             };
             info!(peer = ?self, "Stopping.");
             let mut disconnected = Self::Disconnected(self.id().clone());
-            std::mem::swap(&mut disconnected, self);
+            core::mem::swap(&mut disconnected, self);
             ctx.stop_now();
         }
     }
@@ -689,7 +707,7 @@ pub async fn read_server_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, 
 ///
 /// # Errors
 /// If writing to `stream` fails.
-async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Result<()> {
+pub async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Result<()> {
     let garbage = Garbage::generate();
     garbage.write(stream).await?;
     stream.write_all(key).await?;
@@ -702,7 +720,7 @@ async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Resul
 /// If reading from `stream` fails, if the stream doesn't contain exactly `size` zeroes,
 /// where `size` is the first `u32` of the `stream`. Returns [`crate::Error::Format`] if the
 /// length of the message is is more than `MAX_MESSAGE_LENGTH`.
-async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
+pub async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
     let size = stream.read_u32().await? as usize;
     if size > 0 && size < MAX_MESSAGE_LENGTH {
         let mut buf = vec![0_u8; size];
@@ -742,7 +760,8 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<()
     }
 }
 
-fn read_connection_stream(
+/// Read the peer's connection stream and close the stream once done.
+pub fn read_connection_stream(
     mut read: OwnedReadHalf,
     mut finish: Receiver<()>,
 ) -> impl Stream<Item = MessageResult> + Send + 'static {
@@ -798,7 +817,7 @@ impl Garbage {
     pub async fn read(stream: &mut OwnedReadHalf) -> Result<Self, Error> {
         let size = stream.read_u8().await? as usize;
         if size >= MAX_HANDSHAKE_LENGTH {
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::Length(size).into())
         } else {
             // Reading garbage
             debug!(%size, "Reading garbage");

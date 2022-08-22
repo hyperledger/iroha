@@ -2,8 +2,7 @@
 //! Adds support for sending custom Iroha messages over the stream, taking care
 //! of encoding/decoding as well as timeouts
 
-use core::result::Result;
-use std::time::Duration;
+use core::{result::Result, time::Duration};
 
 use futures::{SinkExt, StreamExt};
 use iroha_logger::prelude::*;
@@ -62,9 +61,9 @@ pub trait StreamMessage {
 
 /// Trait for writing custom messages into stream
 #[async_trait::async_trait]
-pub trait Sink<S: EncodeVersioned>: SinkExt<Self::Message, Error = Self::Err> + Unpin
+pub trait Sink<S>: SinkExt<Self::Message, Error = Self::Err> + Unpin
 where
-    S: Send + Sync + 'static,
+    S: EncodeVersioned + Send + Sync + 'static,
 {
     /// Error type returned by the sink
     type Err: std::error::Error + Send + Sync + 'static;
@@ -140,13 +139,14 @@ impl StreamMessage for warp::ws::Message {
 }
 
 #[async_trait::async_trait]
-impl<M: EncodeVersioned> Sink<M> for warp::ws::WebSocket
+impl<M> Sink<M> for warp::ws::WebSocket
 where
-    M: Send + Sync + 'static,
+    M: EncodeVersioned + Send + Sync + 'static,
 {
     type Err = warp::Error;
     type Message = warp::ws::Message;
 }
+
 #[async_trait::async_trait]
 impl<M: DecodeVersioned> Stream<M> for warp::ws::WebSocket {
     type Err = warp::Error;
@@ -165,9 +165,9 @@ mod ws_client {
         type Message = warp::ws::Message;
     }
     #[async_trait::async_trait]
-    impl<M: EncodeVersioned> Sink<M> for WsClient
+    impl<M> Sink<M> for WsClient
     where
-        M: Send + Sync + 'static,
+        M: EncodeVersioned + Send + Sync + 'static,
     {
         type Err = warp::test::WsError;
         type Message = warp::ws::Message;

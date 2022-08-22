@@ -1,5 +1,5 @@
 //! Telemetry sent to a server
-
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::time::Duration;
 
 use chrono::Local;
@@ -175,7 +175,7 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
     let fields = telemetry.fields.0;
     let msg_kind = fields
         .iter()
-        .find_map(|(this_name, map)| (*this_name == "msg").then(|| map))
+        .find_map(|(this_name, map)| (*this_name == "msg").then_some(map))
         .and_then(|v| {
             v.as_str().map(|val| match val {
                 "system.connected" => Some(MessageKind::Initialization),
@@ -510,7 +510,7 @@ mod tests {
             .send(system_connected_telemetry())
             .await
             .unwrap();
-        assert!(message_receiver.try_next().is_err());
+        message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The second message is not sent because the sink is reset
@@ -519,7 +519,7 @@ mod tests {
             .send(system_interval_telemetry(1))
             .await
             .unwrap();
-        assert!(message_receiver.try_next().is_err());
+        message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Fail the reconnection
@@ -531,7 +531,7 @@ mod tests {
             .send(system_interval_telemetry(1))
             .await
             .unwrap();
-        assert!(message_receiver.try_next().is_err());
+        message_receiver.try_next().unwrap_err();
     }
 
     async fn send_after_reconnect_fails_with_suite(suite: Suite) {
@@ -548,7 +548,7 @@ mod tests {
             .send(system_connected_telemetry())
             .await
             .unwrap();
-        assert!(message_receiver.try_next().is_err());
+        message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The second message is not sent because the sink is reset
@@ -557,18 +557,18 @@ mod tests {
             .send(system_interval_telemetry(1))
             .await
             .unwrap();
-        assert!(message_receiver.try_next().is_err());
+        message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Fail sending the first message after reconnect
         fail_send.store(true, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
-        assert!(message_receiver.try_next().is_err());
+        message_receiver.try_next().unwrap_err();
 
         // The message is sent
         fail_send.store(false, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
-        assert!(message_receiver.try_next().is_ok());
+        message_receiver.try_next().unwrap_err();
     }
 
     macro_rules! test_with_suite {

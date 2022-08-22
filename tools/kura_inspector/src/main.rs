@@ -1,4 +1,9 @@
 //! Kura inspector binary. For usage run with `--help`.
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};

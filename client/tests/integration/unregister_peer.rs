@@ -1,3 +1,4 @@
+#![allow(clippy::restriction)]
 use std::thread;
 
 use eyre::Result;

@@ -13,7 +13,7 @@ jobs:
   dockerhub:
     runs-on: [self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     strategy:
       matrix:
         tag: [stable, lts]

@@ -2,7 +2,13 @@
 //! logic.  [`Kura`] is the main entity which should be used to store
 //! new [`Block`](`crate::block::VersionedCommittedBlock`)s on the
 //! blockchain.
-
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic,
+    clippy::significant_drop_in_scrutinee
+)]
 use std::{
     fmt::Debug,
     io::{Read, Seek, SeekFrom, Write},
@@ -182,12 +188,11 @@ impl Kura {
             // Here we essentially check if the thread should keep running.
             // If all other references to `Kura` have been dropped, then
             // the thread associated with that `Kura` instance should exit.
-            let strong_kura_reference = match weak_kura_reference.upgrade() {
-                Some(kura_arc) => kura_arc,
-                None => {
-                    info!("Kura block thread is shutting down");
-                    return;
-                }
+            let strong_kura_reference = if let Some(kura_arc) = weak_kura_reference.upgrade() {
+                kura_arc
+            } else {
+                info!("Kura block thread is shutting down");
+                return;
             };
 
             let mut block_reciever_guard = strong_kura_reference
@@ -655,9 +660,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::expect_used)]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        assert!(Kura::new(
+        Kura::new(
             Mode::Strict,
             temp_dir.path(),
             Arc::default(),
@@ -666,6 +672,6 @@ mod tests {
         )
         .unwrap()
         .init()
-        .is_ok());
+        .expect("Works");
     }
 }

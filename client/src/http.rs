@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use core::borrow::Borrow;
 
 use eyre::{eyre, Result};
 pub use http::{Method, Response, StatusCode};
@@ -161,14 +161,14 @@ pub mod ws {
     /// initial WS flow stage - [`crate::client::events_api::flow::Init`].
     /// Here is an example (oversimplified) of how you can use it:
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use eyre::Result;
     /// use iroha_data_model::prelude::Event;
     /// use iroha_client::{
     ///     client::events_api::flow as events_api_flow,
     ///     http::{
     ///         ws::conn_flow::{EventData, Events, Handshake, Init, InitData},
-    ///         RequestBuilder,
+    ///         RequestBuilder, Method
     ///     },
     /// };
     ///
@@ -176,12 +176,28 @@ pub mod ws {
     /// struct MyBuilder;
     ///
     /// impl RequestBuilder for MyBuilder {
-    ///     /* ... */
+    ///     fn new(_: Method, url: impl AsRef<str>) -> Self {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn param<K: AsRef<str>, V: ToString>(self, _: K, _: V) -> Self  {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn header<N: AsRef<str>, V: ToString>(self, _: N, _: V) -> Self {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn body(self, data: Vec<u8>) -> Self {
+    ///          todo!()
+    ///     }
     /// }
     ///
     /// impl MyBuilder {
+    ///
     ///     fn connect(self) -> MyStream {
     ///         /* ... */
+    ///         MyStream {}
     ///     }
     /// }
     ///
@@ -192,8 +208,9 @@ pub mod ws {
     ///     // Receive message
     ///     fn get_next(&self) -> Vec<u8> {
     ///         /* ... */
+    ///         Vec::new()
     ///     }
-    ///     
+    ///
     ///     // Send message
     ///     fn send(&self, msg: Vec<u8>) {
     ///         /* ... */

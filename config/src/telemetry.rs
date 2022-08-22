@@ -1,5 +1,5 @@
 //! Module for telemetry-related configuration and structs.
-
+#![allow(clippy::std_instead_of_core)]
 use iroha_config_base::derive::{Combine, Documented};
 use serde::{Deserialize, Serialize};
 use url::Url;

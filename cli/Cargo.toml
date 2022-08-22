@@ -51,16 +51,16 @@ iroha_p2p = { version = "=2.0.0-pre-rc.7", path = "../p2p" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.7", path = "../schema/gen", optional = true }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.7", path = "derive" }
 
-async-trait = "0.1"
-color-eyre = "0.5.11"
-eyre = "0.6.5"
-futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
-parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0.28"
-tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
-warp = "0.3"
+async-trait = "0.1.57"
+color-eyre = "0.6.2"
+eyre = "0.6.8"
+futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
+parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
+serde = { version = "1.0.142", features = ["derive"] }
+serde_json = "1.0.83"
+thiserror = "1.0.32"
+tokio = { version = "1.20.1", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
+warp = "0.3.2"
 serial_test = "0.8.0"
 
 [dev-dependencies]

@@ -1,3 +1,5 @@
+//! Actor identification.
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{
     fmt::{self, Debug, Display},
     hash::Hash,
@@ -48,4 +50,5 @@ impl PartialEq for ActorId {
         self.id == other.id
     }
 }
+
 impl Eq for ActorId {}

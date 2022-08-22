@@ -4,6 +4,7 @@
 //! doesn't allow to run build script only for tests or get info about current profile from it.
 //! See [cargo issue #4001](https://github.com/rust-lang/cargo/issues/4001)
 
+use core::str::from_utf8;
 use std::{env, path::Path, process::Command};
 
 #[allow(clippy::expect_used)]
@@ -23,7 +24,7 @@ fn main() {
         .output()
         .expect("Failed to run `rustc --version`");
 
-    if std::str::from_utf8(&rustc_version_output.stdout)
+    if from_utf8(&rustc_version_output.stdout)
         .expect("Garbage in `rustc --version` output")
         .contains("nightly")
     {
@@ -58,18 +59,20 @@ fn main() {
             .env("CARGO_TARGET_DIR", out_dir)
             .current_dir(smartcontract_path)
             .args(&[
-                "+nightly-2022-04-20",
-                "build",
-                "--release",
-                "-Z",
-                "build-std",
-                "-Z",
-                "build-std-features=panic_immediate_abort",
-                "--target",
-                "wasm32-unknown-unknown",
-            ])
+                "+nightly-2022-08-15",
+            "build",
+            "--release",
+            "-Z",
+            "build-std",
+            "-Z",
+            "build-std-features=panic_immediate_abort",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
             .status()
             .expect("Failed to run `cargo build` on smartcontract");
-        assert!(build.success(), "Can't build smartcontract")
+        if !build.success() {
+            println!("cargo:warning=Compiling the smartcontract exited with status")
+        }
     }
 }

@@ -1,5 +1,5 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-
+#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
@@ -12,14 +12,14 @@ mod signature;
 mod varint;
 
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
+use alloc::{alloc::alloc, borrow::ToOwned, boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::alloc::alloc;
 
 #[cfg(feature = "base64")]
 pub use base64;
-use derive_more::{DebugCustom, Display};
+use derive_more::{DebugCustom, Display, From};
 use getset::Getters;
 pub use hash::*;
 use iroha_ffi::{IntoFfi, TryFromReprC};
@@ -182,16 +182,22 @@ ffi::ffi_item! {
 #[derive(Debug, Display)]
 pub enum Error {
     /// Returned when trying to create an algorithm which does not exist
+    #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
     NoSuchAlgorithm,
     /// Occurs during deserialization of a private or public key
+    #[display(fmt = "Key could not be parsed. {_0}")]
     Parse(String),
     /// Returned when an error occurs during the signing process
+    #[display(fmt = "Signing failed. {_0}")]
     Signing(String),
     /// Returned when an error occurs during key generation
+    #[display(fmt = "Key generation failed. {_0}")]
     KeyGen(String),
     /// Returned when an error occurs during digest generation
+    #[display(fmt = "Digest generation failed. {_0}")]
     DigestGen(String),
     /// A General purpose error message that doesn't fit in any category
+    #[display(fmt = "General error. {_0}")] // This is going to cause a headache
     Other(String),
 }
 
@@ -343,24 +349,14 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 }
 
 /// Error which occurs when parsing [`PublicKey`]
-#[derive(Debug, Clone, Display)]
+#[derive(Debug, Clone, Display, From)]
 pub enum KeyParseError {
     /// Decoding hex failed
-    Decode(hex::FromHexError),
+    #[display(fmt = "Failed to decode. {_0}: {_1}")]
+    Decode(String, hex::FromHexError),
     /// Converting bytes to multihash failed
-    Multihash(multihash::ConvertError),
-}
-
-impl From<hex::FromHexError> for KeyParseError {
-    fn from(source: hex::FromHexError) -> Self {
-        Self::Decode(source)
-    }
-}
-
-impl From<multihash::ConvertError> for KeyParseError {
-    fn from(source: multihash::ConvertError) -> Self {
-        Self::Multihash(source)
-    }
+    #[display(fmt = "Failed to convert. {_0}: {_1}")]
+    Multihash(String, multihash::ConvertError),
 }
 
 #[cfg(feature = "std")]
@@ -403,8 +399,9 @@ impl FromStr for PublicKey {
     type Err = KeyParseError;
 
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let bytes = hex::decode(key)?;
-        let multihash = Multihash::try_from(bytes)?;
+        let bytes = hex::decode(key).map_err(|e| KeyParseError::Decode(key.to_owned(), e))?;
+        let multihash =
+            Multihash::try_from(bytes).map_err(|e| KeyParseError::Multihash(key.to_owned(), e))?;
 
         Ok(multihash.into())
     }

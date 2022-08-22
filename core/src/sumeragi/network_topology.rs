@@ -1,5 +1,10 @@
 //! Structs related to topology of the network - order and predefined roles of peers.
-
+#![allow(
+    clippy::new_without_default,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic
+)]
 use std::{collections::HashSet, iter};
 
 use eyre::{eyre, Context, Result};
@@ -361,7 +366,7 @@ impl Topology {
 
     /// Sorted peers that this topology has.
     pub fn sorted_peers(&self) -> &[PeerId] {
-        &*self.sorted_peers
+        &self.sorted_peers
     }
 
     /// Block hash on which this topology is based.

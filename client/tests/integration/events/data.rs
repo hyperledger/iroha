@@ -1,6 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic_in_result_fn)]
-
-use std::{sync::mpsc, thread};
+#![allow(clippy::restriction)]
+use std::{fmt::Write as _, sync::mpsc, thread};
 
 use eyre::Result;
 use iroha_core::smartcontracts::wasm;
@@ -51,6 +50,7 @@ fn instruction_execution_should_produce_events() -> Result<()> {
 
 #[test]
 fn wasm_execution_should_produce_events() -> Result<()> {
+    #![allow(clippy::integer_division)]
     let isi_hex: Vec<String> = produce_instructions()
         .into_iter()
         .map(|isi| isi.encode())
@@ -63,12 +63,12 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         let ptr_len = isi.len();
 
         // It's expected that hex values are of even length
-        #[allow(clippy::integer_division)]
-        isi_calls.push_str(&format!(
+        write!(
+            isi_calls,
             "(call $exec_isi (i32.const {ptr_offset}) (i32.const {ptr_len}))",
             ptr_offset = ptr_offset / 2,
             ptr_len = ptr_len / 2,
-        ));
+        )?;
 
         ptr_offset = ptr_len;
     }

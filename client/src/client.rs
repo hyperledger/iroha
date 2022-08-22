@@ -1,5 +1,10 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::{
     collections::HashMap, fmt::Debug, marker::PhantomData, sync::mpsc, thread, time::Duration,
 };
@@ -74,7 +79,7 @@ where
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND => {
-                    let mut res = QueryError::decode_all(resp.body().as_ref());
+                    let mut res = QueryError::decode_all(&mut resp.body().as_ref());
                     if res.is_err() {
                         warn!("Can't decode query error, not all bytes were consumed");
                         res = QueryError::decode(&mut resp.body().as_ref());
@@ -573,21 +578,35 @@ impl Client {
     /// use eyre::Result;
     /// use iroha_client::{
     ///     client::{Client, ResponseHandler},
-    ///     http::{RequestBuilder, Response},
+    ///     http::{RequestBuilder, Response, Method},
     /// };
-    /// use iroha_data_model::prelude::{Account, FindAllAccounts, Pagination};
+    /// use iroha_data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}};
     ///
     /// struct YourAsyncRequest;
     ///
     /// impl YourAsyncRequest {
     ///     async fn send(self) -> Response<Vec<u8>> {
-    ///         // do the stuff
+    ///         todo!()
     ///     }
     /// }
     ///
     /// // Implement builder for this request
     /// impl RequestBuilder for YourAsyncRequest {
-    ///     // ...
+    ///     fn new(_: Method, url: impl AsRef<str>) -> Self {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn param<K: AsRef<str>, V: ToString>(self, _: K, _: V) -> Self  {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn header<N: AsRef<str>, V: ToString>(self, _: N, _: V) -> Self {
+    ///          todo!()
+    ///     }
+    ///
+    ///     fn body(self, data: Vec<u8>) -> Self {
+    ///          todo!()
+    ///     }
     /// }
     ///
     /// async fn fetch_accounts(client: &Client) -> Result<Vec<Account>> {
@@ -596,6 +615,7 @@ impl Client {
     ///     let (req, resp_handler) = client.prepare_query_request::<_, YourAsyncRequest>(
     ///         FindAllAccounts::new(),
     ///         Pagination::default(),
+    ///         PredicateBox::default(),
     ///     )?;
     ///
     ///     // Do what you need to send the request and to get the response
@@ -1021,9 +1041,10 @@ pub mod events_api {
                     try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
                         .into_v1()
                 {
-                    return Ok(Events);
+                    Ok(Events)
+                } else {
+                    Err(eyre!("Expected `SubscriptionAccepted`."))
                 }
-                return Err(eyre!("Expected `SubscriptionAccepted`."));
             }
         }
 

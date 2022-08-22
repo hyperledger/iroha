@@ -22,7 +22,7 @@ iroha_data_model = { version = "=2.0.0-pre-rc.7", path = "../data_model" }
 iroha_crypto = { version = "=2.0.0-pre-rc.7", path = "../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.7", path = "../config" }
 
-color-eyre = "0.5.11"
-clap = { version = "3.1.10",  features = ["derive"] }
-dialoguer = { version = "0.9", default-features = false }
-serde_json = "1.0"
+color-eyre = "0.6.2"
+clap = { version = "3.2.16", features = ["derive"] }
+dialoguer = { version = "0.10.2", default-features = false }
+serde_json = "1.0.83"

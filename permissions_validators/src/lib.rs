@@ -1,5 +1,9 @@
 //! Out of box implementations for common permission checks.
-
+#![allow(
+    clippy::arithmetic,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc
+)]
 use std::collections::BTreeMap;
 
 use derive_more::Display;
@@ -139,11 +143,11 @@ macro_rules! declare_token {
             #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
                 token: iroha_data_model::permissions::PermissionToken
-            ) -> std::result::Result<Self, Self::Error> {
+            ) -> core::result::Result<Self, Self::Error> {
                 if token.definition_id() != <
-                    Self as
-                    iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
-                >::definition_id() {
+                        Self as
+                        iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
+                        >::definition_id() {
                     return Err(Self::Error::Id(token.definition_id().clone()))
                 }
                 let mut params = token.params().collect::<std::collections::HashMap<_, _>>();

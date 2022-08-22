@@ -1,7 +1,13 @@
 //! Iroha Data Model contains structures for Domains, Peers, Accounts and Assets with simple,
 //! non-specific functions like serialization.
 
-#![allow(clippy::module_name_repetitions, clippy::unwrap_in_result)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::unwrap_in_result,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic,
+    clippy::trait_duplication_in_bounds
+)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
@@ -62,6 +68,7 @@ pub mod transaction;
 pub mod trigger;
 
 pub mod utils {
+    #![allow(clippy::doc_link_with_quotes)]
     //! Module with useful utilities shared between crates
 
     use core::fmt::*;

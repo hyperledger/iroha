@@ -13,6 +13,8 @@ env:
 jobs:
   dockerhub:
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
@@ -57,7 +59,7 @@ jobs:
   archive_binaries_and_schema:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
@@ -91,7 +93,7 @@ jobs:
   telemetry:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1

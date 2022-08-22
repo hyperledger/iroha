@@ -1,4 +1,5 @@
 //! `Torii` configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
+#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
 use iroha_config_base::derive::{Combine, Documented};
 use serde::{Deserialize, Serialize};
 

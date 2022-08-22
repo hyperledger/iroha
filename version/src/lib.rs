@@ -4,6 +4,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(clippy::std_instead_of_core)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;

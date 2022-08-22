@@ -1,3 +1,5 @@
+//! Network formed out of Iroha peers.
+#![allow(clippy::std_instead_of_core)]
 use std::{
     collections::{HashMap, HashSet},
     fmt::{Debug, Formatter},
@@ -110,7 +112,7 @@ where
         listener: TcpListener,
         mut finish: Receiver<()>,
     ) -> impl Stream<Item = NewPeer> + Send + 'static {
-        #[allow(clippy::unwrap_used)]
+        #![allow(clippy::unwrap_used, clippy::arithmetic)]
         let listen_addr = listener.local_addr().unwrap().to_string();
         stream! {
             loop {
@@ -145,7 +147,7 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Network")
             .field("peers", &self.peers.len())
             .finish()

@@ -17,15 +17,17 @@ iroha_crypto = { version = "=2.0.0-pre-rc.7", path = "../crypto" }
 iroha_actor = { version = "=2.0.0-pre-rc.7", path = "../actor" }
 iroha_macro = { version = "=2.0.0-pre-rc.7", path = "../macro" }
 iroha_data_model = { version = "=2.0.0-pre-rc.7", path = "../data_model" }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.7", path = "../data_model/derive" }
 
-rand = "0.8"
-tokio = { version = "1.6.0", features = ["rt-multi-thread", "macros"]}
-async-stream = "0.3"
-futures = { version = "0.3.17", default-features = false }
-async-trait = "0.1"
-parity-scale-codec = { version = "2", features = ["derive"] }
+rand = "0.8.5"
+tokio = { version = "1.20.1", features = ["rt-multi-thread", "macros"] }
+async-stream = "0.3.3"
+futures = { version = "0.3.21", default-features = false }
+async-trait = "0.1.57"
+parity-scale-codec = { version = "3.1.5", features = ["derive"] }
 aead = "0.3.2"
-thiserror = "1.0.28"
+thiserror = "1.0.32"
+derive_more = "0.99.17"
 
 [dev-dependencies]
 iroha_config = { version = "=2.0.0-pre-rc.7", path = "../config" }

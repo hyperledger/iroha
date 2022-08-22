@@ -20,18 +20,18 @@ jobs:
   check:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
 
       - name: Format check
-        run: cargo +nightly-2022-04-20 fmt --all -- --check
+        run: cargo +nightly-2022-08-15 fmt --all -- --check
       - name: Lints without features
-        run: cargo +nightly-2022-04-20 lints clippy --workspace --benches --tests --examples --quiet --no-default-features
+        run: cargo +nightly-2022-08-15 lints clippy --workspace --benches --tests --examples --quiet --no-default-features
         if: always()
       - name: Lints with all features enabled
-        run: cargo +nightly-2022-04-20 lints clippy --workspace --benches --tests --examples --quiet --all-features
+        run: cargo +nightly-2022-08-15 lints clippy --workspace --benches --tests --examples --quiet --all-features
         if: always()
       - name: no_std compatibility check
         run: cargo nono check --package iroha_data_model --no-default-features

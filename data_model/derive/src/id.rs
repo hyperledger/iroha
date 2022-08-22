@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::eval_order_dependence)]
+#![allow(clippy::expect_used, clippy::mixed_read_write_in_expression)]
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -7,7 +7,7 @@ use syn::{
     Attribute, Field, Generics, Ident, Token, TypePath, Visibility,
 };
 
-pub(super) struct IdInput {
+pub struct IdInput {
     ident: Ident,
     id_type: TypePath,
 }
@@ -62,7 +62,7 @@ fn impl_ordeqhash(ast: &IdInput) -> proc_macro2::TokenStream {
     }
 }
 
-pub(super) fn impl_id(ast: &IdInput) -> TokenStream {
+pub fn impl_id(ast: &IdInput) -> TokenStream {
     let id = &ast.id_type;
     let name = &ast.ident;
 

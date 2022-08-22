@@ -24,7 +24,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v1
@@ -47,35 +47,24 @@ jobs:
   with_coverage:
     runs-on: [self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     strategy:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
       - uses: actions/checkout@v3
-      # TODO Remove this step #2165
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-          components: llvm-tools-preview
-      # TODO Remove this step #2165
-      - name: Add components to nightly channel
-        run: rustup component add llvm-tools-preview --toolchain nightly-2022-04-20-x86_64-unknown-linux-gnu
-      # TODO Remove this step #2165
-      - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v1
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo llvm-cov clean --workspace
-          mold --run cargo +nightly-2022-04-20 llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
+          mold --run cargo +nightly-2022-08-15 llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
           mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
       - name: Generate lcov report
         if: matrix.feature_flag == 'all-features'
         run: |
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
-          mold --run cargo +nightly-2022-04-20 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path lcov.info
+          mold --run cargo +nightly-2022-08-15 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         if: matrix.feature_flag == 'all-features'
         uses: codecov/codecov-action@v3
@@ -91,7 +80,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:latest
+      image: 7272721/i2-ci:nightly
     timeout-minutes: 60
     strategy:
       matrix:

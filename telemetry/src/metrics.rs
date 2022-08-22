@@ -1,4 +1,6 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
+#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+
 use std::{
     ops::Deref,
     time::{Duration, SystemTime},
@@ -39,7 +41,7 @@ pub struct Status {
 
 impl<T: Deref<Target = Metrics>> From<&T> for Status {
     fn from(value: &T) -> Self {
-        let val: &Metrics = &*value;
+        let val: &Metrics = value;
         Self {
             peers: val.connected_peers.get(),
             blocks: val.block_height.get(),

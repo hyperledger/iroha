@@ -1,5 +1,6 @@
 //! Logic related to the conversion of structures with ownership. Ownership is never transferred
 //! across FFI. This means that contents of these structures are copied into provided containers
+#![allow(clippy::undocumented_unsafe_blocks, clippy::arithmetic)]
 
 use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
 
@@ -88,6 +89,7 @@ impl<'itm, T: ReprC + 'itm> AsReprCRef<'itm> for Local<T> {
         &(self.0)
     }
 }
+
 impl<'slice, T: ReprC + 'slice> AsReprCRef<'slice> for LocalSlice<T> {
     type Target = SliceRef<'slice, T>;
 
@@ -103,7 +105,8 @@ impl<'slice, T: ReprC + 'slice> AsReprCRef<'slice> for LocalSlice<T> {
 impl<T: ReprC + Copy> Output for Local<T> {
     type OutPtr = *mut T;
 }
-impl<'data, T: ReprC + Copy> Output for LocalSlice<T> {
+
+impl<T: ReprC + Copy> Output for LocalSlice<T> {
     type OutPtr = OutBoxedSlice<T>;
 }
 
