@@ -31,6 +31,7 @@ jobs:
         with:
           push: true
           tags: hyperledger/iroha2:${{ matrix.tag }}
+          labels: commit=${{ github.sha }}
           context: .
           file: Dockerfile
           build-args: TAG=${{ matrix.tag }}

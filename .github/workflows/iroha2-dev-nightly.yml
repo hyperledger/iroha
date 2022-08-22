@@ -17,6 +17,7 @@ jobs:
         with:
           push: true
           tags: hyperledger/iroha2:dev-nightly-${{ github.sha }}
+          labels: commit=${{ github.sha }}
           context: .
           file: Dockerfile
           build-args: TAG=dev
