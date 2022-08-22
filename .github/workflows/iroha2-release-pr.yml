@@ -18,7 +18,7 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Build Client CLI
         run: mold --run cargo build
         working-directory: client_cli
@@ -53,7 +53,7 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v2
@@ -82,7 +82,7 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Run benchmarks
         run: mold --run cargo bench --workspace --quiet
 

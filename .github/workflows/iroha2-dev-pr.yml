@@ -27,7 +27,7 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Check config.md
         if: always()
         run: |
@@ -56,7 +56,7 @@ jobs:
       # TODO Remove this step #2165
       - name: Add components to nightly channel
         run: rustup component add llvm-tools-preview --toolchain nightly-2022-08-15-x86_64-unknown-linux-gnu
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo llvm-cov clean --workspace
@@ -90,7 +90,7 @@ jobs:
         feature_flag: [all-features, no-default-features]
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo test --test mod --${{ matrix.feature_flag }} -- integration:: --skip unstable_network
