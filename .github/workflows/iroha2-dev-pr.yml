@@ -53,6 +53,9 @@ jobs:
         feature_flag: [all-features, no-default-features]
     steps:
       - uses: actions/checkout@v3
+      # TODO Remove this step #2165
+      - name: Add components to nightly channel
+        run: rustup component add llvm-tools-preview --toolchain nightly-2022-08-15-x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v1
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
