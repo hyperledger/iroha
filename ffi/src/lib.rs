@@ -256,6 +256,51 @@ pub struct Opaque {
     __marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
 }
 
+/// Trait for `#[repr(transparent)]` structs to convert between [`Self`] and [`Self::Inner`]
+///
+/// # Safety
+/// `Self` and `Self::Inner` must have the same memory layout.
+pub unsafe trait Transparent: Sized {
+    /// Non-ZST field of transparent struct
+    type Inner;
+
+    /// Convert transparent struct into its non-ZST field
+    fn into_inner(outer: Self) -> Self::Inner;
+
+    /// Recover transparent struct from its non-ZST field
+    fn from_inner(inner: Self::Inner) -> Self;
+}
+
+/// Trait for `#[repr(transparent)]` structs to convert between slice of [`Self`] and slice of [`Self::Inner`]
+///
+/// # Safety
+/// `Self` and `Self::Inner` must have the same memory layout.
+pub unsafe trait TransparentSlice: Sized {
+    /// Non-ZST field of transparent struct
+    type Inner;
+
+    /// Convert transparent struct into its non-ZST field
+    fn into_inner(outer: &[Self]) -> &[Self::Inner];
+
+    /// Recover transparent struct from its non-ZST field
+    fn from_inner(inner: &[Self::Inner]) -> &[Self];
+}
+
+/// Trait for `#[repr(transparent)]` structs to convert between vec of [`Self`] and vec of [`Self::Inner`]
+///
+/// # Safety
+/// `Self` and `Self::Inner` must have the same memory layout.
+pub unsafe trait TransparentVec: Sized {
+    /// Non-ZST field of transparent struct
+    type Inner;
+
+    /// Convert transparent struct into its non-ZST field
+    fn into_inner(outer: Vec<Self>) -> Vec<Self::Inner>;
+
+    /// Recover transparent struct from its non-ZST field
+    fn from_inner(inner: Vec<Self::Inner>) -> Vec<Self>;
+}
+
 macro_rules! impl_tuple {
     ( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ) => {
         /// FFI-compatible tuple with n elements

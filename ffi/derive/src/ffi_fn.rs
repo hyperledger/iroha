@@ -118,6 +118,13 @@ fn gen_input_arg(arg: &Arg) -> TokenStream {
     quote! { #arg_name: #arg_type }
 }
 
+fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
+    let arg_name = arg.name();
+    let arg_type = arg.ffi_type_resolved(true);
+
+    quote! { #arg_name: <#arg_type as iroha_ffi::Output>::OutPtr }
+}
+
 fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
     let input_conversions = gen_input_conversion_stmts(fn_descriptor);
     let method_call_stmt = gen_method_call_stmt(fn_descriptor);
@@ -132,23 +139,11 @@ fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
     }}
 }
 
-fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
-    let arg_name = arg.name();
-    let arg_type = arg.ffi_type_resolved(true);
-
-    quote! { #arg_name: <#arg_type as iroha_ffi::Output>::OutPtr }
-}
-
 fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     let mut stmts = quote! {};
 
     if let Some(arg) = &fn_descriptor.receiver {
-        stmts = if is_fn_consume_and_return_self(fn_descriptor) {
-            let arg_name = arg.name();
-            quote! {let __tmp_handle = #arg_name.read();}
-        } else {
-            crate::util::gen_arg_ffi_to_src(arg, false)
-        };
+        stmts = crate::util::gen_arg_ffi_to_src(arg, false)
     }
 
     for arg in &fn_descriptor.input_args {
@@ -164,13 +159,7 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     let trait_name = &fn_descriptor.trait_name;
 
     let receiver = fn_descriptor.receiver.as_ref();
-    let self_arg_name = receiver.map_or_else(Vec::new, |arg| {
-        if is_fn_consume_and_return_self(fn_descriptor) {
-            return vec![Ident::new("__tmp_handle", proc_macro2::Span::call_site())];
-        }
-
-        vec![arg.name().clone()]
-    });
+    let self_arg_name = receiver.map_or_else(Vec::new, |arg| vec![arg.name().clone()]);
 
     let fn_arg_names = fn_descriptor.input_args.iter().map(Arg::name);
     let self_ty = self_type.as_ref().map_or_else(
@@ -199,16 +188,6 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     match &fn_descriptor.output_arg {
-        Some(output_arg) if is_fn_consume_and_return_self(fn_descriptor) => {
-            let arg_name = output_arg.name();
-            quote! {
-                if __out_ptr.is_null() {
-                    return Err(iroha_ffi::FfiReturn::ArgIsNull);
-                }
-
-                __out_ptr.write(#arg_name);
-            }
-        }
         Some(output_arg) => {
             let (arg_name, arg_type) = (output_arg.name(), output_arg.ffi_type_resolved(true));
             let output_arg_conversion = crate::util::gen_arg_src_to_ffi(output_arg, true);
@@ -219,9 +198,4 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
         }
         None => quote! {},
     }
-}
-
-fn is_fn_consume_and_return_self(fn_descriptor: &FnDescriptor) -> bool {
-    fn_descriptor.receiver.as_ref().map(Arg::name)
-        == fn_descriptor.output_arg.as_ref().map(Arg::name)
 }
