@@ -1,6 +1,6 @@
 //! `Torii` configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
 #![allow(clippy::std_instead_of_core, clippy::arithmetic)]
-use iroha_config_base::derive::{Combine, Documented};
+use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use serde::{Deserialize, Serialize};
 
 /// Default socket for p2p communication
@@ -15,7 +15,7 @@ pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(12) * 4000;
 /// Structure that defines the configuration parameters of `Torii` which is the routing module.
 /// For example the `p2p_addr`, which is used for consensus and block-synchronisation purposes,
 /// as well as `max_transaction_size`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Combine)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "TORII_")]

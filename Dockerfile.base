@@ -1,18 +1,16 @@
 FROM archlinux:base-devel
 
+ENV NIGHTLY=nightly-2022-08-15
+COPY ./rust-toolchain.toml .
 RUN set -eux && \
-    pacman -Syu rustup mold rust-musl --noconfirm && \
-    rustup set profile minimal && \
-    rustup toolchain add stable && \
-    rustup component add llvm-tools-preview clippy && \
-    rustup install --profile default nightly-2022-08-15 && \
-    rustup toolchain add nightly-2022-08-15-x86_64-unknown-linux-musl && \
-    rustup component add rust-src && \
-    rustup component add rust-src --toolchain nightly-2022-08-15-x86_64-unknown-linux-musl && \
-    rustup component add rustfmt --toolchain nightly-2022-08-15-x86_64-unknown-linux-musl && \
-    rustup component add rust-std && \
-    # rustup target add wasm32-unknown-unknown && \
-    rustup target add wasm32-unknown-unknown --toolchain nightly-2022-08-15 && \
-    cargo install cargo-lints cargo-nono webassembly-test-runner && \
+    pacman -Syu rustup mold musl rust-musl --noconfirm && \
+    # toolchain: ./rust-toolchain.toml
     rustup target add x86_64-unknown-linux-musl && \
-    pacman -S musl rust-musl --noconfirm
+    rustup component add rust-src llvm-tools-preview  && \
+    # toolchain: $NIGHTLY
+    rustup install --profile default $NIGHTLY && \
+    rustup +$NIGHTLY target add x86_64-unknown-linux-musl wasm32-unknown-unknown && \
+    rustup +$NIGHTLY component add rust-src llvm-tools-preview && \
+    # cargo install
+    cargo install cargo-lints cargo-nono webassembly-test-runner && \
+    :

@@ -3,7 +3,7 @@
 use std::{num::NonZeroU64, path::Path};
 
 use eyre::{eyre, Result};
-use iroha_config_base::derive::{Combine, Documented};
+use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_BLOCKS_PER_STORAGE_FILE: u64 = 1000_u64;
@@ -11,7 +11,7 @@ const DEFAULT_BLOCK_STORE_PATH: &str = "./blocks";
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// `Kura` configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Documented, Combine, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Documented, Proxy, LoadFromEnv, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "KURA_")]
 pub struct Configuration {

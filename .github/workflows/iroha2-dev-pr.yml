@@ -7,7 +7,7 @@ on:
       - "**.rs"
       - "**.json"
       - "**.toml"
-      - "**.yml"
+      - ".github/workflows/**.yml"
 
       # Not part of the workspace
       - "!wasm/**"
@@ -20,39 +20,58 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  checks:
+  check:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
-      - name: Documentation check
+      - uses: Swatinem/rust-cache@v2
+      - name: Check config.md
         if: always()
-        run: |
-          cargo doc --no-deps --quiet
-          ./scripts/check.sh docs
-      - name: Check genesis
+        run: ./scripts/check.sh docs
+      - name: Check genesis.json
         if: always()
-        run: |
-          ./scripts/check.sh genesis
+        run: ./scripts/check.sh genesis
+      - name: Check schema.json
+        if: always()
+        run: ./scripts/check.sh schema
       - name: Wasm build check
         if: always()
-        env:
-          RUSTC_BOOTSTRAP: 1
         working-directory: wasm
-        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo +nightly-2022-08-15 build --target wasm32-unknown-unknown --quiet
 
-  tests_with_coverage:
-    runs-on: ubuntu-latest
+  with_coverage:
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
+    strategy:
+      matrix:
+        feature_flag: [all-features, no-default-features]
+    env:
+      # TODO Set NIGHTLY in the container #2606
+      NIGHTLY: nightly-2022-08-15
     steps:
       - uses: actions/checkout@v3
-      - name: Run tests and generate lcov coverage report
+      # TODO Remove this step #2165
+      - name: Adjust toolchain
         run: |
-          mold --run cargo llvm-cov --all-features --workspace  --no-fail-fast --lcov --output-path lcov.info || echo "tests failed to run"
-      - name: Upload to codecov
+          rustup component add llvm-tools-preview
+          rustup +$NIGHTLY component add llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests, with ${{ matrix.feature_flag }}
+        run: |
+          mold --run cargo llvm-cov clean --workspace
+          mold --run cargo +$NIGHTLY llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
+          mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
+      - name: Generate lcov report
+        if: matrix.feature_flag == 'all-features'
+        run: |
+          # generate report without tests
+          # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
+          mold --run cargo +$NIGHTLY llvm-cov --doctests --no-run --${{ matrix.feature_flag }} --workspace --lcov --output-path lcov.info
+      - name: Upload coverage to codecov.io
+        if: matrix.feature_flag == 'all-features'
         uses: codecov/codecov-action@v3
         with:
           files: lcov.info
@@ -63,17 +82,29 @@ jobs:
           name: lcov-${{ github.event.pull_request.head.sha }}.info
           path: lcov.info
 
-  integration_tests:
+  integration:
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        feature_flag: [all-features, no-default-features]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests, with ${{ matrix.feature_flag }}
+        run: |
+          mold --run cargo test --test mod --${{ matrix.feature_flag }} -- \
+          integration:: --skip unstable_network
+
+  unstable:
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        if: always()
-        run: |
-          mold --run cargo test --test '*' --all-features -- \
-          integration:: \
-          --skip unstable_network
+        run: mold --run cargo test -p iroha_client --tests unstable_network --quiet

@@ -1,0 +1,67 @@
+name: I2::Release::Publish
+
+on:
+  workflow_run:
+    workflows: [I2::Base::Publish]
+    types: [completed]
+    branches: [iroha2-stable, iroha2-lts]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
+    steps:
+      - uses: actions/checkout@v3
+      - name: Get tag from branch name
+        run: |
+          BRANCH=${{ github.ref_name }}
+          PREFIX='iroha2-'
+          TAG=${BRANCH#$PREFIX}
+          echo "TAG=$TAG" >>$GITHUB_ENV
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Soramitsu Harbor
+        uses: docker/login-action@v2
+        with:
+          registry: docker.soramitsu.co.jp
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Build and push iroha2:${{ env.TAG }} image
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          tags: |
+            hyperledger/iroha2:${{ env.TAG }}
+            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ github.sha }}
+          labels: commit=${{ github.sha }}
+          build-args: TAG=${{ env.TAG }}
+
+  load-rs:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
+    steps:
+      - name: Get tag from branch name
+        run: |
+          BRANCH=${{ github.ref_name }}
+          PREFIX='iroha2-'
+          TAG=${BRANCH#$PREFIX}
+          echo "TAG=$TAG" >>$GITHUB_ENV
+      - name: Build and push docker image (load-rs:release)
+        run: |
+          sleep 10s
+          echo "wait to finish other workflow"
+      - uses: convictional/trigger-workflow-and-wait@v1.6.2
+        with:
+          owner: soramitsu
+          repo: iroha2-longevity-load-rs
+          github_token: ${{ secrets.G_ACCESS_TOKEN }}
+          workflow_file_name: load-rs-push-from-${{ env.TAG }}.yaml
+          ref: iroha2-${{ env.TAG }}

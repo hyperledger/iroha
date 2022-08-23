@@ -568,7 +568,7 @@ mod tests {
         // The message is sent
         fail_send.store(false, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
-        message_receiver.try_next().unwrap_err();
+        message_receiver.try_next().unwrap();
     }
 
     macro_rules! test_with_suite {

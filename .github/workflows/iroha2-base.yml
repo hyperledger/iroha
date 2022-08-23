@@ -1,0 +1,36 @@
+name: I2::Base::Publish
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iroha2-dev
+      - iroha2-stable
+      - iroha2-lts
+    paths:
+      - "Dockerfile.base"
+
+jobs:
+  dockerhub:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
+    steps:
+      - uses: actions/checkout@v3
+      - name: Get tag from branch name
+        run: |
+          BRANCH=${{ github.ref_name }}
+          PREFIX='iroha2-'
+          TAG=${BRANCH#$PREFIX}
+          echo "TAG=$TAG" >>$GITHUB_ENV
+      - uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push iroha2-base:${{ env.TAG }} image
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          tags: hyperledger/iroha2-base:${{ env.TAG }}
+          labels: commit=${{ github.sha }}
+          file: Dockerfile.base

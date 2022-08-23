@@ -37,6 +37,13 @@ pub struct Kura {
     broker: Broker,
     block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
     block_sender: Sender<VersionedCommittedBlock>,
+    block_thread_handle: Mutex<Option<BlockThreadHandle>>,
+}
+
+/// Handle to block receiver thread with ability to stop it
+struct BlockThreadHandle {
+    thread_handle: std::thread::JoinHandle<()>,
+    shutdown_sender: tokio::sync::oneshot::Sender<()>,
 }
 
 impl Kura {
@@ -72,6 +79,7 @@ impl Kura {
             broker,
             block_reciever: Mutex::new(block_reciever),
             block_sender,
+            block_thread_handle: Mutex::new(None),
         });
 
         // How do we avoid the spawned thread taking on a
@@ -80,10 +88,39 @@ impl Kura {
         // By using a weak reference, see `kura_recieve_blocks_thread`
         // for details on how this works.
         let kura_weak_reference = Arc::downgrade(&kura);
-        std::thread::spawn(move || {
-            Self::kura_recieve_blocks_thread(&kura_weak_reference);
+
+        // Oneshot channel to allow forcefully stopping the thread.
+        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+
+        let thread_handle = std::thread::spawn(move || {
+            Self::kura_recieve_blocks_thread(&kura_weak_reference, shutdown_receiver);
         });
+
+        *kura.block_thread_handle.lock().expect("able to lock") = Some(BlockThreadHandle {
+            thread_handle,
+            shutdown_sender,
+        });
+
         Ok(kura)
+    }
+
+    /// Forcefully shut down the Kura thread.
+    /// Warning: any blocks currently in queue to be stored will be lost.
+    #[allow(clippy::expect_used)]
+    pub fn force_shutdown(&self) {
+        if let Some(BlockThreadHandle {
+            thread_handle,
+            shutdown_sender,
+        }) = self
+            .block_thread_handle
+            .lock()
+            .expect("lock block thread handle")
+            .take()
+        {
+            // Error here indicates the thread is already stopped, which is fine.
+            let _res = shutdown_sender.send(());
+            thread_handle.join().expect("able to join");
+        }
     }
 
     /// Loads kura from configuration
@@ -183,7 +220,10 @@ impl Kura {
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
-    fn kura_recieve_blocks_thread(weak_kura_reference: &Weak<Kura>) {
+    fn kura_recieve_blocks_thread(
+        weak_kura_reference: &Weak<Kura>,
+        mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
+    ) {
         loop {
             // Here we essentially check if the thread should keep running.
             // If all other references to `Kura` have been dropped, then
@@ -194,6 +234,11 @@ impl Kura {
                 info!("Kura block thread is shutting down");
                 return;
             };
+
+            if shutdown_receiver.try_recv().is_ok() {
+                info!("Kura block thread is being forcibly shut down");
+                return;
+            }
 
             let mut block_reciever_guard = strong_kura_reference
                 .block_reciever

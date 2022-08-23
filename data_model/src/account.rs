@@ -33,7 +33,6 @@ use crate::{
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     ffi::ffi_item,
     metadata::Metadata,
-    permissions::{PermissionToken, Permissions},
     prelude::Asset,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
@@ -171,7 +170,6 @@ impl Registrable for NewAccount {
             id: self.id,
             signatories: self.signatories,
             assets: AssetsMap::default(),
-            permission_tokens: Permissions::default(),
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: self.metadata,
             roles: RoleIds::default(),
@@ -243,8 +241,6 @@ ffi_item! {
         assets: AssetsMap,
         /// [`Account`]'s signatories.
         signatories: Signatories,
-        /// Permission tokens of this account
-        permission_tokens: Permissions,
         /// Condition which checks if the account has the right signatures.
         #[getset(get = "pub")]
         #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
@@ -306,18 +302,6 @@ impl Account {
         self.signatories.iter()
     }
 
-    /// Return `true` if `Account` contains permission token
-    #[inline]
-    pub fn contains_permission(&self, token: &PermissionToken) -> bool {
-        self.permission_tokens.contains(token)
-    }
-
-    /// Get an iterator over [`permissions`](PermissionToken) of the `Account`
-    #[inline]
-    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
-        self.permission_tokens.iter()
-    }
-
     /// Return `true` if `Account` contains role
     #[inline]
     pub fn contains_role(&self, role_id: &RoleId) -> bool {
@@ -366,21 +350,6 @@ impl Account {
         self.assets.remove(asset_id)
     }
 
-    /// Add [`permission`](PermissionToken) into the [`Account`].
-    ///
-    /// If `Account` did not have this permission present, `true` is returned.
-    /// If `Account` did have this permission present, `false` is returned.
-    #[inline]
-    pub fn add_permission(&mut self, token: PermissionToken) -> bool {
-        self.permission_tokens.insert(token)
-    }
-
-    /// Remove a permission from the `Account` and return whether the permission was present in the `Account`
-    #[inline]
-    pub fn remove_permission(&mut self, token: &PermissionToken) -> bool {
-        self.permission_tokens.remove(token)
-    }
-
     /// Add [`Role`](crate::role::Role) into the [`Account`].
     ///
     /// If `Account` did not have this role present, `true` is returned.
@@ -408,9 +377,9 @@ impl FromIterator<Account> for crate::Value {
 
 /// Identification of an Account. Consists of Account's name and Domain's name.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```
+/// ```rust
 /// use iroha_data_model::account::Id;
 ///
 /// let id = "user@company".parse::<Id>().expect("Valid");

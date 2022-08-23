@@ -1,6 +1,6 @@
 #![allow(
     clippy::expect_used,
-    clippy::eval_order_dependence,
+    clippy::mixed_read_write_in_expression,
     clippy::unwrap_in_result,
     clippy::arithmetic
 )]

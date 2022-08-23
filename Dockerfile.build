@@ -1,5 +1,0 @@
-ARG TAG
-FROM    hyperledger/iroha2-ci:$TAG
-WORKDIR /iroha
-COPY    . .
-RUN     mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored

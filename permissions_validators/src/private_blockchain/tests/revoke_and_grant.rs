@@ -35,20 +35,21 @@ fn add_register_domains_permission_allows_registering_account() {
 fn add_register_domains_permission_allows_registering_domain_with_right_token() {
     let alice_id = AccountId::from_str("alice@test0").expect("Valid");
 
-    let mut alice = Account::new(alice_id.clone(), []).build();
-    alice.add_permission(register::CanRegisterDomains::new().into());
+    let alice = Account::new(alice_id.clone(), []).build();
 
     let bob_id = AccountId::from_str("bob@test0").expect("Valid");
     let bob = Account::new(bob_id.clone(), []).build();
 
     let domain_id = DomainId::from_str("test0").expect("Valid");
     let mut domain = Domain::new(domain_id).build();
-    domain.add_account(alice.clone());
+    domain.add_account(alice);
     domain.add_account(bob);
 
     let wsv = WorldStateView::new(World::with([domain], Vec::new()));
 
     let validator = register::GrantedAllowedRegisterDomains.into_validator();
+
+    wsv.add_account_permission(&alice_id, register::CanRegisterDomains::new().into());
 
     let op = Instruction::Register(RegisterBox::new(Domain::new(
         "newdomain".parse().expect("Valid"),
@@ -62,18 +63,20 @@ fn add_register_domains_permission_allows_registering_domain_with_right_token() 
 fn add_register_domains_permission_denies_registering_domain_with_wrong_token() {
     let alice_id = AccountId::from_str("alice@test0").expect("Valid");
 
-    let mut alice = Account::new(alice_id.clone(), []).build();
-    alice.add_permission(PermissionToken::new(
-        "incorrecttoken".parse().expect("Valid"),
-    ));
+    let alice = Account::new(alice_id.clone(), []).build();
 
     let domain_id = DomainId::from_str("test0").expect("Valid");
     let mut domain = Domain::new(domain_id).build();
-    domain.add_account(alice.clone());
+    domain.add_account(alice);
 
     let wsv = WorldStateView::new(World::with([domain], Vec::new()));
 
     let validator = register::GrantedAllowedRegisterDomains.into_validator();
+
+    wsv.add_account_permission(
+        &alice_id,
+        PermissionToken::new("incorrecttoken".parse().expect("Valid")),
+    );
 
     let op = Instruction::Register(RegisterBox::new(Domain::new(
         "newdomain".parse().expect("Valid"),

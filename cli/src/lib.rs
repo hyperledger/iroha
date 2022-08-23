@@ -123,7 +123,7 @@ where
             G::from_configuration(
                 args.submit_genesis,
                 RawGenesisBlock::from_path(genesis_path)?,
-                &Some(config.genesis.clone()),
+                Some(&config.genesis),
                 &config.sumeragi.transaction_limits,
             )
             .wrap_err("Failed to initialize genesis.")?
@@ -146,6 +146,24 @@ where
         let hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
             hook(info);
+
+            // What clippy suggests is much less readable in this case
+            #[allow(clippy::option_if_let_else)]
+            let panic_message = if let Some(message) = info.payload().downcast_ref::<&str>() {
+                message
+            } else if let Some(message) = info.payload().downcast_ref::<String>() {
+                message
+            } else {
+                "unspecified"
+            };
+
+            let location = match info.location() {
+                Some(location) => format!("{}:{}", location.file(), location.line()),
+                None => "unspecified".to_owned(),
+            };
+
+            iroha_logger::error!(%panic_message, %location, "A panic occured, shutting down");
+
             notify_shutdown.notify_one();
         }));
     }
@@ -256,9 +274,7 @@ where
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
-        if config.shutdown_on_panic {
-            Self::prepare_panic_hook(notify_shutdown);
-        }
+        Self::prepare_panic_hook(notify_shutdown);
 
         let torii = Some(torii);
         Ok(Self {

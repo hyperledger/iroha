@@ -71,63 +71,7 @@ pub mod derive {
     /// assert_eq!(structure_default.a as u64, view_default.a);
     /// ```
     pub use iroha_config_derive::view;
-    // TODO: below technically relates to `LoadFromEnv` only and not `Configurable` itself
-    /// Derive macro for implementing the
-    /// [`iroha_config::base::derive::Combine`](`crate::proxy::Combine`)
-    /// trait for config structures.
-    ///
-    /// Has several attributes:
-    ///
-    /// ## `env_prefix`
-    /// Sets prefix for env variable
-    /// ``` rust
-    /// use iroha_config_base::derive::Combine;
-    /// use iroha_config_base::proxy::LoadFromEnv;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Combine)]
-    /// #[config(env_prefix = "PREFIXED_")]
-    /// struct Prefixed { a: String }
-    ///
-    /// std::env::set_var("PREFIXED_A", "B");
-    /// let mut prefixed = Prefixed { a: "a".to_owned() };
-    /// prefixed.load_environment();
-    /// assert_eq!(prefixed.a, "B");
-    /// ```
-    ///
-    /// ## `inner`
-    /// Tells macro that the structure stores another config inside
-    /// ```rust
-    /// use iroha_config_base::derive::Combine;
-    /// use iroha_config_base::proxy::LoadFromEnv;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Combine)]
-    /// struct Outer { #[config(inner)] inner: Inner }
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Combine, Debug, Clone)]
-    /// struct Inner { b: String }
-    ///
-    /// let mut outer = Outer { inner: Inner { b: "a".to_owned() }};
-    /// // Here inner config will be recursively loaded as well
-    /// <Outer as LoadFromEnv>::load_environment(&mut outer);
-    /// ```
-    ///
-    /// ## `serde_as_str`
-    /// Tells macro to deserialize from env variable as a bare string:
-    /// ```
-    /// use iroha_config_base::derive::Combine;
-    /// use iroha_config_base::proxy::LoadFromEnv;
-    /// use std::net::Ipv4Addr;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Combine)]
-    /// struct IpAddr { #[config(serde_as_str)] ip: Ipv4Addr, }
-    ///
-    /// std::env::set_var("IP", "127.0.0.1");
-    /// let mut ip = IpAddr { ip: Ipv4Addr::new(10, 0, 0, 1) };
-    /// ip.load_environment().expect("String loading never fails");
-    /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
-    /// ```
-    pub use iroha_config_derive::Combine;
-    // TODO: more decoupling needed, still depends on `LoadFromEnv`
+    // TODO: more decoupling needed, still depends on `LoadFromEnv` (https://github.com/hyperledger/iroha/issues/2621)
     /// Derive macro for implementing the trait
     /// [`iroha_config::base::proxy::Documented`](`crate::proxy::Documented`)
     /// for config structures.
@@ -140,13 +84,13 @@ pub mod derive {
     /// inner fields recursively.
     ///
     /// ```rust
-    /// use iroha_config_base::derive::{Combine, Documented};
-    /// use iroha_config_base::proxy::{LoadFromEnv, Documented};
+    /// use iroha_config_base::derive::{LoadFromEnv, Documented};
+    /// use iroha_config_base::proxy::{LoadFromEnv as _, Documented as _};
     ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Combine, Documented)]
+    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv, Documented)]
     /// struct Outer { #[config(inner)] inner: Inner }
     ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented, Combine, Debug, Clone)]
+    /// #[derive(serde::Deserialize, serde::Serialize, Documented, LoadFromEnv, Debug, Clone)]
     /// struct Inner { b: String }
     ///
     /// let outer = Outer { inner: Inner { b: "a".to_owned() }};
@@ -154,6 +98,63 @@ pub mod derive {
     /// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
     /// ```
     pub use iroha_config_derive::Documented;
+    /// Derive macro for implementing the
+    /// [`iroha_config::base::derive::LoadFromEnv`](`crate::proxy::LoadFromEnv`)
+    /// trait for config structures.
+    ///
+    /// Has several attributes:
+    ///
+    /// ## `env_prefix`
+    /// Sets prefix for env variable
+    /// ``` rust
+    /// use iroha_config_base::derive::LoadFromEnv;
+    /// use iroha_config_base::proxy::LoadFromEnv;
+    ///
+    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
+    /// #[config(env_prefix = "PREFIXED_")]
+    /// struct Prefixed { a: String }
+    ///
+    /// std::env::set_var("PREFIXED_A", "B");
+    /// let mut prefixed = Prefixed { a: "a".to_owned() };
+    /// prefixed.load_environment();
+    /// assert_eq!(prefixed.a, "B");
+    /// ```
+    ///
+    /// ## `inner`
+    /// Tells macro that the structure stores another config inside
+    /// ```rust
+    /// use iroha_config_base::derive::LoadFromEnv;
+    /// use iroha_config_base::proxy::LoadFromEnv;
+    ///
+    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
+    /// struct Outer { #[config(inner)] inner: Inner }
+    ///
+    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv, Debug, Clone)]
+    /// struct Inner { b: String }
+    ///
+    /// let mut outer = Outer { inner: Inner { b: "a".to_owned() }};
+    /// // Here inner config will be recursively loaded as well
+    /// <Outer as LoadFromEnv>::load_environment(&mut outer);
+    /// ```
+    ///
+    /// ## `serde_as_str`
+    /// Tells macro to deserialize from env variable as a bare string:
+    /// ```
+    /// use iroha_config_base::derive::LoadFromEnv;
+    /// use iroha_config_base::proxy::LoadFromEnv;
+    /// use std::net::Ipv4Addr;
+    ///
+    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
+    /// struct IpAddr { #[config(serde_as_str)] ip: Ipv4Addr, }
+    ///
+    /// std::env::set_var("IP", "127.0.0.1");
+    /// let mut ip = IpAddr { ip: Ipv4Addr::new(10, 0, 0, 1) };
+    /// ip.load_environment().expect("String loading never fails");
+    /// assert_eq!(ip.ip, Ipv4Addr::new(127, 0, 0, 1));
+    /// ```
+    pub use iroha_config_derive::LoadFromEnv;
+    // TODO: new docs -- probably better left until last steps
+    pub use iroha_config_derive::{Builder, Combine, LoadFromDisk, Proxy};
     use serde::Deserialize;
     use thiserror::Error;
 
@@ -182,7 +183,7 @@ pub mod derive {
         #[serde(skip)]
         FieldError(#[from] FieldError),
         /// Used in [`Combine`] trait for build errors
-        #[error("Some of the proxy fields were [`None`] at build stage")]
+        #[error("Proxy field was [`None`] at build stage: {0}")]
         ProxyBuildError(String),
         /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
         #[error("Reading file from disk failed: {0}")]
@@ -284,8 +285,8 @@ pub mod proxy {
 
     /// Trait for configuration loading and deserialization
     pub trait Combine: Serialize + DeserializeOwned + Sized + LoadFromEnv + LoadFromDisk {
-        /// Error type returned by methods of this trait
-        type Error;
+        // /// Error type returned by methods of this trait
+        // type Error;
 
         /// If any of the fields in `other` are filled, they
         /// override the values of the fields in [`self`].
@@ -321,15 +322,11 @@ pub mod proxy {
 
     /// Trait for building the final config from a proxy one
     pub trait Builder {
-        /// The resulting type (some `Configuration` in most cases).
-        type Target;
-        /// Error type returned by methods of this trait
-        type Error;
+        /// The return type. Could be target `Configuration`,
+        /// some `Result`, `Option` as users see fit.
+        type ReturnValue;
 
-        /// Construct [`Self::Target`] from a proxy object.
-        ///
-        /// # Errors
-        /// - If any of the fields was still [`None`].
-        fn build(self) -> Result<Self::Target, Self::Error>;
+        /// Construct [`Self::ReturnValue`] from a proxy object.
+        fn build(self) -> Self::ReturnValue;
     }
 }

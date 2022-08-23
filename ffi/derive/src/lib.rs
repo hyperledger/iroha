@@ -267,7 +267,7 @@ fn is_opaque(input: &syn::DeriveInput) -> bool {
         }
     }
 
-    !is_repr_attr(repr, "C")
+    !is_repr_attr(repr, "C") && !is_repr_attr(repr, "transparent")
 }
 
 fn is_fieldless_enum(name: &syn::Ident, item: &syn::DataEnum, repr: &[NestedMeta]) -> bool {

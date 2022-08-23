@@ -1,3 +1,4 @@
+#![cfg(not(coverage))]
 use trybuild::TestCases;
 
 #[test]

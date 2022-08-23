@@ -1,4 +1,4 @@
-name: Check PR Title
+name: I2::Dev::Title
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
     types: [opened, edited, reopened]
 
 jobs:
-  check_pr_title:
+  check:
     runs-on: ubuntu-latest
     # TODO: Add labels when https://github.com/actions/first-interaction/issues/10 is fixed.
     steps:
@@ -18,7 +18,7 @@ jobs:
           regex: '^\[feature\] #\d+(, #\d+)*: .+$'
       # - name: Add feature label
       #   uses: actions-ecosystem/action-add-labels@v1
-      #   if: ${{ steps.feature-match.outputs.match != '' }}
+      #   if: steps.feature-match.outputs.match != ''
       #   continue-on-error: true
       #   with:
       #     github_token: ${{ secrets.github_token }}
@@ -28,13 +28,13 @@ jobs:
       - name: Refactor
         uses: actions-ecosystem/action-regex-match@v2
         id: refactor-match
-        if: ${{ steps.feature-match.outputs.match == '' }}
+        if: steps.feature-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[refactor\]( #\d+(, #\d+)*)?: .+$'
       # - name: Add Refactor label
       #   uses: actions-ecosystem/action-add-labels@v1
-      #   if: ${{ steps.refactor-match.outputs.match != '' }}
+      #   if: steps.refactor-match.outputs.match != ''
       #   continue-on-error: true
       #   with:
       #     github_token: ${{ secrets.github_token }}
@@ -44,13 +44,13 @@ jobs:
       - name: Fix
         uses: actions-ecosystem/action-regex-match@v2
         id: fix-match
-        if: ${{ steps.refactor-match.outputs.match == '' }}
+        if: steps.refactor-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '\[fix\] #\d+(, #\d+)*: .+$'
       # - name: Add fix label
       #   uses: actions-ecosystem/action-add-labels@v1
-      #   if: ${{ steps.fix-match.outputs.match != '' }}
+      #   if: steps.fix-match.outputs.match != ''
       #   continue-on-error: true
       #   with:
       #     github_token: ${{ secrets.github_token }}
@@ -60,13 +60,13 @@ jobs:
       - name: Documentation
         uses: actions-ecosystem/action-regex-match@v2
         id: docs-match
-        if: ${{ steps.feature-match.outputs.match == '' }}
+        if: steps.feature-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[documentation\]( #\d+(, #\d+)*)?: .+$'
       # - name: Add Documentation label
       #   uses: actions-ecosystem/action-add-labels@v1
-      #   if: ${{ steps.docs-match.outputs.match != '' }}
+      #   if: steps.docs-match.outputs.match != ''
       #   continue-on-error: true
       #   with:
       #     github_token: ${{ secrets.github_token }}
@@ -76,13 +76,13 @@ jobs:
       - name: CI
         uses: actions-ecosystem/action-regex-match@v2
         id: ci-match
-        if: ${{ steps.feature-match.outputs.match == '' }}
+        if: steps.feature-match.outputs.match == ''
         with:
           text: ${{ github.event.pull_request.title }}
           regex: '^\[ci\]( #\d+(, #\d+)*)?: .+$'
       # - name: Add CI label
       #   uses: actions-ecosystem/action-add-labels@v1
-      #   if: ${{ steps.ci-match.outputs.match != '' }}
+      #   if: steps.ci-match.outputs.match != ''
       #   continue-on-error: true
       #   with:
       #     github_token: ${{ secrets.github_token }}
@@ -90,5 +90,5 @@ jobs:
       #       CI
 
       - name: None of the above
-        if: ${{ steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' && steps.docs-match.outputs.match == '' && steps.ci-match.outputs.match == '' }}
+        if: steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' && steps.docs-match.outputs.match == '' && steps.ci-match.outputs.match == ''
         run: exit 1

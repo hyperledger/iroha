@@ -70,6 +70,7 @@ fn main() {
         FfiStruct__new(name, ffi_struct.as_mut_ptr());
         TryFromReprC::try_from_repr_c(ffi_struct.assume_init(), &mut ()).unwrap()
     };
+    let mut output = MaybeUninit::new(core::ptr::null_mut());
 
     let in_params = vec![(Name("Nomen"), Value("Omen"))];
     let mut param: MaybeUninit<*const Value> = MaybeUninit::uninit();
@@ -85,9 +86,13 @@ fn main() {
         let name = IntoFfi::into_ffi(name.clone());
 
         FfiStruct__with_params(
-            IntoFfi::into_ffi(&mut ffi_struct),
+            IntoFfi::into_ffi(ffi_struct),
             in_params.clone().into_ffi().as_ref(),
+            output.as_mut_ptr(),
         );
+
+        ffi_struct = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).expect("valid");
+
         FfiStruct__get_param(IntoFfi::into_ffi(&ffi_struct), name, param.as_mut_ptr());
         FfiStruct__params(IntoFfi::into_ffi(&ffi_struct), out_params);
 

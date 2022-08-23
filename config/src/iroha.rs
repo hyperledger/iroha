@@ -3,7 +3,7 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Combine, Documented};
+use iroha_config_base::derive::{view, Documented, LoadFromEnv, Proxy};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, Deserialize, Serialize, Combine, Documented)]
+    #[derive(Debug, Clone, Deserialize, Serialize, Proxy, LoadFromEnv, Documented)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
@@ -25,8 +25,6 @@ view! {
         pub private_key: PrivateKey,
         /// Disable coloring of the backtrace and error report on panic
         pub disable_panic_terminal_colors: bool,
-        /// Iroha will shutdown on any panic if this option is set to `true`.
-        pub shutdown_on_panic: bool,
         /// `Kura` configuration
         #[config(inner)]
         pub kura: kura::Configuration,
@@ -71,7 +69,6 @@ impl Default for Configuration {
             public_key,
             private_key,
             disable_panic_terminal_colors: bool::default(),
-            shutdown_on_panic: false,
             kura: kura::Configuration::default(),
             sumeragi: sumeragi_configuration,
             torii: torii::Configuration::default(),

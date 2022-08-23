@@ -2,11 +2,11 @@ name: I2::Label
 
 on:
   pull_request_target:
-    branches: [iroha2-dev, iroha2]
+    branches: [iroha2-dev, iroha2-stable, iroha2-lts]
     types: [opened]
 
 jobs:
-  add_label:
+  add:
     runs-on: ubuntu-latest
     steps:
       - uses: actions-ecosystem/action-add-labels@v1

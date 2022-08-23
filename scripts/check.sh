@@ -16,4 +16,10 @@ case $1 in
             echo 'Please re-generate the genesis with `cargo run --bin kagami -- genesis`'
             exit 1
         };;
+    "schema")
+        cargo run --bin kagami -- schema >"$TMPFILE"
+        diff "$TMPFILE" docs/source/references/schema.json || {
+            echo 'Please re-generate schema with `cargo run --bin kagami -- schema`'
+            exit 1
+        };;
 esac

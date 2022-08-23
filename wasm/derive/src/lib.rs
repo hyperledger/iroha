@@ -126,7 +126,7 @@ impl syn::parse::Parse for ParamType {
 /// - If got unexpected syntax of attribute
 /// - If function has a return type
 ///
-/// # Example
+/// # Examples
 ///
 // `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
@@ -183,7 +183,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_wasm::Execute as _;
+            use iroha_wasm::Execute as _;
         ),
     );
 

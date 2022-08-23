@@ -229,9 +229,9 @@ pub type DenialReason = String;
 
 /// Trait for hard-coded strongly-typed permission tokens.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```
+/// ```rust
 /// use iroha_core::smartcontracts::isi::permissions::{
 ///     PermissionTokenTrait, PredefinedTokenConversionError,
 /// };
@@ -507,11 +507,11 @@ mod tests {
         );
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
-        let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(TestToken.into()));
+        let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         let validator = HasTestToken.into_validator();
+        assert!(wsv.add_account_permission(&bob_id, TestToken.into()));
         assert!(validator
             .check(&alice_id, &instruction_burn, &wsv)
             .is_deny());

@@ -3,10 +3,8 @@ services:
   iroha0:
     build: .
     image: iroha2:dev
-    volumes:
-      - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
     environment:
+      KURA_BLOCK_STORE_PATH: /storage
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
       TORII_TELEMETRY_URL: iroha0:8180
@@ -19,3 +17,6 @@ services:
       - "8180:8180"
     init: true
     command: iroha --submit-genesis
+    volumes:
+      - './configs/peer:/config'
+      - './:/root/soramitsu/iroha'
