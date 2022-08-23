@@ -25,8 +25,7 @@ mod id;
 ///
 /// # Examples
 ///
-/// TODO Remove `ignore` #2604. Ignored just for avoiding conflicts with another PR
-/// ```ignore
+/// ```rust
 /// use iroha_data_model_derive::IdOrdEqHash;
 /// use iroha_data_model::Identifiable;
 ///
@@ -45,8 +44,7 @@ mod id;
 ///
 /// Deriving [`IdOrdEqHash`] for `Struct` expands as follows:
 ///
-/// TODO Remove `ignore` #2604. Ignored just for avoiding conflicts with another PR
-/// ```ignore
+/// ```rust
 /// # use iroha_data_model::Identifiable;
 /// #
 /// # #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

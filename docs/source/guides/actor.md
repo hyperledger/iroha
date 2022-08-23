@@ -8,10 +8,9 @@ If you want to get a feel of the actor model a good way to start will be to read
 
 - Everything is an actor (no main function in erlang or elixir - just start an actor)
 - An actor receives and reacts in certain ways to messages:
-
-- Send messages to other actors
-- Create new actors
-- Changes its state
+  + Send messages to other actors
+  + Create new actors
+  + Changes its state
 
 There are no guarantees in terms of ordering. The only guarantee is that every actor response messages one by one.
 

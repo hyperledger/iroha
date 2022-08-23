@@ -1,5 +1,3 @@
-//! Utilities
-
 use std::convert::Infallible;
 
 use iroha_cli_derive::generate_endpoints;
@@ -38,7 +36,6 @@ macro_rules! add_state {
     }
 }
 
-/// Functions for decoding request body
 pub mod body {
     use iroha_core::smartcontracts::query::Error as QueryError;
     use iroha_data_model::query::VersionedSignedQueryRequest;
@@ -46,7 +43,6 @@ pub mod body {
 
     use super::*;
 
-    /// Warp-specific [`QueryError`] implementation
     #[derive(Debug)]
     pub struct WarpQueryError(QueryError);
 
@@ -85,7 +81,7 @@ pub mod body {
 }
 
 /// Warp result response type
-pub struct WarpResult<O, E>(pub Result<O, E>);
+pub struct WarpResult<O, E>(Result<O, E>);
 
 impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     fn into_response(self) -> warp::reply::Response {
