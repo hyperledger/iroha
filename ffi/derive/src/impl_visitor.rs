@@ -221,22 +221,6 @@ impl<'ast> FnVisitor<'ast> {
         ));
     }
 
-    /// Set return type arg name to self type arg name
-    /// in case of function like `fn(self, ...) -> Self`, otherwise leave name unchanged
-    fn set_output_arg_name(&self, mut output_arg: Arg) -> Arg {
-        if let Some(receiver) = &self.receiver {
-            // NOTE: types need to be resolved here in case of `fn(self) -> Type` where `Type == Self`
-            // NOTE: `Self` is first consumed and then returned in the same method
-            if matches!(receiver.src_type(), Type::Path(_))
-                && receiver.src_type_resolved() == output_arg.src_type_resolved()
-            {
-                output_arg.name = receiver.name().clone();
-            }
-        }
-
-        output_arg
-    }
-
     fn add_output_arg(&mut self, src_type: &'ast Type) {
         assert!(self.curr_arg_name.is_none());
         assert!(self.output_arg.is_none());
@@ -247,7 +231,7 @@ impl<'ast> FnVisitor<'ast> {
             src_type.clone(),
         );
 
-        self.output_arg = Some(self.set_output_arg_name(output_arg));
+        self.output_arg = Some(output_arg);
     }
 }
 
