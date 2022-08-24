@@ -433,6 +433,14 @@ where
             api_addr = %self.api_address,
             "Stopping peer",
         );
+
+        // We don't care about block storage, since this is
+        // a test peer that won't be run again.
+        if let Some(iroha) = &self.iroha {
+            iroha_logger::info!("Shutting down kura...");
+            iroha.kura.force_shutdown();
+        }
+
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.abort();
             iroha_logger::info!("Shutting down peer...");
