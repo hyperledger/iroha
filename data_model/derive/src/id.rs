@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::eval_order_dependence)]
+#![allow(clippy::expect_used, clippy::mixed_read_write_in_expression)]
 
 use proc_macro::TokenStream;
 use quote::quote;

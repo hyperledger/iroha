@@ -15,7 +15,7 @@ on:
       - "data_model/**.rs"
       - "data_model/**.toml"
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -29,7 +29,7 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       # Static analysis
       - name: Format check

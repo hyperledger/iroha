@@ -1,20 +1,17 @@
-name: I2::Base Image Deploy
+name: I2::Base::Publish
 
 on:
   workflow_dispatch:
   push:
-    branches: 
+    branches:
       - iroha2-dev
       - iroha2-stable
       - iroha2-lts
     paths:
-      - 'Dockerfile.base'
-
-env:
-  REPOSITORY_URL: '${{ github.server_url }}/${{ github.repository }}.git'
+      - "Dockerfile.base"
 
 jobs:
-  base_image_deploy:
+  dockerhub:
     strategy:
       matrix:
         tag: [dev, stable, lts]
@@ -32,11 +29,10 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-ci:${{ matrix.tag }} image
+      - name: Build and push iroha2-base:${{ matrix.tag }} image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2-ci:${{ matrix.tag }}
-          context: ${{ env.REPOSITORY_URL }}#iroha2-${{ matrix.tag }}
+          tags: hyperledger/iroha2-base:${{ matrix.tag }}
+          context: .
           file: Dockerfile.base
-          build-args: TAG=${{ matrix.tag }}

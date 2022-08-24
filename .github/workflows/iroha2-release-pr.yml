@@ -2,9 +2,9 @@ name: I2::Release::Tests
 
 on:
   pull_request:
-    branches: [iroha2-lts]
+    branches: [iroha2-stable, iroha2-lts]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -12,13 +12,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  cli-test:
+  cli:
     runs-on: [self-hosted, linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Build Client CLI
         run: mold --run cargo build
         working-directory: client_cli
@@ -41,7 +41,7 @@ jobs:
       - name: Panic on invalid genesis test
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
-  docker-test:
+  docker:
     # This workflow is too unreliable to enable. Even for
     # releases. The communication with docker from inside docker fails
     # sometimes, works other times it doesn't. In the interest of not
@@ -53,7 +53,7 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v2
@@ -76,20 +76,19 @@ jobs:
       - name: Cleanup test environment
         run: bash -c './scripts/test_env.sh cleanup docker'
 
-
   bench:
     runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Run benchmarks
         run: mold --run cargo bench --workspace --quiet
 
-# ------------------------------ SDK tests go here ------------------------
+  # ------------------------------ SDK tests go here ------------------------
 
-  java-api-test:
+  java-api:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
@@ -134,7 +133,7 @@ jobs:
           rm -f ~/.gradle/caches/modules-2/modules-2.lock
           rm -f ~/.gradle/caches/modules-2/gc.properties
 
-  long-tests:
+  long:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly

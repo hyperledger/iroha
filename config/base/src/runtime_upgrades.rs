@@ -125,7 +125,8 @@ pub trait Reload<T> {
 /// [`handle::Singleton`] or [`handle::Value`] directly.
 ///
 /// # Examples
-/// ```rust,ignore
+///
+/// ```ignore
 /// use iroha_config_derive::Documented;
 /// use serde::{Deserialize, Serialize};
 /// use iroha_config::runtime_upgrades::{handle, Reload, ReloadMut, ReloadError};
@@ -227,6 +228,7 @@ pub mod handle {
     /// configuration `mut`.
     ///
     /// # Examples
+    ///
     /// ```ignore
     /// use serde::{Serialize, Deserialize};
     /// use  iroha_config_base::runtime_upgrades::{handle::Value, Reload};
