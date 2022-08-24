@@ -239,27 +239,40 @@ pub mod scale {
     ///
     /// Will be removed in favor of just [`DecodeVersioned::decode_all_versioned`] in the future.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```no_run
-    /// // Will print `Can't decode `i32`, not all bytes were consumed`
-    /// let n = try_decode_all_or_just_decode!(i32, &bytes)?;
+    /// # use iroha_data_model::prelude::*;
+    /// # use iroha_version::scale::EncodeVersioned;
+    /// use iroha_logger::prelude::warn;
+    /// use iroha_version::scale::DecodeVersioned;
+    /// use iroha_version::try_decode_all_or_just_decode;
     ///
-    /// // Will print `Can't decode `Message`, not all bytes were consumed`
-    /// let t = try_decode_all_or_just_decode!(T as "Message", &message_bytes)?;
+    /// # let msg: VersionedEventPublisherMessage = EventPublisherMessage::SubscriptionAccepted.into();
+    /// # let mut bytes = msg.encode_versioned();
+    /// # bytes.append(&mut bytes.clone());
+    /// # let excessive_bytes = bytes;
+    ///
+    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `VersionedEventPublisherMessage`"
+    /// let msg = try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &excessive_bytes)?;
+    ///
+    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `Message`"
+    /// let msg = try_decode_all_or_just_decode!(VersionedEventPublisherMessage as "Message", &excessive_bytes)?;
+    ///
+    /// # Ok::<(), iroha_version::error::Error>(())
     /// ```
     #[macro_export]
     macro_rules! try_decode_all_or_just_decode {
         ($t:ty, $i:expr) => {
-            try_decode_all_or_just_decode!(impl $t, $i, stringify!(t))
+            try_decode_all_or_just_decode!(impl $t, $i, stringify!($t))
         };
         ($t:ty as $l:literal, $i:expr) => {
             try_decode_all_or_just_decode!(impl $t, $i, $l)
         };
         (impl $t:ty, $i:expr, $n:expr) => {{
             let mut res = <$t as DecodeVersioned>::decode_all_versioned($i);
-            if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-                warn!(left_bytes = %left, "Can't decode `{}`, not all bytes were consumed", $n);
+            if let Err(iroha_version::error::Error::ExtraBytesLeft(left_bytes)) = res {
+                warn!(%left_bytes, "Extra bytes left after decoding as `{}`", $n);
                 res = <$t as DecodeVersioned>::decode_versioned($i);
             }
             res

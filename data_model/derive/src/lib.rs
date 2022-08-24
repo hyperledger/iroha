@@ -7,7 +7,7 @@ mod filter;
 mod id;
 
 /// A derive macro for `Identifiable` trait and id-based comparison traits. Currently supports derivations only for
-/// `IdBox`, `Event` enums, and structs from the `data_model` crate that don't have generic parameters.
+/// `IdBox` and structs from the `data_model` crate that don't have generic parameters.
 ///
 /// As such, the macro introduces a new
 /// outer attribute `id` for the entities it is derived from. This attribute should
@@ -23,55 +23,74 @@ mod id;
 /// As a rule of thumb, this derive should never be used on any structs that can't be uniquely identifiable,
 /// as all the derived traits here rely on the fact of that uniqueness.
 ///
-/// Example:
-/// ```rust,ignore
+/// # Examples
 ///
-/// // For a struct decorated like this
-/// #[derive(IdOrdEqHash)]
+/// ```rust
+/// use iroha_data_model_derive::IdOrdEqHash;
+/// use iroha_data_model::Identifiable;
+///
+/// #[derive(Debug, IdOrdEqHash)]
 /// #[id(type = "Id")]
-/// pub struct Domain {
-///     /// Identification of this [`Domain`].
+/// struct Struct {
 ///     id: <Self as Identifiable>::Id,
-///     /// [`Account`]s of the domain.
-///     accounts: AccountsMap,
-///     /// [`Asset`](AssetDefinition)s defined of the `Domain`.
-///     asset_definitions: AssetDefinitionsMap,
-///     /// IPFS link to the `Domain` logo
-///     logo: Option<IpfsPath>,
-///     /// [`Metadata`] of this `Domain` as a key-value store.
-///     metadata: Metadata,
 /// }
 ///
-/// // The following impls will be derived
-/// impl Identifiable for Domain {
+/// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// struct Id {
+///     name: u32,
+/// }
+///
+/// ```
+///
+/// Deriving [`IdOrdEqHash`] for `Struct` expands as follows:
+///
+/// ```rust
+/// # use iroha_data_model::Identifiable;
+/// #
+/// # #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// # struct Id {
+/// #     name: u32,
+/// # }
+/// #[derive(Debug)]
+/// struct Struct {
+///     id: <Self as Identifiable>::Id,
+/// }
+///
+/// impl Identifiable for Struct {
 ///     type Id = Id;
 ///     #[inline]
 ///     fn id(&self) -> &Self::Id {
 ///         &self.id
 ///     }
 /// }
-/// impl core::cmp::PartialOrd for Domain {
+///
+/// impl core::cmp::PartialOrd for Struct {
 ///     #[inline]
 ///     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
 ///         Some(self.cmp(other))
 ///     }
 /// }
-/// impl core::cmp::Ord for Domain {
+///
+/// impl core::cmp::Ord for Struct {
 ///     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
 ///         self.id().cmp(other.id())
 ///     }
 /// }
-/// impl core::cmp::PartialEq for Domain {
+///
+/// impl core::cmp::PartialEq for Struct {
 ///     fn eq(&self, other: &Self) -> bool {
 ///         self.id() == other.id()
 ///     }
 /// }
-/// impl core::cmp::Eq for Domain {}
-/// impl core::hash::Hash for Domain {
+///
+/// impl core::cmp::Eq for Struct {}
+///
+/// impl core::hash::Hash for Struct {
 ///     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
 ///         self.id().hash(state);
 ///     }
 /// }
+///
 /// ```
 #[proc_macro_derive(IdOrdEqHash, attributes(id))]
 pub fn id_derive(input: TokenStream) -> TokenStream {
@@ -90,20 +109,138 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// `Event` enums always have tuple variants with either some sort of `Id` or another `Event` inside
 /// of them, as well as that all `Event` inner fields precede `Id` fields in the enum definition.
 ///
-/// Example:
-/// ```rust,ignore
-/// // For a struct decorated like this
-/// #[derive(Filter)]
-/// pub enum DomainEvent {
-///     Account(AccountEvent),
-///     AssetDefinition(AssetDefinitionEvent),
-///     Created(DomainId),
-///     Deleted(DomainId),
-///     MetadataInserted(DomainId),
-///     MetadataRemoved(DomainId),
+/// # Examples
+///
+/// TODO Remove `ignore` #2604. Needs to be fixed
+/// ```ignore
+/// use iroha_data_model_derive::{Filter, IdOrdEqHash};
+/// use iroha_data_model::prelude::{HasOrigin, Identifiable};
+/// use iroha_schema::IntoSchema;
+/// use parity_scale_codec::{Decode, Encode};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// pub enum LayerEvent {
+///     SubLayer(SubLayerEvent),
+///     Created(LayerId),
 /// }
 ///
-/// // The following lengthy code will be derived
+/// #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// pub enum SubLayerEvent {
+///     Created(SubLayerId),
+/// }
+///
+/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// pub struct LayerId {
+///     name: u32,
+/// }
+///
+/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// pub struct SubLayerId {
+///     name: u32,
+///     parent_id: LayerId,
+/// }
+///
+/// #[derive(Debug, Clone, IdOrdEqHash)]
+/// #[id(type = "LayerId")]
+/// pub struct Layer {
+///     id: <Self as Identifiable>::Id,
+/// }
+///
+/// #[derive(Debug, Clone, IdOrdEqHash)]
+/// #[id(type = "SubLayerId")]
+/// pub struct SubLayer {
+///     id: <Self as Identifiable>::Id,
+/// }
+///
+/// impl HasOrigin for LayerEvent {
+///     type Origin = Layer;
+///
+///     fn origin_id(&self) -> &<Layer as Identifiable>::Id {
+///         match self {
+///             Self::SubLayer(sub_layer) => &sub_layer.origin_id().parent_id,
+///             Self::Created(id) => id,
+///         }
+///     }
+/// }
+///
+/// impl HasOrigin for SubLayerEvent {
+///     type Origin = SubLayer;
+///
+///     fn origin_id(&self) -> &<SubLayer as Identifiable>::Id {
+///         match self {
+///             Self::Created(id) => id,
+///         }
+///     }
+/// }
+///
+/// ```
+///
+/// Deriving [`Filter`] for `LayerEvent` expands as follows:
+///  
+/// TODO Remove `ignore` #2604. Needs to be fixed
+/// ```ignore
+/// # use iroha_data_model_derive::{Filter, IdOrdEqHash};
+/// # use iroha_data_model::prelude::{HasOrigin, Identifiable};
+/// # use iroha_schema::IntoSchema;
+/// # use parity_scale_codec::{Decode, Encode};
+/// # use serde::{Deserialize, Serialize};
+/// #
+/// # #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// # pub enum LayerEvent {
+/// #     SubLayer(SubLayerEvent),
+/// #     Created(LayerId),
+/// # }
+/// #
+/// # #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// # pub enum SubLayerEvent {
+/// #     Created(SubLayerId),
+/// # }
+/// #
+/// # #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// # pub struct LayerId {
+/// #     name: u32,
+/// # }
+/// #
+/// # #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// # pub struct SubLayerId {
+/// #     name: u32,
+/// #     parent_id: LayerId,
+/// # }
+/// #
+/// # #[derive(Debug, Clone, IdOrdEqHash)]
+/// # #[id(type = "LayerId")]
+/// # pub struct Layer {
+/// #     id: <Self as Identifiable>::Id,
+/// # }
+/// #
+/// # #[derive(Debug, Clone, IdOrdEqHash)]
+/// # #[id(type = "SubLayerId")]
+/// # pub struct SubLayer {
+/// #     id: <Self as Identifiable>::Id,
+/// # }
+/// #
+/// # impl HasOrigin for LayerEvent {
+/// #     type Origin = Layer;
+/// #
+/// #     fn origin_id(&self) -> &<Layer as Identifiable>::Id {
+/// #         match self {
+/// #             Self::SubLayer(sub_layer) => &sub_layer.origin_id().parent_id,
+/// #             Self::Created(id) => id,
+/// #         }
+/// #     }
+/// # }
+/// #
+/// # impl HasOrigin for SubLayerEvent {
+/// #     type Origin = SubLayer;
+/// #
+/// #     fn origin_id(&self) -> &<SubLayer as Identifiable>::Id {
+/// #         match self {
+/// #             Self::Created(id) => id,
+/// #         }
+/// #     }
+/// # }
+/// #
 /// #[derive(
 ///     Clone,
 ///     PartialEq,
@@ -118,20 +255,19 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///     IntoSchema,
 ///     Hash,
 /// )]
-/// #[doc = " A filter for DomainFilter"]
-/// pub struct DomainFilter {
-///     origin_filter: crate::prelude::FilterOpt<
-///             crate::prelude::OriginFilter<crate::prelude::DomainEvent>
-///         >,
-///     event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
+/// #[doc = " Filter for LayerEvent entity"]
+/// pub struct LayerFilter {
+///     origin_filter:
+///         crate::prelude::FilterOpt<crate::prelude::OriginFilter<crate::prelude::LayerEvent>>,
+///     event_filter: crate::prelude::FilterOpt<LayerEventFilter>,
 /// }
-/// impl DomainFilter {
-///     #[doc = "DomainFilter"]
+/// impl LayerFilter {
+///     #[doc = " Construct new LayerFilter"]
 ///     pub const fn new(
 ///         origin_filter: crate::prelude::FilterOpt<
-///                 crate::prelude::OriginFilter<<crate::prelude::DomainEvent>
-///             >,
-///         event_filter: crate::prelude::FilterOpt<DomainEventFilter>,
+///             crate::prelude::OriginFilter<crate::prelude::LayerEvent>,
+///         >,
+///         event_filter: crate::prelude::FilterOpt<LayerEventFilter>,
 ///     ) -> Self {
 ///         Self {
 ///             origin_filter,
@@ -142,19 +278,17 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///     #[inline]
 ///     pub const fn origin_filter(
 ///         &self,
-///     ) -> &crate::prelude::FilterOpt<
-///             crate::prelude::OriginFilter<crate::prelude::DomainEvent>
-///         > {
+///     ) -> &crate::prelude::FilterOpt<crate::prelude::OriginFilter<crate::prelude::LayerEvent>> {
 ///         &self.origin_filter
 ///     }
 ///     #[doc = r" Get `event_filter`"]
 ///     #[inline]
-///     pub const fn event_filter(&self) -> &crate::prelude::FilterOpt<DomainEventFilter> {
+///     pub const fn event_filter(&self) -> &crate::prelude::FilterOpt<LayerEventFilter> {
 ///         &self.event_filter
 ///     }
 /// }
-/// impl Filter for DomainFilter {
-///     type EventType = crate::prelude::DomainEvent;
+/// impl crate::prelude::Filter for LayerFilter {
+///     type EventType = crate::prelude::LayerEvent;
 ///     fn matches(&self, event: &Self::EventType) -> bool {
 ///         self.origin_filter.matches(event) && self.event_filter.matches(event)
 ///     }
@@ -174,35 +308,24 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///     Hash,
 /// )]
 /// #[allow(clippy::enum_variant_names, missing_docs)]
-/// pub enum DomainEventFilter {
+/// #[doc = " Event filter for LayerEvent entity"]
+/// pub enum LayerEventFilter {
 ///     ByCreated,
-///     ByDeleted,
-///     ByMetadataInserted,
-///     ByMetadataRemoved,
-///     ByAccount(crate::prelude::FilterOpt<AccountFilter>),
-///     ByAssetDefinition(crate::prelude::FilterOpt<AssetDefinitionFilter>),
+///     BySubLayer(crate::prelude::FilterOpt<SubLayerFilter>),
 /// }
-/// impl Filter for DomainEventFilter {
-///     type EventType = crate::prelude::DomainEvent;
-///     fn matches(&self, event: &crate::prelude::DomainEvent) -> bool {
+/// impl crate::prelude::Filter for LayerEventFilter {
+///     type EventType = crate::prelude::LayerEvent;
+///     fn matches(&self, event: &crate::prelude::LayerEvent) -> bool {
 ///         match (self, event) {
-///             (Self::ByCreated, crate::prelude::DomainEvent::Created(_))
-///                 | (Self::ByDeleted, crate::prelude::DomainEvent::Deleted(_))
-///                 | (Self::ByMetadataInserted, crate::prelude::DomainEvent::MetadataInserted(_))
-///                 | (Self::ByMetadataRemoved, crate::prelude::DomainEvent::MetadataRemoved(_)) => {
-///                     true
-///                 }
-///             (Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {
+///             (Self::ByCreated, crate::prelude::LayerEvent::Created(_)) => true,
+///             (Self::BySubLayer(filter_opt), crate::prelude::LayerEvent::SubLayer(event)) => {
 ///                 filter_opt.matches(event)
 ///             }
-///             (
-///                 Self::ByAssetDefinition(filter_opt),
-///                 crate::prelude::DomainEvent::AssetDefinition(event),
-///             ) => filter_opt.matches(event),
 ///             _ => false,
 ///         }
 ///     }
 /// }
+///
 /// ```
 #[proc_macro_derive(Filter)]
 pub fn filter_derive(input: TokenStream) -> TokenStream {

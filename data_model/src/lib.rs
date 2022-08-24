@@ -111,9 +111,9 @@ pub mod utils {
     pub trait BackQuoted<T: Display>: Iterator<Item = T> + Sized {
         /// Function to construct new iterator with back quotes around items.
         ///
-        /// # Example
+        /// # Examples
         ///
-        /// ```
+        /// ```rust
         /// use iroha_data_model::utils::{
         ///     format_comma_separated,
         ///     BackQuoted as _,
@@ -149,7 +149,7 @@ pub mod utils {
     /// # Errors
     /// If cannot write to the `f`
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use iroha_data_model::utils::format_comma_separated;

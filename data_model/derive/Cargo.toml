@@ -12,3 +12,9 @@ proc-macro = true
 syn = "1.0.99"
 quote = "1.0.21"
 proc-macro2 = "1.0.43"
+
+[dev-dependencies]
+iroha_data_model = { version = "=2.0.0-pre-rc.7", path = "../" }
+iroha_schema = { version = "=2.0.0-pre-rc.7", path = "../../schema" }
+parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
+serde = { version = "1.0.142", default-features = false, features = ["derive"] }

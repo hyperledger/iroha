@@ -1,41 +1,39 @@
-name: I2::Release::Deploy
+name: I2::Release::Publish
 
 on:
   push:
-    branches: [iroha2-lts]
+    branches:
+      - iroha2-stable
+      - iroha2-lts
 
 env:
   CARGO_TERM_COLOR: always
-  REPOSITORY_URL: '${{ github.server_url }}/${{ github.repository }}.git'
 
 jobs:
-  deploy:
+  dockerhub:
     runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
+    strategy:
+      matrix:
+        tag: [stable, lts]
+    if: github.ref == 'refs/heads/iroha2-${{ matrix.tag }}'
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
-      - name: Build iroha2:build docker image
-        uses: docker/build-push-action@v3
-        with:
-          load: true
-          tags: iroha2:build
-          context: ${{ env.REPOSITORY_URL }}#iroha2-lts
-          file: Dockerfile.build
-          build-args: TAG=lts
+      - uses: Swatinem/rust-cache@v2
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2:lts image
+      - name: Build and push iroha2:${{ matrix.tag }} image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2:lts
-          context: ${{ env.REPOSITORY_URL }}#iroha2-lts
+          tags: hyperledger/iroha2:${{ matrix.tag }}
+          context: .
           file: Dockerfile
+          build-args: TAG=${{ matrix.tag }}
 
       - name: Build and push docker image (load-rs:release)
         run: |
@@ -46,5 +44,5 @@ jobs:
           owner: soramitsu
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
-          workflow_file_name: load-rs-push-from-lts.yaml
-          ref: iroha2-lts
+          workflow_file_name: load-rs-push-from-${{ matrix.tag }}.yaml
+          ref: iroha2-${{ matrix.tag }}

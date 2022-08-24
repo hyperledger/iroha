@@ -8,15 +8,16 @@ If you want to get a feel of the actor model a good way to start will be to read
 
 - Everything is an actor (no main function in erlang or elixir - just start an actor)
 - An actor receives and reacts in certain ways to messages:
- + Send messages to other actors
- + Create new actors
- + Changes its state
+  + Send messages to other actors
+  + Create new actors
+  + Changes its state
 
 There are no guarantees in terms of ordering. The only guarantee is that every actor response messages one by one.
 
 ## The simplest example
 
 Lorem ipsum of OOP is the example of animal inheritance. As for actor system it is ping actor:
+
 ```rust
 use iroha_actor::prelude::*;
 
@@ -104,13 +105,14 @@ Take a look at [this test](../../../actor/tests/deadlock.rs) for more.
 ### Broker
 
 Broker is a way to signal some message to several actors which are interested in specific message.
+
 - Or it can be interpreted to send not message, but a signal in which
 might be interested several actors.
 - Or it can be interpreted as pushing contract to actor side (if actor is interested in message, it can subscribe to it)
 
 **BEWARE**: no typesafety here. You should make sure that at least one alive actor is subscribed to message, otherwise message will be dropped.
 
-#### Example
+#### Examples
 
 ```rust
 use iroha_actor::{prelude::*, broker::*};
@@ -169,6 +171,7 @@ Actor1(broker).start().await;
 ### Delays and timers
 
 Via `notify_*` family functions for actors:
+
 - `notify` - send message once in some time
 - `notify_every` - sends message every duration time. Basically timer, from which you can't unsubscribe :)
 - `notify_with` - sinks stream into an actor
@@ -180,10 +183,9 @@ Via `notify_*` family functions for actors:
 - Akka actors in Java and Scala: [link](https://doc.akka.io/docs/akka/current/typed/actors.html)
 
 ## TODO
+
 - [Supervisors](Supervisors) are great abstraction to do, as it lets to recover from unrecoverable scenarios.
 - [Arbiters](Arbiters)
-
-
 
 [Supervisors]: https://docs.rs/actix/latest/actix/struct.Supervisor.html
 [link1]: https://arxiv.org/vc/arxiv/papers/1008/1008.1459v8.pdf
