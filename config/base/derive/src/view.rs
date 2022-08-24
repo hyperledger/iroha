@@ -83,6 +83,7 @@ mod gen {
                 }
             });
         remove_attr_struct(&mut ast, "view");
+        remove_attr_struct(&mut ast, "config");
         ast.ident = format_ident!("{}View", ast.ident);
         ast
     }
