@@ -69,7 +69,10 @@ impl<T: Write> RunArgs<T> for Args {
 
 mod crypto {
     use color_eyre::eyre::WrapErr as _;
-    use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
+    use iroha_crypto::{
+        ursa::sha2::{Digest, Sha256},
+        Algorithm, KeyGenConfiguration, KeyPair, PrivateKey,
+    };
 
     use super::*;
 
@@ -134,10 +137,9 @@ mod crypto {
                     )
                 },
                 |seed| -> color_eyre::Result<_> {
+                    let seed = Sha256::digest(seed.as_bytes()).as_slice().to_owned();
                     KeyPair::generate_with_configuration(
-                        key_gen_configuration
-                            .clone()
-                            .use_seed(seed.as_bytes().into()),
+                        key_gen_configuration.clone().use_seed(seed),
                     )
                     .wrap_err("Failed to generate key pair")
                 },
