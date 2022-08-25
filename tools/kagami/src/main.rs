@@ -64,7 +64,7 @@ impl<T: Write> RunArgs<T> for Args {
 }
 
 mod crypto {
-    use color_eyre::eyre::WrapErr as _;
+    use color_eyre::eyre::{eyre, WrapErr as _};
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 
     use super::*;
@@ -129,10 +129,13 @@ mod crypto {
                     )
                 },
                 |seed| -> color_eyre::Result<_> {
+                    let seed: Vec<u8> = seed.as_bytes().into();
+                    // `ursa` crashes if provided seed for `secp256k1` shorter than 32 bytes
+                    if seed.len() < 32 && self.algorithm == Algorithm::Secp256k1 {
+                        return Err(eyre!("secp256k1 seed must be at least 32 bytes long"));
+                    }
                     KeyPair::generate_with_configuration(
-                        key_gen_configuration
-                            .clone()
-                            .use_seed(seed.as_bytes().into()),
+                        key_gen_configuration.clone().use_seed(seed),
                     )
                     .wrap_err("Failed to generate key pair")
                 },
