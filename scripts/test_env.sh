@@ -73,6 +73,7 @@ function set_up_peers_common {
 }
 
 function bulk_export {
+    export KURA_BLOCK_STORE_PATH
     export TORII_P2P_ADDR
     export TORII_API_URL
     export TORII_TELEMETRY_URL
@@ -84,12 +85,17 @@ function bulk_export {
 }
 
 function run_peer () {
+    PEER="$TEST/peers/$1"
+    mkdir -p "$PEER"
+    STORAGE="$PEER/storage"
+    mkdir -p "$STORAGE"
+    KURA_BLOCK_STORE_PATH="$STORAGE"
     TORII_P2P_ADDR="$HOST:${p2p_ports[$1]}"
     TORII_API_URL="$HOST:${api_ports[$1]}"
     TORII_TELEMETRY_URL="$HOST:${telemetry_ports[$1]}"
     IROHA_PUBLIC_KEY=${public_keys[$1]}
     IROHA_PRIVATE_KEY="{ \"digest_function\": \"ed25519\", \"payload\": \"${private_keys[$1]}\" }"
-    exec -a "$1" "$TEST/peers/iroha" "$2" > "$TEST/peers/$1.log" & disown
+    exec -a "$1" "$TEST/peers/iroha" "$2" > "$PEER/.log" & disown
 }
 
 function run_4_peers {
