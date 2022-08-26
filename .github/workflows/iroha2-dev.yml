@@ -1,7 +1,9 @@
 name: I2::Dev::Publish
 
 on:
-  push:
+  workflow_run:
+    workflows: [I2::Base::Publish]
+    types: [completed]
     branches: [iroha2-dev]
 
 env:

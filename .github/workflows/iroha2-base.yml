@@ -11,11 +11,20 @@ on:
       - "Dockerfile.base"
 
 jobs:
-  dockerhub:
+  tag:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         tag: [dev, stable, lts]
-    if: github.ref == 'refs/heads/iroha2-${{ matrix.tag }}'
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        if: github.ref == 'refs/heads/iroha2-${{ matrix.tag }}'
+        run: echo "::set-output name=tag::${{ matrix.tag }}"
+
+  dockerhub:
+    needs: tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -29,10 +38,9 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-base:${{ matrix.tag }} image
+      - name: Build and push iroha2-base:${{ needs.tag.outputs.tag }} image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2-base:${{ matrix.tag }}
-          context: .
+          tags: hyperledger/iroha2-base:${{ needs.tag.outputs.tag }}
           file: Dockerfile.base
