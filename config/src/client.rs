@@ -4,7 +4,7 @@ use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use derive_more::Display;
 use eyre::{eyre, Result, WrapErr};
-use iroha_config_base::derive::{Combine, Documented};
+use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use iroha_primitives::small::SmallStr;
@@ -63,7 +63,7 @@ pub struct BasicAuth {
 }
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
-#[derive(Debug, Clone, Deserialize, Serialize, Combine, Documented)]
+#[derive(Debug, Clone, Deserialize, Serialize, Proxy, LoadFromEnv, Documented)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "IROHA_")]

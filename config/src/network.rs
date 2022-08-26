@@ -1,12 +1,14 @@
 //! Module for network-related configuration and structs
 #![allow(clippy::std_instead_of_core)]
-use iroha_config_base::derive::{Combine, Documented};
+use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// Network Configuration parameters
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Combine)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv,
+)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]

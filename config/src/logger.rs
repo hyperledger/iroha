@@ -5,7 +5,7 @@ use core::fmt::Debug;
 
 use derive_more::{Deref, DerefMut};
 use iroha_config_base::{
-    derive::{Combine, Documented},
+    derive::{Documented, LoadFromEnv, Proxy},
     runtime_upgrades::{handle, ReloadError, ReloadMut},
 };
 use serde::{Deserialize, Serialize};
@@ -78,7 +78,7 @@ impl From<Level> for SyncLevel {
 }
 
 /// 'Logger' configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Combine, Documented)]
+#[derive(Clone, Deserialize, Serialize, Debug, Proxy, LoadFromEnv, Documented)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 pub struct Configuration {

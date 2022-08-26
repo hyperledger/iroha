@@ -14,6 +14,8 @@ mod kw {
     // view keywords
     syn::custom_keyword!(ignore);
     syn::custom_keyword!(into);
+    // builder keywords
+    syn::custom_keyword!(parent);
 }
 
 /// Trait for attribute parsing generalization
@@ -77,18 +79,27 @@ macro_rules! attr_struct {
 }
 
 /// Structure to parse `#[view(...)]` attributes.
-/// [`Inner`] is responsible for parsing attribute arguments
+/// [`Inner`] is responsible for parsing attribute arguments.
 pub struct View<Inner: Parse>(std::marker::PhantomData<Inner>);
 
 /// Structure to parse `#[config(...)]` attributes.
-/// [`Inner`] is responsible for parsing attribute arguments
+/// [`Inner`] is responsible for parsing attribute arguments.
 struct Config<Inner: Parse>(std::marker::PhantomData<Inner>);
+
+/// Structure to parse `#[builder(...)]` attributes.
+/// [`Inner`] is responsible for parsing attribute arguments.
+struct Builder<Inner: Parse>(std::marker::PhantomData<Inner>);
 
 impl<Inner: Parse> AttrParser<Inner> for View<Inner> {
     const IDENT: &'static str = "view";
 }
+
 impl<Inner: Parse> AttrParser<Inner> for Config<Inner> {
     const IDENT: &'static str = "config";
+}
+
+impl<Inner: Parse> AttrParser<Inner> for Builder<Inner> {
+    const IDENT: &'static str = "builder";
 }
 
 attr_struct! {
@@ -122,6 +133,14 @@ attr_struct! {
         _kw: kw::env_prefix,
         _eq: Token![=],
         pub prefix: LitStr,
+    }
+}
+
+attr_struct! {
+    pub struct BuilderParent {
+        _kw: kw::parent,
+        _eq: Token![=],
+        pub parent: Type,
     }
 }
 
@@ -225,6 +244,7 @@ impl Parse for StructWithFields {
                 .map(|field| StructField::from_ast(field, &env_prefix))
                 .collect(),
             env_prefix,
+            // parent_ty,
             _semi_token: input.parse()?,
         })
     }
@@ -321,6 +341,7 @@ pub fn remove_attr_struct(ast: &mut StructWithFields, attr_ident: &str) {
 /// into account as well. Returns a 2-tuple of read and write forms.
 pub fn gen_lvalue(field_ty: &Type, field_ident: &Ident) -> (TokenStream, TokenStream) {
     let is_lvalue = is_arc_rwlock(field_ty);
+
     let lvalue_read = if is_lvalue {
         quote! { self.#field_ident.read().await }
     } else {
@@ -334,4 +355,14 @@ pub fn gen_lvalue(field_ty: &Type, field_ident: &Ident) -> (TokenStream, TokenSt
     };
 
     (lvalue_read, lvalue_write)
+}
+
+/// Check if [`StructWithFields`] has `#[builder(parent = ..)]`
+pub fn get_parent_ty(ast: &StructWithFields) -> Type {
+    #[allow(clippy::expect_used)]
+    ast.attrs
+        .iter()
+        .find_map(|attr| Builder::<BuilderParent>::parse(attr).ok())
+        .map(|builder| builder.parent)
+        .expect("Should not be called on structs with no `#[builder(..)]` attribute")
 }
