@@ -1,6 +1,6 @@
 //! Module for `BlockSynchronizer`-related configuration and structs.
 #![allow(clippy::std_instead_of_core)]
-use iroha_config_base::derive::{Combine, Documented};
+use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_BLOCK_BATCH_SIZE: u32 = 4;
@@ -8,7 +8,9 @@ const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// Configuration for `BlockSynchronizer`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Combine)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv,
+)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "BLOCK_SYNC_")]

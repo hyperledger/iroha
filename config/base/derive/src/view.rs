@@ -63,7 +63,10 @@ mod gen {
                             .filter(|nested| {
                                 if let NestedMeta::Meta(Meta::Path(path)) = nested {
                                     // TODO: check here
-                                    if path.is_ident("Default") || path.is_ident("Documented") {
+                                    if path.is_ident("Default")
+                                        || path.is_ident("Documented")
+                                        || path.is_ident("Proxy")
+                                    {
                                         return false;
                                     }
                                 }
@@ -84,6 +87,7 @@ mod gen {
             });
         remove_attr_struct(&mut ast, "view");
         remove_attr_struct(&mut ast, "config");
+        remove_attr_struct(&mut ast, "builder");
         ast.ident = format_ident!("{}View", ast.ident);
         ast
     }
