@@ -16,8 +16,8 @@ pub fn impl_documented(ast: &StructWithFields) -> TokenStream {
     let get_recursive = impl_get_recursive(ast);
 
     let out = quote! {
-        impl iroha_config_base::proxy::Documented for #name {
-            type Error = iroha_config_base::derive::Error;
+        impl ::iroha_config_base::proxy::Documented for #name {
+            type Error = ::iroha_config_base::derive::Error;
 
             #get_recursive
             #get_doc_recursive
@@ -33,9 +33,9 @@ fn impl_get_doc_recursive(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_mac
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
-            ) -> core::result::Result<std::option::Option<String>, iroha_config_base::derive::Error>
+            ) -> core::result::Result<std::option::Option<String>, ::iroha_config_base::derive::Error>
             {
-                Err(iroha_config_base::derive::Error::UnknownField(
+                Err(::iroha_config_base::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
                 ))
             }
@@ -53,11 +53,11 @@ fn impl_get_doc_recursive(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_mac
                 quote! {
                     [stringify!(#ident)] => {
                         let curr_doc = #documentation;
-                        let inner_docs = <#ty as iroha_config_base::proxy::Documented>::get_inner_docs();
+                        let inner_docs = <#ty as ::iroha_config_base::proxy::Documented>::get_inner_docs();
                         let total_docs = format!("{}\n\nHas following fields:\n\n{}\n", curr_doc, inner_docs);
                         Some(total_docs)
                     },
-                    [stringify!(#ident), rest @ ..] => <#ty as iroha_config_base::proxy::Documented>::get_doc_recursive(rest)?,
+                    [stringify!(#ident), rest @ ..] => <#ty as ::iroha_config_base::proxy::Documented>::get_doc_recursive(rest)?,
                 }
             } else {
                 quote! { [stringify!(#ident)] => Some(#documentation.to_owned()), }
@@ -67,12 +67,12 @@ fn impl_get_doc_recursive(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_mac
     quote! {
         fn get_doc_recursive<'a>(
             inner_field: impl AsRef<[&'a str]>,
-        ) -> core::result::Result<std::option::Option<String>, iroha_config_base::derive::Error>
+        ) -> core::result::Result<std::option::Option<String>, ::iroha_config_base::derive::Error>
         {
             let inner_field = inner_field.as_ref();
             let doc = match inner_field {
                 #(#variants)*
-                field => return Err(iroha_config_base::derive::Error::UnknownField(
+                field => return Err(::iroha_config_base::derive::Error::UnknownField(
                     field.iter().map(ToString::to_string).collect()
                 )),
             };
@@ -87,7 +87,7 @@ fn impl_get_inner_docs(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_macro2
         let ty = &field.ty;
         let ident = &field.ident;
         let doc = if inner_thing {
-            quote! { <#ty as iroha_config_base::proxy::Documented>::get_inner_docs().as_str() }
+            quote! { <#ty as ::iroha_config_base::proxy::Documented>::get_inner_docs().as_str() }
         } else {
             quote! { #documentation.into() }
         };
@@ -115,7 +115,7 @@ fn impl_get_docs(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_macro2::Toke
         let ty = &field.ty;
         let inner_thing = field.has_inner;
         let doc = if inner_thing {
-            quote! { <#ty as iroha_config_base::proxy::Documented>::get_docs().into() }
+            quote! { <#ty as ::iroha_config_base::proxy::Documented>::get_docs().into() }
         } else {
             quote! { #documentation.into() }
         };
@@ -138,11 +138,11 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
             fn get_recursive<'a, T>(
                 &self,
                 inner_field: T,
-            ) -> iroha_config_base::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
+            ) -> ::iroha_config_base::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
             where
                 T: AsRef<[&'a str]> + Send + 'a,
             {
-                Err(iroha_config_base::derive::Error::UnknownField(
+                Err(::iroha_config_base::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
                 ))
             }
@@ -167,7 +167,7 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
             quote! {
                 [stringify!(#ident)] => {
                     serde_json::to_value(&#l_value)
-                        .map_err(|e| iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
                 }
                 #inner_thing2
             }
@@ -184,7 +184,7 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
             let inner_field = inner_field.as_ref();
             let value = match inner_field {
                 #(#variants)*
-                field => return Err(iroha_config_base::derive::Error::UnknownField(
+                field => return Err(::iroha_config_base::derive::Error::UnknownField(
                     field.iter().map(ToString::to_string).collect()
                 )),
             };
