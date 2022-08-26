@@ -93,6 +93,8 @@ jobs:
           path: target/schema
 
   telemetry:
+    # FIXME #2646
+    if: false
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
