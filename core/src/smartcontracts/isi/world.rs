@@ -301,10 +301,8 @@ pub mod isi {
             let account_ids = domain.accounts().map(|account| {
                 (
                     account.id().clone(),
-                    account
-                        .permissions()
+                    wsv.account_inherent_permission_tokens(account)
                         .filter(|token| token.definition_id() == target_definition_id)
-                        .cloned()
                         .collect::<Vec<_>>(),
                 )
             });
@@ -315,11 +313,12 @@ pub mod isi {
         for (account_id, tokens) in accounts_with_token {
             for token in tokens {
                 wsv.modify_account(&account_id, |account| {
-                    if !account.remove_permission(&token) {
+                    let id = account.id();
+                    if !wsv.remove_account_permission(id, &token) {
                         error!(%token, "token not found - this is a bug");
                     }
 
-                    Ok(AccountEvent::PermissionRemoved(account_id.clone()))
+                    Ok(AccountEvent::PermissionRemoved(id.clone()))
                 })?;
             }
         }
