@@ -36,7 +36,6 @@ use crate::{
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     ffi::ffi_item,
     metadata::Metadata,
-    permission::prelude::{Permissions, Token as PermissionToken},
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
 };

@@ -40,7 +40,7 @@ mod validator;
 /// - If got unexpected syntax of attribute
 /// - If function has a return type
 ///
-/// # Example
+/// # Examples
 ///
 // `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
