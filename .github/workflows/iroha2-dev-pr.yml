@@ -37,6 +37,10 @@ jobs:
         if: always()
         run: |
           ./scripts/check.sh genesis
+      - name: Check schema.json
+        if: always()
+        run: |
+          ./scripts/check.sh schema
       - name: Wasm build check
         if: always()
         env:
