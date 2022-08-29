@@ -20,7 +20,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  checks:
+  check:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly

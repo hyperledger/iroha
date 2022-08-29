@@ -1,4 +1,4 @@
-name: I2::Dev::UpdateBaseCoverage
+name: I2::Dev::BaseCoverage
 
 on:
   pull_request:
