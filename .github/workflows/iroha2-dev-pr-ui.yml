@@ -1,0 +1,32 @@
+name: I2::Dev::Tests::UI
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+    paths:
+      - "**/tests/ui.rs"
+      - "**/tests/ui_*/**"
+      - "rust-toolchain.toml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        feature_flag: [all-features, no-default-features]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests, with ${{ matrix.feature_flag }}
+        run: |
+          mold --run cargo test --test ui --${{ matrix.feature_flag }}
