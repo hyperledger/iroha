@@ -882,7 +882,7 @@ impl WorldStateView {
     /// Produces [`TriggerEvent`] event from `f`
     ///
     /// # Errors
-    /// Throws up `f` errors
+    /// Throws `f` errors
     pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
@@ -912,7 +912,7 @@ impl WorldStateView {
     /// Produces [`PermissionValidatorEvent`] from `f`
     ///
     /// # Errors
-    /// Throws up `f` errors
+    /// Throws `f` errors
     pub fn modify_validators<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&crate::validator::Chain) -> Result<PermissionValidatorEvent, Error>,
@@ -920,7 +920,7 @@ impl WorldStateView {
         self.modify_world(|world| f(&world.validators).map(WorldEvent::PermissionValidator))
     }
 
-    /// Get constant view to the validators chain.
+    /// Get constant view to the chain of validators.
     ///
     /// View guarantees that no interior-mutability can be performed.
     pub fn validators_view(&self) -> crate::validator::ChainView {

@@ -4,9 +4,9 @@
 //!
 //! Currently Iroha 2 has only builtin validators (see `core/src/smartcontracts/permissions`).
 //! They are partly using API from this module.
-//! In the future they will be replaced with *runtime validators* using WASM.
+//! In the future they will be replaced with *runtime validators* that use WASM.
 //! The architecture of the new validators is quite different from the old ones.
-//! That's why some parts of this module are may not be used anywhere yet.
+//! That's why some parts of this module may not be used anywhere yet.
 
 use super::*;
 use crate::{
@@ -19,10 +19,10 @@ use crate::{
 };
 
 ffi_item! {
-    /// Permission validator that checks if some operation satisfies some conditions.
+    /// Permission validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
-    /// [`Instruction`]s and etc.
+    /// [`Instruction`]s, etc.
     #[derive(
         Debug,
         Display,
@@ -59,7 +59,7 @@ impl Registered for Validator {
     type With = Self;
 }
 
-/// Identification of an [`Validator`].
+/// Identification of a [`Validator`].
 ///
 /// Consists of Validator's name and account (authority) id
 #[derive(
@@ -178,13 +178,13 @@ impl NeedsPermission for Expression {
     Deserialize,
 )]
 pub enum NeedsPermissionBox {
-    /// [`Transaction`] application
+    /// [`Transaction`] application operation
     Transaction(Transaction),
-    /// [`Instruction`] operation
+    /// [`Instruction`] execution operation
     Instruction(Instruction),
-    /// [`QueryBox`] operation
+    /// [`QueryBox`] execution operations
     Query(QueryBox),
-    /// [`Expression`] operation
+    /// [`Expression`] evaluation operation
     Expression(Expression),
 }
 

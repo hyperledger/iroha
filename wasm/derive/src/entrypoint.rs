@@ -17,7 +17,9 @@ mod kw {
 
 /// Enum representing possible attributes for [`entrypoint`] macro
 enum Attr {
+    /// List of parameters
     Params(ParamsAttr),
+    /// Empty attribute. Used when attribute input is empty
     Empty,
 }
 

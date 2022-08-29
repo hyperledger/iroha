@@ -104,7 +104,7 @@ pub trait EvaluateOnHost {
     /// Type of error
     type Error;
 
-    /// Calculate result on the host side.
+    /// Calculate the result on the host side.
     ///
     /// # Errors
     ///
@@ -145,7 +145,7 @@ pub fn query_authority() -> <Account as Identifiable>::Id {
     unsafe { decode_with_length_prefix_from_raw(host_query_authority()) }
 }
 
-/// Query an event which have triggered trigger execution.
+/// Query the event which have triggered trigger execution.
 ///
 /// # Traps
 ///
@@ -223,11 +223,11 @@ mod host {
         ///
         /// # Input
         ///
-        /// Expects pointer to valid [`ExpressionBox`] and its length.
+        /// Expects a pointer to a valid [`ExpressionBox`] and its length.
         ///
         /// # Output
         ///
-        /// Returns pointer to a valid [`Value`] encoded with its length at the beginning.
+        /// Returns a pointer to a valid [`Value`] encoded with its length at the beginning.
         ///
         /// # Warning
         ///
@@ -321,7 +321,7 @@ unsafe fn encode_and_execute<T: Encode, O>(
     fun(bytes.as_ptr(), bytes.len())
 }
 
-/// Encode the given `val` as vector of bytes with size of the object at the beginning
+/// Encode the given `val` as a vector of bytes with the size of the object at the beginning
 //
 // TODO: Write a separate crate for codec/protocol between Iroha and smartcontract
 pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {

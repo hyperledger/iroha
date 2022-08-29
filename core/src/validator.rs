@@ -11,11 +11,14 @@ use iroha_data_model::{
 use super::wsv::WorldStateView;
 use crate::smartcontracts::wasm;
 
-/// Chain of *runtime* validators. Used to validate operations, which needs permissions.
+/// Chain of *runtime* validators. Used to validate operations that require permissions.
 ///
-/// Works pretty like [`Chain of responsibility`](https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern).
-/// Forwards validating of operation to all validators in the chain which have the required type,
-/// stopping at the first [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) verdict.
+/// Works similarly to the
+/// [`Chain of responsibility`](https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern).
+/// The validation of an operation is forwarded to all
+/// validators in the chain which have the required type.
+/// The validation stops at the first
+/// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) verdict.
 #[derive(Debug, Default, Clone)]
 pub struct Chain {
     all_validators: DashMap<Id, Validator>,
@@ -30,8 +33,8 @@ impl Chain {
 
     /// Add new [`Validator`] to the [`Chain`].
     ///
-    /// Return `true` if validator was added
-    /// and `false` if validator with the same id already exists.
+    /// Return `true` if the validator was added
+    /// and `false` if a validator with the same id already exists.
     pub fn add_validator(&self, validator: Validator) -> bool {
         use dashmap::mapref::entry::Entry::*;
 
@@ -58,16 +61,16 @@ impl Chain {
 
     /// Remove [`Validator`] from the [`Chain`].
     ///
-    /// Return `true` if validator was removed
+    /// Return `true` if the validator was removed
     /// and `false` if no validator with the given id was found.
     #[allow(clippy::expect_used)]
     pub fn remove_validator(&self, id: &Id) -> bool {
         match self.all_validators.get(id) {
             Some(entry) => {
                 let type_ = entry.validator_type();
-                self.all_validators.remove(id);
-                self.concrete_type_validators
-                    .get_mut(type_)
+                self.all_validators
+                    .remove(id)
+                    .and_then(|_| self.concrete_type_validators.get_mut(type_))
                     .expect(
                         "Validator chain internal collections inconsistency error \
                          when removing a validator. This is a bug",
@@ -89,7 +92,7 @@ impl Chain {
     /// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) validator verdict and
     /// return an [`Err`](Result::Err).
     ///
-    /// TODO: Possibly we can use a separate validator thread
+    // TODO: Possibly we can use a separate validator thread
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn validate(
         &self,
@@ -154,10 +157,10 @@ pub struct ChainView<'chain> {
 }
 
 impl<'chain> ChainView<'chain> {
-    /// Wrapper around [`Chain::validate`].
+    /// Wrapper around [`Self::validate()`].
     ///
     /// # Errors
-    /// See [`Chain::validate`].
+    /// See [`Chain::validate()`].
     pub fn validate(
         self,
         wsv: &WorldStateView,

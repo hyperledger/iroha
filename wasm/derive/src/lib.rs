@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 mod entrypoint;
 mod validator;
 
-/// Use to annotate the user-defined function that starts the execution of a smart contract.
+/// Annotate the user-defined function that starts the execution of a smart contract.
 ///
 /// # Attributes
 ///
@@ -79,17 +79,17 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     entrypoint::impl_entrypoint(attr, item)
 }
 
-/// Use to annotate the user-defined function that starts the execution of a validator.
+/// Annotate the user-defined function that starts the execution of a validator.
 ///
-/// Annotated function should have one parameter of type which implements
+/// Annotated function should have one parameter of the type which implements
 /// `TryFrom<NeedsPermissionBox>`.
 ///
-/// Validators are checking only for operation invalidness, not for operation validness.
-/// Validator can either deny the operation or pass it to the next validator if there is one.
+/// Validators are only checking if an operation is **invalid**, not its validness.
+/// A validator can either deny the operation or pass it to the next validator if there is one.
 ///
 /// # Panics
 ///
-/// - If function does not have a return type
+/// - If the function does not have a return type
 ///
 /// # Example
 ///

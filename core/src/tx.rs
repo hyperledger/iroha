@@ -135,6 +135,7 @@ impl TransactionValidator {
         Self::validate_with_runtime_validators(tx, &wsv_for_runtime_validators)
     }
 
+    /// Validate signatures for the given transaction
     fn validate_signatures(
         &self,
         tx: &AcceptedTransaction,

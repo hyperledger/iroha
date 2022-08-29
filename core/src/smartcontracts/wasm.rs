@@ -632,7 +632,7 @@ impl<'wrld> Runtime<'wrld> {
         T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
     }
 
-    /// Decode the object from given pointer where first element is the size of the object
+    /// Decode the object from a given pointer where first element is the size of the object
     /// following it. This can be considered a custom encoding format.
     ///
     /// # Warning
@@ -642,7 +642,7 @@ impl<'wrld> Runtime<'wrld> {
     /// # Safety
     ///
     /// It's safe to call this function as long as it's safe to construct, from the given
-    /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+    /// pointer, a byte array of prefix length and `Box<[u8]>` containing the encoded object
     #[allow(unsafe_code, clippy::expect_used, clippy::unwrap_in_result)]
     unsafe fn decode_with_length_prefix_from_memory<
         C: wasmtime::AsContextMut,
@@ -736,7 +736,7 @@ impl<'wrld> Runtime<'wrld> {
     }
 }
 
-/// Helper trait to make function generic over `get_export()` fn from `wasmtime` crate
+/// Helper trait to make a function generic over `get_export()` fn from `wasmtime` crate
 trait GetExport {
     fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern>;
 }

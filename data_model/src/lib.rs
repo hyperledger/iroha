@@ -140,7 +140,7 @@ pub mod utils {
         }
     }
 
-    /// Format `input` separating items with comma, wrapping the whole output into `[` and `]`
+    /// Format `input` separating items with a comma, wrapping the whole output into `[` and `]`
     ///
     /// # Errors
     /// If cannot write to the `f`
