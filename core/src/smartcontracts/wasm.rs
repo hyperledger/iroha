@@ -33,6 +33,8 @@ pub mod export {
 
     /// Exported function to allocate memory
     pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
+    /// Exported function to deallocate memory
+    pub const WASM_DEALLOC_FN: &str = "_iroha_wasm_dealloc";
     /// Name of the exported memory
     pub const WASM_MEMORY_NAME: &str = "memory";
     /// Name of the exported entry for smart contract (or trigger) execution
@@ -577,9 +579,14 @@ impl<'wrld> Runtime<'wrld> {
             .map_err(Error::ExportFnCall)?;
 
         let memory = Self::get_memory(&mut (&smart_contract, &mut store))?;
+        let dealloc_fn = smart_contract
+            .get_typed_func(&mut store, export::WASM_DEALLOC_FN)
+            .map_err(Error::ExportNotFound)?;
         // Safety: safe until `validator` provides valid pointer
         // TODO: Probably dangerous with malicious validator
-        unsafe { Self::decode_with_length_prefix_from_memory(&memory, &mut store, offset) }
+        unsafe {
+            Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
+        }
     }
 
     /// Executes the given wasm smartcontract
@@ -649,6 +656,7 @@ impl<'wrld> Runtime<'wrld> {
         T: Decode + std::fmt::Debug,
     >(
         memory: &wasmtime::Memory,
+        dealloc_fn: &wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>,
         mut context: &mut C,
         offset: WasmUsize,
     ) -> Result<T, Error> {
@@ -665,13 +673,17 @@ impl<'wrld> Runtime<'wrld> {
                 .expect("Prefix length size(bytes) incorrect"),
         );
 
-        // TODO: Should be wrapped into Box, but that causes:
-        // mod-da9c11e78642b700(13541,0x171f2f000) malloc: *** error for object 0x30018dfd4: pointer being freed was not allocated
-        let bytes = &memory.data_mut(context)[offset.try_into().expect(U32_TO_USIZE_ERROR_MES)
+        let bytes = &memory.data_mut(&mut context)[offset.try_into().expect(U32_TO_USIZE_ERROR_MES)
             ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)];
 
-        T::decode(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
-            .map_err(|err| Error::DecodeWithPrefix(err.into()))
+        let obj =
+            T::decode(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
+                .map_err(|err| Error::DecodeWithPrefix(err.into()))?;
+
+        dealloc_fn
+            .call(&mut context, (offset, len))
+            .map_err(Error::ExportFnCall)?;
+        Ok(obj)
     }
 
     /// Encode `bytes` to the given `memory` with the given `alloc_fn` and `context`

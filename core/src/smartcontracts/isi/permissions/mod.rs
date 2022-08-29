@@ -174,7 +174,7 @@ impl From<Result<()>> for ValidatorVerdict {
 /// # Examples
 ///
 /// ```
-/// use iroha_core::smartcontracts::isi::permission::{
+/// use iroha_core::smartcontracts::isi::permissions::{
 ///     PermissionTokenTrait, PredefinedTokenConversionError,
 /// };
 /// use iroha_data_model::prelude::*;

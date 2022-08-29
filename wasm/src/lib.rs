@@ -58,7 +58,20 @@ fn oom(layout: ::core::alloc::Layout) -> ! {
 
 #[no_mangle]
 extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
-    core::mem::ManuallyDrop::new(Vec::<u8>::with_capacity(len)).as_mut_ptr()
+    if len == 0 {
+        debug::dbg_panic("Cannot allocate 0 bytes");
+    }
+    let layout = alloc::alloc::Layout::array::<u8>(len).dbg_expect("Cannot allocate layout");
+    // Safety: safe until `layout` has non-zero size
+    unsafe { alloc::alloc::alloc_zeroed(layout) }
+}
+
+/// # Safety
+/// - `offset` is a pointer to a `[u8; len]` which is allocated in the WASM memory.
+/// - This function can't call destructor of the encoded object.
+#[no_mangle]
+unsafe extern "C" fn _iroha_wasm_dealloc(offset: *const u8, len: usize) {
+    Box::from_raw(core::slice::from_raw_parts_mut(offset as *mut u8, len));
 }
 
 pub trait Execute {
