@@ -38,6 +38,9 @@ pub type DomainsMap = DashMap<<Domain as Identifiable>::Id, Domain>;
 /// `RolesMap` provides an API to work with a collection of key(`RoleId`) - value(`Role`) pairs.
 pub type RolesMap = DashMap<<Role as Identifiable>::Id, Role>;
 
+/// `PermissionTokensMap` provides an API to work with a collection of key(`AccountId`) - value(`Set<PermissionToken>`) pairs.
+pub type PermissionTokensMap = DashMap<<Account as Identifiable>::Id, Permissions>;
+
 /// `PermissionTokenDefinitionsMap` provides an API to work with a collection of key(`PermissionTokenDefinitionId`) - value(`PermissionTokenDefinition`) pairs.
 pub type PermissionTokenDefinitionsMap =
     DashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
