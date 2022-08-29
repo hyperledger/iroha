@@ -1,4 +1,4 @@
-//! This is a sample validator which forbids any new validator registration
+//! This is a sample validator which forbids every new validator registration
 
 #![no_std]
 #![no_main]
@@ -9,6 +9,7 @@ use alloc::borrow::ToOwned as _;
 
 use iroha_wasm::{validator::prelude::*, DebugExpectExt as _};
 
+/// Forbid every new validator registration
 #[entrypoint]
 pub fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {

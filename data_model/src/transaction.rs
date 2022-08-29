@@ -10,7 +10,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::{collections::btree_set, time::Duration, vec};
 
-use derive_more::Display;
+use derive_more::{DebugCustom, Display};
 use iroha_crypto::{Hash, SignatureOf, SignaturesOf};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -140,17 +140,12 @@ impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
 /// into [`Executable::Wasm`] as soon as GATs are stabilized and
 /// implementations for from byte vector can be split off from
 /// [`IntoIterator<Item = Instruction>`].
-#[derive(Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Clone, DebugCustom, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[debug(fmt = "<WASM is truncated>")]
 pub struct WasmSmartContract {
     /// Raw wasm blob.
     #[serde(with = "base64")]
     pub raw_data: Vec<u8>,
-}
-
-impl core::fmt::Debug for WasmSmartContract {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "<WASM is truncated>")
-    }
 }
 
 impl AsRef<[u8]> for WasmSmartContract {

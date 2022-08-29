@@ -334,13 +334,11 @@ pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {
     val.encode_to(&mut r);
 
     // Store length of the whole vector as byte array at the beginning of the vec
-    for (i, byte) in r.len().to_le_bytes().into_iter().enumerate() {
-        r[i] = byte;
-    }
+    let len = r.len();
+    r[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
 
     r
 }
-
 
 /// Most used items
 pub mod prelude {
@@ -352,7 +350,6 @@ mod tests {
     #![allow(clippy::restriction)]
     #![allow(clippy::pedantic)]
 
-    use alloc::vec::Vec;
     use core::{mem::ManuallyDrop, slice};
 
     use webassembly_test::webassembly_test;
@@ -373,11 +370,7 @@ mod tests {
         FindAccountById::new(account_id).into()
     }
     fn get_test_expression() -> ExpressionBox {
-        Add::new(
-            Expression::Raw(Value::U32(1).into()),
-            Expression::Raw(Value::U32(2).into()),
-        )
-        .into()
+        Add::new(1_u32, 2_u32).into()
     }
 
     #[no_mangle]

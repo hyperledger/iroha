@@ -667,12 +667,8 @@ impl<'wrld> Runtime<'wrld> {
 
         // TODO: Should be wrapped into Box, but that causes:
         // mod-da9c11e78642b700(13541,0x171f2f000) malloc: *** error for object 0x30018dfd4: pointer being freed was not allocated
-        let bytes = core::slice::from_raw_parts_mut(
-            memory.data_mut(context)[offset.try_into().expect(U32_TO_USIZE_ERROR_MES)
-                ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)]
-                .as_mut_ptr(),
-            len.try_into().expect(U32_TO_USIZE_ERROR_MES),
-        );
+        let bytes = &memory.data_mut(context)[offset.try_into().expect(U32_TO_USIZE_ERROR_MES)
+            ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)];
 
         T::decode(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
             .map_err(|err| Error::DecodeWithPrefix(err.into()))
@@ -723,14 +719,8 @@ impl<'wrld> Runtime<'wrld> {
         obj.encode_to(&mut r);
 
         // Store length as byte array in front of encoding
-        for (i, byte) in WasmUsize::try_from(r.len())
-            .map_err(|e| Trap::new(e.to_string()))?
-            .to_le_bytes()
-            .into_iter()
-            .enumerate()
-        {
-            r[i] = byte;
-        }
+        let len = &WasmUsize::try_from(r.len()).map_err(|e| Trap::new(e.to_string()))?;
+        r[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
 
         Ok(r)
     }

@@ -22,10 +22,7 @@ fn main() {
         "deny_new_validators_validator",
     ];
 
-    // Rerunning if smart contract was changed
-    for path in &TEST_SMARTCONTRACTS {
-        println!("cargo:rerun-if-changed={TEST_SMARTCONTRACTS_DIR}/{path}");
-    }
+    println!("cargo:rerun-if-changed={TEST_SMARTCONTRACTS_DIR}");
     // TODO: check if this was causing the recursive loop.
     // println!("cargo:rerun-if-changed=..");
 

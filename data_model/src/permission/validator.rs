@@ -98,17 +98,16 @@ impl core::str::FromStr for Id {
             });
         }
 
-        let vector: Vec<&str> = s.split('%').collect();
-
-        if vector.len() != 2 {
-            return Err(ParseError {
-                reason: "Id should have format `validator%account@domain`",
-            });
+        let mut split = s.split('%');
+        match (split.next(), split.next(), split.next()) {
+            (Some(name), Some(account_id), None) => Ok(Self {
+                name: name.parse()?,
+                account_id: account_id.parse()?,
+            }),
+            _ => Err(ParseError {
+                reason: "Validator ID should have format `validator%account_id`",
+            }),
         }
-        Ok(Self {
-            name: Name::from_str(vector[0])?,
-            account_id: <Account as Identifiable>::Id::from_str(vector[1])?,
-        })
     }
 }
 
