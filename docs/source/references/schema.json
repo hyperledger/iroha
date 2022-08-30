@@ -208,10 +208,38 @@
       "sorted": false
     }
   },
+  "[iroha_data_model::predicate::numerical::Interval<u16>; 8]": {
+    "Array": {
+      "ty": "iroha_data_model::predicate::numerical::Interval<u16>",
+      "len": 8,
+      "sorted": false
+    }
+  },
+  "[iroha_data_model::predicate::numerical::Interval<u8>; 4]": {
+    "Array": {
+      "ty": "iroha_data_model::predicate::numerical::Interval<u8>",
+      "len": 4,
+      "sorted": false
+    }
+  },
+  "[u16; 8]": {
+    "Array": {
+      "ty": "u16",
+      "len": 8,
+      "sorted": false
+    }
+  },
   "[u8; 32]": {
     "Array": {
       "ty": "u8",
       "len": 32,
+      "sorted": false
+    }
+  },
+  "[u8; 4]": {
+    "Array": {
+      "ty": "u8",
+      "len": 4,
       "sorted": false
     }
   },
@@ -1039,6 +1067,16 @@
           "name": "BlockHeader",
           "discriminant": 18,
           "ty": "iroha_data_model::block_value::BlockHeaderValue"
+        },
+        {
+          "name": "Ipv4Addr",
+          "discriminant": 19,
+          "ty": "iroha_primitives::addr::Ipv4Addr"
+        },
+        {
+          "name": "Ipv6Addr",
+          "discriminant": 20,
+          "ty": "iroha_primitives::addr::Ipv6Addr"
         }
       ]
     }
@@ -3638,23 +3676,44 @@
       ]
     }
   },
-  "iroha_data_model::predicate::numerical::Range": {
-    "Enum": {
-      "variants": [
+  "iroha_data_model::predicate::ip_addr::Ipv4Predicate": {
+    "Tuple": {
+      "types": [
+        "[iroha_data_model::predicate::numerical::Interval<u8>; 4]"
+      ]
+    }
+  },
+  "iroha_data_model::predicate::ip_addr::Ipv6Predicate": {
+    "Tuple": {
+      "types": [
+        "[iroha_data_model::predicate::numerical::Interval<u16>; 8]"
+      ]
+    }
+  },
+  "iroha_data_model::predicate::numerical::Interval<u16>": {
+    "Struct": {
+      "declarations": [
         {
-          "name": "U32",
-          "discriminant": 0,
-          "ty": "iroha_data_model::predicate::numerical::SemiInterval<u32>"
+          "name": "start",
+          "ty": "u16"
         },
         {
-          "name": "U128",
-          "discriminant": 1,
-          "ty": "iroha_data_model::predicate::numerical::SemiInterval<u128>"
+          "name": "limit",
+          "ty": "u16"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::predicate::numerical::Interval<u8>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "start",
+          "ty": "u8"
         },
         {
-          "name": "Fixed",
-          "discriminant": 2,
-          "ty": "iroha_data_model::predicate::numerical::SemiInterval<iroha_primitives::fixed::Fixed>"
+          "name": "limit",
+          "ty": "u8"
         }
       ]
     }
@@ -3697,6 +3756,27 @@
         {
           "name": "limit",
           "ty": "u32"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::predicate::numerical::SemiRange": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "U32",
+          "discriminant": 0,
+          "ty": "iroha_data_model::predicate::numerical::SemiInterval<u32>"
+        },
+        {
+          "name": "U128",
+          "discriminant": 1,
+          "ty": "iroha_data_model::predicate::numerical::SemiInterval<u128>"
+        },
+        {
+          "name": "Fixed",
+          "discriminant": 2,
+          "ty": "iroha_data_model::predicate::numerical::SemiInterval<iroha_primitives::fixed::Fixed>"
         }
       ]
     }
@@ -3793,7 +3873,7 @@
         {
           "name": "Numerical",
           "discriminant": 3,
-          "ty": "iroha_data_model::predicate::numerical::Range"
+          "ty": "iroha_data_model::predicate::numerical::SemiRange"
         },
         {
           "name": "TimeStamp",
@@ -3801,8 +3881,18 @@
           "ty": "iroha_data_model::predicate::numerical::SemiInterval<u128>"
         },
         {
-          "name": "Pass",
+          "name": "Ipv4Addr",
           "discriminant": 5,
+          "ty": "iroha_data_model::predicate::ip_addr::Ipv4Predicate"
+        },
+        {
+          "name": "Ipv6Addr",
+          "discriminant": 6,
+          "ty": "iroha_data_model::predicate::ip_addr::Ipv6Predicate"
+        },
+        {
+          "name": "Pass",
+          "discriminant": 7,
           "ty": null
         }
       ]
@@ -4832,6 +4922,20 @@
       ]
     }
   },
+  "iroha_primitives::addr::Ipv4Addr": {
+    "Tuple": {
+      "types": [
+        "[u8; 4]"
+      ]
+    }
+  },
+  "iroha_primitives::addr::Ipv6Addr": {
+    "Tuple": {
+      "types": [
+        "[u16; 8]"
+      ]
+    }
+  },
   "iroha_primitives::fixed::Fixed": {
     "Tuple": {
       "types": [
@@ -4921,6 +5025,9 @@
     }
   },
   "u128": {
+    "Int": "FixedWidth"
+  },
+  "u16": {
     "Int": "FixedWidth"
   },
   "u32": {
