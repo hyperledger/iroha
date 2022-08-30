@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [iroha2-dev]
     paths:
+      - "**/derive/**.rs"
       - "**/tests/ui.rs"
       - "**/tests/ui_*/**"
       - "rust-toolchain.toml"
