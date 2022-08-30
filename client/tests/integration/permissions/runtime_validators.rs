@@ -47,7 +47,6 @@ fn deny_new_validators() -> Result<()> {
         .submit_blocking(RegisterBox::new(validator_2))
         .expect_err("Registration of a new validator should be denied")
         .to_string();
-    println!("Error message: {}", error_mes);
     assert!(error_mes.contains("New validators are not allowed"));
     Ok(())
 }

@@ -62,7 +62,7 @@ extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
         debug::dbg_panic("Cannot allocate 0 bytes");
     }
     let layout = alloc::alloc::Layout::array::<u8>(len).dbg_expect("Cannot allocate layout");
-    // Safety: safe until `layout` has non-zero size
+    // Safety: safe because `layout` is guaranteed to have non-zero size
     unsafe { alloc::alloc::alloc_zeroed(layout) }
 }
 

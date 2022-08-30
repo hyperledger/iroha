@@ -582,11 +582,7 @@ impl<'wrld> Runtime<'wrld> {
         let dealloc_fn = smart_contract
             .get_typed_func(&mut store, export::WASM_DEALLOC_FN)
             .map_err(Error::ExportNotFound)?;
-        // Safety: safe until `validator` provides valid pointer
-        // TODO: Probably dangerous with malicious validator
-        unsafe {
-            Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-        }
+        Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
     }
 
     /// Executes the given wasm smartcontract
@@ -645,13 +641,8 @@ impl<'wrld> Runtime<'wrld> {
     /// # Warning
     ///
     /// This method takes ownership of the given pointer.
-    ///
-    /// # Safety
-    ///
-    /// It's safe to call this function as long as it's safe to construct, from the given
-    /// pointer, a byte array of prefix length and `Box<[u8]>` containing the encoded object
-    #[allow(unsafe_code, clippy::expect_used, clippy::unwrap_in_result)]
-    unsafe fn decode_with_length_prefix_from_memory<
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    fn decode_with_length_prefix_from_memory<
         C: wasmtime::AsContextMut,
         T: Decode + std::fmt::Debug,
     >(
