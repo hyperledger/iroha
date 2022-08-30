@@ -54,7 +54,7 @@ impl syn::parse::Parse for ParamsAttr {
     }
 }
 
-/// Collection of types of parameters that smart contract entrypoint function is expecting
+/// Collection of parameters types that the smart contract entrypoint function is expecting
 struct Params {
     _bracket_token: syn::token::Bracket,
     types: Punctuated<ParamType, syn::token::Comma>,

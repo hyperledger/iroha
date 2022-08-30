@@ -550,7 +550,7 @@ impl<'wrld> Runtime<'wrld> {
         self.execute_main_with_state(bytes, state)
     }
 
-    /// Executes the given wasm runtime permission validator
+    /// Execute the given wasm runtime permission validator
     ///
     /// # Errors
     ///
