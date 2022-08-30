@@ -123,7 +123,7 @@ where
             G::from_configuration(
                 args.submit_genesis,
                 RawGenesisBlock::from_path(genesis_path)?,
-                &Some(config.genesis.clone()),
+                Some(&config.genesis),
                 &config.sumeragi.transaction_limits,
             )
             .wrap_err("Failed to initialize genesis.")?
