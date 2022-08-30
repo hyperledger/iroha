@@ -50,7 +50,7 @@ pub trait GenesisNetworkTrait:
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
-        genesis_config: &Option<Configuration>,
+        genesis_config: Option<&Configuration>,
         transaction_limits: &TransactionLimits,
     ) -> Result<Option<Self>>;
 
@@ -170,7 +170,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
-        genesis_config: &Option<Configuration>,
+        genesis_config: Option<&Configuration>,
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
         #![allow(clippy::unwrap_in_result)]
@@ -433,7 +433,7 @@ mod tests {
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
             RawGenesisBlock::default(),
-            &Some(Configuration {
+            Some(&Configuration {
                 account_public_key: public_key,
                 account_private_key: Some(private_key),
                 ..Configuration::default()

@@ -178,7 +178,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             "wonderland".parse().expect("Valid"),
             kp.public_key().clone(),
         ),
-        &Some(configuration.genesis.clone()),
+        Some(&configuration.genesis),
         &configuration.sumeragi.transaction_limits,
     )
     .unwrap()
