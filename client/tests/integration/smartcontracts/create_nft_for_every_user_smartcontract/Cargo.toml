@@ -7,9 +7,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-# Smartcontract should be linked dynamically so that it may link to functions exported
+# A smartcontract should be linked dynamically so that it may link to functions exported
 # from the host environment. Also, host environment executes the smartcontract by
-# calling the function which smartcontract exports(entry point of execution)
+# calling the function which smartcontract exports (entry point of execution)
 crate-type = ['cdylib']
 
 # Empty workspace to fix "current package believes it's in a workspace when it's not"
@@ -23,4 +23,4 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [dependencies]
-iroha_wasm = { path = "../../../../wasm", features = ["debug"]}
+iroha_wasm = { path = "../../../../../wasm", features = ["debug"]}

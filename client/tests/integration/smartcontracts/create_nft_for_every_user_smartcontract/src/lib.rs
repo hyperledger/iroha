@@ -58,7 +58,8 @@ fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefin
         .into_iter()
         .filter(|asset| asset.id().definition_id.to_string().starts_with("nft_"))
         .count()
-        + 1;
+        .checked_add(1)
+        .dbg_unwrap();
 
     format!(
         "nft_number_{}_for_{}#{}",
