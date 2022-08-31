@@ -33,6 +33,9 @@ jobs:
       - name: Check genesis.json
         if: always()
         run: ./scripts/check.sh genesis
+      - name: Check schema.json
+        if: always()
+        run: ./scripts/check.sh schema
       - name: Wasm build check
         if: always()
         working-directory: wasm
@@ -45,23 +48,28 @@ jobs:
     strategy:
       matrix:
         feature_flag: [all-features, no-default-features]
+    env:
+      # TODO Set NIGHTLY in the container #2606
+      NIGHTLY: nightly-2022-08-15
     steps:
       - uses: actions/checkout@v3
       # TODO Remove this step #2165
-      - name: Add components to nightly channel
-        run: rustup component add llvm-tools-preview --toolchain nightly-2022-08-15-x86_64-unknown-linux-gnu
+      - name: Adjust toolchain
+        run: |
+          rustup component add llvm-tools-preview
+          rustup +$NIGHTLY component add llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with ${{ matrix.feature_flag }}
         run: |
           mold --run cargo llvm-cov clean --workspace
-          mold --run cargo +nightly-2022-08-15 llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
+          mold --run cargo +$NIGHTLY llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
           mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
       - name: Generate lcov report
         if: matrix.feature_flag == 'all-features'
         run: |
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
-          mold --run cargo +nightly-2022-08-15 llvm-cov --no-run --${{ matrix.feature_flag }} --workspace --doctests --lcov --output-path lcov.info
+          mold --run cargo +$NIGHTLY llvm-cov --doctests --no-run --${{ matrix.feature_flag }} --workspace --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         if: matrix.feature_flag == 'all-features'
         uses: codecov/codecov-action@v3

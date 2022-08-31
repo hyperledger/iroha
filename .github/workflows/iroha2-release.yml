@@ -31,6 +31,7 @@ jobs:
         with:
           push: true
           tags: hyperledger/iroha2:${{ env.TAG }}
+          labels: commit=${{ github.sha }}
           build-args: TAG=${{ env.TAG }}
 
   load-rs:
