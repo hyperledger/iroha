@@ -4,6 +4,7 @@ FROM hyperledger/iroha2-base:$TAG AS builder
 
 WORKDIR /iroha
 COPY . .
+RUN  rm -f rust-toolchain.toml
 RUN  mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
 
 # final image
