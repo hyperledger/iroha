@@ -43,7 +43,7 @@ fn main_genesis() {
     let genesis = GenesisNetwork::from_configuration(
         true,
         generate_genesis(1_000_000_u32),
-        &Some(configuration.genesis.clone()),
+        Some(&configuration.genesis),
         &configuration.sumeragi.transaction_limits,
     )
     .expect("genesis creation failed");
