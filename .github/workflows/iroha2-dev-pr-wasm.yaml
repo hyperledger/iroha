@@ -20,31 +20,35 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUSTC_BOOTSTRAP: 1
+  RUSTUP_TOOLCHAIN: nightly-2022-08-15
 
 jobs:
-  wasm32:
-    runs-on: [self-hosted, Linux]
+  static-analysis:
+    runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
 
-      # Static analysis
-      - name: Format check
-        run: cargo +nightly-2022-08-15 fmt --all -- --check
-      - name: Static analysis without features
-        run: cargo lints clippy --benches --tests --examples --quiet --no-default-features
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lints
         if: always()
-      - name: Static analysis with all features enabled
-        run: cargo lints clippy --benches --tests --examples --quiet --all-features
+        run: cargo lints clippy --workspace --benches --tests --examples --quiet
+      - name: Documentation
         if: always()
-
-      - name: Verify iroha_wasm still supports no_std
+        run: cargo doc --no-deps --quiet
+      - name: no_std compatibility
+        if: always()
         run: cargo nono check --package iroha_wasm
-        if: always()
 
-      # Tests
+  tests:
+    runs-on: [self-hosted, Linux]
+    container:
+      image: 7272721/i2-ci:nightly
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: mold --run cargo +nightly-2022-08-15 test --tests --quiet --no-fail-fast
+        run: mold --run cargo test --tests --quiet --no-fail-fast

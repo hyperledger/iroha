@@ -2,7 +2,7 @@
 #![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::Local;
 use eyre::{eyre, Result};
 use futures::{stream::SplitSink, Sink, SinkExt, StreamExt};
 use iroha_logger::Telemetry;
@@ -214,13 +214,13 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
         payload.insert("authority".into(), false.into());
         payload.insert(
             "startup_time".into(),
-            Utc::now().timestamp_millis().to_string().into(),
+            Local::now().timestamp_millis().to_string().into(),
         );
         payload.insert("network_id".into(), "".into());
     }
     let mut map = Map::new();
     map.insert("id".into(), 0_i32.into());
-    map.insert("ts".into(), Utc::now().to_rfc3339().into());
+    map.insert("ts".into(), Local::now().to_rfc3339().into());
     map.insert("payload".into(), payload.into());
     let msg = Message::Binary(serde_json::to_vec(&map)?);
     Ok((msg, msg_kind))
