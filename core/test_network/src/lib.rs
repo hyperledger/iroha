@@ -146,7 +146,7 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         G::from_configuration(
             submit_genesis,
             genesis,
-            &Some(cfg.genesis),
+            Some(&cfg.genesis),
             &cfg.sumeragi.transaction_limits,
         )
         .expect("Failed to init genesis")

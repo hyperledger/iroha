@@ -130,15 +130,21 @@ fn get_new_struct() -> FfiStruct {
 
 #[allow(trivial_casts)]
 fn get_new_struct_with_params() -> FfiStruct {
-    let mut ffi_struct = get_new_struct();
+    let ffi_struct = get_new_struct();
     let params = get_default_params();
+
+    let mut output = MaybeUninit::new(core::ptr::null_mut());
 
     let params_ffi = params.into_ffi();
     assert_eq!(FfiReturn::Ok, unsafe {
-        FfiStruct__with_params(IntoFfi::into_ffi(&mut ffi_struct), params_ffi.as_ref())
+        FfiStruct__with_params(
+            IntoFfi::into_ffi(ffi_struct),
+            params_ffi.as_ref(),
+            output.as_mut_ptr(),
+        )
     });
 
-    ffi_struct
+    unsafe { TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).expect("valid") }
 }
 
 #[test]
@@ -197,11 +203,19 @@ fn into_iter_item_impl_into() {
     let mut ffi_struct = get_new_struct();
     let tokens_ffi = tokens.clone().into_ffi();
 
+    let mut output = MaybeUninit::new(core::ptr::null_mut());
+
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            FfiStruct__with_tokens(IntoFfi::into_ffi(&mut ffi_struct), tokens_ffi.as_ref())
+            FfiStruct__with_tokens(
+                IntoFfi::into_ffi(ffi_struct),
+                tokens_ffi.as_ref(),
+                output.as_mut_ptr()
+            )
         );
+
+        ffi_struct = TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).expect("valid");
 
         assert_eq!(2, ffi_struct.tokens.len());
         assert_eq!(ffi_struct.tokens, tokens);

@@ -33,7 +33,7 @@ use crate::{ParseError, ValidationError};
     TryFromReprC,
     IntoSchema,
 )]
-#[repr(transparent)]
+// FIXME: #[repr(transparent)] (https://github.com/hyperledger/iroha/issues/2645)
 pub struct Name(ConstString);
 
 impl Name {

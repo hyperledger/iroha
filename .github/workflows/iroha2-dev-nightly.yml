@@ -5,10 +5,11 @@ on: workflow_dispatch
 jobs:
   dockerhub:
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
+      - uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -18,6 +19,4 @@ jobs:
           push: true
           tags: hyperledger/iroha2:dev-nightly-${{ github.sha }}
           labels: commit=${{ github.sha }}
-          context: .
-          file: Dockerfile
           build-args: TAG=dev

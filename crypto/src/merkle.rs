@@ -91,7 +91,7 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
         let mut tree = Vec::with_capacity(2_usize.pow(height + 1));
         while let Some(r_node) = queue.pop_back() {
             if let Some(l_node) = queue.pop_back() {
-                queue.push_front(Self::nodes_pair_hash(&l_node, &r_node));
+                queue.push_front(Self::nodes_pair_hash(l_node.as_ref(), r_node.as_ref()));
                 tree.push(r_node);
                 tree.push(l_node);
             } else {
@@ -200,7 +200,7 @@ impl<T> MerkleTree<T> {
                 _ => unreachable!(),
             };
             let parent_node = match r_node_opt {
-                Some(r_node) => Self::nodes_pair_hash(l_node, r_node),
+                Some(r_node) => Self::nodes_pair_hash(l_node.as_ref(), r_node.as_ref()),
                 None => *l_node,
             };
             let parent_mut = self.0.get_mut(parent_idx).expect("Infallible");
@@ -212,8 +212,8 @@ impl<T> MerkleTree<T> {
 
     #[cfg(feature = "std")]
     fn nodes_pair_hash(
-        l_node: &Option<HashOf<T>>,
-        r_node: &Option<HashOf<T>>,
+        l_node: Option<&HashOf<T>>,
+        r_node: Option<&HashOf<T>>,
     ) -> Option<HashOf<T>> {
         let (l_hash, r_hash) = match (l_node, r_node) {
             (Some(l_hash), Some(r_hash)) => (l_hash, r_hash),

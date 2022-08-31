@@ -12,28 +12,25 @@ on:
 
 jobs:
   dockerhub:
-    strategy:
-      matrix:
-        tag: [dev, stable, lts]
-    if: github.ref == 'refs/heads/iroha2-${{ matrix.tag }}'
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-      - name: Set up buildx
-        uses: docker/setup-buildx-action@v2
-        id: buildx
-        with:
-          install: true
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
+      - name: Get tag from branch name
+        run: |
+          BRANCH=${{ github.ref_name }}
+          PREFIX='iroha2-'
+          TAG=${BRANCH#$PREFIX}
+          echo "TAG=$TAG" >>$GITHUB_ENV
+      - uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push iroha2-base:${{ matrix.tag }} image
+      - name: Build and push iroha2-base:${{ env.TAG }} image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2-base:${{ matrix.tag }}
+          tags: hyperledger/iroha2-base:${{ env.TAG }}
           labels: commit=${{ github.sha }}
-          context: .
           file: Dockerfile.base
