@@ -172,9 +172,9 @@
       "sorted": false
     }
   },
-  "Vec<iroha_data_model::permissions::PermissionToken>": {
+  "Vec<iroha_data_model::permission::token::Token>": {
     "Vec": {
-      "ty": "iroha_data_model::permissions::PermissionToken",
+      "ty": "iroha_data_model::permission::token::Token",
       "sorted": true
     }
   },
@@ -498,7 +498,7 @@
         {
           "name": "PermissionTokenDefinition",
           "discriminant": 11,
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
         }
       ]
     }
@@ -827,7 +827,12 @@
         {
           "name": "PermissionTokenDefinitionId",
           "discriminant": 7,
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "ValidatorId",
+          "discriminant": 8,
+          "ty": "iroha_data_model::permission::validator::Id"
         }
       ]
     }
@@ -893,7 +898,12 @@
         {
           "name": "PermissionTokenDefinition",
           "discriminant": 11,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 12,
+          "ty": "iroha_data_model::permission::validator::Validator"
         }
       ]
     }
@@ -965,7 +975,12 @@
         {
           "name": "PermissionTokenDefinition",
           "discriminant": 7,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 8,
+          "ty": "iroha_data_model::permission::validator::Validator"
         }
       ]
     }
@@ -1051,7 +1066,7 @@
         {
           "name": "PermissionToken",
           "discriminant": 15,
-          "ty": "iroha_data_model::permissions::PermissionToken"
+          "ty": "iroha_data_model::permission::token::Token"
         },
         {
           "name": "Hash",
@@ -1587,7 +1602,12 @@
         {
           "name": "PermissionToken",
           "discriminant": 7,
-          "ty": "iroha_data_model::events::data::events::permission_token::PermissionTokenEvent"
+          "ty": "iroha_data_model::events::data::events::permission::PermissionTokenEvent"
+        },
+        {
+          "name": "PermissionValidator",
+          "discriminant": 8,
+          "ty": "iroha_data_model::events::data::events::permission::PermissionValidatorEvent"
         }
       ]
     }
@@ -2022,18 +2042,34 @@
       ]
     }
   },
-  "iroha_data_model::events::data::events::permission_token::PermissionTokenEvent": {
+  "iroha_data_model::events::data::events::permission::PermissionTokenEvent": {
     "Enum": {
       "variants": [
         {
           "name": "DefinitionCreated",
           "discriminant": 0,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
         },
         {
           "name": "DefinitionDeleted",
           "discriminant": 1,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::permission::PermissionValidatorEvent": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Added",
+          "discriminant": 0,
+          "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "Removed",
+          "discriminant": 1,
+          "ty": "iroha_data_model::permission::validator::Id"
         }
       ]
     }
@@ -2047,7 +2083,7 @@
         },
         {
           "name": "permission_definition_id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
         }
       ]
     }
@@ -3616,7 +3652,17 @@
       ]
     }
   },
-  "iroha_data_model::permissions::Id": {
+  "iroha_data_model::permission::token::Definition": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "id",
+          "ty": "iroha_data_model::permission::token::Id"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::permission::token::Id": {
     "Struct": {
       "declarations": [
         {
@@ -3626,12 +3672,12 @@
       ]
     }
   },
-  "iroha_data_model::permissions::PermissionToken": {
+  "iroha_data_model::permission::token::Token": {
     "Struct": {
       "declarations": [
         {
           "name": "definition_id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
         },
         {
           "name": "params",
@@ -3640,12 +3686,60 @@
       ]
     }
   },
-  "iroha_data_model::permissions::PermissionTokenDefinition": {
+  "iroha_data_model::permission::validator::Id": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "name",
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "account_id",
+          "ty": "iroha_data_model::account::Id"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::permission::validator::Type": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Transaction",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "Instruction",
+          "discriminant": 1,
+          "ty": null
+        },
+        {
+          "name": "Query",
+          "discriminant": 2,
+          "ty": null
+        },
+        {
+          "name": "Expression",
+          "discriminant": 3,
+          "ty": null
+        }
+      ]
+    }
+  },
+  "iroha_data_model::permission::validator::Validator": {
     "Struct": {
       "declarations": [
         {
           "name": "id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "validator_type",
+          "ty": "iroha_data_model::permission::validator::Type"
+        },
+        {
+          "name": "wasm",
+          "ty": "iroha_data_model::transaction::WasmSmartContract"
         }
       ]
     }
@@ -4568,7 +4662,7 @@
         },
         {
           "name": "permissions",
-          "ty": "Vec<iroha_data_model::permissions::PermissionToken>"
+          "ty": "Vec<iroha_data_model::permission::token::Token>"
         }
       ]
     }
