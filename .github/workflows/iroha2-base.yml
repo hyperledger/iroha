@@ -32,4 +32,5 @@ jobs:
         with:
           push: true
           tags: hyperledger/iroha2-base:${{ env.TAG }}
+          labels: commit=${{ github.sha }}
           file: Dockerfile.base

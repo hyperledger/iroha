@@ -1,5 +1,8 @@
 #!/bin/sh
 set -e
+cargo +nightly-2022-08-15 fmt --all -- --check
+cargo +nightly-2022-08-15 lints clippy --workspace --benches --tests --examples --quiet --all-features
 cargo run --bin kagami -- docs >docs/source/references/config.md
 cargo run --bin kagami -- genesis >configs/peer/genesis.json
-git add docs/source/references/config.md configs/peer/genesis.json
+cargo run --bin kagami -- schema >docs/source/references/schema.json
+git add docs/source/references/config.md configs/peer/genesis.json docs/source/references/schema.json
