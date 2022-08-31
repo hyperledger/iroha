@@ -61,7 +61,7 @@ extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
     if len == 0 {
         debug::dbg_panic("Cannot allocate 0 bytes");
     }
-    let layout = alloc::alloc::Layout::array::<u8>(len).dbg_expect("Cannot allocate layout");
+    let layout = core::alloc::Layout::array::<u8>(len).dbg_expect("Cannot allocate layout");
     // Safety: safe because `layout` is guaranteed to have non-zero size
     unsafe { alloc::alloc::alloc_zeroed(layout) }
 }
@@ -71,7 +71,7 @@ extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
 /// - This function can't call destructor of the encoded object.
 #[no_mangle]
 unsafe extern "C" fn _iroha_wasm_dealloc(offset: *const u8, len: usize) {
-    Box::from_raw(core::slice::from_raw_parts_mut(offset as *mut u8, len));
+    let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset as *mut u8, len));
 }
 
 pub trait Execute {
@@ -340,7 +340,11 @@ unsafe fn encode_and_execute<T: Encode, O>(
 pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {
     let len_size_bytes = core::mem::size_of::<usize>();
 
-    let mut r = Vec::with_capacity(len_size_bytes + val.size_hint());
+    let mut r = Vec::with_capacity(
+        len_size_bytes
+            .checked_add(val.size_hint())
+            .dbg_expect("Overflow during length computation"),
+    );
 
     // Reserve space for length
     r.resize(len_size_bytes, 0);
