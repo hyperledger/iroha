@@ -116,7 +116,12 @@ impl Kura {
         {
             // Error here indicates the thread is already stopped, which is fine.
             let _res = shutdown_sender.send(());
-            thread_handle.join().expect("able to join");
+            if let Err(error) = thread_handle.join() {
+                error!(
+                    "Kura force shutdown routine: Kura thread panicked with error: {:?}",
+                    error
+                );
+            }
         }
     }
 
@@ -252,26 +257,6 @@ impl Kura {
                             let failed_to_store_block = serialized_block;
                             let failed_to_store_block_reason = error;
 
-                            drop(block_receiver_guard);
-                            drop(strong_kura_reference);
-                            std::thread::sleep(std::time::Duration::from_millis(250));
-                            // Why is this sleep needed?
-                            // Well in many of our tests we have kura operate within temp directories.
-                            // When Iroha is shutdown very fast these temp directories get free'd before
-                            // this thread can exit, causing a panic due to faulty I/O. This pushing of
-                            // the pushing to the next round makes sure that we don't panic if we were going
-                            // to exit anyway. The sleep is also required to make sure that the exit code
-                            // has finished running before the next iteration of the kura thread loop.
-
-                            if let None = weak_kura_reference.upgrade() {
-                                info!("Kura block thread is shutting down");
-                                return;
-                            };
-
-                            if shutdown_receiver.try_recv().is_ok() {
-                                info!("Kura block thread is being forcibly shut down");
-                                return;
-                            }
                             error!(
                                 "Failed to store block, ERROR = {}",
                                 failed_to_store_block_reason
