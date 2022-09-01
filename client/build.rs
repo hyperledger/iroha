@@ -17,10 +17,7 @@ use eyre::{eyre, Context as _, Result};
 #[allow(clippy::expect_used)]
 fn main() {
     const TEST_SMARTCONTRACTS_DIR: &str = "tests/integration/smartcontracts";
-    const TEST_SMARTCONTRACTS: [&str; 2] = [
-        "create_nft_for_every_user_smartcontract",
-        "deny_new_validators_validator",
-    ];
+    const TEST_SMARTCONTRACTS: [&str; 2] = ["create_nft_for_every_user_smartcontract", "mint_rose"];
 
     println!("cargo:rerun-if-changed={TEST_SMARTCONTRACTS_DIR}");
     // TODO: check if this was causing the recursive loop.
