@@ -1,7 +1,7 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
 //! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, ValueKind};
 use iroha_telemetry::metrics;
 
 use crate::{ValidQuery, WorldStateView};
@@ -199,11 +199,33 @@ pub mod isi {
             let account_id = self.destination_id;
             let permission = self.object;
 
-            wsv.permission_token_definitions()
+            let definition = wsv
+                .permission_token_definitions()
                 .get(permission.definition_id())
                 .ok_or_else(|| {
                     FindError::PermissionTokenDefinition(permission.definition_id().clone())
                 })?;
+
+            for ((expected_name, expected_kind), (name, value)) in
+                definition.value().params().zip(permission.params())
+            {
+                if expected_name != name {
+                    return Err(ValidationError::new(format!(
+                        "Parameter name mismatch: expected `{}`, got `{}`",
+                        expected_name, name
+                    ))
+                    .into());
+                }
+
+                let actual_kind: ValueKind = value.into();
+                if expected_kind != &actual_kind {
+                    return Err(ValidationError::new(format!(
+                        "Parameter type mismatch: expected `{}`, got `{}`",
+                        expected_kind, actual_kind,
+                    ))
+                    .into());
+                }
+            }
 
             wsv.modify_account(&account_id, |account| {
                 let id = account.id();
