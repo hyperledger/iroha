@@ -200,10 +200,8 @@ impl std::error::Error for ValidationError {}
 
 impl ValidationError {
     /// Construct [`ValidationError`].
-    pub fn new(reason: &str) -> Self {
-        Self {
-            reason: String::from(reason),
-        }
+    pub fn new(reason: String) -> Self {
+        Self { reason }
     }
 }
 
@@ -464,7 +462,10 @@ pub type ValueBox = Box<Value>;
     IntoSchema,
     enum_kinds::EnumKind,
 )]
-#[enum_kind(ValueKind, derive(Decode, Encode, Serialize, Deserialize, IntoSchema))]
+#[enum_kind(
+    ValueKind,
+    derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema)
+)]
 #[allow(clippy::enum_variant_names)]
 #[repr(u8)]
 pub enum Value {
