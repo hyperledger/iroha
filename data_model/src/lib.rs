@@ -462,7 +462,9 @@ pub type ValueBox = Box<Value>;
     IntoFfi,
     TryFromReprC,
     IntoSchema,
+    enum_kinds::EnumKind,
 )]
+#[enum_kind(ValueKind, derive(Decode, Encode, Serialize, Deserialize, IntoSchema))]
 #[allow(clippy::enum_variant_names)]
 #[repr(u8)]
 pub enum Value {
