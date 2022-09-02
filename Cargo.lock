@@ -1948,6 +1948,7 @@ dependencies = [
  "iroha_schema",
  "iroha_telemetry",
  "iroha_version",
+ "itertools",
  "once_cell",
  "parity-scale-codec",
  "pin-project",

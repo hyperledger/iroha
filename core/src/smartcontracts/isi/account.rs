@@ -206,26 +206,7 @@ pub mod isi {
                     FindError::PermissionTokenDefinition(permission.definition_id().clone())
                 })?;
 
-            for ((expected_name, expected_kind), (name, value)) in
-                definition.value().params().zip(permission.params())
-            {
-                if expected_name != name {
-                    return Err(ValidationError::new(format!(
-                        "Parameter name mismatch: expected `{}`, got `{}`",
-                        expected_name, name
-                    ))
-                    .into());
-                }
-
-                let actual_kind: ValueKind = value.into();
-                if expected_kind != &actual_kind {
-                    return Err(ValidationError::new(format!(
-                        "Parameter type mismatch: expected `{}`, got `{}`",
-                        expected_kind, actual_kind,
-                    ))
-                    .into());
-                }
-            }
+            check_permission_token_parameters(&permission, definition.value())?;
 
             wsv.modify_account(&account_id, |account| {
                 let id = account.id();
@@ -237,6 +218,58 @@ pub mod isi {
                 Ok(AccountEvent::PermissionAdded(id.clone()))
             })
         }
+    }
+
+    /// Check if permission `token` has right parameters according to `definition`.
+    ///
+    /// Requires only one bypass over `token` and `definition` parameters.
+    fn check_permission_token_parameters(
+        token: &PermissionToken,
+        definition: &PermissionTokenDefinition,
+    ) -> Result<(), Error> {
+        use itertools::{
+            EitherOrBoth::{Both, Left, Right},
+            Itertools,
+        };
+
+        fn undefined_parameter_error(key: &Name) -> Error {
+            ValidationError::new(format!("Undefined permission token parameter: `{key}`",)).into()
+        }
+
+        for either_or_both in token
+            .params()
+            .map(|(key, value)| (key, ValueKind::from(value)))
+            .zip_longest(definition.params())
+        {
+            match either_or_both {
+                Both((key, kind), (expected_key, expected_kind)) => {
+                    // As keys are guaranteed to be in alphabetical order, that's an error if they are mismatched
+                    if key != expected_key {
+                        return Err(undefined_parameter_error(key));
+                    }
+                    if kind != *expected_kind {
+                        return Err(ValidationError::new(format!(
+                            "Permission token parameter `{key}` type mismatch: \
+                             expected `{expected_kind}`, got `{kind}`",
+                        ))
+                        .into());
+                    }
+                }
+                // No more parameters in the definition
+                Left((key, _)) => {
+                    return Err(undefined_parameter_error(key));
+                }
+                // No more parameters in the permission token
+                Right((expected_key, _)) => {
+                    return Err(ValidationError::new(format!(
+                        "Expected permission parameter `{expected_key}` is missing",
+                    ))
+                    .into());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     impl Execute for Revoke<Account, PermissionToken> {
