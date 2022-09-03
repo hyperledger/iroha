@@ -1850,6 +1850,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
+ "lazy_static",
  "parity-scale-codec",
  "rand 0.8.5",
  "serde",
