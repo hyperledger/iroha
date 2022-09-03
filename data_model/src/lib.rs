@@ -517,6 +517,30 @@ pub enum Value {
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
 }
 
+/// Trait to identify [`ValueKind`] of a type which can be converted to a [`Value`].
+///
+/// Currently used only for permission tokens, so there is no need to implement it
+/// for every type convertible to [`Value`] until some permission token needs this.
+///
+/// Will be removed as well as builtin permission tokens and validators
+/// when *runtime validators* and *runtime permissions* will be properly implemented.
+pub trait CorrespondingValueKind: Into<Value> {
+    /// Kind of the [`Value`] which the implementing type can be converted to.
+    const KIND: ValueKind;
+}
+
+impl CorrespondingValueKind for u32 {
+    const KIND: ValueKind = ValueKind::U32;
+}
+
+impl CorrespondingValueKind for u128 {
+    const KIND: ValueKind = ValueKind::U128;
+}
+
+impl<I: Into<IdBox> + Into<Value>> CorrespondingValueKind for I {
+    const KIND: ValueKind = ValueKind::Id;
+}
+
 /// Cross-platform wrapper for `BlockValue`.
 #[cfg(not(target_arch = "aarch64"))]
 #[derive(
@@ -779,11 +803,9 @@ from_and_try_from_value_identifiable!(
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
-    PermissionTokenDefinition(Box<permission::token::Definition>),
-    Validator(Box<permission::Validator>),
+    Role(Box<role::Role>),
+    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
 );
-
-from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
 
 impl TryFrom<Value> for RegistrableBox {
     type Error = ErrorTryFromEnum<Value, Self>;

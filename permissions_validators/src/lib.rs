@@ -79,7 +79,7 @@ macro_rules! declare_token {
             iroha_schema::IntoSchema,
         )]
         pub struct $ident
-        where $($param_typ: Into<Value>,)* {
+        where $($param_typ: Into<Value> + ::iroha_data_model::CorrespondingValueKind,)* {
             $(
                 $(#[$inner_meta])*
                 #[doc = concat!(
@@ -116,7 +116,18 @@ macro_rules! declare_token {
             fn definition() -> &'static PermissionTokenDefinition {
                 static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
                     once_cell::sync::Lazy::new(|| {
-                        PermissionTokenDefinition::new($string.parse().expect("Tested. Works."))
+                        PermissionTokenDefinition::new(
+                            $string.parse().expect("Failed to parse permission token definition id: \
+                                                    `{$string}`. This is a bug")
+                        )
+                        .with_params([
+                            $((
+                                $param_string.parse()
+                                    .expect("Failed to parse permission token parameter name: \
+                                             `{$param_string}`. This is a bug"),
+                                <$param_typ as ::iroha_data_model::CorrespondingValueKind>::KIND
+                            ),)*
+                        ])
                     });
                 &DEFINITION
             }
