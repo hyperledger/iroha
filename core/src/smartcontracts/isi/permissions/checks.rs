@@ -297,3 +297,58 @@ pub fn check_query_in_instruction(
         Instruction::Fail(_) | Instruction::ExecuteTrigger(_) => Ok(()),
     }
 }
+
+/// Check if permission `token` has right parameters according to `definition`.
+///
+/// Requires only one bypass over `token` and `definition` parameters.
+///
+/// # Errors
+/// - If `token` doesn't have any parameter from `definition`
+/// - If `token` has any parameter that is not in `definition`
+pub fn check_permission_token_parameters(
+    token: &PermissionToken,
+    definition: &PermissionTokenDefinition,
+) -> std::result::Result<(), ValidationError> {
+    use iroha_data_model::ValueKind;
+    use itertools::{
+        EitherOrBoth::{Both, Left, Right},
+        Itertools,
+    };
+
+    fn undefined_parameter_error(key: &Name) -> ValidationError {
+        ValidationError::new(format!("Undefined permission token parameter: `{key}`",))
+    }
+
+    for either_or_both in token
+        .params()
+        .map(|(key, value)| (key, ValueKind::from(value)))
+        .zip_longest(definition.params())
+    {
+        match either_or_both {
+            Both((key, kind), (expected_key, expected_kind)) => {
+                // As keys are guaranteed to be in alphabetical order, that's an error if they are mismatched
+                if key != expected_key {
+                    return Err(undefined_parameter_error(key));
+                }
+                if kind != *expected_kind {
+                    return Err(ValidationError::new(format!(
+                        "Permission token parameter `{key}` type mismatch: \
+                            expected `{expected_kind}`, got `{kind}`",
+                    )));
+                }
+            }
+            // No more parameters in the definition
+            Left((key, _)) => {
+                return Err(undefined_parameter_error(key));
+            }
+            // No more parameters in the permission token
+            Right((expected_key, _)) => {
+                return Err(ValidationError::new(format!(
+                    "Expected permission parameter `{expected_key}` is missing",
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
