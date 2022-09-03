@@ -327,9 +327,6 @@ mod token_parameters {
                 "test_permission_token_definition".parse().expect("Valid"),
             );
 
-        pub static ref TEST_ACCOUNT_ID: <Account as Identifiable>::Id =
-            "alice@wonderland".parse().expect("Valid");
-
         pub static ref NUMBER_PARAMETER_NAME: Name =
             "number".parse().expect("Valid");
 
@@ -339,87 +336,75 @@ mod token_parameters {
 
     #[test]
     fn token_with_missing_parameters_is_not_accepted() {
-        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
-        wait_for_genesis_committed(&vec![client.clone()], 0);
-
-        register_test_token_definition(&client);
-
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone());
-        let _err = client
-            .submit_blocking(GrantBox::new(token, TEST_ACCOUNT_ID.clone()))
-            .expect_err("Expected to fail to grant permission token without parameters");
+        run_error_test(
+            PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()),
+            "Expected to fail to grant permission token without parameters",
+        );
     }
 
     #[test]
     fn token_with_one_missing_parameter_is_not_accepted() {
-        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
-        wait_for_genesis_committed(&vec![client.clone()], 0);
-
-        register_test_token_definition(&client);
-
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone())
-            .with_params([(NUMBER_PARAMETER_NAME.clone(), 1_u32.into())]);
-        let _err = client
-            .submit_blocking(GrantBox::new(token, TEST_ACCOUNT_ID.clone()))
-            .expect_err("Expected to fail to grant permission token with one missing parameter");
+        run_error_test(
+            PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone())
+                .with_params([(NUMBER_PARAMETER_NAME.clone(), 1_u32.into())]),
+            "Expected to fail to grant permission token with one missing parameter",
+        );
     }
 
     #[test]
     fn token_with_changed_parameter_name_is_not_accepted() {
-        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
-        wait_for_genesis_committed(&vec![client.clone()], 0);
-
-        register_test_token_definition(&client);
-
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-            (
-                "it's_a_trap".parse().expect("Valid"),
-                "test".to_owned().into(),
-            ),
-        ]);
-        let _err = client
-            .submit_blocking(GrantBox::new(token, TEST_ACCOUNT_ID.clone()))
-            .expect_err("Expected to fail to grant permission token with one missing parameter");
+        run_error_test(
+            PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+                (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+                (
+                    "it's_a_trap".parse().expect("Valid"),
+                    "test".to_owned().into(),
+                ),
+            ]),
+            "Expected to fail to grant permission token with one changed parameter",
+        );
     }
 
     #[test]
     fn token_with_extra_parameter_is_not_accepted() {
-        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
-        wait_for_genesis_committed(&vec![client.clone()], 0);
-
-        register_test_token_definition(&client);
-
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-            (STRING_PARAMETER_NAME.clone(), "test".to_owned().into()),
-            (
-                "extra_param".parse().expect("Valid"),
-                "extra_test".to_owned().into(),
-            ),
-        ]);
-        let _err = client
-            .submit_blocking(GrantBox::new(token, TEST_ACCOUNT_ID.clone()))
-            .expect_err("Expected to fail to grant permission token with extra parameter");
+        run_error_test(
+            PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+                (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+                (STRING_PARAMETER_NAME.clone(), "test".to_owned().into()),
+                (
+                    "extra_param".parse().expect("Valid"),
+                    "extra_test".to_owned().into(),
+                ),
+            ]),
+            "Expected to fail to grant permission token with extra parameter",
+        );
     }
 
     #[test]
     fn token_with_wrong_parameter_type_is_not_accepted() {
+        run_error_test(
+            PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+                (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+                (
+                    STRING_PARAMETER_NAME.clone(),
+                    Value::Name("test".parse().expect("Valid")),
+                ),
+            ]),
+            "Expected to fail to grant permission token with wrong parameter type",
+        );
+    }
+
+    fn run_error_test(token: PermissionToken, error_mes: &'static str) {
         let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
         wait_for_genesis_committed(&vec![client.clone()], 0);
 
         register_test_token_definition(&client);
 
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-            (
-                STRING_PARAMETER_NAME.clone(),
-                Value::Name("test".parse().expect("Valid")),
-            ),
-        ]);
+        let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+
         let _err = client
-            .submit_blocking(GrantBox::new(token, TEST_ACCOUNT_ID.clone()))
-            .expect_err("Expected to fail to grant permission token with wrong parameter type");
+            .submit_blocking(GrantBox::new(token, account_id))
+            .expect_err(error_mes);
     }
 
     fn register_test_token_definition(client: &Client) {
