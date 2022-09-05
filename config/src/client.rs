@@ -11,7 +11,7 @@ use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
-const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 15_000;
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 
 /// Wrapper over `SmallStr` to provide basic auth login checking
