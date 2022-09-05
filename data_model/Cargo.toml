@@ -49,6 +49,7 @@ warp = { version = "0.3.2", default-features = false, optional = true }
 thiserror = { version = "1.0.32", optional = true }
 getset = "0.1.2"
 strum = { version = "0.24.1", default-features = false, features = ["derive"] }
+base64 = { version = "0.13.0", default-features = false, features = ["alloc"]}
 enum-kinds = { version = "0.5.1", default-features = false, features = ["no-stdlib"] }
 
 [dev-dependencies]
