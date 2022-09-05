@@ -201,24 +201,24 @@ pub mod isi {
 
             let wsv_clone = wsv.clone();
 
-            wsv_clone.permission_token_definitions()
+            wsv_clone
+                .permission_token_definitions()
                 .get(permission.definition_id())
                 .ok_or_else(|| {
                     FindError::PermissionTokenDefinition(permission.definition_id().clone())
                 })?;
 
-            let temporary_error = wsv.modify_account(&account_id, |account| {
+            wsv.modify_account(&account_id, |account| {
                 let id = account.id();
                 if wsv_clone.account_contains_inherent_permission(id, &permission) {
                     return Err(ValidationError::new("Permission already exists").into());
                 }
 
                 Ok(AccountEvent::PermissionAdded(id.clone()))
-            });
-            if temporary_error.is_ok() {
+            })
+            .map(|_| {
                 wsv.add_account_permission(&account_id, permission);
-            }
-            temporary_error
+            })
         }
     }
 
@@ -236,7 +236,9 @@ pub mod isi {
 
             let wsv_clone = wsv.clone();
 
-            let temporary_error = wsv.modify_account(&account_id, |account| {
+            let did_remove = wsv.remove_account_permission(&account_id, &permission);
+
+            wsv.modify_account(&account_id, |account| {
                 if !wsv_clone
                     .permission_token_definitions()
                     .contains_key(permission.definition_id())
@@ -244,14 +246,12 @@ pub mod isi {
                     error!(%permission, "Revoking non-existent token");
                 }
                 let id = account.id();
-                Ok(AccountEvent::PermissionRemoved(id.clone()))
-            });
-            if temporary_error.is_ok() {
-                if !wsv.remove_account_permission(&account_id, &permission) {
-                    return Err(ValidationError::new("Permission not found").into());
+                if did_remove {
+                    Ok(AccountEvent::PermissionRemoved(id.clone()))
+                } else {
+                    Err(ValidationError::new("Permission not found").into())
                 }
-            }
-            temporary_error
+            })
         }
     }
 

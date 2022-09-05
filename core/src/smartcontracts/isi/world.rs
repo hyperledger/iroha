@@ -303,7 +303,8 @@ pub mod isi {
             let account_ids = domain.accounts().map(|account| {
                 (
                     account.id().clone(),
-                    wsv_clone.account_inherent_permission_tokens(account)
+                    wsv_clone
+                        .account_inherent_permission_tokens(account)
                         .filter(|token| token.definition_id() == target_definition_id)
                         .collect::<Vec<_>>(),
                 )

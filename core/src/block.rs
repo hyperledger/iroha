@@ -14,9 +14,7 @@ use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
-use iroha_config::sumeragi::{
-    DEFAULT_BLOCK_TIME_MS, DEFAULT_COMMIT_TIME_LIMIT_MS, DEFAULT_TX_RECEIPT_TIME_LIMIT_MS,
-};
+use iroha_config::sumeragi::{DEFAULT_BLOCK_TIME_MS, DEFAULT_COMMIT_TIME_LIMIT_MS};
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     block_value::{BlockHeaderValue, BlockValue},
@@ -37,13 +35,12 @@ use crate::{
     tx::{TransactionValidator, VersionedAcceptedTransaction},
 };
 
-const PIPELINE_TIME_MS: u64 =
-    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_LIMIT_MS + DEFAULT_TX_RECEIPT_TIME_LIMIT_MS;
+const PIPELINE_TIME_MS: u64 = DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_LIMIT_MS;
 
 /// Default estimation of consensus duration
 #[allow(clippy::integer_division)]
 pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
-    (DEFAULT_COMMIT_TIME_LIMIT_MS + PIPELINE_TIME_MS) / 2;
+    DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
 
 /// The chain of the previous block hash. If there is no previous
 /// block - the blockchain is empty.
