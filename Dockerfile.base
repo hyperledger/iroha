@@ -12,5 +12,5 @@ RUN set -eux && \
     rustup +$NIGHTLY target add x86_64-unknown-linux-musl wasm32-unknown-unknown && \
     rustup +$NIGHTLY component add rust-src llvm-tools-preview && \
     # cargo install
-    cargo install cargo-lints cargo-nono webassembly-test-runner && \
+    cargo install cargo-lints webassembly-test-runner && \
     :

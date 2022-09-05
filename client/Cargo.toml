@@ -53,6 +53,9 @@ hex = "0.4.3"
 tracing-subscriber = { version = "0.3.15", default-features = false, features = ["fmt", "ansi"] }
 tracing-flame = "0.2.0"
 
+[build-dependencies]
+eyre = "0.6.5"
+
 [[bench]]
 name = "torii"
 harness = false
