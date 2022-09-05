@@ -307,6 +307,7 @@ pub fn check_query_in_instruction(
 /// Fails if there is a mismatch between a permissions `token` and its `definition`:
 /// - If a `token` doesn't have all parameters from its `definition`
 /// - If a `token` has parameters that are not not in its `definition`
+/// - If a `token` has a parameter with a different type than in its `definition`
 pub fn check_permission_token_parameters(
     token: &PermissionToken,
     definition: &PermissionTokenDefinition,
