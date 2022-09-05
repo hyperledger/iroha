@@ -124,7 +124,6 @@ pub mod isi {
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let role = self.object.build();
-            let role_id = role.id().clone();
 
             for permission in role.permissions() {
                 let definition = wsv
@@ -137,13 +136,14 @@ pub mod isi {
                 permissions::check_permission_token_parameters(permission, definition.value())?;
             }
 
-            if wsv.roles().contains_key(&role_id) {
+            if wsv.roles().contains_key(role.id()) {
                 return Err(Error::Repetition(
                     InstructionType::Register,
-                    IdBox::RoleId(role_id),
+                    IdBox::RoleId(role.id().clone()),
                 ));
             }
 
+            let role_id = role.id().clone();
             wsv.modify_world(|world| {
                 world.roles.insert(role_id.clone(), role);
                 Ok(RoleEvent::Created(role_id).into())

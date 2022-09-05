@@ -300,7 +300,8 @@ pub fn check_query_in_instruction(
 
 /// Check if permission `token` has right parameters according to `definition`.
 ///
-/// Requires only one bypass over `token` and `definition` parameters.
+/// Takes `O(max(N, M))` time, where *N* is the number of parameters in `token`
+/// and *M* is the number of parameters in `definition`
 ///
 /// # Errors
 /// - If `token` doesn't have any parameter from `definition`
@@ -314,10 +315,6 @@ pub fn check_permission_token_parameters(
         EitherOrBoth::{Both, Left, Right},
         Itertools,
     };
-
-    fn undefined_parameter_error(key: &Name) -> ValidationError {
-        ValidationError::new(format!("Undefined permission token parameter: `{key}`",))
-    }
 
     for either_or_both in token
         .params()
@@ -351,4 +348,8 @@ pub fn check_permission_token_parameters(
     }
 
     Ok(())
+}
+
+fn undefined_parameter_error(key: &Name) -> ValidationError {
+    ValidationError::new(format!("Undefined permission token parameter: `{key}`",))
 }

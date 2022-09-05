@@ -321,90 +321,6 @@ mod token_parameters {
 
     use super::*;
 
-    /// Generate tests for permission token granting and for role registration.
-    ///
-    /// `Grant<Account, PermissionToken>` and `Register<Role>` should perform the same checks for
-    /// `PermissionToken` parameters validity. So here we use the same scenarios with different
-    /// runner functions to run tests for both instructions.
-    macro_rules! gen_tests {
-        (
-            tests: {
-                $($test_name:ident: { // Name of the test
-                    token: $token_expr:expr, // Token that will be tested
-                    expect: $expect:literal, // Error message to print if instruction succeeds
-                },)*
-                $(,)?
-            },
-            grant_token_runner: $runner:ident,
-            register_role_runner: $role_runner:ident $(,)?
-        ) => {
-            $(
-                #[test]
-                fn $test_name() {
-                    $runner($token_expr, $expect);
-                }
-            )*
-
-            mod roles {
-                use super::*;
-
-                $(
-                    #[test]
-                    fn $test_name() {
-                        $role_runner($token_expr, $expect);
-                    }
-                )*
-            }
-        };
-    }
-
-    gen_tests! {
-        tests: {
-            token_with_missing_parameters_is_not_accepted: {
-                token: PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()),
-                expect: "Expected to fail to grant permission token without parameters",
-            },
-            token_with_one_missing_parameter_is_not_accepted: {
-                token: PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone())
-                    .with_params([(NUMBER_PARAMETER_NAME.clone(), 1_u32.into())]),
-                expect: "Expected to fail to grant permission token with one missing parameter",
-            },
-            token_with_changed_parameter_name_is_not_accepted: {
-                token: PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-                    (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-                    (
-                        "it's_a_trap".parse().expect("Valid"),
-                        "test".to_owned().into(),
-                    ),
-                ]),
-                expect: "Expected to fail to grant permission token with one changed parameter",
-            },
-            token_with_extra_parameter_is_not_accepted: {
-                token: PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-                    (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-                    (STRING_PARAMETER_NAME.clone(), "test".to_owned().into()),
-                    (
-                        "extra_param".parse().expect("Valid"),
-                        "extra_test".to_owned().into(),
-                    ),
-                ]),
-                expect: "Expected to fail to grant permission token with extra parameter",
-            },
-            token_with_wrong_parameter_type_is_not_accepted: {
-                token: PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-                    (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-                    (
-                        STRING_PARAMETER_NAME.clone(),
-                        Value::Name("test".parse().expect("Valid")),
-                    ),
-                ]),
-                expect: "Expected to fail to grant permission token with wrong parameter type",
-            },
-        },
-        grant_token_runner: run_grant_token_error_test,
-        register_role_runner: run_grant_role_error_test,
-    }
-
     lazy_static::lazy_static! {
         pub static ref TEST_TOKEN_DEFINITION_ID: <PermissionTokenDefinition as Identifiable>::Id =
             <PermissionTokenDefinition as Identifiable>::Id::new(
@@ -416,6 +332,71 @@ mod token_parameters {
 
         pub static ref STRING_PARAMETER_NAME: Name =
             "string".parse().expect("Valid");
+    }
+
+    #[test]
+    fn token_with_missing_parameters_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone());
+        let expect = "Expected to fail to grant permission token without parameters";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_one_missing_parameter_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone())
+            .with_params([(NUMBER_PARAMETER_NAME.clone(), 1_u32.into())]);
+        let expect = "Expected to fail to grant permission token with one missing parameter";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_changed_parameter_name_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+            (
+                "it's_a_trap".parse().expect("Valid"),
+                "test".to_owned().into(),
+            ),
+        ]);
+        let expect = "Expected to fail to grant permission token with one changed parameter";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_extra_parameter_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+            (STRING_PARAMETER_NAME.clone(), "test".to_owned().into()),
+            (
+                "extra_param".parse().expect("Valid"),
+                "extra_test".to_owned().into(),
+            ),
+        ]);
+        let expect = "Expected to fail to grant permission token with extra parameter";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_wrong_parameter_type_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+            (
+                STRING_PARAMETER_NAME.clone(),
+                Value::Name("test".parse().expect("Valid")),
+            ),
+        ]);
+        let expect = "Expected to fail to grant permission token with wrong parameter type";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
     }
 
     /// Run granting permission `token` test and expect it to fail.
@@ -437,7 +418,7 @@ mod token_parameters {
     /// Run role registration with provided permission `token` test and expect it to fail.
     ///
     /// Will panic with `expect` if registration succeed
-    fn run_grant_role_error_test(token: PermissionToken, expect: &'static str) {
+    fn run_register_role_error_test(token: PermissionToken, expect: &'static str) {
         let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
         wait_for_genesis_committed(&vec![client.clone()], 0);
 
