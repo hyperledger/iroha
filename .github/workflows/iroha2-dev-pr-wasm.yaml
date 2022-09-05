@@ -39,9 +39,6 @@ jobs:
       - name: Documentation
         if: always()
         run: cargo doc --no-deps --quiet
-      - name: no_std compatibility
-        if: always()
-        run: cargo nono check --package iroha_wasm
 
   tests:
     runs-on: [self-hosted, Linux]
