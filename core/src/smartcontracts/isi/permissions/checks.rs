@@ -301,13 +301,13 @@ pub fn check_query_in_instruction(
 /// Check if a permission `token` has the parameters from its `definition`.
 ///
 /// Takes `O(max(N, M))` time, where *N* is the number of parameters in `token`
-/// and *M* is the number of parameters in `definition`
+/// and *M* is the number of parameters in `definition`.
 ///
 /// # Errors
 /// Fails if there is a mismatch between a permissions `token` and its `definition`:
 /// - If a `token` doesn't have all parameters from its `definition`
-/// - If a `token` has parameters that are not not in its `definition`
-/// - If a `token` has a parameter with a different type than in its `definition`
+/// - If a `token` has parameters that are not in its `definition`
+/// - If a `token` has a parameter of a different type than in its `definition`
 pub fn check_permission_token_parameters(
     token: &PermissionToken,
     definition: &PermissionTokenDefinition,

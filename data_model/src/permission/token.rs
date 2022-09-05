@@ -189,7 +189,7 @@ impl Token {
 
 /// Trait to identify [`ValueKind`] of a type which can be used as a [`PermissionToken`] parameter.
 ///
-/// On higher level, all permission token parameters have [`Value`] type, but for now we allow
+/// On a higher level, all permission token parameters have [`Value`] type, but for now we allow
 /// to define builtin permission tokens with stronger types.
 /// This trait is used to retrieve the [`kind`](`ValueKind`) of a [`Value`] which can be constructed
 /// from given parameter.
@@ -197,7 +197,7 @@ impl Token {
 /// Will be removed as well as builtin permission tokens and validators
 /// when *runtime validators* and *runtime permissions* will be properly implemented.
 pub trait PermissionTokenValueTrait: Into<Value> {
-    /// Kind of the [`Value`] which the implementing type can be converted to.
+    /// The kind of the [`Value`] which the implementing type can be converted to.
     const TYPE: ValueKind;
 }
 
