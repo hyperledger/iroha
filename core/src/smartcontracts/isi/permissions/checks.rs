@@ -326,24 +326,27 @@ pub fn check_permission_token_parameters(
             Both((key, kind), (expected_key, expected_kind)) => {
                 // As keys are guaranteed to be in alphabetical order, that's an error if they are mismatched
                 if key != expected_key {
-                    return Err(undefined_parameter_error(key));
+                    return Err(missing_parameter(expected_key));
                 }
                 if kind != *expected_kind {
-                    return Err(ValidationError::new(format!(
-                        "Permission token parameter `{key}` type mismatch: \
-                            expected `{expected_kind}`, got `{kind}`",
-                    )));
+                    return Err(ValidationError::new(
+                        format!(
+                            "Permission token parameter `{key}` type mismatch: \
+                            expected `{expected_kind}`, got `{kind}`"
+                        )
+                        .into(),
+                    ));
                 }
             }
             // No more parameters in the definition
             Left((key, _)) => {
-                return Err(undefined_parameter_error(key));
+                return Err(ValidationError::new(
+                    format!("Undefined permission token parameter: `{key}`").into(),
+                ));
             }
             // No more parameters in the permission token
             Right((expected_key, _)) => {
-                return Err(ValidationError::new(format!(
-                    "Permission parameter `{expected_key}` is missing",
-                )));
+                return Err(missing_parameter(expected_key));
             }
         }
     }
@@ -351,6 +354,6 @@ pub fn check_permission_token_parameters(
     Ok(())
 }
 
-fn undefined_parameter_error(key: &Name) -> ValidationError {
-    ValidationError::new(format!("Undefined permission token parameter: `{key}`",))
+fn missing_parameter(key: &Name) -> ValidationError {
+    ValidationError::new(format!("Permission parameter `{key}` is missing").into())
 }

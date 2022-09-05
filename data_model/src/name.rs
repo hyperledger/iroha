@@ -49,11 +49,14 @@ impl Name {
         if range.contains(&self.0.chars().count()) {
             Ok(())
         } else {
-            Err(ValidationError::new(format!(
-                "Name must be between {} and {} characters in length.",
-                &range.start(),
-                &range.end()
-            )))
+            Err(ValidationError::new(
+                format!(
+                    "Name must be between {} and {} characters in length.",
+                    &range.start(),
+                    &range.end()
+                )
+                .into(),
+            ))
         }
     }
 

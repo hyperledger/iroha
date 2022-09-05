@@ -80,7 +80,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 if account.contains_signatory(&public_key) {
                     return Err(ValidationError::new(
-                        "Account already contains this signatory".to_owned(),
+                        "Account already contains this signatory".into(),
                     )
                     .into());
                 }
@@ -108,12 +108,12 @@ pub mod isi {
                     return Err(ValidationError::new(
                         "Public keys cannot be burned to nothing. \
                          If you want to delete the account, please use an unregister instruction."
-                            .to_owned(),
+                            .into(),
                     )
                     .into());
                 }
                 if !account.remove_signatory(&public_key) {
-                    return Err(ValidationError::new("Public key not found".to_owned()).into());
+                    return Err(ValidationError::new("Public key not found".into()).into());
                 }
 
                 Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
@@ -211,7 +211,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let id = account.id();
                 if wsv.account_contains_inherent_permission(id, &permission) {
-                    return Err(ValidationError::new("Permission already exists".to_owned()).into());
+                    return Err(ValidationError::new("Permission already exists".into()).into());
                 }
 
                 wsv.add_account_permission(id, permission);
@@ -237,7 +237,7 @@ pub mod isi {
                 }
                 let id = account.id();
                 if !wsv.remove_account_permission(id, &permission) {
-                    return Err(ValidationError::new("Permission not found".to_owned()).into());
+                    return Err(ValidationError::new("Permission not found".into()).into());
                 }
                 Ok(AccountEvent::PermissionRemoved(id.clone()))
             })

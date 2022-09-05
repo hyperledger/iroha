@@ -16,7 +16,7 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{
     alloc::alloc,
-    borrow::ToOwned as _,
+    borrow::{Cow, ToOwned as _},
     boxed::Box,
     format,
     string::{String, ToString},
@@ -24,7 +24,7 @@ use alloc::{
 };
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 #[cfg(feature = "std")]
-use std::alloc::alloc;
+use std::{alloc::alloc, borrow::Cow};
 
 use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
@@ -192,7 +192,7 @@ impl std::error::Error for ParseError {}
 /// Validation of the data model entity failed.
 #[derive(Debug, Display, Clone)]
 pub struct ValidationError {
-    reason: String,
+    reason: Cow<'static, str>,
 }
 
 #[cfg(feature = "std")]
@@ -200,7 +200,7 @@ impl std::error::Error for ValidationError {}
 
 impl ValidationError {
     /// Construct [`ValidationError`].
-    pub fn new(reason: String) -> Self {
+    pub fn new(reason: Cow<'static, str>) -> Self {
         Self { reason }
     }
 }
