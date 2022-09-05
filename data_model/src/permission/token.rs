@@ -91,7 +91,7 @@ impl PermissionTokenDefinition {
         }
     }
 
-    /// Add parameters to the `PermissionToken` replacing any previously defined
+    /// Add parameters to the [`PermissionTokenDefinition`] replacing any parameters previously defined
     #[inline]
     #[must_use]
     pub fn with_params(
@@ -102,9 +102,9 @@ impl PermissionTokenDefinition {
         self
     }
 
-    /// Get an iterator over parameters of the `PermissionToken`
+    /// Get an iterator over parameters of the [`PermissionTokenDefinition`]
     ///
-    /// Values returned from the iterator are guaranteed to be in alphabetical order.
+    /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &crate::ValueKind)> {
         self.params.iter()
@@ -180,7 +180,7 @@ impl Token {
 
     /// Get an iterator over parameters of the [`PermissionToken`].
     ///
-    /// Values returned from the iterator are guaranteed to be in alphabetical order.
+    /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()

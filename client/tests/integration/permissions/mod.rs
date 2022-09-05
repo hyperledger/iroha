@@ -401,7 +401,7 @@ mod token_parameters {
 
     /// Run granting permission `token` test and expect it to fail.
     ///
-    /// Will panic with `expect` if granting succeed
+    /// Will panic with `expect` if permission granting succeeds
     fn run_grant_token_error_test(token: PermissionToken, expect: &'static str) {
         let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
         wait_for_genesis_committed(&vec![client.clone()], 0);
@@ -417,7 +417,7 @@ mod token_parameters {
 
     /// Run role registration with provided permission `token` test and expect it to fail.
     ///
-    /// Will panic with `expect` if registration succeed
+    /// Will panic with `expect` if role registration succeeds
     fn run_register_role_error_test(token: PermissionToken, expect: &'static str) {
         let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
         wait_for_genesis_committed(&vec![client.clone()], 0);

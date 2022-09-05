@@ -298,14 +298,15 @@ pub fn check_query_in_instruction(
     }
 }
 
-/// Check if permission `token` has right parameters according to `definition`.
+/// Check if a permission `token` has the parameters from its `definition`.
 ///
 /// Takes `O(max(N, M))` time, where *N* is the number of parameters in `token`
 /// and *M* is the number of parameters in `definition`
 ///
 /// # Errors
-/// - If `token` doesn't have any parameter from `definition`
-/// - If `token` has any parameter that is not in `definition`
+/// Fails if there is a mismatch between a permissions `token` and its `definition`:
+/// - If a `token` doesn't have all parameters from its `definition`
+/// - If a `token` has parameters that are not not in its `definition`
 pub fn check_permission_token_parameters(
     token: &PermissionToken,
     definition: &PermissionTokenDefinition,
@@ -341,7 +342,7 @@ pub fn check_permission_token_parameters(
             // No more parameters in the permission token
             Right((expected_key, _)) => {
                 return Err(ValidationError::new(format!(
-                    "Expected permission parameter `{expected_key}` is missing",
+                    "Permission parameter `{expected_key}` is missing",
                 )));
             }
         }
