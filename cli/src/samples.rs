@@ -70,7 +70,6 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
         private_key: private_key.clone(),
         kura: KuraConfiguration {
             init_mode: iroha_config::kura::Mode::Strict,
-            block_store_path: "./blocks".into(),
             ..KuraConfiguration::default()
         },
         sumeragi: SumeragiConfiguration {
