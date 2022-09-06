@@ -14,7 +14,7 @@ use crate::{
     expression::Expression,
     isi::Instruction,
     query::QueryBox,
-    transaction::{Transaction, WasmSmartContract},
+    transaction::{SignedTransaction, WasmSmartContract},
     ParseError,
 };
 
@@ -177,8 +177,8 @@ impl NeedsPermission for Expression {
     Deserialize,
 )]
 pub enum NeedsPermissionBox {
-    /// [`Transaction`] application operation
-    Transaction(Transaction),
+    /// [`SignedTransaction`] application operation
+    Transaction(SignedTransaction),
     /// [`Instruction`] execution operation
     Instruction(Instruction),
     /// [`QueryBox`] execution operations

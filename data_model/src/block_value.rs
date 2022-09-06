@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     events::Event,
-    transaction::{VersionedRejectedTransaction, VersionedTransaction, VersionedValidTransaction},
+    transaction::{
+        VersionedRejectedTransaction, VersionedSignedTransaction, VersionedValidTransaction,
+    },
 };
 
 /// Block header
@@ -29,9 +31,9 @@ pub struct BlockHeaderValue {
     /// Is an array of zeros for the first block.
     pub previous_block_hash: Hash,
     /// Hash of merkle tree root of the tree of valid transactions' hashes.
-    pub transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
+    pub transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
+    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
     /// Hashes of the blocks that were rejected by consensus.
     pub invalidated_blocks_hashes: Vec<Hash>,
     /// Hash of the most recent block

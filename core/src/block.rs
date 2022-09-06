@@ -301,9 +301,9 @@ pub struct BlockHeader {
     /// Is an array of zeros for the first block.
     pub previous_block_hash: HashOf<VersionedCommittedBlock>,
     /// Hash of merkle tree root of the tree of valid transactions' hashes.
-    pub transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
+    pub transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
+    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
     /// Number of view changes after the previous block was committed and before this block was committed.
     pub view_change_proofs: ViewChangeProofs,
     /// Hashes of the blocks that were rejected by consensus.

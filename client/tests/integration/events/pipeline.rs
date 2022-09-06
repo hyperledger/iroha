@@ -58,7 +58,7 @@ fn test_with_instruction_and_status(
 #[derive(Clone)]
 struct Checker {
     listener: iroha_client::client::Client,
-    hash: iroha_crypto::HashOf<Transaction>,
+    hash: iroha_crypto::HashOf<SignedTransaction>,
 }
 
 impl Checker {

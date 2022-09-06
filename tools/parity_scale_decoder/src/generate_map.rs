@@ -182,11 +182,11 @@ pub fn generate_map() -> DumpDecodedMap {
         GrantBox,
         Greater,
         Hash,
-        HashOf<MerkleTree<transaction::VersionedTransaction>>,
+        HashOf<MerkleTree<transaction::VersionedSignedTransaction>>,
         HashOf<block::VersionedCommittedBlock>,
         HashOf<block::VersionedValidBlock>,
         HashOf<sumeragi::view_change::Proof>,
-        HashOf<transaction::VersionedTransaction>,
+        HashOf<transaction::VersionedSignedTransaction>,
         IdBox,
         IdentifiableBox,
         IfExpression,
@@ -276,8 +276,7 @@ pub fn generate_map() -> DumpDecodedMap {
         TimeEventFilter,
         TimeInterval,
         TimeSchedule,
-        Transaction,
-        TransactionQueryResult,
+        SignedTransaction,
         TransactionRejectionReason,
         TransactionValue,
         TransferBox,
@@ -313,7 +312,7 @@ pub fn generate_map() -> DumpDecodedMap {
         VersionedQueryResult,
         VersionedRejectedTransaction,
         VersionedSignedQueryRequest,
-        VersionedTransaction,
+        VersionedSignedTransaction,
         VersionedValidTransaction,
         WasmExecutionFail,
         Where,
@@ -427,14 +426,23 @@ mod tests {
 
     use super::*;
 
+    macro_rules! type_names_arr {
+        ($($ty:ty),+$(,)?) => {
+            [$(
+                <$ty as IntoSchema>::type_name(),
+            )+]
+        }
+    }
+
     #[test]
     fn schemas_types_is_a_subset_of_map_types() {
-        // Exceptions which does not implement `Decode` so that they can't be decoded by this tool
-        let exceptions = HashSet::from([
-            "Vec<iroha_core::genesis::GenesisTransaction>",
-            "iroha_core::genesis::GenesisTransaction",
-            "iroha_core::genesis::RawGenesisBlock",
-            "iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>",
+        // These types **shouldn't** implement `Decode`. As such we need to make an exception.
+        let exceptions = HashSet::from(type_names_arr![
+            Vec<iroha_core::genesis::GenesisTransaction>,
+            iroha_core::genesis::GenesisTransaction,
+            iroha_core::genesis::RawGenesisBlock,
+            iroha_crypto::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>,
+            TransactionQueryResult,
         ]);
 
         let schemas_types = build_schemas()

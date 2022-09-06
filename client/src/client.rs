@@ -323,7 +323,7 @@ impl Client {
         &self,
         instructions: Executable,
         metadata: UnlimitedMetadata,
-    ) -> Result<Transaction> {
+    ) -> Result<SignedTransaction> {
         let transaction = Transaction::new(
             self.account_id.clone(),
             instructions,
@@ -345,7 +345,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if generating signature fails
-    pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction> {
+    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> Result<SignedTransaction> {
         transaction
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign transaction")
@@ -369,7 +369,7 @@ impl Client {
     pub fn submit(
         &self,
         instruction: impl Into<Instruction> + Debug,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         let isi = instruction.into();
         self.submit_all([isi])
     }
@@ -382,7 +382,7 @@ impl Client {
     pub fn submit_all(
         &self,
         instructions: impl IntoIterator<Item = Instruction>,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -396,7 +396,7 @@ impl Client {
         &self,
         instruction: Instruction,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_with_metadata([instruction], metadata)
     }
 
@@ -410,7 +410,7 @@ impl Client {
         &self,
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_transaction(self.build_transaction(instructions.into(), metadata)?)
     }
 
@@ -421,8 +421,8 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_transaction(
         &self,
-        transaction: Transaction,
-    ) -> Result<HashOf<VersionedTransaction>> {
+        transaction: SignedTransaction,
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         iroha_logger::trace!(tx=?transaction);
         let (req, hash, resp_handler) =
             self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
@@ -441,8 +441,8 @@ impl Client {
     /// Fails if sending a transaction to a peer fails or there is an error in the response
     pub fn submit_transaction_blocking(
         &self,
-        transaction: Transaction,
-    ) -> Result<HashOf<VersionedTransaction>> {
+        transaction: SignedTransaction,
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         let client = self.clone();
         let (init_sender, init_receiver) = mpsc::channel();
         let hash = transaction.hash();
@@ -476,9 +476,9 @@ impl Client {
     // TODO: introduce timeout
     fn listen_for_tx_confirmation(
         &self,
-        hash: HashOf<Transaction>,
+        hash: HashOf<SignedTransaction>,
         init_sender: &mpsc::Sender<()>,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         let event_iterator = self
             .listen_for_events(PipelineEventFilter::new().hash(hash.into()).into())
             .wrap_err("Failed to establish event listener connection")?;
@@ -515,10 +515,14 @@ impl Client {
     /// Fails if transaction check fails
     pub fn prepare_transaction_request<B: RequestBuilder>(
         &self,
-        transaction: Transaction,
-    ) -> Result<(B, HashOf<VersionedTransaction>, TransactionResponseHandler)> {
+        transaction: SignedTransaction,
+    ) -> Result<(
+        B,
+        HashOf<VersionedSignedTransaction>,
+        TransactionResponseHandler,
+    )> {
         transaction.check_limits(&self.transaction_limits)?;
-        let transaction: VersionedTransaction = transaction.into();
+        let transaction: VersionedSignedTransaction = transaction.into();
         let hash = transaction.hash();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
@@ -542,7 +546,7 @@ impl Client {
     pub fn submit_blocking(
         &self,
         instruction: impl Into<Instruction>,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
 
@@ -554,7 +558,7 @@ impl Client {
     pub fn submit_all_blocking(
         &self,
         instructions: impl IntoIterator<Item = Instruction>,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -568,7 +572,7 @@ impl Client {
         &self,
         instruction: impl Into<Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
@@ -582,7 +586,7 @@ impl Client {
         &self,
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedTransaction>> {
+    ) -> Result<HashOf<VersionedSignedTransaction>> {
         let transaction = self.build_transaction(instructions.into(), metadata)?;
         self.submit_transaction_blocking(transaction)
     }
@@ -825,11 +829,11 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn get_original_transaction_with_pagination(
         &self,
-        transaction: &Transaction,
+        transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
         pagination: Pagination,
-    ) -> Result<Option<Transaction>> {
+    ) -> Result<Option<SignedTransaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(
@@ -874,10 +878,10 @@ impl Client {
     /// Fails if sending request fails
     pub fn get_original_transaction(
         &self,
-        transaction: &Transaction,
+        transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-    ) -> Result<Option<Transaction>> {
+    ) -> Result<Option<SignedTransaction>> {
         self.get_original_transaction_with_pagination(
             transaction,
             retry_count,

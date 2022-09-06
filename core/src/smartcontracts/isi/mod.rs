@@ -145,7 +145,7 @@ pub mod error {
         Block(HashOf<VersionedCommittedBlock>),
         /// Transaction with given hash not found.
         #[error("Transaction not found")]
-        Transaction(HashOf<VersionedTransaction>),
+        Transaction(HashOf<VersionedSignedTransaction>),
         /// Value not found in context.
         #[error("Value named {0} not found in context. ")]
         Context(String),
