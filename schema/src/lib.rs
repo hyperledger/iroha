@@ -84,7 +84,7 @@ pub struct ArrayMeta {
     pub sorted: bool,
 }
 
-/// Array metadata
+/// Vector metadata
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct VecMeta {
     /// Type
