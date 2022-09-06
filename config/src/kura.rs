@@ -7,7 +7,7 @@ use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_BLOCKS_PER_STORAGE_FILE: u64 = 1000_u64;
-const DEFAULT_BLOCK_STORE_PATH: &str = "./blocks";
+const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// `Kura` configuration.
