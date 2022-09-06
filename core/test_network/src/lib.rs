@@ -404,6 +404,9 @@ where
     shutdown: Option<JoinHandle<()>>,
     /// Iroha itself
     pub iroha: Option<Iroha<G, S, B>>,
+    /// Temporary directory
+    // Note: last field to be dropped after Iroha (struct fields drops in FIFO RFC 1857)
+    temp_dir: Option<Arc<TempDir>>,
 }
 
 impl From<Peer> for Box<iroha_core::tx::Peer> {
@@ -433,13 +436,6 @@ where
             api_addr = %self.api_address,
             "Stopping peer",
         );
-
-        // We don't care about block storage, since this is
-        // a test peer that won't be run again.
-        if let Some(iroha) = &self.iroha {
-            iroha_logger::info!("Shutting down kura...");
-            iroha.kura.force_shutdown();
-        }
 
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.abort();
@@ -506,8 +502,6 @@ where
 
         let handle = task::spawn(
             async move {
-                // Prevent temporary directory deleting
-                let _temp_dir = Arc::clone(&temp_dir);
                 let mut iroha = <Iroha<G, S, B>>::with_genesis(
                     genesis,
                     configuration,
@@ -528,6 +522,8 @@ where
         self.iroha = Some(receiver.recv().unwrap());
         time::sleep(Duration::from_millis(300)).await;
         self.shutdown = Some(handle);
+        // Prevent temporary directory deleting
+        self.temp_dir = Some(temp_dir);
     }
 
     /// Creates peer
@@ -556,6 +552,7 @@ where
             shutdown,
             iroha: None,
             broker: Broker::new(),
+            temp_dir: None,
         })
     }
 }
