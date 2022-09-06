@@ -17,6 +17,7 @@ use iroha_config::iroha::Configuration;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
+    handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
@@ -83,6 +84,20 @@ where
     pub block_sync: AlwaysAddr<B>,
     /// Torii web server
     pub torii: Option<Torii>,
+    /// Thread handlers
+    thread_handlers: Vec<ThreadHandler>,
+}
+
+impl<G, S, B> Drop for Iroha<G, S, B>
+where
+    G: GenesisNetworkTrait,
+    S: SumeragiTrait<GenesisNetwork = G>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
+{
+    fn drop(&mut self) {
+        // Drop thread handles first
+        let _thread_handles = core::mem::take(&mut self.thread_handlers);
+    }
 }
 
 impl<G, S, B> Iroha<G, S, B>
@@ -233,6 +248,8 @@ where
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
         let kura = Kura::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())?;
 
+        let kura_thread_handler = Kura::start(Arc::clone(&kura));
+
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi,
             events_sender.clone(),
@@ -284,6 +301,7 @@ where
             kura,
             block_sync,
             torii,
+            thread_handlers: vec![kura_thread_handler],
         })
     }
 
