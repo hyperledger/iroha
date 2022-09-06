@@ -1968,6 +1968,7 @@ dependencies = [
 name = "iroha_data_model"
 version = "2.0.0-pre-rc.7"
 dependencies = [
+ "base64",
  "criterion",
  "dashmap",
  "derive_more",
