@@ -268,11 +268,11 @@
         },
         {
           "name": "transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "rejected_transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "view_change_proofs",
@@ -473,7 +473,7 @@
         {
           "name": "Transaction",
           "discriminant": 6,
-          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedTransaction>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>"
         },
         {
           "name": "Context",
@@ -692,23 +692,23 @@
       ]
     }
   },
-  "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>": {
+  "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
       ]
     }
   },
-  "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedTransaction>": {
+  "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
       ]
     }
   },
-  "iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>": {
+  "iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>": {
     "Vec": {
-      "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedTransaction>",
+      "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>",
       "sorted": false
     }
   },
@@ -1360,11 +1360,11 @@
         },
         {
           "name": "transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "rejected_transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "invalidated_blocks_hashes",
@@ -4787,7 +4787,7 @@
       ]
     }
   },
-  "iroha_data_model::transaction::Transaction": {
+  "iroha_data_model::transaction::SignedTransaction": {
     "Struct": {
       "declarations": [
         {
@@ -4864,7 +4864,7 @@
         {
           "name": "Transaction",
           "discriminant": 0,
-          "ty": "iroha_data_model::transaction::VersionedTransaction"
+          "ty": "iroha_data_model::transaction::VersionedSignedTransaction"
         },
         {
           "name": "RejectedTransaction",
@@ -4909,13 +4909,13 @@
       ]
     }
   },
-  "iroha_data_model::transaction::VersionedTransaction": {
+  "iroha_data_model::transaction::VersionedSignedTransaction": {
     "Enum": {
       "variants": [
         {
           "name": "V1",
           "discriminant": 1,
-          "ty": "iroha_data_model::transaction::Transaction"
+          "ty": "iroha_data_model::transaction::SignedTransaction"
         }
       ]
     }

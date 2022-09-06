@@ -50,7 +50,7 @@ pub enum Error {
     Query(#[from] query::Error),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
-    VersionedTransaction(#[source] iroha_version::error::Error),
+    VersionedSignedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
     AcceptTransaction(eyre::Report),
@@ -104,7 +104,7 @@ impl Reply for Error {
                 reply::with_status(utils::Scale(&err), query_status_code(&err)).into_response()
             }
             // TODO Have a type-preserved response body instead of a stringified one #2279
-            VersionedTransaction(err)
+            VersionedSignedTransaction(err)
             | DecodeRequestPendingTransactions(err)
             | EncodePendingTransactions(err) => {
                 reply::with_status(err.to_string(), err.status_code()).into_response()
@@ -119,7 +119,7 @@ impl Error {
         use Error::*;
         match self {
             Query(e) => query_status_code(e),
-            VersionedTransaction(err)
+            VersionedSignedTransaction(err)
             | DecodeRequestPendingTransactions(err)
             | EncodePendingTransactions(err) => err.status_code(),
             AcceptTransaction(_)

@@ -88,14 +88,14 @@ pub struct CheckCommitTimeout {
 /// Reminder to check if block creation timeout happened.
 #[derive(Debug, Clone, iroha_actor::Message)]
 pub struct CheckCreationTimeout {
-    pub(crate) tx_hash: HashOf<VersionedTransaction>,
+    pub(crate) tx_hash: HashOf<VersionedSignedTransaction>,
     pub(crate) proof: Proof,
 }
 
 /// Reminder to check if transaction receipt timeout happened.
 #[derive(Debug, Clone, iroha_actor::Message)]
 pub struct CheckReceiptTimeout {
-    pub(crate) tx_hash: HashOf<VersionedTransaction>,
+    pub(crate) tx_hash: HashOf<VersionedSignedTransaction>,
     pub(crate) proof: Proof,
 }
 
@@ -522,7 +522,7 @@ impl From<VersionedValidBlock> for BlockCommitted {
 #[non_exhaustive]
 pub struct TransactionForwarded {
     /// Transaction that is forwarded from a client by a peer to the leader
-    pub transaction: VersionedTransaction,
+    pub transaction: VersionedSignedTransaction,
     /// `PeerId` of the peer that forwarded this transaction to a leader.
     pub peer: PeerId,
 }
@@ -570,7 +570,7 @@ impl TransactionForwarded {
 /// Message for gossiping batches of transactions.
 #[derive(Decode, Encode, Debug, Clone)]
 pub struct TransactionGossip {
-    txs: Vec<VersionedTransaction>,
+    txs: Vec<VersionedSignedTransaction>,
 }
 
 impl TransactionGossip {
@@ -613,11 +613,11 @@ impl TransactionGossip {
 #[non_exhaustive]
 pub struct TransactionReceipt {
     /// The hash of the transaction that the leader received.
-    pub hash: HashOf<VersionedTransaction>,
+    pub hash: HashOf<VersionedSignedTransaction>,
     /// The time at which the leader claims to have received this transaction.
     pub received_at: Duration,
     /// The signature of the leader.
-    pub signature: SignatureOf<VersionedTransaction>,
+    pub signature: SignatureOf<VersionedSignedTransaction>,
 }
 
 impl TransactionReceipt {
@@ -627,7 +627,7 @@ impl TransactionReceipt {
     /// Can fail creating new signature
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn new(
-        transaction: &VersionedTransaction,
+        transaction: &VersionedSignedTransaction,
         key_pair: &KeyPair,
     ) -> Result<TransactionReceipt> {
         let hash = transaction.hash();
