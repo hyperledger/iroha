@@ -15,7 +15,10 @@ use dashmap::{
 };
 use eyre::Result;
 use getset::Getters;
-use iroha_config::wsv::Configuration;
+use iroha_config::{
+    base::proxy::Builder,
+    wsv::{Configuration, ConfigurationProxy},
+};
 use iroha_crypto::HashOf;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
@@ -133,10 +136,14 @@ impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
+    #[allow(clippy::expect_used)]
     pub fn new(world: World) -> Self {
         // Added to remain backward compatible with other code primary in tests
         let (events_sender, _) = broadcast::channel(1);
-        Self::from_configuration(Configuration::default(), world, events_sender)
+        let config = ConfigurationProxy::default()
+            .build()
+            .expect("Wsv proxy always builds");
+        Self::from_configuration(config, world, events_sender)
     }
 
     /// Get `Account`'s `Asset`s

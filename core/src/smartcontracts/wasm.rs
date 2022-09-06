@@ -10,7 +10,10 @@
 
 use anyhow::anyhow;
 use eyre::Context;
-use iroha_config::wasm::Configuration;
+use iroha_config::{
+    base::proxy::Builder,
+    wasm::{Configuration, ConfigurationProxy},
+};
 use iroha_data_model::{permission, prelude::*, ParseError};
 use parity_scale_codec::{Decode, Encode};
 use wasmtime::{
@@ -232,9 +235,12 @@ impl<'wrld> Runtime<'wrld> {
     /// # Errors
     ///
     /// If unable to construct runtime
+    #[allow(clippy::unwrap_in_result)]
     pub fn new() -> Result<Self, Error> {
         let engine = Self::create_engine()?;
-        let config = Configuration::default();
+        let config = ConfigurationProxy::default()
+            .build()
+            .expect("Wasm proxy always builds");
 
         let linker = Self::create_linker(&engine)?;
 

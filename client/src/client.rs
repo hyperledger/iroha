@@ -1362,7 +1362,11 @@ mod tests {
     #![allow(clippy::restriction)]
     use std::str::FromStr;
 
-    use iroha_config::client::{BasicAuth, WebLogin};
+    use iroha_config::{
+        base::proxy::Builder,
+        client::{BasicAuth, ConfigurationProxy, WebLogin},
+        torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
+    };
 
     use super::*;
 
@@ -1375,12 +1379,21 @@ mod tests {
     fn txs_same_except_for_nonce_have_different_hashes() {
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
 
-        let cfg = Configuration {
-            public_key,
-            private_key,
-            add_transaction_nonce: true,
-            ..Configuration::default()
-        };
+        let cfg = ConfigurationProxy {
+            public_key: Some(public_key),
+            private_key: Some(private_key),
+            account_id: Some(
+                "alice@wonderland"
+                    .parse()
+                    .expect("This account ID should be valid"),
+            ),
+            torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
+            torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+            add_transaction_nonce: Some(true),
+            ..ConfigurationProxy::default()
+        }
+        .build()
+        .expect("Client config should build as all required fields were provided");
         let client = Client::new(&cfg).expect("Invalid client configuration");
 
         let build_transaction = || {
@@ -1404,10 +1417,28 @@ mod tests {
             password: SmallStr::from_str(PASSWORD),
         };
 
-        let cfg = Configuration {
-            basic_auth: Some(basic_auth),
-            ..Configuration::default()
-        };
+        let cfg = ConfigurationProxy {
+            public_key: Some(
+                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                    .parse()
+                    .expect("Public key not in mulithash format"),
+            ),
+            private_key: Some(iroha_crypto::PrivateKey::from_hex(
+            iroha_crypto::Algorithm::Ed25519,
+            "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+            ).expect("Private key not hex encoded")),
+            account_id: Some(
+                "alice@wonderland"
+                    .parse()
+                    .expect("This account ID should be valid"),
+            ),
+            torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
+            torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+            basic_auth: Some(Some(basic_auth)),
+            ..ConfigurationProxy::default()
+        }
+        .build()
+        .expect("Client config should build as all required fields were provided");
         let client = Client::new(&cfg).expect("Invalid client configuration");
 
         let value = client

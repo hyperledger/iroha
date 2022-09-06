@@ -11,21 +11,21 @@ const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv,
 )]
 #[config(env_prefix = "WASM_")]
-#[serde(rename_all = "UPPERCASE", default)]
+#[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {
-    /// The fuel limit determines the maximum number of instructions that can be executed during the execution of a smart contract.
+    /// The fuel limit determines the maximum number of instructions that can be executed within a smart contract.
     /// Every WASM instruction costs approximately 1 unit of fuel. See
     /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
     pub fuel_limit: u64,
-    /// Maximum amount of linear memory a given smartcontract can allocate
+    /// Maximum amount of linear memory a given smart contract can allocate.
     pub max_memory: u32,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
-        Configuration {
-            fuel_limit: DEFAULT_FUEL_LIMIT,
-            max_memory: DEFAULT_MAX_MEMORY,
+        Self {
+            fuel_limit: Some(DEFAULT_FUEL_LIMIT),
+            max_memory: Some(DEFAULT_MAX_MEMORY),
         }
     }
 }

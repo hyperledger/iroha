@@ -80,7 +80,6 @@ impl From<Level> for SyncLevel {
 /// 'Logger' configuration.
 #[derive(Clone, Deserialize, Serialize, Debug, Proxy, LoadFromEnv, Documented)]
 #[serde(rename_all = "UPPERCASE")]
-#[serde(default)]
 pub struct Configuration {
     /// Maximum log level
     #[config(serde_as_str)]
@@ -96,14 +95,14 @@ pub struct Configuration {
     pub terminal_colors: bool,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            max_log_level: SyncLevel::default(),
-            telemetry_capacity: TELEMETRY_CAPACITY,
-            compact_mode: DEFAULT_COMPACT_MODE,
-            log_file_path: None,
-            terminal_colors: DEFAULT_TERMINAL_COLORS,
+            max_log_level: Some(SyncLevel::default()),
+            telemetry_capacity: Some(TELEMETRY_CAPACITY),
+            compact_mode: Some(DEFAULT_COMPACT_MODE),
+            log_file_path: Some(None),
+            terminal_colors: Some(DEFAULT_TERMINAL_COLORS),
         }
     }
 }

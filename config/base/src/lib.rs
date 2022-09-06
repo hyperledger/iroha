@@ -2,7 +2,7 @@
 #![allow(clippy::std_instead_of_core)]
 use std::{fmt::Debug, path::Path};
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 pub mod derive {
@@ -183,7 +183,7 @@ pub mod derive {
         #[serde(skip)]
         FieldError(#[from] FieldError),
         /// Used in [`Combine`] trait for build errors
-        #[error("Proxy field was [`None`] at build stage: {0}")]
+        #[error("Proxy failed at build stage due to: {0}")]
         ProxyBuildError(String),
         /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
         #[error("Reading file from disk failed: {0}")]
@@ -328,5 +328,19 @@ pub mod proxy {
 
         /// Construct [`Self::ReturnValue`] from a proxy object.
         fn build(self) -> Self::ReturnValue;
+    }
+
+    /// Deserialization helper for proxy fields that wrap an `Option`
+    ///
+    /// # Errors
+    /// When deserialization of the field fails, e.g. it doesn't have
+    /// the `Option<Option<T>>`
+    #[allow(clippy::option_option)]
+    pub fn some_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        T: Deserialize<'de>,
+        D: Deserializer<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Some)
     }
 }

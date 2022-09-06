@@ -1,7 +1,5 @@
 //! Crate contains iroha client which talks to iroha network via http
 
-pub use iroha_config::client::Configuration;
-
 /// Module with iroha client itself
 pub mod client;
 /// Module with general communication primitives like an HTTP request builder.
@@ -10,21 +8,31 @@ mod http_default;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
-    use iroha_config::torii::uri;
+    use iroha_config::{
+        base::proxy::Builder,
+        client::{Configuration, ConfigurationProxy},
+        torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
+    };
     use iroha_crypto::KeyPair;
-
-    use super::Configuration;
+    use iroha_primitives::small::SmallStr;
 
     /// Get sample client configuration.
     #[allow(clippy::expect_used)]
     pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
         let (public_key, private_key) = key_pair.clone().into();
-        Configuration {
-            public_key,
-            private_key,
-            account_id: "alice@wonderland".parse().expect("Should not fail."),
-            torii_api_url: iroha_primitives::small::SmallStr::from_str(uri::DEFAULT_API_URL),
-            ..Configuration::default()
+        ConfigurationProxy {
+            public_key: Some(public_key),
+            private_key: Some(private_key),
+            account_id: Some(
+                "alice@wonderland"
+                    .parse()
+                    .expect("This account ID should be valid"),
+            ),
+            torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
+            torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+            ..ConfigurationProxy::default()
         }
+        .build()
+        .expect("Client config should build as all required fields were provided")
     }
 }

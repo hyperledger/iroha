@@ -7,7 +7,6 @@ use url::Url;
 /// Configuration parameters container
 #[derive(Clone, Deserialize, Serialize, Debug, Proxy, LoadFromEnv, Documented, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
-#[serde(default)]
 #[config(env_prefix = "TELEMETRY_")]
 pub struct Configuration {
     /// The node's name to be seen on the telemetry
@@ -17,34 +16,24 @@ pub struct Configuration {
     #[config(serde_as_str)]
     pub url: Option<Url>,
     /// The minimum period of time in seconds to wait before reconnecting
-    #[serde(default = "default_min_retry_period")]
     pub min_retry_period: u64,
     /// The maximum exponent of 2 that is used for increasing delay between reconnections
-    #[serde(default = "default_max_retry_delay_exponent")]
     pub max_retry_delay_exponent: u8,
     /// The filepath that to write dev-telemetry to
     #[config(serde_as_str)]
     pub file: Option<std::path::PathBuf>,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            name: None,
-            url: None,
-            min_retry_period: retry_period::DEFAULT_MIN_RETRY_PERIOD,
-            max_retry_delay_exponent: retry_period::DEFAULT_MAX_RETRY_DELAY_EXPONENT,
-            file: None,
+            name: Some(None),
+            url: Some(None),
+            min_retry_period: Some(retry_period::DEFAULT_MIN_RETRY_PERIOD),
+            max_retry_delay_exponent: Some(retry_period::DEFAULT_MAX_RETRY_DELAY_EXPONENT),
+            file: Some(None),
         }
     }
-}
-
-const fn default_min_retry_period() -> u64 {
-    retry_period::DEFAULT_MIN_RETRY_PERIOD
-}
-
-const fn default_max_retry_delay_exponent() -> u8 {
-    retry_period::DEFAULT_MAX_RETRY_DELAY_EXPONENT
 }
 
 /// `RetryPeriod` configuration

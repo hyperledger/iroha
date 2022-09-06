@@ -275,6 +275,7 @@ mod tests {
 
     use eyre::{eyre, Result};
     use futures::{Sink, StreamExt};
+    use iroha_config::base::proxy::Builder;
     use iroha_logger::telemetry::{Telemetry, TelemetryFields};
     use serde_json::{Map, Value};
     use tokio::task::JoinHandle;
@@ -575,7 +576,12 @@ mod tests {
         ($ident:ident, $future:ident) => {
             #[tokio::test]
             async fn $ident() {
-                iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
+                iroha_logger::init(
+                    &iroha_logger::ConfigurationProxy::default()
+                        .build()
+                        .expect("Default logger config should always build"),
+                )
+                .unwrap();
                 let (suite, run_handle) = Suite::new();
                 $future(suite).await;
                 run_handle.await.unwrap();
