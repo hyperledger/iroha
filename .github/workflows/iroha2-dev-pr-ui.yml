@@ -2,7 +2,7 @@ name: I2::Dev::Tests::UI
 
 on:
   pull_request:
-    branches: [iroha2-stable, iroha2-lts]
+    branches: [iroha2-dev, iroha2-stable, iroha2-lts]
     paths:
       - "**/derive/**.rs"
       - "**/tests/ui.rs"
