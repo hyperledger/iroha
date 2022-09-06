@@ -12,7 +12,7 @@
 
 **Method**: `POST`
 
-**Expects**: Body: [`VersionedTransaction`](#iroha-structures)
+**Expects**: Body: [`VersionedSignedTransaction`](#iroha-structures)
 
 **Responses**:
 - 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
@@ -338,7 +338,7 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 ## Iroha Structures
 
-- `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
+- `VersionedSignedTransaction` - `iroha_data_model::transaction::VersionedSignedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
 
 - `VersionedPaginatedQueryResult` - `iroha_data_model::query::VersionedPaginatedQueryResult`

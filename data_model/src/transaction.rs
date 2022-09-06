@@ -227,7 +227,7 @@ pub struct TransactionLimits {
 }
 
 declare_versioned!(
-    VersionedTransaction 1..2,
+    VersionedSignedTransaction 1..2,
     Debug,
     Clone,
     PartialEq,
@@ -236,32 +236,32 @@ declare_versioned!(
     IntoSchema,
 );
 
-impl VersionedTransaction {
-    /// Converts from `&VersionedTransaction` to V1 reference
-    pub const fn as_v1(&self) -> &Transaction {
+impl VersionedSignedTransaction {
+    /// Converts from `&VersionedSignedTransaction` to V1 reference
+    pub const fn as_v1(&self) -> &SignedTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Converts from `&mut VersionedTransaction` to V1 mutable reference
+    /// Converts from `&mut VersionedSignedTransaction` to V1 mutable reference
     #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut Transaction {
+    pub fn as_mut_v1(&mut self) -> &mut SignedTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Performs the conversion from `VersionedTransaction` to V1
+    /// Performs the conversion from `VersionedSignedTransaction` to V1
     #[inline]
-    pub fn into_v1(self) -> Transaction {
+    pub fn into_v1(self) -> SignedTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-impl Txn for VersionedTransaction {
+impl Txn for VersionedSignedTransaction {
     type HashOf = Self;
 
     #[inline]
@@ -272,13 +272,13 @@ impl Txn for VersionedTransaction {
     }
 }
 
-impl From<VersionedValidTransaction> for VersionedTransaction {
+impl From<VersionedValidTransaction> for VersionedSignedTransaction {
     fn from(transaction: VersionedValidTransaction) -> Self {
         match transaction {
             VersionedValidTransaction::V1(transaction) => {
                 let signatures = transaction.signatures.into();
 
-                Transaction {
+                SignedTransaction {
                     payload: transaction.payload,
                     signatures,
                 }
@@ -288,12 +288,20 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
     }
 }
 
-/// This structure represents transaction in non-trusted form.
-///
-/// `Iroha` and its' clients use [`Transaction`] to send transactions
-/// via network.  Direct usage in business logic is strongly
-/// prohibited. Before any interactions `accept`.
-#[version(n = 1, versioned = "VersionedTransaction")]
+/// Trait for signing transactions
+pub trait Sign {
+    /// Sign transaction with provided key pair.
+    ///
+    /// # Errors
+    ///
+    /// Fails if signature creation fails
+    fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<SignedTransaction, iroha_crypto::Error>;
+}
+
+/// Structure that represents the initial state of a transaction before the transaction receives any signatures.
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
@@ -301,12 +309,10 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
-    /// [`SignatureOf`] [`Payload`].
-    pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
 }
 
 impl Transaction {
-    /// Construct `Transaction`.
+    /// Construct [`Self`].
     #[inline]
     #[must_use]
     #[cfg(feature = "std")]
@@ -327,7 +333,6 @@ impl Transaction {
                 nonce: None,
                 metadata: UnlimitedMetadata::new(),
             },
-            signatures: btree_set::BTreeSet::new(),
         }
     }
 
@@ -346,28 +351,68 @@ impl Transaction {
         self.payload.nonce = Some(nonce);
         self
     }
+}
 
-    /// Sign transaction with the provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
-    #[cfg(feature = "std")]
-    pub fn sign(
+#[cfg(feature = "std")]
+impl Sign for Transaction {
+    fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<SignedTransaction, iroha_crypto::Error> {
+        let signature = SignatureOf::new(key_pair, &self.payload)?;
+        let signatures = btree_set::BTreeSet::from([signature]);
+
+        Ok(SignedTransaction {
+            payload: self.payload,
+            signatures,
+        })
+    }
+}
+
+impl Txn for Transaction {
+    type HashOf = SignedTransaction;
+
+    #[inline]
+    fn payload(&self) -> &Payload {
+        &self.payload
+    }
+}
+
+/// Structure that represents the second state of the transaction after receiving at least one signature.
+///
+/// `Iroha` and its clients use [`SignedTransaction`] to send transactions over the network.
+/// After a transaction is signed and before it can be processed any further,
+/// the transaction must be accepted by the `Iroha` peer.
+/// The peer verifies the signatures and checks the limits.
+#[version(n = 1, versioned = "VersionedSignedTransaction")]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "{self:?}")] // TODO ?
+pub struct SignedTransaction {
+    /// [`Transaction`] payload.
+    pub payload: Payload,
+    /// [`SignatureOf`] [`Payload`].
+    pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
+}
+
+#[cfg(feature = "std")]
+impl Sign for SignedTransaction {
+    fn sign(
         mut self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<Transaction, iroha_crypto::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         self.signatures.insert(signature);
 
-        Ok(Self {
+        Ok(SignedTransaction {
             payload: self.payload,
             signatures: self.signatures,
         })
     }
 }
 
-impl Txn for Transaction {
+impl Txn for SignedTransaction {
     type HashOf = Self;
 
     #[inline]
@@ -404,8 +449,8 @@ impl VersionedPendingTransactions {
     }
 }
 
-impl FromIterator<Transaction> for VersionedPendingTransactions {
-    fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+impl FromIterator<SignedTransaction> for VersionedPendingTransactions {
+    fn from_iter<T: IntoIterator<Item = SignedTransaction>>(iter: T) -> Self {
         PendingTransactions(iter.into_iter().collect()).into()
     }
 }
@@ -422,16 +467,16 @@ impl Reply for VersionedPendingTransactions {
 /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
 #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct PendingTransactions(pub Vec<Transaction>);
+pub struct PendingTransactions(pub Vec<SignedTransaction>);
 
-impl FromIterator<Transaction> for PendingTransactions {
-    fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+impl FromIterator<SignedTransaction> for PendingTransactions {
+    fn from_iter<T: IntoIterator<Item = SignedTransaction>>(iter: T) -> Self {
         PendingTransactions(iter.into_iter().collect())
     }
 }
 
 impl IntoIterator for PendingTransactions {
-    type Item = Transaction;
+    type Item = SignedTransaction;
 
     type IntoIter = vec::IntoIter<Self::Item>;
 
@@ -445,7 +490,7 @@ impl IntoIterator for PendingTransactions {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TransactionValue {
     /// Committed transaction
-    Transaction(Box<VersionedTransaction>),
+    Transaction(Box<VersionedSignedTransaction>),
     /// Rejected transaction with reason of rejection
     RejectedTransaction(Box<VersionedRejectedTransaction>),
 }
@@ -546,7 +591,7 @@ impl VersionedValidTransaction {
 }
 
 impl Txn for VersionedValidTransaction {
-    type HashOf = VersionedTransaction;
+    type HashOf = VersionedSignedTransaction;
 
     #[inline]
     fn payload(&self) -> &Payload {
@@ -565,7 +610,7 @@ pub struct ValidTransaction {
 }
 
 impl Txn for ValidTransaction {
-    type HashOf = Transaction;
+    type HashOf = SignedTransaction;
 
     #[inline]
     fn payload(&self) -> &Payload {
@@ -602,7 +647,7 @@ impl VersionedRejectedTransaction {
 }
 
 impl Txn for VersionedRejectedTransaction {
-    type HashOf = VersionedTransaction;
+    type HashOf = VersionedSignedTransaction;
 
     #[inline]
     fn payload(&self) -> &Payload {
@@ -625,7 +670,7 @@ pub struct RejectedTransaction {
 }
 
 impl Txn for RejectedTransaction {
-    type HashOf = Transaction;
+    type HashOf = SignedTransaction;
 
     #[inline]
     fn payload(&self) -> &Payload {
@@ -803,10 +848,10 @@ pub enum RejectionReason {
 pub mod prelude {
     pub use super::{
         BlockRejectionReason, Executable, InstructionExecutionFail, NotPermittedFail, Payload,
-        PendingTransactions, RejectedTransaction, RejectionReason, Transaction, TransactionLimits,
-        TransactionQueryResult, TransactionRejectionReason, TransactionValue, Txn,
-        UnsatisfiedSignatureConditionFail, ValidTransaction, VersionedPendingTransactions,
-        VersionedRejectedTransaction, VersionedTransaction, VersionedValidTransaction,
-        WasmExecutionFail,
+        PendingTransactions, RejectedTransaction, RejectionReason, Sign, SignedTransaction,
+        Transaction, TransactionLimits, TransactionQueryResult, TransactionRejectionReason,
+        TransactionValue, Txn, UnsatisfiedSignatureConditionFail, ValidTransaction,
+        VersionedPendingTransactions, VersionedRejectedTransaction, VersionedSignedTransaction,
+        VersionedValidTransaction, WasmExecutionFail,
     };
 }

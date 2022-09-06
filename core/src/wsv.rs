@@ -97,7 +97,7 @@ pub struct WorldStateView {
     /// Blockchain.
     blocks: Arc<Chain>,
     /// Hashes of transactions
-    pub transactions: DashSet<HashOf<VersionedTransaction>>,
+    pub transactions: DashSet<HashOf<VersionedSignedTransaction>>,
     /// Metrics for prometheus endpoint.
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
@@ -625,9 +625,9 @@ impl WorldStateView {
             .map(|val| val.as_v1().header.timestamp)
     }
 
-    /// Check if this [`VersionedTransaction`] is already committed or rejected.
+    /// Check if this [`VersionedSignedTransaction`] is already committed or rejected.
     #[inline]
-    pub fn has_transaction(&self, hash: &HashOf<VersionedTransaction>) -> bool {
+    pub fn has_transaction(&self, hash: &HashOf<VersionedSignedTransaction>) -> bool {
         self.transactions.contains(hash)
     }
 
@@ -782,7 +782,7 @@ impl WorldStateView {
                             .transactions
                             .iter()
                             .cloned()
-                            .map(VersionedTransaction::from)
+                            .map(VersionedSignedTransaction::from)
                             .map(Box::new)
                             .map(|versioned_tx| TransactionQueryResult {
                                 tx_value: TransactionValue::Transaction(versioned_tx),
@@ -796,10 +796,10 @@ impl WorldStateView {
         txs
     }
 
-    /// Find a [`VersionedTransaction`] by hash.
+    /// Find a [`VersionedSignedTransaction`] by hash.
     pub fn transaction_value_by_hash(
         &self,
-        hash: &HashOf<VersionedTransaction>,
+        hash: &HashOf<VersionedSignedTransaction>,
     ) -> Option<TransactionValue> {
         self.blocks.iter().find_map(|b| {
             b.as_v1()
@@ -815,7 +815,7 @@ impl WorldStateView {
                         .iter()
                         .find(|e| e.hash() == *hash)
                         .cloned()
-                        .map(VersionedTransaction::from)
+                        .map(VersionedSignedTransaction::from)
                         .map(Box::new)
                         .map(TransactionValue::Transaction)
                 })
@@ -853,7 +853,7 @@ impl WorldStateView {
                             .iter()
                             .filter(|transaction| &transaction.payload().account_id == account_id)
                             .cloned()
-                            .map(VersionedTransaction::from)
+                            .map(VersionedSignedTransaction::from)
                             .map(Box::new)
                             .map(TransactionValue::Transaction),
                     )

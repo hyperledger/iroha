@@ -229,20 +229,20 @@ impl TransactionValidator {
         } = tx;
         let signatures = signatures.into_iter().collect();
 
-        let pure_tx = Transaction {
+        let signed_tx = SignedTransaction {
             payload,
             signatures,
         };
 
         // Validating the transaction it-self
         wsv.validators_view()
-            .validate(wsv, pure_tx.clone())
+            .validate(wsv, signed_tx.clone())
             .map_err(|reason| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
             })?;
 
         // Validating the transaction instructions
-        if let Executable::Instructions(instructions) = pure_tx.payload.instructions {
+        if let Executable::Instructions(instructions) = signed_tx.payload.instructions {
             for isi in instructions {
                 wsv.validators_view().validate(wsv, isi).map_err(|reason| {
                     TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
@@ -282,7 +282,7 @@ impl VersionedAcceptedTransaction {
     /// # Errors
     /// Can fail if verification of some signature fails
     pub fn from_transaction(
-        transaction: Transaction,
+        transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
         AcceptedTransaction::from_transaction(transaction, limits).map(Into::into)
@@ -298,7 +298,7 @@ impl VersionedAcceptedTransaction {
 }
 
 impl Txn for VersionedAcceptedTransaction {
-    type HashOf = VersionedTransaction;
+    type HashOf = VersionedSignedTransaction;
 
     #[inline]
     fn payload(&self) -> &Payload {
@@ -322,7 +322,10 @@ impl AcceptedTransaction {
     ///
     /// # Errors
     /// Can fail if verification of some signature fails
-    pub fn from_transaction(transaction: Transaction, limits: &TransactionLimits) -> Result<Self> {
+    pub fn from_transaction(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self> {
         transaction
             .check_limits(limits)
             .wrap_err("Failed to accept transaction")?;
@@ -385,7 +388,7 @@ fn check_signature_condition(
 }
 
 impl Txn for AcceptedTransaction {
-    type HashOf = Transaction;
+    type HashOf = SignedTransaction;
 
     #[inline]
     fn payload(&self) -> &Payload {
@@ -412,17 +415,17 @@ impl IsInBlockchain for VersionedRejectedTransaction {
     }
 }
 
-impl From<VersionedAcceptedTransaction> for VersionedTransaction {
+impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
     fn from(tx: VersionedAcceptedTransaction) -> Self {
         let tx: AcceptedTransaction = tx.into_v1();
-        let tx: Transaction = tx.into();
+        let tx: SignedTransaction = tx.into();
         tx.into()
     }
 }
 
-impl From<AcceptedTransaction> for Transaction {
+impl From<AcceptedTransaction> for SignedTransaction {
     fn from(transaction: AcceptedTransaction) -> Self {
-        Transaction {
+        SignedTransaction {
             payload: transaction.payload,
             signatures: transaction.signatures.into_iter().collect(),
         }
@@ -476,6 +479,7 @@ mod tests {
 
     #[test]
     fn transaction_not_accepted_max_instruction_number() {
+        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
         let inst: Instruction = FailBox {
             message: "Will fail".to_owned(),
         }
@@ -484,7 +488,9 @@ mod tests {
             AccountId::from_str("root@global").expect("Valid"),
             vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
             1000,
-        );
+        )
+        .sign(key_pair)
+        .expect("Valid");
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
