@@ -14,7 +14,6 @@ const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
     Copy, Clone, Deserialize, Serialize, Debug, Documented, Proxy, LoadFromEnv, PartialEq, Eq,
 )]
 #[serde(rename_all = "UPPERCASE")]
-#[serde(default)]
 #[config(env_prefix = "QUEUE_")]
 pub struct Configuration {
     /// The upper limit of the number of transactions per block.
@@ -27,13 +26,13 @@ pub struct Configuration {
     pub future_threshold_ms: u64,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            maximum_transactions_in_block: DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK,
-            maximum_transactions_in_queue: DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE,
-            transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
-            future_threshold_ms: DEFAULT_FUTURE_THRESHOLD_MS,
+            maximum_transactions_in_block: Some(DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK),
+            maximum_transactions_in_queue: Some(DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE),
+            transaction_time_to_live_ms: Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS),
+            future_threshold_ms: Some(DEFAULT_FUTURE_THRESHOLD_MS),
         }
     }
 }

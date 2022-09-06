@@ -2,7 +2,7 @@
 
 use test_network::*;
 
-use super::Configuration;
+use super::{Builder, Configuration, ConfigurationProxy};
 
 #[test]
 fn get_config() {
@@ -13,10 +13,16 @@ fn get_config() {
     let field = test_client.get_config_docs(&["torii"]).unwrap().unwrap();
     assert!(field.contains("IROHA_TORII"));
 
-    let cfg: Configuration =
-        serde_json::from_value(test_client.get_config_value().unwrap()).unwrap();
     let test = Configuration::test();
-    assert_eq!(cfg.block_sync, test.block_sync);
-    assert_eq!(cfg.network, test.network);
-    assert_eq!(cfg.telemetry, test.telemetry);
+    let cfg_proxy: ConfigurationProxy =
+        serde_json::from_value(test_client.get_config_value().unwrap()).unwrap();
+    assert_eq!(
+        cfg_proxy.block_sync.unwrap().build().unwrap(),
+        test.block_sync
+    );
+    assert_eq!(cfg_proxy.network.unwrap().build().unwrap(), test.network);
+    assert_eq!(
+        cfg_proxy.telemetry.unwrap().build().unwrap(),
+        test.telemetry
+    );
 }

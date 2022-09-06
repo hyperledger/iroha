@@ -12,7 +12,6 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv,
 )]
 #[serde(rename_all = "UPPERCASE")]
-#[serde(default)]
 #[config(env_prefix = "BLOCK_SYNC_")]
 pub struct Configuration {
     /// The period of time to wait between sending requests for the latest block.
@@ -24,12 +23,12 @@ pub struct Configuration {
     pub actor_channel_capacity: u32,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
-            block_batch_size: DEFAULT_BLOCK_BATCH_SIZE,
-            actor_channel_capacity: DEFAULT_ACTOR_CHANNEL_CAPACITY,
+            gossip_period_ms: Some(DEFAULT_GOSSIP_PERIOD_MS),
+            block_batch_size: Some(DEFAULT_BLOCK_BATCH_SIZE),
+            actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
         }
     }
 }

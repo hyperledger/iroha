@@ -2,8 +2,9 @@
 
 use std::{thread, time::Duration};
 
+use iroha_config::base::proxy::Builder;
 use iroha_futures::FuturePollTelemetry;
-use iroha_logger::Configuration;
+use iroha_logger::ConfigurationProxy;
 use tokio::task;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
@@ -33,9 +34,13 @@ async fn test_sleep() {
         Duration::from_nanos(80_000_000),
     ];
 
-    let (_, telemetry_future) = iroha_logger::init(&Configuration::default())
-        .unwrap()
-        .unwrap();
+    let (_, telemetry_future) = iroha_logger::init(
+        &ConfigurationProxy::default()
+            .build()
+            .expect("Default logger config always builds"),
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(sleep(sleep_times.clone()).await, 10_i32);
     let telemetry = ReceiverStream::new(telemetry_future)
         .map(FuturePollTelemetry::try_from)

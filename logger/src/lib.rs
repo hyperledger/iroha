@@ -19,7 +19,7 @@ use std::{
 };
 
 use color_eyre::{eyre::WrapErr, Report, Result};
-pub use iroha_config::logger::{Configuration, Level};
+pub use iroha_config::logger::{Configuration, ConfigurationProxy, Level};
 pub use telemetry::{Telemetry, TelemetryFields, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
 pub use tracing::{

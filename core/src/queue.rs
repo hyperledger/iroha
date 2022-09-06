@@ -246,6 +246,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
+    use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
     use iroha_data_model::prelude::*;
     use rand::Rng;
 
@@ -299,7 +300,9 @@ mod tests {
                 maximum_transactions_in_block: 2,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -323,7 +326,9 @@ mod tests {
                 maximum_transactions_in_block: 2,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: max_txs_in_queue,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -362,7 +367,9 @@ mod tests {
                 maximum_transactions_in_block: 2,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: max_txs_in_queue,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -388,7 +395,9 @@ mod tests {
                 maximum_transactions_in_block: 2,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -436,7 +445,9 @@ mod tests {
                 maximum_transactions_in_block: max_block_tx,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -465,7 +476,9 @@ mod tests {
                 maximum_transactions_in_block: max_block_tx,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -486,7 +499,9 @@ mod tests {
                 maximum_transactions_in_block: max_block_tx,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             Arc::clone(&wsv),
         );
@@ -508,7 +523,9 @@ mod tests {
                 maximum_transactions_in_block: max_block_tx,
                 transaction_time_to_live_ms: 200,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -545,7 +562,9 @@ mod tests {
                 maximum_transactions_in_block: 2,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );
@@ -580,7 +599,9 @@ mod tests {
                 maximum_transactions_in_block: max_block_tx,
                 transaction_time_to_live_ms: 100_000,
                 maximum_transactions_in_queue: 100_000_000,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         ));
@@ -644,7 +665,9 @@ mod tests {
         let queue = Queue::from_configuration(
             &Configuration {
                 future_threshold_ms,
-                ..Configuration::default()
+                ..ConfigurationProxy::default()
+                    .build()
+                    .expect("Default queue config should always build")
             },
             wsv,
         );

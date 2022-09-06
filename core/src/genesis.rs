@@ -421,9 +421,12 @@ impl RawGenesisDomainBuilder {
 
 #[cfg(test)]
 mod tests {
+    use iroha_config::{base::proxy::Builder, genesis::ConfigurationProxy};
+
     use super::*;
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn load_default_genesis_block() -> Result<()> {
         let (public_key, private_key) = KeyPair::generate()?.into();
         let tx_limits = TransactionLimits {
@@ -433,11 +436,15 @@ mod tests {
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
             RawGenesisBlock::default(),
-            Some(&Configuration {
-                account_public_key: public_key,
-                account_private_key: Some(private_key),
-                ..Configuration::default()
-            }),
+            Some(
+                &ConfigurationProxy {
+                    account_public_key: Some(public_key),
+                    account_private_key: Some(Some(private_key)),
+                    ..ConfigurationProxy::default()
+                }
+                .build()
+                .expect("Default genesis config should build when provided the `public key`"),
+            ),
             &tx_limits,
         )?;
         Ok(())

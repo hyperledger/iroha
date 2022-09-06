@@ -14,7 +14,7 @@ struct Configuration {
     inner: InnerConfiguration,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Documented, LoadFromEnv, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Documented, LoadFromEnv)]
 #[config(env_prefix = "CONF_INNER_")]
 struct InnerConfiguration {
     pub a: String,
@@ -27,17 +27,17 @@ struct InnerConfiguration {
 fn test_docs() {
     assert_eq!(
         Configuration::get_doc_recursive(["inner", "b"]).unwrap(),
-        Some(" Docs from b\n\nHas type `i32`. Can be configured via environment variable `CONF_INNER_B`".to_owned())
+        Some(" Docs from b\n\nHas type `i32`[^1]. Can be configured via environment variable `CONF_INNER_B`".to_owned())
     );
     assert_eq!(
         Configuration::get_doc_recursive(["inner", "a"]).unwrap(),
         Some(
-            "Has type `String`. Can be configured via environment variable `CONF_INNER_A`"
+            "Has type `String`[^1]. Can be configured via environment variable `CONF_INNER_A`"
                 .to_owned()
         )
     );
     assert_eq!(
         Configuration::get_doc_recursive(["inner"]).unwrap(),
-        Some(" Inner structure\n\nHas type `InnerConfiguration`. Can be configured via environment variable `CONF_INNER`\n\nHas following fields:\n\na: Has type `String`. Can be configured via environment variable `CONF_INNER_A`\n\nb:  Docs from b\n\nHas type `i32`. Can be configured via environment variable `CONF_INNER_B`\n\n\n".to_owned())
+        Some(" Inner structure\n\nHas type `InnerConfiguration`[^1]. Can be configured via environment variable `CONF_INNER`\n\nHas following fields:\n\na: Has type `String`[^1]. Can be configured via environment variable `CONF_INNER_A`\n\nb:  Docs from b\n\nHas type `i32`[^1]. Can be configured via environment variable `CONF_INNER_B`\n\n\n".to_owned())
     );
 }

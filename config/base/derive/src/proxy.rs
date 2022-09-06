@@ -7,23 +7,27 @@ use crate::utils;
 
 pub fn impl_proxy(ast: StructWithFields) -> TokenStream {
     // somewhat awkward conversion, could it be better?
-    let parent_name = ast.ident.clone();
+    let parent_name = &ast.ident;
     let parent_ty: Type = parse_quote! { #parent_name };
     let proxy_struct = gen_proxy_struct(ast);
     let loadenv_derive = quote! { ::iroha_config_base::derive::LoadFromEnv };
     let disk_derive = quote! { ::iroha_config_base::derive::LoadFromDisk };
     let builder_derive = quote! { ::iroha_config_base::derive::Builder };
     let combine_derive = quote! { ::iroha_config_base::derive::Combine };
+    let documented_derive = quote! { ::iroha_config_base::derive::Documented };
     quote! {
         /// Proxy configuration structure to be used as an intermediate
         /// for config loading
-        #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize,
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize,
                  #builder_derive,
                  #loadenv_derive,
                  #disk_derive,
-                 #combine_derive)]
+                 #combine_derive,
+                 #documented_derive
+        )]
         #[builder(parent = #parent_ty)]
         #proxy_struct
+
     }
     .into()
 }
@@ -128,9 +132,12 @@ pub fn impl_load_from_disk(ast: &StructWithFields) -> TokenStream {
         impl #disk_trait for #proxy_name {
             type Error = #error_ty;
             fn from_path<P: AsRef<std::path::Path> + std::fmt::Debug + Clone>(path: P) -> Result<Self, Self::Error> {
-                let file = std::fs::File::open(path)?;
-                let reader = std::io::BufReader::new(file);
-                serde_json::from_reader(reader)?
+                let mut file = std::fs::File::open(path)?;
+                // String has better parsing speed, see [issue](https://github.com/serde-rs/json/issues/160#issuecomment-253446892)
+                let mut s = String::new();
+                std::io::Read::read_to_string(&mut file, &mut s)?;
+                let res: Self = serde_json::from_str(&s)?;
+                Ok(res)
             }
         }
     }.into()
@@ -154,13 +161,20 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
         field.ty = parse_quote! {
             Option<#ty>
         };
+        // Fields that already wrap an option should have a
+        // custom deserializer so that json `null` becomes
+        // `Some(None)` and not just `None`
+        if field.has_option {
+            let de_helper = stringify! { ::iroha_config_base::proxy::some_option };
+            let serde_attr: syn::Attribute =
+                parse_quote! { #[serde(default, deserialize_with = #de_helper)] };
+            field.attrs.push(serde_attr);
+        }
         field.has_option = true;
-        // Also remove `#[serde(default = ..)]` if present
-        // as it breaks proxy deserialization
-        utils::remove_attr(&mut field.attrs, "serde");
     });
     ast.ident = format_ident!("{}Proxy", ast.ident);
-    // Removing as `..Proxy` has its own doc
+    // Removing struct-level docs as `..Proxy` has its own doc,
+    // but not the field documentation as they stay the same
     utils::remove_attr(&mut ast.attrs, "doc");
     ast
 }

@@ -11,8 +11,9 @@ use std::{
 
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
+use iroha_config::base::proxy::Builder;
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_logger::{prelude::*, Configuration, Level};
+use iroha_logger::{prelude::*, Configuration, ConfigurationProxy, Level};
 use iroha_p2p::{
     network::{ConnectedPeers, GetConnectedPeers},
     peer::PeerId,
@@ -36,7 +37,9 @@ fn setup_logger() {
         let log_config = Configuration {
             max_log_level: Level::TRACE.into(),
             compact_mode: false,
-            ..Configuration::default()
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default logger config failed to build. This is a programmer error")
         };
         iroha_logger::init(&log_config).expect("Failed to start logger");
     })
@@ -203,7 +206,9 @@ async fn multiple_networks() {
     let log_config = Configuration {
         max_log_level: Level::TRACE.into(),
         compact_mode: false,
-        ..Configuration::default()
+        ..ConfigurationProxy::default()
+            .build()
+            .expect("Default logger config should always build")
     };
     // Can't use logger because it's failed to initialize.
     #[allow(clippy::print_stderr)]
