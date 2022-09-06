@@ -4,7 +4,6 @@ services:
     build: .
     image: iroha2:dev
     environment:
-      KURA_BLOCK_STORE_PATH: /storage
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
       TORII_TELEMETRY_URL: iroha0:8180
