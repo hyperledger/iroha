@@ -25,7 +25,7 @@
   },
   "KURA": {
     "INIT_MODE": "strict",
-    "BLOCK_STORE_PATH": "./blocks"
+    "BLOCK_STORE_PATH": "./storage"
   },
   "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,

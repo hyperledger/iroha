@@ -16,7 +16,7 @@ The following is the default configuration used by Iroha.
   "DISABLE_PANIC_TERMINAL_COLORS": false,
   "KURA": {
     "INIT_MODE": "strict",
-    "BLOCK_STORE_PATH": "./blocks",
+    "BLOCK_STORE_PATH": "./storage",
     "BLOCKS_PER_STORAGE_FILE": 1000,
     "ACTOR_CHANNEL_CAPACITY": 100
   },
@@ -252,7 +252,7 @@ Has type `kura::Configuration`. Can be configured via environment variable `IROH
 {
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCKS_PER_STORAGE_FILE": 1000,
-  "BLOCK_STORE_PATH": "./blocks",
+  "BLOCK_STORE_PATH": "./storage",
   "INIT_MODE": "strict"
 }
 ```
@@ -274,7 +274,7 @@ Path to the existing block store folder or path to create new folder.
 Has type `String`. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`
 
 ```json
-"./blocks"
+"./storage"
 ```
 
 ### `kura.blocks_per_storage_file`
