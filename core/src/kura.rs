@@ -13,7 +13,7 @@ use std::{
     fmt::Debug,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex},
 };
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -22,9 +22,12 @@ use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::HashOf;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
-use crate::{block::VersionedCommittedBlock, block_sync::ContinueSync, prelude::*, sumeragi};
+use crate::{
+    block::VersionedCommittedBlock, block_sync::ContinueSync, handler::ThreadHandler, prelude::*,
+    sumeragi,
+};
 
 /// The interface of Kura subsystem
 pub struct Kura {
@@ -37,13 +40,6 @@ pub struct Kura {
     broker: Broker,
     block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
     block_sender: Sender<VersionedCommittedBlock>,
-    block_thread_handle: Mutex<Option<BlockThreadHandle>>,
-}
-
-/// Handle to block receiver thread with ability to stop it
-struct BlockThreadHandle {
-    thread_handle: std::thread::JoinHandle<()>,
-    shutdown_sender: tokio::sync::oneshot::Sender<()>,
 }
 
 impl Kura {
@@ -79,48 +75,25 @@ impl Kura {
             broker,
             block_reciever: Mutex::new(block_reciever),
             block_sender,
-            block_thread_handle: Mutex::new(None),
-        });
-
-        // How do we avoid the spawned thread taking on a
-        // life of it's own, aka keeping kura alive and running
-        // long after it has been dropped by all who needed it.
-        // By using a weak reference, see `kura_recieve_blocks_thread`
-        // for details on how this works.
-        let kura_weak_reference = Arc::downgrade(&kura);
-
-        // Oneshot channel to allow forcefully stopping the thread.
-        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
-
-        let thread_handle = std::thread::spawn(move || {
-            Self::kura_recieve_blocks_thread(&kura_weak_reference, shutdown_receiver);
-        });
-
-        *kura.block_thread_handle.lock().expect("able to lock") = Some(BlockThreadHandle {
-            thread_handle,
-            shutdown_sender,
         });
 
         Ok(kura)
     }
 
-    /// Forcefully shut down the Kura thread.
-    /// Warning: any blocks currently in queue to be stored will be lost.
-    #[allow(clippy::expect_used)]
-    pub fn force_shutdown(&self) {
-        if let Some(BlockThreadHandle {
-            thread_handle,
-            shutdown_sender,
-        }) = self
-            .block_thread_handle
-            .lock()
-            .expect("lock block thread handle")
-            .take()
-        {
-            // Error here indicates the thread is already stopped, which is fine.
-            let _res = shutdown_sender.send(());
-            thread_handle.join().expect("able to join");
-        }
+    /// Start the Kura thread
+    pub fn start(kura: Arc<Self>) -> ThreadHandler {
+        // Oneshot channel to allow forcefully stopping the thread.
+        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+
+        let thread_handle = std::thread::spawn(move || {
+            Self::kura_recieve_blocks_loop(&kura, shutdown_receiver);
+        });
+
+        let shutdown = move || {
+            let _result = shutdown_sender.send(());
+        };
+
+        ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
 
     /// Loads kura from configuration
@@ -220,36 +193,27 @@ impl Kura {
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
-    fn kura_recieve_blocks_thread(
-        weak_kura_reference: &Weak<Kura>,
+    fn kura_recieve_blocks_loop(
+        kura: &Kura,
         mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     ) {
+        let mut block_reciever_guard = kura
+            .block_reciever
+            .lock()
+            .expect("able to lock kura recieve block mutex");
+        let mut is_closed = false;
         loop {
-            // Here we essentially check if the thread should keep running.
-            // If all other references to `Kura` have been dropped, then
-            // the thread associated with that `Kura` instance should exit.
-            let strong_kura_reference = if let Some(kura_arc) = weak_kura_reference.upgrade() {
-                kura_arc
-            } else {
-                info!("Kura block thread is shutting down");
-                return;
-            };
-
+            // If kura receive shutdown then close block channel and write remaining blocks to the storage
             if shutdown_receiver.try_recv().is_ok() {
-                info!("Kura block thread is being forcibly shut down");
-                return;
+                info!("Kura block thread is being shut down");
+                block_reciever_guard.close();
+                is_closed = true;
             }
 
-            let mut block_reciever_guard = strong_kura_reference
-                .block_reciever
-                .lock()
-                .expect("able to lock kura recieve block mutex");
-
             match block_reciever_guard.try_recv() {
-                Err(_) => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    continue;
-                }
+                // No new blocks would be received
+                Err(_) if is_closed => break,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(1)),
                 Ok(new_block) => {
                     #[cfg(feature = "telemetry")]
                     if new_block.header().height == 1 {
@@ -259,19 +223,18 @@ impl Kura {
                     let block_hash = new_block.hash();
                     let serialized_block: Vec<u8> = new_block.encode_versioned();
 
-                    match strong_kura_reference
+                    match kura
                         .block_store
                         .lock()
                         .expect("lock on block store")
                         .append_block_to_chain(&serialized_block)
                     {
                         Ok(()) => {
-                            strong_kura_reference
-                                .block_hash_array
+                            kura.block_hash_array
                                 .lock()
                                 .expect("lock on block hash array")
                                 .push(block_hash);
-                            strong_kura_reference.broker.issue_send_sync(&ContinueSync);
+                            kura.broker.issue_send_sync(&ContinueSync);
                         }
                         Err(error) => {
                             error!(%error, "Failed to write block. Kura will now init again.");
@@ -281,6 +244,7 @@ impl Kura {
                 }
             }
         }
+        info!("Kura block thread is shutting down");
     }
 
     /// Get the hash of the block at the provided height.
@@ -298,21 +262,18 @@ impl Kura {
 
     /// Put a block in the queue to be stored by Kura. If the queue is
     /// full, wait until there is space.
-    #[allow(clippy::expect_used)]
     pub async fn store_block_async(&self, block: VersionedCommittedBlock) {
-        self.block_sender
-            .send(block)
-            .await
-            .expect("Kura block channel is still open.");
+        if let Err(SendError(block)) = self.block_sender.send(block).await {
+            error!(?block, "unable to write block, kura thread was closed");
+        }
     }
 
     /// Put a block in the queue to be stored by Kura. If the queue is
     /// full, block the current thread until there is space.
-    #[allow(clippy::expect_used)]
-    pub fn blocking_store_block(&self, block: VersionedCommittedBlock) {
-        self.block_sender
-            .blocking_send(block)
-            .expect("Kura block channel is still open.");
+    pub fn store_block_blocking(&self, block: VersionedCommittedBlock) {
+        if let Err(SendError(block)) = self.block_sender.blocking_send(block) {
+            error!(?block, "unable to write block, kura thread was closed");
+        }
     }
 }
 

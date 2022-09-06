@@ -74,6 +74,37 @@ pub trait IsInBlockchain {
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool;
 }
 
+/// Module constaining [`ThreadHandler`]
+pub mod handler {
+    #![allow(clippy::expect_used)]
+    use std::thread::JoinHandle;
+
+    /// Call shutdown function and join thread on drop
+    pub struct ThreadHandler {
+        /// Shutdown function: after calling it, the thread must terminate in finite amount of time
+        shutdown: Option<Box<dyn FnOnce() + Send>>,
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl ThreadHandler {
+        /// Create new [`Self`]
+        pub fn new(shutdown: Box<dyn FnOnce() + Send>, handle: JoinHandle<()>) -> Self {
+            Self {
+                shutdown: Some(shutdown),
+                handle: Some(handle),
+            }
+        }
+    }
+
+    impl Drop for ThreadHandler {
+        fn drop(&mut self) {
+            (self.shutdown.take().expect("Always some after init"))();
+            let handle = self.handle.take().expect("Always some after init");
+            let _joined = handle.join();
+        }
+    }
+}
+
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 
