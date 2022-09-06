@@ -3,15 +3,9 @@
 use std::{collections::HashSet, str::FromStr};
 
 use iroha_config::{
-    block_sync::Configuration as BlockSyncConfiguration,
-    genesis::Configuration as GenesisConfiguration,
-    iroha::Configuration,
-    kura::Configuration as KuraConfiguration,
-    queue::Configuration as QueueConfiguration,
-    sumeragi::{Configuration as SumeragiConfiguration, TrustedPeers},
-    torii::{Configuration as ToriiConfiguration, DEFAULT_TORII_P2P_ADDR},
-    wasm::Configuration as WasmConfiguration,
-    wsv::Configuration as WsvConfiguration,
+    iroha::{Configuration, ConfigurationProxy},
+    sumeragi::TrustedPeers,
+    torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_P2P_ADDR, DEFAULT_TORII_TELEMETRY_URL},
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::peer::Id as PeerId;
@@ -65,48 +59,47 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             .into(),
     };
     iroha_logger::info!(?public_key);
-    Configuration {
-        public_key: public_key.clone(),
-        private_key: private_key.clone(),
-        kura: KuraConfiguration {
-            init_mode: iroha_config::kura::Mode::Strict,
-            ..KuraConfiguration::default()
-        },
-        sumeragi: SumeragiConfiguration {
-            key_pair: KeyPair::new(public_key.clone(), private_key.clone())
-                .expect("Key pair mismatch"),
-            peer_id: PeerId::new(DEFAULT_TORII_P2P_ADDR, &public_key),
-            trusted_peers: TrustedPeers {
+    ConfigurationProxy {
+        public_key: Some(public_key.clone()),
+        private_key: Some(private_key.clone()),
+        sumeragi: Some(iroha_config::sumeragi::ConfigurationProxy {
+            key_pair: None,
+            peer_id: None,
+            trusted_peers: Some(TrustedPeers {
                 peers: trusted_peers,
-            },
-            gossip_period_ms: 500,
-            ..SumeragiConfiguration::default()
-        },
-        torii: ToriiConfiguration {
-            max_transaction_size: 0x8000,
-            ..ToriiConfiguration::default()
-        },
-        block_sync: BlockSyncConfiguration {
-            block_batch_size: 1,
-            gossip_period_ms: 5000,
-            ..BlockSyncConfiguration::default()
-        },
-        queue: QueueConfiguration {
-            maximum_transactions_in_block: 2,
-            ..QueueConfiguration::default()
-        },
-        genesis: GenesisConfiguration {
-            account_public_key: public_key,
-            account_private_key: Some(private_key),
-            ..GenesisConfiguration::default()
-        },
-        wsv: WsvConfiguration {
-            wasm_runtime_config: WasmConfiguration {
-                fuel_limit: 10_000_000,
-                ..WasmConfiguration::default()
-            },
-            ..WsvConfiguration::default()
-        },
-        ..Configuration::default()
+            }),
+            ..iroha_config::sumeragi::ConfigurationProxy::default()
+        }),
+        torii: Some(iroha_config::torii::ConfigurationProxy {
+            p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.to_owned()),
+            api_url: Some(DEFAULT_API_URL.to_owned()),
+            telemetry_url: Some(DEFAULT_TORII_TELEMETRY_URL.to_owned()),
+            max_transaction_size: Some(0x8000),
+            ..iroha_config::torii::ConfigurationProxy::default()
+        }),
+        block_sync: Some(iroha_config::block_sync::ConfigurationProxy {
+            block_batch_size: Some(1),
+            gossip_period_ms: Some(500),
+            ..iroha_config::block_sync::ConfigurationProxy::default()
+        }),
+        queue: Some(iroha_config::queue::ConfigurationProxy {
+            maximum_transactions_in_block: Some(2),
+            ..iroha_config::queue::ConfigurationProxy::default()
+        }),
+        genesis: Some(iroha_config::genesis::ConfigurationProxy {
+            account_private_key: Some(Some(private_key)),
+            account_public_key: Some(public_key),
+            ..iroha_config::genesis::ConfigurationProxy::default()
+        }),
+        wsv: Some(iroha_config::wsv::ConfigurationProxy {
+            wasm_runtime_config: Some(iroha_config::wasm::ConfigurationProxy {
+                fuel_limit: Some(10_000_000),
+                ..iroha_config::wasm::ConfigurationProxy::default()
+            }),
+            ..iroha_config::wsv::ConfigurationProxy::default()
+        }),
+        ..ConfigurationProxy::default()
     }
+    .build()
+    .expect("Iroha config should build as all required fields were provided")
 }

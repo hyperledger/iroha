@@ -13,7 +13,10 @@ use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_config::iroha::Configuration;
+use iroha_config::{
+    base::proxy::{LoadFromDisk, LoadFromEnv},
+    iroha::{Configuration, ConfigurationProxy},
+};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
@@ -124,11 +127,9 @@ where
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
-        let mut config = match Configuration::from_path(&args.config_path) {
-            Ok(config) => config,
-            Err(_) => Configuration::default(),
-        };
-        config.load_environment()?;
+        let mut proxy = ConfigurationProxy::from_path(&args.config_path)?;
+        proxy.load_environment()?;
+        let config = proxy.build()?;
 
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");

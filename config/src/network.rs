@@ -9,7 +9,6 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv,
 )]
-#[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]
 pub struct Configuration {
@@ -17,10 +16,10 @@ pub struct Configuration {
     pub actor_channel_capacity: u32,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            actor_channel_capacity: DEFAULT_ACTOR_CHANNEL_CAPACITY,
+            actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
         }
     }
 }

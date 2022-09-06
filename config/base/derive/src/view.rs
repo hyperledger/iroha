@@ -12,7 +12,6 @@ pub fn impl_view(ast: StructWithFields) -> TokenStream {
     let original = original_struct(ast.clone());
     let view = view_struct(ast);
     let impl_from = impl_from(&original, &view);
-    let impl_default = impl_default(&original, &view);
     let impl_has_view = impl_has_view(&original);
     let assertions = assertions(&view);
     let out = quote! {
@@ -20,7 +19,6 @@ pub fn impl_view(ast: StructWithFields) -> TokenStream {
         #impl_has_view
         #view
         #impl_from
-        #impl_default
         #assertions
     };
     out.into()
@@ -46,8 +44,6 @@ mod gen {
         ast.attrs.push(syn::parse_quote!(
             #[doc = #view_doc]
         ));
-        // TODO: Remove `Default` from #[derive(..., Default, ...)] or #[derive(Default)] because we implement `Default` inside macro
-        // TODO: also add info with remove proxy
         ast.attrs
             .iter_mut()
             .filter(|attr| attr.path.is_ident("derive"))
@@ -55,36 +51,31 @@ mod gen {
                 let meta = attr
                     .parse_meta()
                     .expect("derive macro must be in one of the meta forms");
-                match meta {
-                    Meta::List(list) => {
-                        let items: Vec<syn::NestedMeta> = list
-                            .nested
-                            .into_iter()
-                            .filter(|nested| {
-                                if let NestedMeta::Meta(Meta::Path(path)) = nested {
-                                    // TODO: check here
-                                    if path.is_ident("Default")
-                                        || path.is_ident("Documented")
-                                        || path.is_ident("Proxy")
-                                    {
-                                        return false;
-                                    }
+                if let Meta::List(list) = meta {
+                    let items: Vec<syn::NestedMeta> = list
+                        .nested
+                        .into_iter()
+                        .filter(|nested| {
+                            if let NestedMeta::Meta(Meta::Path(path)) = nested {
+                                // remove derives that are needed on the `Configuration`
+                                // or `ConfigurationProxy`, but not needed on `ConfigruationView`
+                                if path.is_ident("LoadFromEnv")
+                                    || path.is_ident("Builder")
+                                    || path.is_ident("Proxy")
+                                {
+                                    return false;
                                 }
-                                true
-                            })
-                            .collect();
-                        *attr = syn::parse_quote!(
-                            #[derive(#(#items),*)]
-                        )
-                    }
-                    Meta::Path(path) if path.is_ident("Default") => {
-                        *attr = syn::parse_quote!(
-                            #[derive()]
-                        )
-                    }
-                    _ => {}
+                            }
+                            true
+                        })
+                        .collect();
+                    *attr = syn::parse_quote!(
+                        #[derive(#(#items),*)]
+                    )
                 }
             });
+        // TODO: Find a way to make this more ergonomic. As `View` struct
+        // are formed inside a proc macro, we have to remove unrelated attributes from `Configuration` here.
         remove_attr_struct(&mut ast, "view");
         remove_attr_struct(&mut ast, "config");
         remove_attr_struct(&mut ast, "builder");
@@ -123,30 +114,6 @@ mod gen {
                             #field_idents: core::convert::From::<_>::from(#field_idents),
                         )*
                     }
-                }
-            }
-        }
-    }
-
-    pub fn impl_default(
-        original: &StructWithFields,
-        view: &StructWithFields,
-    ) -> proc_macro2::TokenStream {
-        let StructWithFields {
-            ident: original_ident,
-            ..
-        } = original;
-        let StructWithFields {
-            generics,
-            ident: view_ident,
-            ..
-        } = view;
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-        quote! {
-            impl #impl_generics core::default::Default for #view_ident #ty_generics #where_clause {
-                fn default() -> Self {
-                    core::convert::From::<_>::from(<#original_ident as core::default::Default>::default())
                 }
             }
         }

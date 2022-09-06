@@ -17,7 +17,6 @@ pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(12) * 4000;
 /// as well as `max_transaction_size`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv)]
 #[serde(rename_all = "UPPERCASE")]
-#[serde(default)]
 #[config(env_prefix = "TORII_")]
 pub struct Configuration {
     /// Torii URL for p2p communication for consensus and block synchronization purposes.
@@ -32,14 +31,14 @@ pub struct Configuration {
     pub max_content_len: u32,
 }
 
-impl Default for Configuration {
+impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
-            api_url: uri::DEFAULT_API_URL.to_owned(),
-            telemetry_url: DEFAULT_TORII_TELEMETRY_URL.to_owned(),
-            max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
-            max_content_len: DEFAULT_TORII_MAX_CONTENT_LENGTH,
+            p2p_addr: None,
+            api_url: None,
+            telemetry_url: None,
+            max_transaction_size: Some(DEFAULT_TORII_MAX_TRANSACTION_SIZE),
+            max_content_len: Some(DEFAULT_TORII_MAX_CONTENT_LENGTH),
         }
     }
 }

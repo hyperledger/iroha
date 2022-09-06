@@ -244,7 +244,6 @@ impl Parse for StructWithFields {
                 .map(|field| StructField::from_ast(field, &env_prefix))
                 .collect(),
             env_prefix,
-            // parent_ty,
             _semi_token: input.parse()?,
         })
     }

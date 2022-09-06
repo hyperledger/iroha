@@ -12,6 +12,7 @@ default = []
 telemetry = ["iroha_futures_derive/telemetry"]
 
 [dependencies]
+iroha_config = { version = "=2.0.0-pre-rc.8", path = "../config" }
 iroha_futures_derive = { version = "=2.0.0-pre-rc.8", path = "derive" }
 iroha_logger = { version = "=2.0.0-pre-rc.8", path = "../logger" }
 
