@@ -4,10 +4,10 @@ on:
   pull_request:
     branches: [iroha2-dev, iroha2-stable, iroha2-lts]
     paths:
-      - "**/derive/**.rs"
-      - "**/tests/ui.rs"
-      - "**/tests/ui_*/**"
-      - "rust-toolchain.toml"
+      - '**/derive/**.rs'
+      - '**/tests/ui.rs'
+      - '**/tests/ui_*/**'
+      - 'rust-toolchain.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
