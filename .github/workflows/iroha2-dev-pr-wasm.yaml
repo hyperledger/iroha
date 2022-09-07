@@ -8,12 +8,12 @@ on:
   pull_request:
     branches: [iroha2-dev]
     paths:
-      - "wasm/**.rs"
-      - "wasm/**.json"
-      - "wasm/**.toml"
-      - "wasm/**.yml"
-      - "data_model/**.rs"
-      - "data_model/**.toml"
+      - 'wasm/**.rs'
+      - 'wasm/**.json'
+      - 'wasm/**.toml'
+      - 'wasm/**.yml'
+      - 'data_model/**.rs'
+      - 'data_model/**.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

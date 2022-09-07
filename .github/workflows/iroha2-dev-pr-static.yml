@@ -4,13 +4,13 @@ on:
   pull_request:
     branches: [iroha2-dev]
     paths:
-      - "**.rs"
-      - "**.json"
-      - "**.toml"
-      - ".github/workflows/**.yml"
+      - '**.rs'
+      - '**.json'
+      - '**.toml'
+      - '.github/workflows/**.yml'
 
       # Not part of the workspace
-      - "!wasm/**"
+      - '!wasm/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
