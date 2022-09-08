@@ -26,7 +26,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_id = self.object.id();
 
@@ -52,11 +52,7 @@ pub mod isi {
         type Error = Error;
 
         #[metrics(+"unregister_asset")]
-        fn execute(
-            self,
-            _authority: AccountId,
-            wsv: &mut WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
@@ -76,7 +72,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
@@ -101,7 +97,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
@@ -130,7 +126,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let signature_check_condition = self.object;
@@ -149,11 +145,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
 
-            let account_metadata_limits = wsv.config.account_metadata_limits.clone();
+            let account_metadata_limits = wsv.config.account_metadata_limits;
 
             wsv.modify_account(&account_id, |account| {
                 account.metadata_mut().insert_with_limits(
@@ -174,7 +170,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
 
@@ -196,14 +192,12 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
-            let wsv_clone = wsv.clone();
-
-            let definition = wsv_clone
+            let definition = wsv
                 .permission_token_definitions()
                 .get(permission.definition_id())
                 .ok_or_else(|| {
@@ -214,14 +208,12 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 let id = account.id();
-                if wsv_clone.account_contains_inherent_permission(id, &permission) {
+                if wsv.account_contains_inherent_permission(id, &permission) {
                     return Err(ValidationError::new("Permission already exists").into());
                 }
 
+                wsv.add_account_permission(id, permission);
                 Ok(AccountEvent::PermissionAdded(id.clone()))
-            })
-            .map(|_| {
-                wsv.add_account_permission(&account_id, permission);
             })
         }
     }
@@ -230,31 +222,21 @@ pub mod isi {
         type Error = Error;
 
         #[metrics(+"revoke_account_permission_token")]
-        fn execute(
-            self,
-            _authority: AccountId,
-            wsv: &mut WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
-            let wsv_clone = wsv.clone();
-
-            let did_remove = wsv.remove_account_permission(&account_id, &permission);
-
-            wsv.modify_account(&account_id, |account| {
-                if !wsv_clone
+            wsv.modify_account(&account_id, |_| {
+                if !wsv
                     .permission_token_definitions()
                     .contains_key(permission.definition_id())
                 {
                     error!(%permission, "Revoking non-existent token");
                 }
-                let id = account.id();
-                if did_remove {
-                    Ok(AccountEvent::PermissionRemoved(id.clone()))
-                } else {
-                    Err(ValidationError::new("Permission not found").into())
+                if !wsv.remove_account_permission(&account_id, &permission) {
+                    return Err(ValidationError::new("Permission not found").into());
                 }
+                Ok(AccountEvent::PermissionRemoved(account_id.clone()))
             })
         }
     }
@@ -266,7 +248,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
@@ -293,11 +275,7 @@ pub mod isi {
         type Error = Error;
 
         #[metrics(+"revoke_account_role")]
-        fn execute(
-            self,
-            _authority: AccountId,
-            wsv: &mut WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
@@ -319,7 +297,7 @@ pub mod isi {
     /// Assert that this asset can be registered to an account.
     fn assert_can_register(
         definition_id: &AssetDefinitionId,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         value: &AssetValue,
     ) -> Result<(), Error> {
         let definition = asset::isi::assert_asset_type(definition_id, wsv, value.value_type())?;

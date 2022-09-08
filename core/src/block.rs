@@ -28,14 +28,9 @@ use parity_scale_codec::{Decode, Encode};
 
 use crate::{
     prelude::*,
-    sumeragi::{
-        network_topology::Topology,
-        view_change::{Proof, ProofChain as ViewChangeProofs},
-    },
+    sumeragi::network_topology::Topology,
     tx::{TransactionValidator, VersionedAcceptedTransaction},
 };
-
-const PIPELINE_TIME_MS: u64 = DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_LIMIT_MS;
 
 /// Default estimation of consensus duration
 #[allow(clippy::integer_division)]
@@ -215,7 +210,6 @@ impl PendingBlock {
         self,
         height: u64,
         previous_block_hash: HashOf<VersionedCommittedBlock>,
-        view_change_proofs: Vec<Proof>,
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -227,7 +221,6 @@ impl PendingBlock {
                 previous_block_hash,
                 transactions_hash: Hash::zeroed().typed(),
                 rejected_transactions_hash: Hash::zeroed().typed(),
-                view_change_proofs,
                 genesis_topology: None,
             },
         }
@@ -245,7 +238,6 @@ impl PendingBlock {
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: Hash::zeroed().typed(),
                 rejected_transactions_hash: Hash::zeroed().typed(),
-                view_change_proofs: Vec::new(),
                 genesis_topology: Some(genesis_topology),
             },
         }
@@ -263,7 +255,6 @@ impl PendingBlock {
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: Hash::zeroed().typed(),
                 rejected_transactions_hash: Hash::zeroed().typed(),
-                view_change_proofs: Vec::new(),
                 genesis_topology: None,
             },
         }
@@ -297,8 +288,6 @@ pub struct BlockHeader {
     pub transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
     pub rejected_transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
-    /// Number of view changes after the previous block was committed and before this block was committed.
-    pub view_change_proofs: Vec<Proof>,
     /// Genesis topology
     pub genesis_topology: Option<Topology>,
 }
@@ -620,7 +609,6 @@ impl ValidBlock {
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: EmptyChainHash::default().into(),
                 rejected_transactions_hash: EmptyChainHash::default().into(),
-                view_change_proofs: Vec::new(),
                 genesis_topology: None,
             },
             rejected_transactions: Vec::new(),

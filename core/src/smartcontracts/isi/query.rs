@@ -200,12 +200,14 @@ mod tests {
         Ok(World::with([domain], PeersIds::new()))
     }
 
+    // TODO: This doesn't need to be `async`
+    #[allow(clippy::unused_async)]
     async fn wsv_with_test_blocks_and_transactions(
         blocks: u64,
         valid_tx_per_block: usize,
         invalid_tx_per_block: usize,
     ) -> Result<WorldStateView> {
-        let mut wsv = WorldStateView::new(world_with_test_domains());
+        let wsv = WorldStateView::new(world_with_test_domains());
 
         let limits = TransactionLimits {
             max_instruction_number: 1,
@@ -228,8 +230,8 @@ mod tests {
             crate::VersionedAcceptedTransaction::from_transaction(tx, &huge_limits)?
         };
 
-        let mut transactions = vec![valid_tx.clone(); valid_tx_per_block];
-        transactions.append(&mut vec![invalid_tx.clone(); invalid_tx_per_block]);
+        let mut transactions = vec![valid_tx; valid_tx_per_block];
+        transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
         let first_block = PendingBlock::new(transactions.clone(), vec![])
             .chain_first()
@@ -251,7 +253,7 @@ mod tests {
 
         for height in 1u64..blocks {
             let block = PendingBlock::new(transactions.clone(), vec![])
-                .chain(height, curr_hash, Vec::new())
+                .chain(height, curr_hash)
                 .validate(
                     &TransactionValidator::new(
                         limits,
@@ -372,7 +374,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let mut wsv = WorldStateView::new(world_with_test_domains());
+        let wsv = WorldStateView::new(world_with_test_domains());
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
@@ -382,8 +384,7 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx =
-            crate::VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), &tx_limits)?;
+        let va_tx = crate::VersionedAcceptedTransaction::from_transaction(signed_tx, &tx_limits)?;
 
         let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());

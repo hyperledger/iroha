@@ -12,6 +12,8 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
+    use std::sync::Arc;
+
     use super::*;
 
     impl Execute for SetKeyValue<Asset, Name, Value> {
@@ -21,13 +23,13 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
-            let asset_metadata_limits = wsv.config.asset_metadata_limits.clone();
+            let asset_metadata_limits = wsv.config.asset_metadata_limits;
 
             wsv.modify_asset(&asset_id, |asset| {
                 let store: &mut Metadata = asset
@@ -48,7 +50,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
 
@@ -78,7 +80,7 @@ pub mod isi {
                 fn execute(
                     self,
                     authority: AccountId,
-                    wsv: &mut WorldStateView,
+                    wsv: &WorldStateView,
                 ) -> Result<(), Self::Error> {
                     <$ty as InnerMint>::execute(self, authority, wsv)
                 }
@@ -97,7 +99,7 @@ pub mod isi {
                 fn execute(
                     self,
                     authority: AccountId,
-                    wsv: &mut WorldStateView,
+                    wsv: &WorldStateView,
                 ) -> Result<(), Self::Error> {
                     <$ty as InnerBurn>::execute(self, authority, wsv)
                 }
@@ -116,7 +118,7 @@ pub mod isi {
                 fn execute(
                     self,
                     authority: AccountId,
-                    wsv: &mut WorldStateView,
+                    wsv: &WorldStateView,
                 ) -> Result<(), Self::Error> {
                     <$ty as InnerTransfer>::execute(self, authority, wsv)
                 }
@@ -141,7 +143,7 @@ pub mod isi {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -161,7 +163,7 @@ pub mod isi {
                 &asset_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
-            let metrics_arc = wsv.metrics.clone();
+            let metrics_arc = Arc::clone(&wsv.metrics);
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -183,7 +185,7 @@ pub mod isi {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -199,7 +201,7 @@ pub mod isi {
                 wsv,
                 <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
             )?;
-            let metrics_arc = wsv.metrics.clone();
+            let metrics_arc = Arc::clone(&wsv.metrics);
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -221,7 +223,7 @@ pub mod isi {
         fn execute<Err>(
             transfer: Transfer<Asset, Self, Asset>,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -252,7 +254,7 @@ pub mod isi {
 
                 Ok(AssetEvent::Removed(transfer.source_id.clone()))
             })?;
-            let metrics_arc = wsv.metrics.clone();
+            let metrics_arc = Arc::clone(&wsv.metrics);
             wsv.modify_asset(&transfer.destination_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -312,7 +314,7 @@ pub mod isi {
     /// Assert that this asset is `mintable`.
     fn assert_can_mint(
         definition_id: &AssetDefinitionId,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;

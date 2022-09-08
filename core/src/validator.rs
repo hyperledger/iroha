@@ -96,7 +96,7 @@ impl Chain {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn validate(
         &self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<(), DenialReason> {
         let operation = operation.into();
@@ -131,7 +131,7 @@ impl Chain {
 
     fn execute_validator(
         validator: &Validator,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         operation: NeedsPermissionBox,
     ) -> Result<(), DenialReason> {
         let mut runtime = wasm::Runtime::from_configuration(wsv.config.wasm_runtime_config)
@@ -163,7 +163,7 @@ impl<'chain> ChainView<'chain> {
     /// See [`Chain::validate()`].
     pub fn validate(
         self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<(), DenialReason> {
         self.chain.validate(wsv, operation)

@@ -308,6 +308,7 @@ pub fn generate_map() -> DumpDecodedMap {
         Vec<transaction::TransactionValue>,
         Vec<transaction::VersionedRejectedTransaction>,
         Vec<transaction::VersionedValidTransaction>,
+        Vec<Signature>,
         Vec<u8>,
         VersionedPaginatedQueryResult,
         VersionedPendingTransactions,

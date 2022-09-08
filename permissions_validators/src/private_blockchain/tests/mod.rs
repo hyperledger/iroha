@@ -86,7 +86,7 @@ impl TestEnv {
 
         let world = World::with([wonderland.clone(), denoland.clone()], Vec::new());
 
-        let mut wsv = WorldStateView::new(world);
+        let wsv = WorldStateView::new(world);
 
         let mintbox_gold_trigger_id = TriggerId::from_str("mint_box_gold_asset").expect("Valid");
 
