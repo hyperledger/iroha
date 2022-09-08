@@ -5,6 +5,7 @@
 use std::sync::{mpsc, Mutex};
 
 use iroha_primitives::must_use::MustUse;
+use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
 use super::*;
@@ -36,35 +37,42 @@ impl FaultInjection for NoFault {
     }
 }
 
-/// `Sumeragi` is the implementation of the consensus. This struct allows also to add fault injection for tests.
+/// `Sumeragi` is the implementation of the consensus. This struct
+/// allows also to add fault injection for tests.
 ///
+/// TODO: paraphrase
 ///
-/// sumeragi_state_machine_data is a Mutex instead of a RWLock because
-/// it communicates more clearly the correct use of the lock. The most
-/// frequent action on this lock is the main loop writing to it. This
-/// means that if anyone holds this lock they are blocking the sumeragi
-/// thread. A RWLock will tempt someone to hold a read lock because
-/// they think they are being smart, whilst a Mutex screams *DO NOT
-/// HOLD ME*. That is why the SumeragiStateMachineData is wrapped in
-/// a mutex, it's more self documenting.
-
+/// `sumeragi_state_machine_data` is a [`Mutex`] instead of a `RWLock`
+/// because it communicates more clearly the correct use of the
+/// lock. The most frequent action on this lock is the main loop
+/// writing to it. This means that if anyone holds this lock they are
+/// blocking the sumeragi thread. A `RWLock` will tempt someone to
+/// hold a read lock because they think they are being smart, whilst a
+/// [`Mutex`] screams *DO NOT HOLD ME*. That is why the
+/// [`SumeragiStateMachineData`] is wrapped in a mutex, it's more
+/// self-documenting.
 pub struct SumeragiWithFault<F>
 where
     F: FaultInjection,
 {
+    /// The pair of keys used for communication given this Sumeragi instance.
     pub(crate) key_pair: KeyPair,
     /// Address of queue
     pub queue: Arc<Queue>,
     /// The peer id of myself.
     pub peer_id: PeerId,
+    /// An actor that sends events
     pub(crate) events_sender: EventsSender,
-
-    pub wsv_for_public_use: Mutex<WorldStateView>,
-
+    /// The world state view instance that is used in public contexts
+    pub wsv: Mutex<WorldStateView>,
+    /// TODO: good description
     pub(crate) commit_time: Duration,
+    /// TODO: good description here too.
     pub(crate) block_time: Duration,
-
+    /// Limits that all transactions need to obey, in terms of size
+    /// of WASM blob and number of instructions.
     pub(crate) transaction_limits: TransactionLimits,
+    /// [`TransactionValidator`] instance that we use
     pub(crate) transaction_validator: TransactionValidator,
     /// Broker
     pub broker: Broker,
@@ -72,17 +80,22 @@ where
     pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,
-
-    pub(crate) fault_injection: PhantomData<F>,
+    /// [`PhantomData`] used to generify over [`FaultInjection`] implementations
+    pub(crate) fault_injection: PhantomData<F>, // TODO: remove
+    /// The size of batch that is being gossiped. Smaller size leads
+    /// to longer time to synchronise, useful if you have high packet loss.
     pub(crate) gossip_batch_size: u32,
+    /// The time between gossiping. More frequent gossiping shortens
+    /// the time to sync, but can overload the network.
     pub(crate) gossip_period: Duration,
-
-    pub sumeragi_state_machine_data: Mutex<SumeragiStateMachineData>,
+    /// [`PeerId`]s of the peers that are currently online.
     pub current_online_peers: Mutex<Vec<PeerId>>,
+    /// Hash of the latest block
     pub latest_block_hash_for_use_by_block_sync: Mutex<HashOf<VersionedCommittedBlock>>,
-
-    pub incoming_message_sender: Mutex<mpsc::SyncSender<Message>>,
-    pub incoming_message_receiver: Mutex<mpsc::Receiver<Message>>,
+    /// Incoming?? sender channel
+    pub incoming_message_sender: Mutex<mpsc::SyncSender<MessagePacket>>,
+    /// Incoming message receiver channel.
+    pub incoming_message_receiver: Mutex<mpsc::Receiver<MessagePacket>>,
 }
 
 impl<F: FaultInjection> Debug for SumeragiWithFault<F> {
@@ -94,20 +107,43 @@ impl<F: FaultInjection> Debug for SumeragiWithFault<F> {
     }
 }
 
+// TODO: In general naming things after the programming patterns is
+// considered a bad practice. We need a better name.
+/// Internal structure that retains the state.
 pub struct SumeragiStateMachineData {
+    /// The [`GenesisNetwork`] that was used to initialise the state machine.
     pub genesis_network: Option<GenesisNetwork>,
+    /// The hash of the latest [`VersionedCommittedBlock`]
     pub latest_block_hash: HashOf<VersionedCommittedBlock>,
+    /// Current block height
     pub latest_block_height: u64,
+    /// The current network topology.
     pub current_topology: Topology,
-
+    /// The sumeragi internal `WorldStateView`. This will probably
+    /// morph into a wsv + various patches as we attempt to
+    /// multithread isi execution. In the future we might also once
+    /// again merge the internal wsv with the public facing one. But
+    /// as of now we keep them seperate for greater flexibility when
+    /// optimizing.
     pub wsv: WorldStateView,
-
+    /// In order to *be fast*, we must minimize communication with
+    /// other subsystems where we can. This way the performance of
+    /// sumeragi is more dependent on the code that is internal to the
+    /// subsystem.
+    ///
+    /// This transaction cache was therefore introduced so that only
+    /// interact with the transaction queue as necessary. If this were
+    /// written in C it would have just been an array of
+    /// `VersionedAcceptedTransaction`, but because of Rust's RAII
+    /// enforcement it has to be an array of options.  Otherwise we
+    /// would need to use unsafe to implement the fast pruning on the
+    /// array.
     pub transaction_cache: Vec<Option<VersionedAcceptedTransaction>>,
-
-    pub sumeragi_thread_should_exit: bool,
 }
 
 impl<F: FaultInjection> SumeragiWithFault<F> {
+    /// Get the current online peers by public key.
+    #[allow(clippy::expect_used)]
     pub fn get_online_peer_keys(&self) -> Vec<PublicKey> {
         self.current_online_peers
             .lock()
@@ -118,11 +154,24 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             .collect()
     }
 
+    /// Set the public block hash to zero, in a thread-safe manner
+    #[allow(clippy::expect_used)]
+    pub fn zeroize(&self) {
+        *self
+            .latest_block_hash_for_use_by_block_sync
+            .lock()
+            .expect("Poisoned Mutex") = Hash::zeroed().typed()
+    }
+
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if there is a change in WSV peers, otherwise leaves the order unchanged.
     #[allow(clippy::expect_used)]
     pub fn update_network_topology(topology: &mut Topology, wsv: &WorldStateView) {
-        let wsv_peers: HashSet<_> = wsv.trusted_peers_ids().clone().into_iter().collect();
+        let wsv_peers: HashSet<_> = wsv
+            .trusted_peers_ids()
+            .iter()
+            .map(|id_ref| id_ref.clone())
+            .collect();
         let topology_peers: HashSet<_> = topology.sorted_peers().iter().cloned().collect();
         if topology_peers != wsv_peers {
             *topology = topology
@@ -130,39 +179,38 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
                     .into_builder()
                     .with_peers(wsv_peers)
                     .build(0)
-                    .expect("The safety of changing the number of peers should have been checked at Instruction execution stage.");
+                .expect("The safety of changing the number of peers should have been checked at the Instruction execution stage.");
         }
     }
 
-    pub(crate) fn broadcast_msg_to<'a>(
+    /// Send a sumeragi packet over the network to the specified `peer`.
+    /// # Errors
+    /// Fails if network sending fails
+    #[instrument(skip(self, packet))]
+    fn post_packet_to(&self, packet: MessagePacket, peer: &PeerId) {
+        let post = iroha_p2p::Post {
+            data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
+            peer: peer.clone(),
+        };
+        self.broker.issue_send_sync(&post);
+    }
+
+    fn broadcast_packet_to<'peer_id>(
         &self,
-        msg: impl Into<Message> + Send,
-        ids: impl Iterator<Item = &'a PeerId> + Send,
+        msg: MessagePacket,
+        ids: impl Iterator<Item = &'peer_id PeerId> + Send,
     ) {
-        VersionedMessage::from(msg.into()).send_to_multiple(&self.broker, ids);
-    }
-
-    fn broadcast_msg(&self, msg: impl Into<Message> + Send, topology: &Topology) {
-        self.broadcast_msg_to(msg, topology.sorted_peers().iter());
-    }
-
-    /// Gossip transactions to other peers.
-
-    pub fn gossip_transactions(&self, txs: Vec<VersionedAcceptedTransaction>, topology: &Topology) {
-        if txs.is_empty() {
-            return;
+        for peer_id in ids {
+            self.post_packet_to(msg.clone(), peer_id);
         }
+    }
 
-        debug!(
-            peer_role = ?topology.role(&self.peer_id),
-            tx_count = txs.len(),
-            "Gossiping transactions"
-        );
-
-        self.broadcast_msg(TransactionGossip::new(txs), topology);
+    fn broadcast_packet(&self, msg: MessagePacket, topology: &Topology) {
+        self.broadcast_packet_to(msg, topology.sorted_peers().iter());
     }
 
     /// Connects or disconnects peers according to the current network topology.
+    #[allow(clippy::expect_used)]
     pub fn connect_peers(&self, topology: &Topology) {
         let peers_expected = {
             let mut res = topology.sorted_peers().to_owned();
@@ -173,7 +221,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
 
         let mut connected_to_peers_by_key = self.get_online_peer_keys();
 
-        for peer_to_be_connected in peers_expected.iter() {
+        for peer_to_be_connected in &peers_expected {
             if connected_to_peers_by_key.contains(&peer_to_be_connected.public_key) {
                 let index = connected_to_peers_by_key
                     .iter()
@@ -197,78 +245,14 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         }
     }
 
-    fn check_peers_status(
-        &self,
-        this_peer_id: &PeerId,
-        network_topology: &Topology,
-    ) -> (Vec<PeerId>, Vec<PeerId>) {
-        let online_peers = self.get_online_peer_keys();
-        iroha_logger::info!(peer_count = online_peers.len(), "Peers status");
-
-        let (online, offline): (Vec<PeerId>, Vec<PeerId>) = network_topology
-            .sorted_peers()
-            .iter()
-            .cloned()
-            .partition(|id| {
-                online_peers.contains(&id.public_key) || this_peer_id.public_key == id.public_key
-            });
-
-        (online, offline)
-    }
-
-    fn try_get_online_topology(&self, network_topology: &Topology) -> Result<Topology> {
-        use crate::sumeragi::network_topology::GenesisBuilder;
-        let (online_peers, offline_peers) =
-            self.check_peers_status(&self.peer_id, network_topology);
-        let set_a_len = network_topology.min_votes_for_commit();
-        if online_peers.len() < set_a_len {
-            return Err(eyre!("Not enough online peers for consensus."));
-        }
-        let genesis_topology = if network_topology.sorted_peers().len() == 1 {
-            network_topology.clone()
-        } else {
-            let set_a: HashSet<_> = online_peers[..set_a_len].iter().cloned().collect();
-            let set_b: HashSet<_> = online_peers[set_a_len..]
-                .iter()
-                .cloned()
-                .chain(offline_peers.into_iter())
-                .collect();
-            #[allow(clippy::expect_used)]
-            GenesisBuilder::new()
-                .with_leader(self.peer_id.clone())
-                .with_set_a(set_a)
-                .with_set_b(set_b)
-                .build()
-                .expect("Preconditions should be already checked.")
-        };
-        iroha_logger::info!("Waiting for active peers finished.");
-        Ok(genesis_topology)
-    }
-
-    pub fn wait_for_peers(&self, network_topology: &Topology) {
-        iroha_logger::info!("Waiting for active peers",);
-        for i in 0..120 {
-            self.connect_peers(&network_topology);
-
-            let online_peers = self.get_online_peer_keys();
-
-            let peer_count_required = network_topology.min_votes_for_commit();
-
-            if online_peers.len() + 1 >= peer_count_required {
-                return;
-            }
-
-            let reconnect_in_ms = 250;
-            std::thread::sleep(Duration::from_millis(reconnect_in_ms));
-        }
-        panic!("Timed out waiting for peers to come online");
-    }
-
+    /// The maximum time a sumeragi round can take to produce a block when
+    /// there are no faulty peers in the a set.
     pub fn pipeline_time(&self) -> Duration {
         self.block_time + self.commit_time
     }
 }
 
+#[allow(clippy::expect_used)]
 fn block_commit<F>(
     sumeragi: &SumeragiWithFault<F>,
     block: VersionedValidBlock,
@@ -279,20 +263,27 @@ fn block_commit<F>(
     let block = block.commit();
     let block_hash = block.hash();
 
-    if let Err(error) = state_machine.wsv.apply(block.clone()) {
-        error!(%error);
-        panic!("Failed to apply block on WSV. This is absolutely not acceptable.");
-    }
-
+    state_machine
+        .wsv
+        .apply(block.clone())
+        .expect("Failed to apply block on WSV. This is absolutely not acceptable.");
     // Update WSV copy that is public facing
     {
-        let mut wsv_for_public_use_guard = sumeragi.wsv_for_public_use.lock().unwrap();
-        *wsv_for_public_use_guard = WorldStateView::clone(&state_machine.wsv);
+        let mut wsv_for_public_use_guard = sumeragi
+            .wsv
+            .lock()
+            .expect("WSV mutex in `block_commit` poisoned");
+        *wsv_for_public_use_guard = state_machine.wsv.clone();
     }
 
     for event in Vec::<Event>::from(&block) {
         trace!(?event);
-        sumeragi.events_sender.send(event);
+        sumeragi
+            .events_sender
+            .send(event)
+            .map_err(|e| error!(%e, "Some events failed to be sent"))
+            .unwrap_or(0);
+        // Essentially log and ignore.
     }
 
     state_machine.latest_block_height = block.header().height;
@@ -317,131 +308,122 @@ fn block_commit<F>(
         "Committing block"
     );
     sumeragi.kura.store_block_blocking(block);
-    SumeragiWithFault::<F>::update_network_topology(
-        &mut state_machine.current_topology,
-        &state_machine.wsv,
-    );
+    state_machine
+        .current_topology
+        .update_network_topology(&state_machine.wsv);
 
     // Transaction Cache
-    {
-        let mut transaction_cache = &mut state_machine.transaction_cache;
-        // We prune transactions now because now is the only time they may have been
-        // invalidated by a new block being applied to the world state view.
-        //
-        // We also check for if the transaction has expired because we might as well.
-        let mut read_index = 0;
-        let mut write_index = 0;
-        while read_index < transaction_cache.len() {
-            if let Some(tx) = transaction_cache[read_index].take() {
-                if tx.is_in_blockchain(&state_machine.wsv)
-                    || tx.is_expired(sumeragi.queue.tx_time_to_live)
-                {
-                    read_index += 1;
-                    continue;
-                }
-                transaction_cache[write_index] = Some(tx);
-                read_index += 1;
-                write_index += 1;
-                continue;
-            }
-            read_index += 1;
-        }
-        transaction_cache.truncate(write_index);
-    }
+    cache_transaction(state_machine, sumeragi)
 }
 
+fn cache_transaction<F: FaultInjection>(
+    state_machine: &mut SumeragiStateMachineData,
+    sumeragi: &SumeragiWithFault<F>,
+) {
+    let transaction_cache = &mut state_machine.transaction_cache;
+    let mut read_index = 0;
+    let mut write_index = 0;
+    while read_index < transaction_cache.len() {
+        if let Some(tx) = transaction_cache[read_index].take() {
+            if tx.is_in_blockchain(&state_machine.wsv)
+                || tx.is_expired(sumeragi.queue.tx_time_to_live)
+            {
+                read_index += 1;
+                continue;
+            }
+            transaction_cache[write_index] = Some(tx);
+            read_index += 1;
+            write_index += 1;
+            continue;
+        }
+        read_index += 1;
+    }
+    transaction_cache.truncate(write_index);
+}
+
+#[allow(clippy::expect_used)]
 fn request_view_change<F>(
     sumeragi: &SumeragiWithFault<F>,
-    state_machine_guard: &mut SumeragiStateMachineData,
+    state_machine: &mut SumeragiStateMachineData,
     view_change_proof_chain: &mut Vec<Proof>,
     current_view_change_index: u64,
 ) where
     F: FaultInjection,
 {
-    let mut suspect_proof = Proof {
-        latest_block_hash: state_machine_guard.latest_block_hash,
-        view_change_index: current_view_change_index,
-        signatures: Vec::new(),
+    let suspect_proof = {
+        let mut proof = Proof {
+            latest_block_hash: state_machine.latest_block_hash,
+            view_change_index: current_view_change_index,
+            signatures: Vec::new(),
+        };
+        proof
+            .sign(sumeragi.key_pair.clone())
+            .expect("Suspect proof must be able to perform signing");
+        proof
     };
-    suspect_proof
-        .sign(sumeragi.key_pair.clone())
-        .expect("must be able to perform signing");
 
-    view_change_proof_chain.insert_proof(
-        &state_machine_guard
+    let _ = view_change_proof_chain.insert_proof(
+        &state_machine
             .current_topology
             .sorted_peers()
             .iter()
             .cloned()
             .collect(),
-        state_machine_guard.current_topology.max_faults(),
-        &state_machine_guard.latest_block_hash,
+        state_machine.current_topology.max_faults(),
+        &state_machine.latest_block_hash,
         &suspect_proof,
     );
 
-    sumeragi.broadcast_msg(
-        Message::ViewChangeSuggested(ViewChangeSuggested::new(view_change_proof_chain.clone())),
-        &state_machine_guard.current_topology,
+    sumeragi.broadcast_packet(
+        MessagePacket::new(
+            view_change_proof_chain.clone(),
+            Message::ViewChangeSuggested,
+        ),
+        &state_machine.current_topology,
     );
 }
 
-#[instrument(skip(initial_latest_block, initial_block_height))]
+#[instrument(skip(sumeragi, state_machine_guard))]
+#[allow(clippy::expect_used)]
+/// Execute the main loop of [`SumeragiWithFault`]
 pub fn run_sumeragi_main_loop<F>(
     sumeragi: &SumeragiWithFault<F>,
-    initial_latest_block: HashOf<VersionedCommittedBlock>,
-    initial_block_height: u64,
+    mut state_machine_guard: SumeragiStateMachineData,
+    mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) where
     F: FaultInjection,
 {
-    use std::sync::mpsc::TryRecvError;
-
     let mut incoming_message_receiver = sumeragi
         .incoming_message_receiver
         .lock()
         .expect("lock on reciever");
 
-    if initial_block_height != 0 && initial_latest_block != Hash::zeroed().typed() {
+    if state_machine_guard.latest_block_height != 0
+        && state_machine_guard.latest_block_hash != Hash::zeroed().typed()
+    {
         // Normal startup
-
-        let mut state_machine_guard = sumeragi
-            .sumeragi_state_machine_data
-            .lock()
-            .expect("take lock");
-
-        state_machine_guard.latest_block_hash = initial_latest_block;
-        state_machine_guard.latest_block_height = initial_block_height;
-        state_machine_guard.current_topology = Topology::builder()
-            .at_block(state_machine_guard.latest_block_hash)
-            .with_peers(
-                state_machine_guard
-                    .wsv
-                    .peers()
-                    .iter()
-                    .map(|peer| peer.id().clone())
-                    .collect(),
-            )
-            .build(0)
-            .expect("Should be able to reconstruct topology from wsv");
+        // Aka, we don't have to do anything.
     } else {
-        // We need to perform a round of some form
-
-        let maybe_genesis_network = {
-            let mut state_machine_guard = sumeragi
-                .sumeragi_state_machine_data
-                .lock()
-                .expect("take lock");
-            state_machine_guard.genesis_network.take()
-        };
-
-        if let Some(genesis_network) = maybe_genesis_network {
-            sumeragi_init_commit_genesis(sumeragi, genesis_network);
+        // We don't have the genesis block.
+        // We need to perform a round of some form.
+        if let Some(genesis_network) = state_machine_guard.genesis_network.take() {
+            sumeragi_init_commit_genesis(sumeragi, &mut state_machine_guard, genesis_network);
         } else {
-            sumeragi_init_listen_for_genesis(sumeragi, &mut incoming_message_receiver);
+            sumeragi_init_listen_for_genesis(
+                sumeragi,
+                &mut state_machine_guard,
+                &mut incoming_message_receiver,
+                &mut shutdown_receiver,
+            )
+            .unwrap_or_else(|err| {
+                if let EarlyReturn::Disconnected = err {
+                    panic!("Disconnected")
+                }
+            });
         }
     }
 
     {
-        let state_machine_guard = sumeragi.sumeragi_state_machine_data.lock().unwrap();
         assert!(state_machine_guard.latest_block_height >= 1);
         assert_eq!(
             state_machine_guard.latest_block_hash,
@@ -455,29 +437,24 @@ pub fn run_sumeragi_main_loop<F>(
     }
 
     // do normal rounds
-
     let mut voting_block_option = None;
-
     let mut block_signature_acc = Vec::new();
-
     let mut should_sleep = false;
-
     let mut has_sent_transactions = false;
     let mut sent_transaction_time = Instant::now();
-
     let mut last_sent_transaction_gossip_time = Instant::now();
-
     let mut instant_when_we_should_create_a_block = Instant::now() + sumeragi.block_time;
     let mut instant_at_which_we_should_have_committed = Instant::now();
-
     let mut view_change_proof_chain = Vec::new();
     let mut old_view_change_index = 0;
     let mut old_latest_block_height = 0;
-
-    let mut last_loop_start_time = Instant::now();
-
     let mut maybe_incoming_message = None;
     loop {
+        if shutdown_receiver.try_recv().is_ok() {
+            info!("Sumeragi Thread is being shutdown shut down.");
+            return;
+        }
+
         if should_sleep {
             let span = span!(Level::TRACE, "Sumeragi Main Thread Sleep");
             let _enter = span.enter();
@@ -486,21 +463,6 @@ pub fn run_sumeragi_main_loop<F>(
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
-
-        let mut state_machine_guard = {
-            let span_for_sumeragi_guard_lock = span!(
-                Level::TRACE,
-                "Sumeragi Main Thread Acquire state machine data lock."
-            );
-            let _enter_for_sumeragi_guard_lock = span_for_sumeragi_guard_lock.enter();
-
-            let state_machine_guard = sumeragi.sumeragi_state_machine_data.lock().unwrap();
-            if state_machine_guard.sumeragi_thread_should_exit {
-                info!("Sumeragi Thread has Shutdown");
-                return;
-            }
-            state_machine_guard
-        };
 
         sumeragi.connect_peers(&state_machine_guard.current_topology);
 
@@ -534,11 +496,11 @@ pub fn run_sumeragi_main_loop<F>(
             }
         }
 
-        if last_sent_transaction_gossip_time.elapsed().as_secs() > 1 {
+        if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
             let mut txs = Vec::new();
-            for tx in state_machine_guard.transaction_cache.iter() {
-                txs.push(tx.clone().unwrap());
-                if txs.len() >= 10 {
+            for tx in &state_machine_guard.transaction_cache {
+                txs.push(tx.clone().expect("Failed to clone `tx`"));
+                if txs.len() >= sumeragi.gossip_batch_size as usize {
                     break;
                 }
             }
@@ -549,36 +511,46 @@ pub fn run_sumeragi_main_loop<F>(
                     "Gossiping transactions"
                 );
 
-                sumeragi.broadcast_msg(
-                    TransactionGossip::new(txs),
+                sumeragi.broadcast_packet(
+                    MessagePacket::new(
+                        view_change_proof_chain.clone(),
+                        TransactionGossip::new(txs).into(),
+                    ),
                     &state_machine_guard.current_topology,
                 );
                 last_sent_transaction_gossip_time = Instant::now();
             }
         }
 
-        if maybe_incoming_message.is_some() {
-            panic!("If there is a message available it must be consumed within one loop cycle. A in house rule in place to stop one from implementing bugs that render a node not responding.");
-        }
+        assert!(maybe_incoming_message.is_none(),"If there is a message available it must be consumed within one loop cycle. A in house rule in place to stop one from implementing bugs that render a node not responding.");
         maybe_incoming_message = match incoming_message_receiver.try_recv() {
-            Ok(msg) => Some(msg),
+            Ok(packet) => {
+                let peer_list = state_machine_guard
+                    .current_topology
+                    .sorted_peers()
+                    .iter()
+                    .cloned()
+                    .collect();
+
+                for proof in packet.view_change_proofs {
+                    let _ = view_change_proof_chain.insert_proof(
+                        &peer_list,
+                        state_machine_guard.current_topology.max_faults(),
+                        &state_machine_guard.latest_block_hash,
+                        &proof,
+                    );
+                }
+                Some(packet.message)
+            }
             Err(recv_error) => match recv_error {
-                TryRecvError::Empty => None,
-                TryRecvError::Disconnected => {
-                    panic!("Sumeragi message pump disconnected.")
+                mpsc::TryRecvError::Empty => None,
+                mpsc::TryRecvError::Disconnected => {
+                    panic!("Sumeragi message pump disconnected. This is not a recoverable error.")
                 }
             },
         };
 
         if let Some(stolen_message) = maybe_incoming_message.take() {
-            let peer_list = state_machine_guard
-                .current_topology
-                .sorted_peers()
-                .iter()
-                .cloned()
-                .collect();
-
-            let mut foreign_proof_chain = None;
             match stolen_message {
                 Message::TransactionGossip(tx_gossip) => {
                     for transaction in tx_gossip.txs {
@@ -596,41 +568,20 @@ pub fn run_sumeragi_main_loop<F>(
                         }
                     }
                 }
-                Message::ViewChangeSuggested(suggestion) => {
+                Message::ViewChangeSuggested => {
                     trace!("Received view change suggestion.");
-                    foreign_proof_chain = Some(suggestion.proofs);
                 }
                 Message::TransactionForwarded(tx_forw) => {
-                    foreign_proof_chain = Some(tx_forw.view_change_proofs.clone());
                     maybe_incoming_message = Some(Message::TransactionForwarded(tx_forw));
                 }
                 Message::BlockCreated(block_created) => {
-                    foreign_proof_chain =
-                        Some(block_created.block.header().view_change_proofs.clone());
                     maybe_incoming_message = Some(Message::BlockCreated(block_created));
                 }
                 Message::BlockSigned(block_signed) => {
-                    foreign_proof_chain =
-                        Some(block_signed.block.header().view_change_proofs.clone());
                     maybe_incoming_message = Some(Message::BlockSigned(block_signed));
                 }
                 Message::BlockCommitted(block_committed) => {
-                    foreign_proof_chain =
-                        Some(block_committed.block.header().view_change_proofs.clone());
                     maybe_incoming_message = Some(Message::BlockCommitted(block_committed));
-                }
-                other => {
-                    maybe_incoming_message = Some(other);
-                }
-            }
-            if let Some(proofs) = foreign_proof_chain {
-                for proof in proofs {
-                    view_change_proof_chain.insert_proof(
-                        &peer_list,
-                        state_machine_guard.current_topology.max_faults(),
-                        &state_machine_guard.latest_block_hash,
-                        &proof,
-                    );
                 }
             }
         }
@@ -671,14 +622,14 @@ pub fn run_sumeragi_main_loop<F>(
         }
 
         if state_machine_guard.current_topology.role(&sumeragi.peer_id) != Role::Leader {
-            if state_machine_guard.transaction_cache.len() > 0 && !has_sent_transactions {
+            if !state_machine_guard.transaction_cache.is_empty() && !has_sent_transactions {
                 // It is assumed that we only need to send 1 tx to check liveness.
                 let tx = state_machine_guard
                     .transaction_cache
                     .choose(&mut rand::thread_rng())
                     .expect("It was checked earlier that transaction cache is not empty.")
                     .clone()
-                    .unwrap();
+                    .expect("It is also a non-empty variant");
                 let tx_hash = tx.hash();
                 info!(
                     peer_addr = %sumeragi.peer_id.address,
@@ -690,18 +641,13 @@ pub fn run_sumeragi_main_loop<F>(
 
                 // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
                 if let Ok(MustUse(true)) = tx.check_signature_condition(&state_machine_guard.wsv) {
-                    let post = iroha_p2p::Post {
-                        data: NetworkMessage::SumeragiMessage(Box::new(VersionedMessage::from(
-                            Message::from(TransactionForwarded::new(
-                                tx,
-                                sumeragi.peer_id.clone(),
-                                view_change_proof_chain.clone(),
-                            )),
-                        ))),
-                        peer: state_machine_guard.current_topology.leader().clone(),
-                    };
-                    sumeragi.broker.issue_send_sync(&post);
-
+                    sumeragi.broadcast_packet_to(
+                        MessagePacket::new(
+                            view_change_proof_chain.clone(),
+                            TransactionForwarded::new(tx).into(),
+                        ),
+                        [state_machine_guard.current_topology.leader()].into_iter(),
+                    );
                     has_sent_transactions = true;
                     sent_transaction_time = Instant::now();
                 }
@@ -721,7 +667,9 @@ pub fn run_sumeragi_main_loop<F>(
 
         if state_machine_guard.current_topology.role(&sumeragi.peer_id) == Role::ObservingPeer {
             if maybe_incoming_message.is_some() {
-                let incoming_message = maybe_incoming_message.take().unwrap();
+                let incoming_message = maybe_incoming_message
+                    .take()
+                    .expect("Message must have been `Some` at this point");
                 match incoming_message {
                     Message::BlockCreated(_) => {}
                     Message::BlockCommitted(block_committed) => {
@@ -734,7 +682,7 @@ pub fn run_sumeragi_main_loop<F>(
                             .revalidate(&sumeragi.transaction_validator, &state_machine_guard.wsv);
                         for event in Vec::<Event>::from(&block) {
                             trace!(?event);
-                            sumeragi.events_sender.send(event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
 
                         let network_topology = state_machine_guard.current_topology.clone();
@@ -766,7 +714,7 @@ pub fn run_sumeragi_main_loop<F>(
             if maybe_incoming_message.is_some() {
                 use crate::sumeragi::Message::TransactionForwarded;
 
-                let msg = maybe_incoming_message.take().unwrap();
+                let msg = maybe_incoming_message.take().expect("Valid");
                 match msg {
                     TransactionForwarded(transaction_forwarded) => {
                         let transaction_maybe = VersionedAcceptedTransaction::from_transaction(
@@ -774,10 +722,9 @@ pub fn run_sumeragi_main_loop<F>(
                             &sumeragi.transaction_limits,
                         );
                         if transaction_maybe.is_ok() {
-                            let transaction = transaction_maybe.unwrap();
+                            let transaction = transaction_maybe.expect("Valid");
                             match sumeragi.queue.push(transaction, &state_machine_guard.wsv) {
-                                Ok(()) => (),
-                                Err((_, crate::queue::Error::InBlockchain)) | Ok(()) => (),
+                                Err((_, crate::queue::Error::InBlockchain)) | Ok(_) => (),
                                 Err((_, err)) => {
                                     error!(%err, "Error while pushing transaction into queue?");
                                 }
@@ -815,7 +762,7 @@ pub fn run_sumeragi_main_loop<F>(
             }
 
             if voting_block_option.is_none() {
-                if state_machine_guard.transaction_cache.len() == 0 {
+                if state_machine_guard.transaction_cache.is_empty() {
                     instant_when_we_should_create_a_block = Instant::now() + sumeragi.block_time;
                     continue;
                 }
@@ -825,7 +772,7 @@ pub fn run_sumeragi_main_loop<F>(
                     let transactions: Vec<VersionedAcceptedTransaction> = state_machine_guard
                         .transaction_cache
                         .iter()
-                        .map(|tx| tx.clone().unwrap())
+                        .map(|tx| tx.clone().expect("Is Some"))
                         .collect();
 
                     info!("sumeragi Doing block with {} txs.", transactions.len());
@@ -835,7 +782,6 @@ pub fn run_sumeragi_main_loop<F>(
                     let block = PendingBlock::new(transactions, event_recommendations).chain(
                         state_machine_guard.latest_block_height,
                         state_machine_guard.latest_block_hash,
-                        view_change_proof_chain.clone(),
                     );
                     {
                         let block = {
@@ -844,24 +790,24 @@ pub fn run_sumeragi_main_loop<F>(
                             let _enter_for_sumeragi_leader_block_validate =
                                 span_for_sumeragi_leader_block_validate.enter();
 
-                            let block = block.validate(
-                                &sumeragi.transaction_validator,
-                                &state_machine_guard.wsv,
-                            );
                             block
+                                .validate(&sumeragi.transaction_validator, &state_machine_guard.wsv)
                         };
 
                         for event in Vec::<Event>::from(&block) {
                             trace!(?event);
-                            sumeragi.events_sender.send(event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
                         let signed_block = block
                             .sign(sumeragi.key_pair.clone())
                             .expect("Sign genesis block.");
 
                         if !state_machine_guard.current_topology.is_consensus_required() {
-                            sumeragi.broadcast_msg(
-                                BlockCommitted::from(signed_block.clone()),
+                            sumeragi.broadcast_packet(
+                                MessagePacket::new(
+                                    view_change_proof_chain.clone(),
+                                    BlockCommitted::from(signed_block.clone()).into(),
+                                ),
                                 &state_machine_guard.current_topology,
                             );
 
@@ -874,11 +820,13 @@ pub fn run_sumeragi_main_loop<F>(
                         }
 
                         let voting_block = VotingBlock::new(signed_block.clone());
-                        let voting_block_hash = voting_block.block.hash();
 
                         voting_block_option = Some(voting_block);
-                        sumeragi.broadcast_msg_to(
-                            BlockCreated::from(signed_block.clone()),
+                        sumeragi.broadcast_packet_to(
+                            MessagePacket::new(
+                                view_change_proof_chain.clone(),
+                                BlockCreated::from(signed_block.clone()).into(),
+                            ),
                             state_machine_guard.current_topology.peers_set_a().iter(),
                         );
                         instant_at_which_we_should_have_committed =
@@ -886,19 +834,15 @@ pub fn run_sumeragi_main_loop<F>(
                         trace!("I, the leader, have created a block.");
                     }
                 }
-            } else {
-                if Instant::now() > instant_at_which_we_should_have_committed {
-                    trace!(
-                        "Suspecting validating peers and proxy tail for not comitting the block."
-                    );
-                    request_view_change(
-                        sumeragi,
-                        &mut state_machine_guard,
-                        &mut view_change_proof_chain,
-                        current_view_change_index,
-                    );
-                    instant_at_which_we_should_have_committed += sumeragi.commit_time;
-                }
+            } else if Instant::now() > instant_at_which_we_should_have_committed {
+                trace!("Suspecting validating peers and proxy tail for not comitting the block.");
+                request_view_change(
+                    sumeragi,
+                    &mut state_machine_guard,
+                    &mut view_change_proof_chain,
+                    current_view_change_index,
+                );
+                instant_at_which_we_should_have_committed += sumeragi.commit_time;
             }
         } else if state_machine_guard.current_topology.role(&sumeragi.peer_id)
             == Role::ValidatingPeer
@@ -913,22 +857,6 @@ pub fn run_sumeragi_main_loop<F>(
                             continue;
                         }
 
-                        let block_view_change_index: u64 =
-                            block.header().view_change_proofs.verify_with_state(
-                                &state_machine_guard
-                                    .current_topology
-                                    .sorted_peers()
-                                    .iter()
-                                    .cloned()
-                                    .collect(),
-                                state_machine_guard.current_topology.max_faults(),
-                                &state_machine_guard.latest_block_hash,
-                            ) as u64;
-
-                        if block_view_change_index != current_view_change_index {
-                            warn!("Rejecting block because it is has the wrong view change index.");
-                        }
-
                         trace!("I, a validating peer, have received a block.");
 
                         let block = {
@@ -937,16 +865,15 @@ pub fn run_sumeragi_main_loop<F>(
                             let _enter_for_sumeragi_validating_peer_block_validate =
                                 span_for_sumeragi_validating_peer_block_validate.enter();
 
-                            let block = block.revalidate(
+                            block.revalidate(
                                 &sumeragi.transaction_validator,
                                 &state_machine_guard.wsv,
-                            );
-                            block
+                            )
                         };
 
                         for event in Vec::<Event>::from(&block) {
                             trace!(?event);
-                            sumeragi.events_sender.send(event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
 
                         // During the genesis round we blindly take on the network topology described in
@@ -979,10 +906,10 @@ pub fn run_sumeragi_main_loop<F>(
                             continue;
                         }
 
-                        let hash = state_machine_guard.latest_block_hash.clone();
+                        let hash = state_machine_guard.latest_block_hash;
                         let block_height = state_machine_guard.latest_block_height;
                         if let Err(e) = block.validation_check(
-                            &mut state_machine_guard.wsv,
+                            &state_machine_guard.wsv,
                             &hash,
                             block_height,
                             &sumeragi.transaction_limits,
@@ -991,21 +918,17 @@ pub fn run_sumeragi_main_loop<F>(
                         } else {
                             let block_clone = block.clone();
                             let key_pair_clone = sumeragi.key_pair.clone();
-                            let transaction_validator = sumeragi.transaction_validator.clone();
                             let signed_block = block_clone
                                 .sign(key_pair_clone)
                                 .expect("maybe we should handle this error");
-                            {
-                                let post = iroha_p2p::Post {
-                                    data: NetworkMessage::SumeragiMessage(Box::new(
-                                        VersionedMessage::from(Message::BlockSigned(
-                                            signed_block.into(),
-                                        )),
-                                    )),
-                                    peer: state_machine_guard.current_topology.proxy_tail().clone(),
-                                };
-                                sumeragi.broker.issue_send_sync(&post);
-                            }
+
+                            sumeragi.broadcast_packet_to(
+                                MessagePacket::new(
+                                    view_change_proof_chain.clone(),
+                                    Message::BlockSigned(signed_block.into()).into(),
+                                ),
+                                [state_machine_guard.current_topology.proxy_tail()].into_iter(),
+                            );
                             info!(
                                 peer_role = ?state_machine_guard.current_topology.role(&sumeragi.peer_id),
                                 block_hash = %block.hash(),
@@ -1014,7 +937,6 @@ pub fn run_sumeragi_main_loop<F>(
                         }
 
                         let voting_block = VotingBlock::new(block.clone());
-                        let voting_block_hash = voting_block.block.hash();
                         voting_block_option = Some(voting_block);
                     }
                     Message::BlockCommitted(block_committed) => {
@@ -1046,7 +968,9 @@ pub fn run_sumeragi_main_loop<F>(
             }
         } else if state_machine_guard.current_topology.role(&sumeragi.peer_id) == Role::ProxyTail {
             if maybe_incoming_message.is_some() {
-                let incoming_message = maybe_incoming_message.take().unwrap();
+                let incoming_message = maybe_incoming_message.take().expect(
+                    "Incoming message is some in this `if` block. This is a hardware error.",
+                );
 
                 match incoming_message {
                     Message::BlockCreated(block_created) => {
@@ -1057,29 +981,12 @@ pub fn run_sumeragi_main_loop<F>(
                             continue;
                         }
 
-                        let block_view_change_index: u64 =
-                            block.header().view_change_proofs.verify_with_state(
-                                &state_machine_guard
-                                    .current_topology
-                                    .sorted_peers()
-                                    .iter()
-                                    .cloned()
-                                    .collect(),
-                                state_machine_guard.current_topology.max_faults(),
-                                &state_machine_guard.latest_block_hash,
-                            ) as u64;
-
-                        if block_view_change_index != current_view_change_index {
-                            warn!("Rejecting block because it is has the wrong view change index.");
-                        }
-
                         trace!("I, the proxy tail, have received a block.");
                         for event in Vec::<Event>::from(&block) {
                             trace!(?event);
-                            sumeragi.events_sender.send(event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
 
-                        let block_header = block.header();
                         if block.header().is_genesis() {
                             warn!("Rejecting block because it is genesis.");
                             continue;
@@ -1106,11 +1013,10 @@ pub fn run_sumeragi_main_loop<F>(
                             let _enter_for_sumeragi_proxy_tail_block_validate =
                                 span_for_sumeragi_proxy_tail_block_validate.enter();
 
-                            let block = block.revalidate(
+                            block.revalidate(
                                 &sumeragi.transaction_validator,
                                 &state_machine_guard.wsv,
-                            );
-                            block
+                            )
                         };
 
                         let valid_signatures = state_machine_guard
@@ -1134,7 +1040,12 @@ pub fn run_sumeragi_main_loop<F>(
                         let block_hash = block.hash();
 
                         if voting_block_option.is_some()
-                            && block_hash != voting_block_option.as_ref().unwrap().block.hash()
+                            && block_hash
+                                != voting_block_option
+                                    .as_ref()
+                                    .expect("Voting block is `Some`")
+                                    .block
+                                    .hash()
                         {
                             error!("block signed is not relevant block");
                             continue;
@@ -1156,7 +1067,7 @@ pub fn run_sumeragi_main_loop<F>(
                     }
                 }
             } else {
-                // if there is no message sleep
+                // if there is no message — sleep
                 should_sleep = true;
             }
 
@@ -1166,7 +1077,11 @@ pub fn run_sumeragi_main_loop<F>(
                 let validating_peers = state_machine_guard.current_topology.peers_set_a();
                 let mut signatures_on_this_block = Vec::new();
 
-                let voting_block_hash = voting_block_option.as_ref().unwrap().block.hash();
+                let voting_block_hash = voting_block_option
+                    .as_ref()
+                    .expect("Vptomg block option is `Some`")
+                    .block
+                    .hash();
                 for (block_hash, signature) in &block_signature_acc {
                     if *block_hash == voting_block_hash {
                         signatures_on_this_block.push(signature);
@@ -1191,7 +1106,9 @@ pub fn run_sumeragi_main_loop<F>(
 
                 vote_count += 1; // We are also voting for this block.
                 if vote_count >= state_machine_guard.current_topology.min_votes_for_commit() {
-                    let mut block = voting_block_option.unwrap().block;
+                    let mut block = voting_block_option
+                        .expect("Voting block should have been `Some`")
+                        .block;
                     voting_block_option = None;
 
                     block.as_mut_v1().signatures = peer_signatures
@@ -1200,7 +1117,7 @@ pub fn run_sumeragi_main_loop<F>(
                         .collect();
                     let block = block
                         .sign(sumeragi.key_pair.clone())
-                        .expect("Why should signing fail?");
+                        .expect("Signing can only fail if the Key-Pair failed. This is mainly caused by hardware failure");
 
                     assert!(
                         block.as_v1().signatures.len()
@@ -1212,159 +1129,152 @@ pub fn run_sumeragi_main_loop<F>(
                         "Block reached required number of votes",
                     );
 
-                    sumeragi.broadcast_msg(
-                        BlockCommitted::from(block.clone()),
+                    sumeragi.broadcast_packet(
+                        MessagePacket::new(
+                            view_change_proof_chain.clone(),
+                            BlockCommitted::from(block.clone()).into(),
+                        ),
                         &state_machine_guard.current_topology,
                     );
                     block_commit(sumeragi, block, &mut state_machine_guard);
                 }
-            }
 
-            if voting_block_option.is_some()
-                && Instant::now() > instant_at_which_we_should_have_committed
-            {
-                trace!("Suspecting validating peers for not voting for block.");
-                request_view_change(
-                    sumeragi,
-                    &mut state_machine_guard,
-                    &mut view_change_proof_chain,
-                    current_view_change_index,
-                );
-                instant_at_which_we_should_have_committed += sumeragi.commit_time;
+                if Instant::now() > instant_at_which_we_should_have_committed {
+                    trace!("Suspecting validating peers for not voting for block.");
+                    request_view_change(
+                        sumeragi,
+                        &mut state_machine_guard,
+                        &mut view_change_proof_chain,
+                        current_view_change_index,
+                    );
+                    instant_at_which_we_should_have_committed += sumeragi.commit_time;
+                }
             }
         }
     }
 }
 
-fn sumeragi_init_commit_genesis<F>(sumeragi: &SumeragiWithFault<F>, genesis_network: GenesisNetwork)
-where
-    F: FaultInjection,
-{
-    std::thread::sleep(Duration::from_millis(250));
-    let mut state_machine_guard = sumeragi
-        .sumeragi_state_machine_data
-        .lock()
-        .expect("take lock");
-
-    if state_machine_guard.current_topology.is_consensus_required() {
-        sumeragi.wait_for_peers(&state_machine_guard.current_topology);
-    }
-
-    iroha_logger::info!("Initializing iroha using the genesis block.");
-
-    state_machine_guard.latest_block_height = 0;
-    state_machine_guard.latest_block_hash = Hash::zeroed().typed();
-
-    let transactions = genesis_network.transactions.clone();
-    // Don't start genesis round. Instead just commit the genesis block.
-    if transactions.is_empty() {
-        panic!("Genesis transaction set contains no valid transactions");
-    } else {
-        let block = PendingBlock::new(transactions, Vec::new())
-            .chain_first_with_genesis_topology(state_machine_guard.current_topology.clone());
-
-        {
-            info!(block_hash = %block.hash(), "Publishing genesis block.");
-
-            let block = block.validate(&sumeragi.transaction_validator, &state_machine_guard.wsv);
-
-            info!(
-                peer_role = ?state_machine_guard.current_topology.role(&sumeragi.peer_id),
-                block_hash = %block.hash(),
-                "Created a block to commit.",
-            );
-            for event in Vec::<Event>::from(&block) {
-                trace!(?event);
-                sumeragi.events_sender.send(event);
-            }
-            let signed_block = block
-                .sign(sumeragi.key_pair.clone())
-                .expect("Sign genesis block.");
-            {
-                sumeragi.broadcast_msg(
-                    BlockCommitted::from(signed_block.clone()),
-                    &state_machine_guard.current_topology,
-                );
-                block_commit(sumeragi, signed_block, &mut state_machine_guard);
-            }
-        }
-    }
-}
-
-fn sumeragi_init_listen_for_genesis<F>(
+#[allow(clippy::expect_used)]
+fn sumeragi_init_commit_genesis<F>(
     sumeragi: &SumeragiWithFault<F>,
-    incoming_message_receiver: &mut mpsc::Receiver<Message>,
+    state_machine_guard: &mut SumeragiStateMachineData,
+    genesis_network: GenesisNetwork,
 ) where
     F: FaultInjection,
 {
-    use std::sync::mpsc::TryRecvError;
+    std::thread::sleep(Duration::from_millis(250));
 
-    trace!("Start listen for genesis.");
-    let mut state_machine_guard = sumeragi
-        .sumeragi_state_machine_data
-        .lock()
-        .expect("take lock");
+    iroha_logger::info!("Initializing iroha using the genesis block.");
 
-    if !state_machine_guard.current_topology.is_consensus_required() {
-        panic!(
-            "How am I supposed to receive a genesis block if I am the only peer in the network?"
-        );
-    }
+    assert_eq!(state_machine_guard.latest_block_height, 0);
+    assert_eq!(
+        state_machine_guard.latest_block_hash,
+        Hash::zeroed().typed()
+    );
+
+    let transactions = genesis_network.transactions;
+    // Don't start genesis round. Instead just commit the genesis block.
+    assert!(
+        !transactions.is_empty(),
+        "Genesis transaction set contains no valid transactions"
+    );
+    let block = PendingBlock::new(transactions, Vec::new())
+        .chain_first_with_genesis_topology(state_machine_guard.current_topology.clone());
+
     {
-        *sumeragi
-            .latest_block_hash_for_use_by_block_sync
-            .lock()
-            .expect("push hash to block sync for genesis") = Hash::zeroed().typed();
-    }
+        info!(block_hash = %block.hash(), "Publishing genesis block.");
 
+        let block = block.validate(&sumeragi.transaction_validator, &state_machine_guard.wsv);
+
+        info!(
+            peer_role = ?state_machine_guard.current_topology.role(&sumeragi.peer_id),
+            block_hash = %block.hash(),
+            "Created a block to commit.",
+        );
+        for event in Vec::<Event>::from(&block) {
+            trace!(?event);
+            sumeragi.events_sender.send(event).unwrap_or(0);
+        }
+        let signed_block = block
+            .sign(sumeragi.key_pair.clone())
+            .expect("Sign genesis block.");
+        {
+            sumeragi.broadcast_packet(
+                MessagePacket::new(
+                    Vec::new(),
+                    BlockCommitted::from(signed_block.clone()).into(),
+                ),
+                &state_machine_guard.current_topology,
+            );
+            block_commit(sumeragi, signed_block, state_machine_guard);
+        }
+    }
+}
+
+pub enum EarlyReturn {
+    GenesisBlockReceivedAndCommitted,
+    ShutdownMessageReceived,
+    Disconnected,
+}
+
+fn early_return(
+    shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), EarlyReturn> {
+    if shutdown_receiver.try_recv().is_ok() {
+        info!("Sumeragi Thread is being shutdown shut down.");
+        Err(EarlyReturn::ShutdownMessageReceived)
+    } else {
+        Ok(())
+    }
+}
+
+#[allow(clippy::expect_used, clippy::panic)]
+fn sumeragi_init_listen_for_genesis<F>(
+    sumeragi: &SumeragiWithFault<F>,
+    state_machine_guard: &mut SumeragiStateMachineData,
+    incoming_message_receiver: &mut mpsc::Receiver<MessagePacket>,
+    shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), EarlyReturn>
+where
+    F: FaultInjection,
+{
+    trace!("Start listen for genesis.");
+    assert!(
+        state_machine_guard.current_topology.is_consensus_required(),
+        "Only peer in network, yet required to receive genesis topology. This is a configuration error."
+    );
+    sumeragi.zeroize();
     loop {
         sumeragi.connect_peers(&state_machine_guard.current_topology);
         std::thread::sleep(Duration::from_millis(50));
-
-        if state_machine_guard.sumeragi_thread_should_exit {
-            return;
-        }
-
+        early_return(shutdown_receiver)?;
         // we must connect to peers so that our block_sync can find us the genesis block.
         match incoming_message_receiver.try_recv() {
-            Ok(msg) => {
-                match msg {
-                    Message::BlockCommitted(block_committed) => {
-                        // If we recieve a committed genesis block that is valid, use it without question.
-                        let block = block_committed.block;
-
-                        // During the genesis round we blindly take on the network topology described in
-                        // the provided genesis block.
-                        let block_header = block.header();
-                        if block_header.is_genesis() && block_header.genesis_topology.is_some() {
-                            info!("Using network topology from genesis block");
-                            state_machine_guard.current_topology = block_header
-                                .genesis_topology
-                                .clone()
-                                .take()
-                                .expect("We just checked that it is some");
-                        } else {
-                            trace!("Received block that was not genesis.");
-                            continue;
-                        }
-
-                        block_commit(sumeragi, block, &mut state_machine_guard);
+            Ok(packet) => match packet.message {
+                Message::BlockCommitted(block_committed) => {
+                    // If we recieve a committed genesis block that is valid, use it without question.
+                    // During the genesis round we blindly take on the network topology described in
+                    // the provided genesis block.
+                    let block_header = block_committed.block.header();
+                    if block_header.is_genesis() && block_header.genesis_topology.is_some() {
+                        info!("Using network topology from genesis block");
+                        state_machine_guard.current_topology = block_header
+                            .genesis_topology
+                            .clone()
+                            .take()
+                            .expect("We just checked that it is some");
+                        block_commit(sumeragi, block_committed.block, state_machine_guard);
                         info!("Genesis block received and committed.");
-                        return;
+                        return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
-                    _ => {
-                        trace!("Not handling message, waiting genesis. : {:?}", msg);
-                    }
+                    debug!("Received block that was not genesis.");
                 }
-            }
-            Err(recv_error) => {
-                match recv_error {
-                    TryRecvError::Empty => (),
-                    TryRecvError::Disconnected => {
-                        panic!("Sumeragi message pump disconnected.")
-                    }
-                };
-            }
+                msg => {
+                    trace!(?msg, "Not handling message, waiting genesis.");
+                }
+            },
+            Err(mpsc::TryRecvError::Disconnected) => return Err(EarlyReturn::Disconnected),
+            _ => (),
         }
     }
 }

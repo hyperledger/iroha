@@ -5,7 +5,6 @@ use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
     prelude::*,
-    sumeragi::view_change,
     tx::{AcceptedTransaction, TransactionValidator},
     wsv::World,
 };
@@ -125,14 +124,17 @@ fn validate_transaction(criterion: &mut Criterion) {
             TRANSACTION_LIMITS,
             Arc::new(AllowAll::new()),
             Arc::new(AllowAll::new()),
-            Arc::new(build_test_wsv(keys.clone())),
         );
-        b.iter(
-            || match transaction_validator.validate(transaction.clone(), false) {
+        b.iter(|| {
+            match transaction_validator.validate(
+                transaction.clone(),
+                false,
+                &Arc::new(build_test_wsv(keys.clone())),
+            ) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
-            },
-        );
+            }
+        });
     });
     println!(
         "Success count: {}, Failure count: {}",
@@ -151,12 +153,9 @@ fn chain_blocks(criterion: &mut Criterion) {
     let _ = criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block = block.clone().chain(
-                success_count,
-                previous_block_hash.transmute(),
-                view_change::ProofChain::empty(),
-                Vec::new(),
-            );
+            let new_block = block
+                .clone()
+                .chain(success_count, previous_block_hash.transmute());
             previous_block_hash = new_block.hash();
         });
     });
@@ -174,11 +173,10 @@ fn sign_blocks(criterion: &mut Criterion) {
         TRANSACTION_LIMITS,
         Arc::new(AllowAll::new()),
         Arc::new(AllowAll::new()),
-        Arc::new(build_test_wsv(keys)),
     );
     let block = PendingBlock::new(vec![transaction.into()], Vec::new())
         .chain_first()
-        .validate(&transaction_validator);
+        .validate(&transaction_validator, &Arc::new(build_test_wsv(keys)));
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -194,35 +192,39 @@ fn sign_blocks(criterion: &mut Criterion) {
     );
 }
 
-fn validate_blocks(criterion: &mut Criterion) {
-    // Prepare WSV
-    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let domain_name = "global";
-    let account_id = AccountId::new(
-        "root".parse().expect("Valid"),
-        domain_name.parse().expect("Valid"),
-    );
-    let (public_key, _) = key_pair.into();
-    let account = Account::new(account_id, [public_key]).build();
-    let domain_id = DomainId::from_str(domain_name).expect("is valid");
-    let mut domain = Domain::new(domain_id).build();
-    assert!(domain.add_account(account).is_none());
-    // Pepare test transaction
-    let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction =
-        AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
-            .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
-    let transaction_validator = TransactionValidator::new(
-        TRANSACTION_LIMITS,
-        Arc::new(AllowAll::new()),
-        Arc::new(AllowAll::new()),
-        Arc::new(WorldStateView::new(World::with([domain], BTreeSet::new()))),
-    );
-    let _ = criterion.bench_function("validate_block", |b| {
-        b.iter(|| block.clone().validate(&transaction_validator));
-    });
-}
+// fn validate_blocks(criterion: &mut Criterion) {
+//     // Prepare WSV
+//     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+//     let domain_name = "global";
+//     let account_id = AccountId::new(
+//         "root".parse().expect("Valid"),
+//         domain_name.parse().expect("Valid"),
+//     );
+//     let (public_key, _) = key_pair.into();
+//     let account = Account::new(account_id, [public_key]).build();
+//     let domain_id = DomainId::from_str(domain_name).expect("is valid");
+//     let mut domain = Domain::new(domain_id).build();
+//     assert!(domain.add_account(account).is_none());
+//     // Pepare test transaction
+//     let keys = KeyPair::generate().expect("Failed to generate keys");
+//     let transaction =
+//         AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
+//             .expect("Failed to accept transaction.");
+//     let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
+//     let transaction_validator = TransactionValidator::new(
+//         TRANSACTION_LIMITS,
+//         Arc::new(AllowAll::new()),
+//         Arc::new(AllowAll::new()),
+//     );
+//     let _ = criterion.bench_function("validate_block", |b| {
+//         b.iter(|| {
+//             block.clone().validate(
+//                 &transaction_validator,
+//                 &Arc::new(WorldStateView::new(World::with([domain], BTreeSet::new()))),
+//             )
+//         });
+//     });
+// }
 
 criterion_group!(
     transactions,
@@ -230,5 +232,9 @@ criterion_group!(
     sign_transaction,
     validate_transaction
 );
-criterion_group!(blocks, chain_blocks, sign_blocks, validate_blocks);
+criterion_group!(
+    blocks,
+    chain_blocks,
+    sign_blocks, // validate_blocks
+);
 criterion_main!(transactions, blocks);
