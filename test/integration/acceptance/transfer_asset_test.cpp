@@ -60,6 +60,23 @@ struct TransferAsset : AcceptanceFixture,
         .finish();
   }
 
+  /**
+   * Creates the transaction with the third user creation commands
+   * @param perms are the permissions of the user
+   * @return built tx
+   */
+  auto makeThirdUser(const interface::RolePermissionSet &perms = {
+      interface::permissions::Role::kTransfer}) {
+    return createUserWithPerms(
+        kUser3,
+        PublicKeyHexStringView{kUser3Keypair.publicKey()},
+        kRole3,
+        perms)
+        .build()
+        .signAndAddSignature(kAdminKeypair)
+        .finish();
+  }
+
   proto::Transaction addAssets() {
     return addAssets(kAmount);
   }
@@ -73,8 +90,17 @@ struct TransferAsset : AcceptanceFixture,
         baseTx().transferAsset(kUserId, kUser2Id, kAssetId, kDesc, amount));
   }
 
+  proto::Transaction makeTransfer2(const std::string &amount) {
+    return complete(
+        baseTx().transferAsset(kUserId, kUser2Id, kAssetId, kDesc, amount), kUser3Keypair);
+  }
+
   proto::Transaction makeTransfer() {
     return makeTransfer(kAmount);
+  }
+
+  proto::Transaction makeTransfer2() {
+    return makeTransfer2(kAmount);
   }
 
   static constexpr iroha::StorageType storage_types[] = {
@@ -83,9 +109,13 @@ struct TransferAsset : AcceptanceFixture,
   const std::string kAmount = "1.0";
   const std::string kDesc = "description";
   const std::string kRole2 = "roletwo";
+  const std::string kRole3 = "rolethree";
   const std::string kUser2 = "usertwo";
+  const std::string kUser3 = "userthree";
   const std::string kUser2Id = kUser2 + "@" + kDomain;
   const crypto::Keypair kUser2Keypair =
+      crypto::DefaultCryptoAlgorithmType::generateKeypair();
+  const crypto::Keypair kUser3Keypair =
       crypto::DefaultCryptoAlgorithmType::generateKeypair();
 };
 
@@ -125,6 +155,20 @@ TEST_P(TransferAsset, WithoutCanTransfer) {
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
       .sendTx(makeTransfer())
+      .skipProposal()
+      .checkVerifiedProposal(
+          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
+      .checkBlock(CHECK_TXS_QUANTITY(0));
+}
+
+TEST_P(TransferAsset, AnotherUserTx) {
+  IntegrationTestFramework(1, GetParam())
+      .setInitialState(kAdminKeypair)
+      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
+      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
+      .sendTxAwait(makeThirdUser(), CHECK_TXS_QUANTITY(1))
+      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
+      .sendTx(makeTransfer2())
       .skipProposal()
       .checkVerifiedProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
