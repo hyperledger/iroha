@@ -1,4 +1,4 @@
-# Iroha v2.0 
+# Iroha v2.0
 
 The following is a specification for Hyperledger Iroha 2.0
 
@@ -54,7 +54,7 @@ Iroha uses a simple data model made up of world with domains, accounts, assets a
 as shown in the figure below:
 
 ```
-                
+
    +-----------------------------------------------+
    |                                               |
    |     +-----------------+                       |
@@ -123,7 +123,7 @@ or the single signature from the manager will be acceptable for transaction sign
 Data in Hyperledger Iroha v2 are stored in two places: a block store (disk) and a world-state-view (in memory).
 
 To reach the performance targets, Iroha 2 does not use a database to store data,
-but instead implements a custom storage solution, called **Kura**, 
+but instead implements a custom storage solution, called **Kura**,
 that is specially designed for storing and validating blockchain data.
 One of the goals of Kura is that even without multiple-peer consensus
 (e.g., when running a blockchain as a single node), transactional data can still be processed
@@ -132,7 +132,7 @@ using tamper-evident cryptographic proofs.
 When Kura is initialized, data are read from the on-disk block store using either of two methods
 (depending on the config settings): `fastInit` or `strictInit`.
 `fastInit` reads all transactions in all blocks in order and recreates all the in-memory data structures,
-but without doing any validation. 
+but without doing any validation.
 `strictInit` validates that all transactions and blocks have correct signatures
 and that all transactions follow the business rules (e.g., no accounts should have a negative balance).
 
@@ -202,8 +202,7 @@ the submitting peer can use this as proof to convince non-faulty nodes to do a v
 
 - after a node signs off on a block and forwards it to the *proxy tail*,
 they expect a commit message within a reasonable amount of time (the *commit time*);
-if there is no commit message in time, the node tries to convince the network to do a view change,
-which creates a new leader and proxy tail by shifting down the 2*f*+1 nodes used by 1 to the right
+if there is no commit message in time, the node starts suspecting the *a* set.
 
 - once a commit message is received from the proxy tail, all nodes commit the block locally;
 if a node complains that they never received the commit message,
@@ -212,7 +211,7 @@ then a peer that has the block will provide that peer with the committed block
 for a commit message because the next round cannot continue nor can a new leader be elected
 until after the current round is committed or leader election takes place)
 
-- every time there is a problem, such as a block not being committed in time, both the leader and the proxy tail are changed;
+- every time there is a problem, such as a block not being committed in time, a new *a* set is selected;
 this is because we want to just move on and not worry about assigning blame, which would come with considerable overhead
 
 - 2*f*+1 signatures are needed to commit, *f*+1 are needed to change the leader and proxy tail
@@ -232,7 +231,7 @@ it makes sense to overlay a topology on top of the network of nodes in order to 
 that can enable consensus to be reached faster.
 
 For each round (e.g., block), the previous round's (block's) hash is used to determine an ordering over the set of nodes,
-such that there is a deterministic and canonical order for each block. 
+such that there is a deterministic and canonical order for each block.
 In this ordering, the first 2*f+1* nodes are grouped into a set called set *a*.
 Under normal (non-faulty) conditions, consensus for a block is performed by set *a*.
 The remaining *f* nodes are grouped into a set called set *b*. Under normal conditions,
@@ -241,17 +240,16 @@ but otherwise they do not participate in consensus.
 
 ###### Data Flow: Normal Case
 
-Assume the leader has at least one transaction. 
+Assume the leader has at least one transaction.
 The leader creates a block either when the *block timer* goes off or its transaction cache is full.
 The leader then sends the block to each node in set *a*. Each peer in set *a* then validates and signs the block,
-and sends it to the proxy tail; after sending it to the proxy tail
-, each non-leader node in set *a* also sends the block to each node in set *b*, so they can act as observers on the block.
+and sends it to the proxy tail.
 When each node in set *a* sends the block to the proxy tail, they set a timer, the *commit timer*,
-within which time the node expects to get a commit message (or else it will suspect the proxy tail).
+within which time the node expects to get a commit message (or else it will suspect the *a* set).
 
 The proxy tail should at this point have received the block from at least one of the peers.
-From the time the first peer contacts the proxy tail with a block proposal, a timer is set, the *voting timer*.
-Before the *voting timer* is over, the proxy tail expects to get 2*f* votes from the other nodes in set *a*,
+From the time the first peer contacts the proxy tail with a block proposal, a timer is set, the *commit timer*.
+Before the *commit timer* is over, the proxy tail expects to get 2*f* votes from the other nodes in set *a*,
 to which it then will add its vote in order to get 2*f*+1 votes to commit the block.
 
 ###### Handling Faulty Cases
@@ -262,37 +260,34 @@ to which it then will add its vote in order to get 2*f*+1 votes to commit the bl
 
   - the solution to this is to have other nodes broadcast a transaction across the network
   and if someone sends a transaction to the leader and it gets ignored, then the leader can be suspected;
-  the suspect message is sent around the network and a new leader is elected if *f*+1 nodes cannot get a reply from the leader for any transaction
+  the suspected message is sent around the network and a new leader is elected if *f*+1 nodes are submitting transactions to
+  the leader but no blocks are produced.
 
 - leader creates a block, but only sends it to a minority of peers, so that 2*f*+1 votes cannot be obtained for consensus
 
-  - the solution is to have a *commit timer* on each node where a new leader will be elected 
-  if a block is not agreed upon; the old leader is then moved to set *b*
+  - the solution is to have a *commit timer* on each node where a new leader will be elected.
 
 - leader creates multiple blocks and sends them to different peers, causing the network to not reach consensus about a block
 
   - the solution is to have a *commit timer* on each node where a new leader will be elected
-  if a block is not agreed upon; the old leader is then moved to set *b*
-
-- the leader does not put *commit timer* block invalidation information, where applicable
-
-  - the non-faulty nodes that see the block without block invalidation when required will not vote for a block
+  if a block is not agreed upon.
 
 **Possible faulty cases related to the proxy tail are:**
 
 - proxy tail received some votes, but does not receive enough votes for a block to commit
 
-  - the *commit timer* on regular nodes or the *voting timer* on the proxy tail will go off and a new leader and proxy tail are elected
+  - the *commit timer* on regular nodes or the *commit timer* on the proxy tail will go off and a new leader and proxy tail will be elected
+  when *f*+1 nodes are suspecting.
 
 - proxy tail receives enough votes for a block, but lies and says that they didn't
 
-  - the *commit timer* on nodes will go off and a new leader and proxy tail are elected
+  - the *commit timer* on nodes will go off and a new leader and proxy tail are elected.
 
 - proxy tail does not inform any other node about a block commit (block withholding attack)
 
-  - the *commit timer* on nodes will go off and a new leader and proxy tail are elected;
-  the signatures from at least *f*+1 nodes saying their *commit timer* goes off, invalidates a block hash forever;
-  this invalidation is written in the next block created successfully, to prevent arbitrary rewriting of history in the future
+  - the *commit timer* on nodes will go off and a new leader and proxy tail will be elected. Once 2 blocks have passed,
+  arbitrary rewriting of history in the future is not possible. Once a subsequent block is produced, it is not possible
+  to replace the block.
 
 - proxy tail does not inform set *b* about a block commit
 
@@ -300,9 +295,10 @@ to which it then will add its vote in order to get 2*f*+1 votes to commit the bl
 
 - proxy tail selectively sends a committed block to some, but not other nodes
 
-  - the *commit timer* on nodes will go off and a new leader and proxy tail are elected;
-  the signatures from at least *f*+1 nodes saying their *commit timer* goes off, invalidates a block hash forever;
-  this invalidation is written in the next block created successfully, to prevent arbitrary rewriting of history in the future
+  - Either the *commit timer* on nodes will go off and a new leader and proxy tail are elected, or the other nodes
+  will recieve the block through P2P sync. If a new round is performed, the leader will add information to the new block
+  containing the block hashes it invalidates. If the block passes, then the peers are to replace partially shared block with the
+  new block but not the other way around due to the signatures invalidating the hash.
 
 **Possible faulty cases related to any node in set *a* are:**
 
@@ -315,14 +311,9 @@ to which it then will add its vote in order to get 2*f*+1 votes to commit the bl
 
   - if the lack of a signature causes a block to not commit, a new node will be brought in from set *b*
 
-- a peer may make a false claim that their *voting timer* went off
+- a peer may make falsely suspect the *a* set
 
-  - *f*+1 *voting timer* claims are required to make a block invalid and change the leader and proxy tail
-
-- a peer may make a leader suspect claim
-
-  - *f*+1 claims are needed to change a leader, so just one node is not enough; non-faulty nodes will not make false claims
-
+  - *f*+1 suspicion claims are required to make a block invalid and change the leader and the proxy tail
 
 ### 2.9. Blocks synchronization
 
@@ -348,7 +339,7 @@ to establish trust (reliability) ratings for the peers:
 * computational test
 * data consistency test
 
-Which peers validate each other are based on the pairwise distance between hashes 
+Which peers validate each other are based on the pairwise distance between hashes
 (e.g., ```sort(abs(hash && 0x0000ffff - publicKey && 0x0000ffff))```).
 The hashes are computed based on the public keys of the peers that are concatenated with the round number
 and then SHA-3 hashed. Rounds occur whenever the Merkle root is less than TODO:XXX.
