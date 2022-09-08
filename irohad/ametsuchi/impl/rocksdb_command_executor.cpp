@@ -1053,10 +1053,9 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
       if (opt_permissions)
         granted_account_permissions = *opt_permissions;
 
-      RDB_ERROR_CHECK(checkPermissions(creator_permissions,
-                                       granted_account_permissions,
-                                       Role::kTransfer,
-                                       Grantable::kTransferMyAssets));
+      RDB_ERROR_CHECK(checkGrantablePermissions(creator_permissions,
+                                granted_account_permissions,
+                                Grantable::kTransferMyAssets));
     } else
       RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kTransfer}));
 

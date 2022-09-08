@@ -52,7 +52,7 @@ on:
     branches: [main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha]
     tags: '**'
   pull_request:
-    branches: [main, support/1.*, edge, develop] ## target branches
+    branches: [main, support/1.*, edge, develop, support/v1.*] ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
