@@ -92,7 +92,7 @@ struct TransferAsset : AcceptanceFixture,
 
   proto::Transaction makeTransfer2(const std::string &amount) {
     return complete(
-        baseTx().transferAsset(kUserId, kUser2Id, kAssetId, kDesc, amount), kUser3Keypair);
+        baseTx(kUser3Id).transferAsset(kUserId, kUser2Id, kAssetId, kDesc, amount), kUser3Keypair);
   }
 
   proto::Transaction makeTransfer() {
@@ -113,6 +113,7 @@ struct TransferAsset : AcceptanceFixture,
   const std::string kUser2 = "usertwo";
   const std::string kUser3 = "userthree";
   const std::string kUser2Id = kUser2 + "@" + kDomain;
+  const std::string kUser3Id = kUser3 + "@" + kDomain;
   const crypto::Keypair kUser2Keypair =
       crypto::DefaultCryptoAlgorithmType::generateKeypair();
   const crypto::Keypair kUser3Keypair =
