@@ -23,7 +23,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account: Account = self.object.build();
             let account_id = account.id().clone();
@@ -54,7 +54,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
 
@@ -75,7 +75,7 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition = self.object.build();
             asset_definition
@@ -108,7 +108,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
@@ -168,7 +168,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
@@ -197,7 +197,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
@@ -224,11 +224,11 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.domain_metadata_limits.clone();
+            let limits = wsv.config.domain_metadata_limits;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
                 domain
@@ -247,7 +247,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 

@@ -15,11 +15,9 @@ use iroha_config::{
     sumeragi::Configuration as SumeragiConfiguration, torii::Configuration as ToriiConfiguration,
 };
 use iroha_core::{
-    block_sync::BlockSynchronizer,
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
     smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
-    sumeragi::Sumeragi,
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
@@ -344,7 +342,7 @@ impl Network {
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 10; // 3 minutes
+    const MAX_RETRIES: u32 = 10;
 
     for _ in 0..MAX_RETRIES {
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {

@@ -139,6 +139,16 @@ where
             }
         }
     }
+
+    fn online_peers(&self) -> Vec<PeerId> {
+        self.peers
+            .iter()
+            .map(|(key, value)| PeerId {
+                address: value.p2p_addr.clone(),
+                public_key: key.clone(),
+            })
+            .collect()
+    }
 }
 
 impl<T, K, E> Debug for NetworkBase<T, K, E>
@@ -201,6 +211,7 @@ where
 
     async fn handle(&mut self, msg: ConnectPeer) {
         if self.peers.contains_key(&msg.peer.public_key) {
+            debug!(peer = %msg.peer, "Peer already connected");
             return;
         }
 
@@ -249,16 +260,10 @@ where
         debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
         self.untrusted_peers.insert(ip(&peer.p2p_addr));
 
-        let online_peers: Vec<PeerId> = self
-            .peers
-            .iter()
-            .map(|(key, value)| PeerId {
-                address: value.p2p_addr.clone(),
-                public_key: key.clone(),
-            })
-            .collect();
         self.broker
-            .issue_send(NetworkBaseRelayOnlinePeers { online_peers })
+            .issue_send(NetworkBaseRelayOnlinePeers {
+                online_peers: self.online_peers(),
+            })
             .await;
 
         self.broker.issue_send(StopSelf::Peer(peer.conn_id)).await
@@ -286,11 +291,6 @@ where
             ),
         }
     }
-}
-
-#[derive(Clone, iroha_actor::Message)]
-pub struct NetworkBaseRelayOnlinePeers {
-    pub online_peers: Vec<PeerId>,
 }
 
 #[async_trait::async_trait]
@@ -341,17 +341,11 @@ where
                 self.broker.issue_send(*msg).await;
             }
         };
-        let mut online_peers = self
-            .peers
-            .iter()
-            .map(|(key, value)| PeerId {
-                address: value.p2p_addr.clone(),
-                public_key: key.clone(),
-            })
-            .collect();
 
         self.broker
-            .issue_send(NetworkBaseRelayOnlinePeers { online_peers })
+            .issue_send(NetworkBaseRelayOnlinePeers {
+                online_peers: self.online_peers(),
+            })
             .await;
     }
 }
@@ -435,6 +429,16 @@ where
         self.new_peers.insert(conn_id, addr.clone());
         addr.do_send(Start).await;
     }
+}
+
+/// Because of how our translation units are set up, there cannot be interdependencies
+/// between p2p and the modules in core that use p2p. Therefore in order to put incomming
+/// messages in the appropriate queues they must first be sent to cli and then to core.
+/// This message informs sumeragi of the current online peers.
+#[derive(Clone, iroha_actor::Message)]
+pub struct NetworkBaseRelayOnlinePeers {
+    /// A list of the peers we are currently connected to by PeerId.
+    pub online_peers: Vec<PeerId>,
 }
 
 /// The message that is sent to [`NetworkBase`] to start connection to some other peer.

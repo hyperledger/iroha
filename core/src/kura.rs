@@ -16,17 +16,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use iroha_actor::broker::*;
 use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::HashOf;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
-use crate::{
-    block::VersionedCommittedBlock, handler::ThreadHandler, prelude::*,
-    sumeragi,
-};
+use crate::{block::VersionedCommittedBlock, handler::ThreadHandler};
 
 /// The interface of Kura subsystem
 pub struct Kura {
@@ -35,7 +31,7 @@ pub struct Kura {
     mode: Mode,
     block_store: Mutex<Box<dyn BlockStoreTrait + Send>>,
     block_hash_array: Mutex<Vec<HashOf<VersionedCommittedBlock>>>,
-    broker: Broker,
+    // broker: Broker,
     block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
     block_sender: Sender<VersionedCommittedBlock>,
 }
@@ -52,7 +48,7 @@ impl Kura {
     pub fn new(
         mode: Mode,
         block_store_path: &Path,
-        broker: Broker,
+        // broker: Broker,
         block_channel_size: u32,
     ) -> Result<Arc<Self>> {
         let (block_sender, block_reciever) = channel(
@@ -68,7 +64,7 @@ impl Kura {
             mode,
             block_store: Mutex::new(Box::new(block_store)),
             block_hash_array: Mutex::new(Vec::new()),
-            broker,
+            // broker,
             block_reciever: Mutex::new(block_reciever),
             block_sender,
         });
@@ -76,7 +72,6 @@ impl Kura {
         Ok(kura)
     }
 
-<<<<<<< HEAD
     /// Start the Kura thread
     pub fn start(kura: Arc<Self>) -> ThreadHandler {
         // Oneshot channel to allow forcefully stopping the thread.
@@ -91,30 +86,6 @@ impl Kura {
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
-=======
-    /// Forcefully shut down the Kura thread.
-    /// Warning: any blocks currently in queue to be stored will be lost.
-    #[allow(clippy::expect_used)]
-    pub fn force_shutdown(&self) {
-        if let Some(BlockThreadHandle {
-            thread_handle,
-            shutdown_sender,
-        }) = self
-            .block_thread_handle
-            .lock()
-            .expect("lock block thread handle")
-            .take()
-        {
-            // Error here indicates the thread is already stopped, which is fine.
-            let _res = shutdown_sender.send(());
-            if let Err(error) = thread_handle.join() {
-                error!(
-                    "Kura force shutdown routine: Kura thread panicked with error: {:?}",
-                    error
-                );
-            }
-        }
->>>>>>> 25437edf ([fix] #2678: Fix tests abort on Kura force shutdown.)
     }
 
     /// Loads kura from configuration
@@ -123,11 +94,11 @@ impl Kura {
     /// Fails if there are filesystem errors when trying
     /// to access the block store indicated by the
     /// path in the configuration.
-    pub fn from_configuration(configuration: &Configuration, broker: Broker) -> Result<Arc<Self>> {
+    pub fn from_configuration(configuration: &Configuration) -> Result<Arc<Self>> {
         Self::new(
             configuration.init_mode,
             Path::new(&configuration.block_store_path),
-            broker,
+            // broker,
             configuration.actor_channel_capacity,
         )
     }
@@ -235,10 +206,7 @@ impl Kura {
                                 .push(block_hash);
                         }
                         Err(error) => {
-                            error!(
-                                "Failed to store block, ERROR = {}",
-                                failed_to_store_block_reason
-                            );
+                            error!("Failed to store block, ERROR = {}", error);
                             panic!("Kura has encountered a fatal I/O error.");
                         }
                     }
@@ -562,7 +530,6 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
 
-    use iroha_actor::broker::Broker;
     use tempfile::TempDir;
 
     use super::*;
@@ -677,11 +644,9 @@ mod tests {
     #[allow(clippy::expect_used)]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        assert!(
-            Kura::new(Mode::Strict, temp_dir.path(), Broker::new(), 100,)
-                .unwrap()
-                .init()
-                .is_ok()
-        );
+        assert!(Kura::new(Mode::Strict, temp_dir.path(), 100,)
+            .unwrap()
+            .init()
+            .is_ok());
     }
 }
