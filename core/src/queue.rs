@@ -7,7 +7,7 @@
     clippy::expect_used
 )]
 
-use std::{sync::Arc, time::Duration};
+use core::time::Duration;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
@@ -25,15 +25,21 @@ use crate::prelude::*;
 /// Multiple producers, single consumer
 #[derive(Debug)]
 pub struct Queue {
+    /// The queue proper
     queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
+    /// [`VersionedAcceptedTransaction`]s addressed by `Hash`.
     txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
-    /// Length of dashmap.
+    /// Length of [`DashMap`].
     ///
-    /// DashMap right now just iterates over itself and calculates its length like this:
+    /// [`DashMap`] right now just iterates over itself and calculates its length like this:
     /// self.txs.iter().len()
     pub txs_in_block: usize,
+    /// The maximum number of transactions
     max_txs: usize,
+    /// Length of time after which transactions are dropped.
     pub tx_time_to_live: Duration,
+    /// A point in time that is considered `Future` we cannot use
+    /// current time, because of network time synchronisation issues
     future_threshold: Duration,
 }
 
@@ -110,22 +116,22 @@ impl Queue {
         wsv: &WorldStateView,
     ) -> Result<(), Error> {
         if tx.is_expired(self.tx_time_to_live) {
-            return Err(Error::Expired);
+            Err(Error::Expired)
+        } else if tx.is_in_blockchain(wsv) {
+            Err(Error::InBlockchain)
+        } else {
+            tx.check_signature_condition(wsv)
+                .and_then(|success| {
+                    success
+                        .into_inner()
+                        .then_some(())
+                        .ok_or_else(|| eyre!("Signature condition check failed"))
+                })
+                .map_err(|reason| Error::SignatureCondition {
+                    tx_hash: tx.hash(),
+                    reason,
+                })
         }
-        if tx.is_in_blockchain(wsv) {
-            return Err(Error::InBlockchain);
-        }
-        tx.check_signature_condition(&wsv)
-            .and_then(|success| {
-                success
-                    .into_inner()
-                    .then_some(())
-                    .ok_or_else(|| eyre!("Signature condition check failed"))
-            })
-            .map_err(|reason| Error::SignatureCondition {
-                tx_hash: tx.hash(),
-                reason,
-            })
     }
 
     /// Pushes transaction into queue.
@@ -143,39 +149,38 @@ impl Queue {
         wsv: &WorldStateView,
     ) -> Result<(), (VersionedAcceptedTransaction, Error)> {
         if tx.is_in_future(self.future_threshold) {
-            return Err((tx, Error::InFuture));
-        }
-        if let Err(e) = self.check_tx(&tx, wsv) {
-            return Err((tx, e));
-        }
-        if self.txs.len() >= self.max_txs {
-            return Err((tx, Error::Full));
-        }
+            Err((tx, Error::InFuture))
+        } else if let Err(e) = self.check_tx(&tx, wsv) {
+            Err((tx, e))
+        } else if self.txs.len() >= self.max_txs {
+            Err((tx, Error::Full))
+        } else {
+            let hash = tx.hash();
+            let entry = match self.txs.entry(hash) {
+                Entry::Occupied(mut old_tx) => {
+                    // MST case
+                    old_tx
+                        .get_mut()
+                        .as_mut_v1()
+                        .signatures
+                        .extend(tx.as_v1().signatures.clone());
+                    return Ok(());
+                }
+                Entry::Vacant(entry) => entry,
+            };
 
-        let hash = tx.hash();
-        let entry = match self.txs.entry(hash) {
-            Entry::Occupied(mut old_tx) => {
-                // MST case
-                old_tx
-                    .get_mut()
-                    .as_mut_v1()
-                    .signatures
-                    .extend(tx.as_v1().signatures.clone());
-                return Ok(());
+            entry.insert(tx);
+
+            if let Err(err_hash) = self.queue.push(hash) {
+                let (_, err_tx) = self
+                    .txs
+                    .remove(&err_hash)
+                    .expect("Inserted just before match");
+                Err((err_tx, Error::Full))
+            } else {
+                Ok(())
             }
-            Entry::Vacant(entry) => entry,
-        };
-
-        entry.insert(tx);
-
-        if let Err(err_hash) = self.queue.push(hash) {
-            let (_, err_tx) = self
-                .txs
-                .remove(&err_hash)
-                .expect("Inserted just before match");
-            return Err((err_tx, Error::Full));
         }
-        Ok(())
     }
 
     /// Pops single transaction.
@@ -278,17 +283,10 @@ impl Queue {
 mod tests {
     #![allow(clippy::restriction, clippy::all, clippy::pedantic)]
 
-    use std::{
-        iter,
-        str::FromStr,
-        sync::Arc,
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
     use iroha_data_model::prelude::*;
-    use rand::Rng;
 
     use super::*;
     use crate::{wsv::World, PeersIds};

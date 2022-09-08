@@ -14,7 +14,10 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use crate::block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock};
+use crate::{
+    block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock},
+    WorldStateView,
+};
 
 /// Sorts peers based on the `hash`.
 pub fn sort_peers_by_hash(
@@ -360,6 +363,26 @@ impl Topology {
     #[allow(clippy::integer_division)]
     pub fn max_faults(&self) -> usize {
         (self.sorted_peers.len() - 1) / 3
+    }
+
+    /// Updates network topology by taking the actual list of peers from `WorldStateView`.
+    /// Updates it only if there is a change in WSV peers, otherwise leaves the order unchanged.
+    #[allow(clippy::expect_used)]
+    pub fn update_network_topology(&mut self, wsv: &WorldStateView) {
+        let wsv_peers: HashSet<_> = wsv
+            .trusted_peers_ids()
+            .iter()
+            .map(|id_ref| id_ref.clone())
+            .collect();
+        let topology_peers: HashSet<_> = self.sorted_peers().iter().cloned().collect();
+        if topology_peers != wsv_peers {
+            *self = self
+                    .clone()
+                    .into_builder()
+                    .with_peers(wsv_peers)
+                    .build(0)
+                .expect("The safety of changing the number of peers should have been checked at the Instruction execution stage.");
+        }
     }
 }
 

@@ -25,7 +25,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
@@ -81,7 +81,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger_id = self.object_id.clone();
 
@@ -105,7 +105,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let id = self.destination_id;
 
@@ -136,7 +136,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
@@ -158,7 +158,7 @@ pub mod isi {
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &mut WorldStateView,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let id = self.trigger_id;
 
@@ -172,15 +172,13 @@ pub mod isi {
                             false
                         };
                     if allow_execute {
+                        wsv.execute_trigger(id.clone(), authority.clone());
                         Ok(())
                     } else {
                         Err(ValidationError::new("Unauthorized trigger execution").into())
                     }
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?
-                .map(|_| {
-                    wsv.execute_trigger(id, authority);
-                })
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
         }
     }
 }

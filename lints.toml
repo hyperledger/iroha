@@ -23,6 +23,7 @@ deny = [
 
 allow = [
     'clippy::string_add',
+    'unknown_lints',
     'clippy::as_conversions',
     'clippy::else_if_without_else',
     'clippy::enum_glob_use',

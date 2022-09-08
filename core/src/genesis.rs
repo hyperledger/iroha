@@ -22,10 +22,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{time, time::Duration};
 
 use crate::{
-    sumeragi::{
-        fault::{FaultInjection, SumeragiWithFault},
-        network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-    },
+    sumeragi::network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
     tx::VersionedAcceptedTransaction,
     IrohaNetwork,
 };

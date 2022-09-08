@@ -55,7 +55,7 @@ impl VerifiedQueryRequest {
     /// - Account has incorrect permissions.
     pub fn validate(
         self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         query_judge: &dyn Judge<Operation = QueryBox>,
     ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
@@ -66,11 +66,10 @@ impl VerifiedQueryRequest {
                 "Signature public key doesn't correspond to the account.",
             )));
         }
-        let mut wsv_cloned = wsv.clone();
         query_judge
             .judge(&self.payload.account_id, &self.payload.query, wsv)
             .and_then(|_| {
-                wsv_cloned.validators_view()
+                wsv.validators_view()
                     .validate(wsv, self.payload.query.clone())
             })
             .map_err(QueryError::Permission)?;
@@ -131,12 +130,12 @@ pub(crate) async fn handle_queries(
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
     let (result, filter) = {
-        let mut wsv = sumeragi.wsv_mutex_access().clone();
-        let (valid_request, filter) = request.validate(&mut wsv, query_judge.as_ref())?;
+        let wsv = sumeragi.wsv_mutex_access().clone();
+        let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
         let original_result = valid_request.execute(&wsv)?;
         (filter.filter(original_result), filter)
     };
-    
+
     let (total, result) = if let Value::Vec(vec_of_val) = result {
         let len = vec_of_val.len();
         let vec_of_val = apply_sorting_and_pagination(vec_of_val, &sorting, pagination);
@@ -274,6 +273,9 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
 
     loop {
         let blocks = sumeragi.blocks_from_height(from_height.try_into().unwrap());
+        if blocks.is_empty() {
+            break;
+        }
         stream_blocks(&mut from_height, blocks, &mut stream).await?;
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
@@ -403,8 +405,11 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<String> {
-    sumeragi.update_metrics(network);
+async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<String> {
+    // TODO: Remove network.
+    if let Err(error) = sumeragi.update_metrics() {
+        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
+    }
     sumeragi
         .wsv_mutex_access()
         .metrics
@@ -413,8 +418,11 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) ->
 }
 
 #[cfg(feature = "telemetry")]
-async fn handle_status(sumeragi: Arc<Sumeragi>, network: Addr<IrohaNetwork>) -> Result<Json> {
-    sumeragi.update_metrics(network);
+async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<Json> {
+    // TODO: remove network
+    if let Err(error) = sumeragi.update_metrics() {
+        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
+    }
     let status = Status::from(&sumeragi.wsv_mutex_access().metrics);
     Ok(reply::json(&status))
 }

@@ -92,7 +92,7 @@ impl Config {
         // Sleep to let the blocks to be committed on all peers
         thread::sleep(core::time::Duration::from_secs(5));
         let blocks_out_of_measure = 1 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
-        let mut blocks_wsv = network
+        let blocks_wsv = network
             .genesis
             .iroha
             .as_ref()

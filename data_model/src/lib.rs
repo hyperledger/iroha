@@ -6,7 +6,8 @@
     clippy::unwrap_in_result,
     clippy::std_instead_of_alloc,
     clippy::arithmetic,
-    clippy::trait_duplication_in_bounds
+    clippy::trait_duplication_in_bounds,
+    clippy::extra_unused_lifetimes // Thanks to `EnumKind` not knowing how to write a derive macro.
 )]
 #![cfg_attr(not(feature = "std"), no_std)]
 

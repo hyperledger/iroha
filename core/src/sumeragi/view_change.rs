@@ -7,25 +7,27 @@
 )]
 use std::collections::HashSet;
 
-use derive_more::Display;
-use eyre::{Context, Result};
-use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, Signature, SignatureOf, SignaturesOf};
+use eyre::Result;
+use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, Signature};
 use iroha_data_model::prelude::PeerId;
-use iroha_macro::*;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock};
+use crate::block::VersionedCommittedBlock;
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct Proof {
+    /// Hash of the latest committed block.
     pub latest_block_hash: HashOf<VersionedCommittedBlock>,
+    /// Within a round, what is the index of the view change this proof is trying to prove.
     pub view_change_index: u64,
+    /// Collection of signatures from the different peers.
     pub signatures: Vec<Signature>,
 }
 
 impl Proof {
+    /// Produce a signature payload in the form of a [`Hash`]
     pub fn signature_payload(&self) -> Hash {
         let mut buf = [0_u8; Hash::LENGTH + std::mem::size_of::<u64>()];
         buf[..Hash::LENGTH].copy_from_slice(self.latest_block_hash.as_ref());
@@ -60,10 +62,8 @@ impl Proof {
 
     /// Verify if the proof is valid, given the peers in `topology`.
     pub fn verify(&self, peers: &HashSet<PeerId>, max_faults: usize) -> bool {
-        let peer_public_keys: HashSet<PublicKey> = peers
-            .iter()
-            .map(|peer_id| peer_id.public_key.clone())
-            .collect();
+        let peer_public_keys: HashSet<&PublicKey> =
+            peers.iter().map(|peer_id| &peer_id.public_key).collect();
 
         let signature_payload = self.signature_payload();
         let valid_count = self
@@ -83,6 +83,8 @@ impl Proof {
     }
 }
 
+/// Trait used to add proof chain manipulating functions
+/// to `Vec<Proof>`. There is no other implementor of `ProofChain`.
 pub trait ProofChain {
     /// Verify the view change proof chain.
     fn verify_with_state(
@@ -92,8 +94,13 @@ pub trait ProofChain {
         latest_block: &HashOf<VersionedCommittedBlock>,
     ) -> usize;
 
+    /// Remove invalid proofs from the chain.
     fn prune(&mut self, latest_block: &HashOf<VersionedCommittedBlock>);
 
+    /// Attempt to insert a view chain proof into this `ProofChain`.
+    ///
+    /// # Errors
+    /// Implementation-dependent
     fn insert_proof(
         &mut self,
         peers: &HashSet<PeerId>,
@@ -131,6 +138,7 @@ impl ProofChain for Vec<Proof> {
         self.truncate(valid_count);
     }
 
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn insert_proof(
         &mut self,
         peers: &HashSet<PeerId>,
@@ -146,12 +154,12 @@ impl ProofChain for Vec<Proof> {
             return Err("Wrong view change index."); // We only care about the current view change that may or may not happen.
         }
         self.truncate(next_unfinished_view_change + 1);
-        if self.len() != next_unfinished_view_change + 1 {
-            self.push(new_proof.clone());
-        } else {
+        if self.len() == next_unfinished_view_change + 1 {
             self.last_mut()
                 .expect("size must always be more than zero")
                 .merge_signatures(&new_proof.signatures);
+        } else {
+            self.push(new_proof.clone());
         }
         Ok(())
     }
