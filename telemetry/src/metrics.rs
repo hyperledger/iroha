@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Thin wrapper around duration that `impl`s [`Default`]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Uptime(Duration);
+pub struct Uptime(pub Duration);
 
 impl Default for Uptime {
     fn default() -> Self {
