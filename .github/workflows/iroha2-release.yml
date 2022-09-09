@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  dockerhub:
+  registry:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
@@ -24,23 +24,34 @@ jobs:
           PREFIX='iroha2-'
           TAG=${BRANCH#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
-      - uses: docker/login-action@v2
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Soramitsu Harbor
+        uses: docker/login-action@v2
+        with:
+          registry: docker.soramitsu.co.jp
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Build and push iroha2-base image
         if: contains(steps.changed-files.outputs.modified_files, 'Dockerfile.base')
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2-base:${{ env.TAG }}
+          tags: |
+            hyperledger/iroha2-base:${{ env.TAG }}
+            docker.soramitsu.co.jp/iroha2/iroha2-base:${{ env.TAG }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
           file: Dockerfile.base
       - name: Build and push iroha2 image
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: hyperledger/iroha2:${{ env.TAG }}
+          tags: |
+            hyperledger/iroha2:${{ env.TAG }}
+            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=${{ env.TAG }}
 
