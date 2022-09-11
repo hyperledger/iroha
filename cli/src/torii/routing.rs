@@ -325,7 +325,7 @@ mod subscription {
 
         loop {
             tokio::select! {
-                // This branch catches `Close` ans unexpected messages
+                // This branch catches `Close` and unexpected messages
                 closed = consumer.stream_closed() => {
                     match closed {
                         Ok(()) => return Err(Error::CloseMessage),
@@ -501,7 +501,7 @@ impl Torii {
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
                     if let Err(error) = subscription::handle_subscription(events, this_ws).await {
-                        iroha_logger::error!(%error, "Failed to subscribe someone");
+                        iroha_logger::error!(%error, "Failure during subscription");
                     }
                 })
             });
