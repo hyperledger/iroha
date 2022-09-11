@@ -4095,6 +4095,7 @@ dependencies = [
  "http",
  "httparse",
  "log",
+ "native-tls",
  "rand 0.8.5",
  "sha-1 0.9.8",
  "thiserror",
