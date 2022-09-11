@@ -439,44 +439,64 @@ impl Client {
         &self,
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
-        struct EventListenerInitialized;
-
         let client = self.clone();
-        let (event_sender, event_receiver) = mpsc::channel();
         let (init_sender, init_receiver) = mpsc::channel();
         let hash = transaction.hash();
-        let _handle = thread::spawn(move || -> eyre::Result<()> {
-            let event_iterator = client
-                .listen_for_events(PipelineEventFilter::new().hash(hash.into()).into())
-                .wrap_err("Failed to establish event listener connection.")?;
-            init_sender
-                .send(EventListenerInitialized)
-                .wrap_err("Failed to send init message through init channel.")?;
-            for event in event_iterator.flatten() {
-                if let Event::Pipeline(this_event) = event {
-                    match this_event.status {
-                        PipelineStatus::Validating => {}
-                        PipelineStatus::Rejected(reason) => event_sender
-                            .send(Err(reason))
-                            .wrap_err("Failed to send the transaction through event channel.")?,
-                        PipelineStatus::Committed => event_sender
-                            .send(Ok(hash.transmute()))
-                            .wrap_err("Failed to send the transaction through event channel.")?,
+
+        // TODO: use `std::thread::scope()` after update to Rust 1.63
+        let scope_res = crossbeam::scope(|spawner| {
+            let submitter_handle = spawner.spawn(move |_| -> Result<()> {
+                init_receiver
+                    .recv()
+                    .wrap_err("Failed to receive init message.")?;
+
+                self.submit_transaction(transaction)?;
+                Ok(())
+            });
+
+            let confirmation_res = client.listen_for_tx_confirmation(hash, &init_sender);
+
+            match submitter_handle.join() {
+                Ok(Ok(())) => confirmation_res,
+                Ok(Err(e)) => Err(e).wrap_err("Transaction submitter thread exited with error"),
+                Err(_) => Err(eyre!("Transaction submitter thread panicked")),
+            }
+        });
+
+        match scope_res {
+            Ok(res) => res,
+            Err(_) => Err(eyre!("Transaction submitter thread panicked")),
+        }
+    }
+
+    // TODO: introduce timeout
+    fn listen_for_tx_confirmation(
+        &self,
+        hash: HashOf<Transaction>,
+        init_sender: &mpsc::Sender<()>,
+    ) -> Result<HashOf<VersionedTransaction>> {
+        let event_iterator = self
+            .listen_for_events(PipelineEventFilter::new().hash(hash.into()).into())
+            .wrap_err("Failed to establish event listener connection")?;
+
+        init_sender
+            .send(())
+            .wrap_err("Failed to send init message through init channel")?;
+
+        for event in event_iterator.flatten() {
+            if let Event::Pipeline(this_event) = event {
+                match this_event.status {
+                    PipelineStatus::Validating => {}
+                    PipelineStatus::Rejected(reason) => {
+                        return Err(eyre!("Transaction rejected with reason: {reason}"))
                     }
+                    PipelineStatus::Committed => return Ok(hash.transmute()),
                 }
             }
-            Ok(())
-        });
-        init_receiver
-            .recv()
-            .wrap_err("Failed to receive init message.")?;
-        self.submit_transaction(transaction)?;
-        event_receiver
-            .recv_timeout(self.transaction_status_timeout)
-            .map_or_else(
-                |err| Err(err).wrap_err("Timeout waiting for transaction status"),
-                |result| Ok(result?),
-            )
+        }
+        Err(eyre!(
+            "Connection dropped without `Committed` or `Rejected` event"
+        ))
     }
 
     /// Lower-level Instructions API entry point.
@@ -1000,6 +1020,7 @@ pub mod events_api {
         /// # Errors
         /// Fails if connecting and sending subscription to web socket fails
         pub fn new(handler: flow::Init) -> Result<Self> {
+            debug!("Creating `EventIterator`");
             let InitData {
                 first_message,
                 req,
@@ -1010,7 +1031,9 @@ pub mod events_api {
             stream.write_message(WebSocketMessage::Binary(first_message))?;
 
             let handler = loop {
-                match stream.read_message() {
+                let mes = stream.read_message();
+                debug!(?mes, "Received message");
+                match mes {
                     Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
                     Ok(_) => continue,
                     Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
@@ -1019,6 +1042,7 @@ pub mod events_api {
                     Err(err) => return Err(err.into()),
                 }
             };
+            debug!("`EventIterator` created successfully");
             Ok(Self { stream, handler })
         }
     }
@@ -1062,7 +1086,9 @@ pub mod events_api {
                 Ok(())
             };
 
-            let _ = close().map_err(|e| warn!(%e));
+            debug!("Closing WebSocket connection");
+            let _ = close().map_err(|e| error!(%e));
+            debug!("WebSocket connection closed");
         }
     }
 }
