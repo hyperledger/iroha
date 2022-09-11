@@ -1822,6 +1822,7 @@ dependencies = [
  "base64",
  "color-eyre",
  "criterion",
+ "crossbeam",
  "derive_more",
  "eyre",
  "hex",
