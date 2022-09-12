@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Telegram
+    url: https://t.me/hyperledgeriroha
+    about: Hyperledger Iroha Community channel is a good place to ask questions about Iroha.
+  - name: Discord
+    url: https://discord.com/channels/905194001349627914/905205848547155968
+    about: There's also an Iroha channel on the Hyperledger Discord server.
