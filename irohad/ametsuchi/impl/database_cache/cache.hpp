@@ -81,13 +81,6 @@ namespace iroha::ametsuchi {
       drop();
     }
 
-    static bool allowed(std::string_view const &key) {
-      for (auto c : key)
-        if (!Alphabet::allowed(c))
-          return false;
-      return true;
-    }
-
     void addCacheblePath(std::string const &path) {
       auto it = cachebleSearch(path);
       auto insert = [&]() {
