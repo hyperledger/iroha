@@ -89,9 +89,6 @@ pub struct Configuration {
     pub transaction_limits: TransactionLimits,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,
-    /// `Logger` configuration.
-    #[config(inner)]
-    pub logger_configuration: crate::logger::Configuration,
 }
 
 impl Default for Configuration {
@@ -112,7 +109,6 @@ impl Default for Configuration {
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
             },
             add_transaction_nonce: DEFAULT_ADD_TRANSACTION_NONCE,
-            logger_configuration: crate::logger::Configuration::default(),
         }
     }
 }
