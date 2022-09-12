@@ -1,6 +1,6 @@
 //! Crate contains iroha client which talks to iroha network via http
 
-use iroha_config::client::Configuration;
+pub use iroha_config::client::Configuration;
 
 /// Module with iroha client itself
 pub mod client;
