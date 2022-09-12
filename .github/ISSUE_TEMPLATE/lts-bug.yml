@@ -1,0 +1,122 @@
+name: "\U0001F41C Bug report: LTS version (iroha2-lts)"
+description: Submit a bug you found in the LTS version of Iroha
+title: "[BUG] "
+labels: [ "Bug", "iroha2", "LTS" ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this form! You may refer to the [contributing guide](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md#reporting-bugs) for further details on filling the bug reports.
+
+        Please be aware that SDK issues belong to other repositories:
+         - JavaScript library for Iroha, [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
+         - Java 8 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-java)
+  - type: input
+    id: commit-hash
+    attributes:
+      label: GIT commit hash
+      description: |
+        What is the commit hash of your Iroha version?
+        You can use the `git rev-parse --short HEAD` command to retrieve it.
+        Note that older versions may have more bugs.
+      placeholder: abc123
+    validations:
+      required: true
+  - type: textarea
+    id: mwe
+    attributes:
+      label: Minimum working example
+      description: |
+        Please share a minimal working code that allows us to reproduce the issue.
+        Make sure you enable [syntax highlighting](https://help.github.com/en/github/writing-on-github/creating-and-highlighting-code-blocks#syntax-highlighting).
+      value: |
+        ```rust
+        fn main() {
+             // Steps to reproduce …
+             // Steps to reproduce …
+        }
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: Expected behaviour
+      description: What is the result or behaviour you expected to get?
+      placeholder: I expected Iroha to run normally on bare-metal after building the LTS version.
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behaviour
+    attributes:
+      label: Actual behaviour
+      description: What is the result or behaviour you got?
+      placeholder: |
+        I get an error message when running Iroha:
+
+        Example error #123 
+    validations:
+      required: true
+  - type: input
+    id: os-type
+    attributes:
+      label: Operating system
+      description: |
+        Which operating system did you use when you encountered the issue?
+      placeholder: Arch Linux
+    validations:
+      required: true
+  - type: input
+    id: libc-type-and-version
+    attributes:
+      label: LibC type and version
+      description: |
+        Please specify the type of LibC you're using (`GNU libc` or `musl libc`) and its version.
+        Use the `ldd --version ldd` command to determine it.
+      placeholder: musl libc v1.2.3
+  - type: dropdown
+    id: env
+    attributes:
+      label: Current environment
+      description: |
+        Did you build Iroha from the source code or pulled it from [Docker Hub](https://hub.docker.com/) or [Nix](https://search.nixos.org/packages) packages?
+      options:
+        - Source code build
+        - Docker Hub
+        - Nix
+    validations:
+      required: true
+  - type: textarea
+    id: json-logs
+    attributes:
+      label: Logs in JSON format
+      description: |
+        Provide an output log in JSON format, so we could determine what caused the issue faster.
+        To configure a file path and level for logs, check the [reference documentation](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md#logger) or [peer configuration](https://hyperledger.github.io/iroha-2-docs/guide/configure/peer-configuration.html#logger).
+        **Please** leave JSON [syntax highlighting](https://help.github.com/en/github/writing-on-github/creating-and-highlighting-code-blocks#syntax-highlighting) and [collapsed sections](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections) (`<details>` tag) enabled.
+        If the log indentation is broken, use the [js-beautify](https://beautifier.io/) service to format it.
+      value: |
+        <details>
+          <summary>Log contents</summary>
+          
+          ```json
+          Replace this text with a JSON log,
+          so it doesn't grow too large and has highlighting.
+          ```
+        </details>
+    validations:
+      required: true
+  - type: input
+    id: who-can-help
+    attributes:
+      label: Who can help?
+      description: |
+        If you figure out the right person to tag, your issue might be resolved faster.
+        You can use `git blame` or check the following list of people **you can tag** based on what the issue is connected to:
+
+         - Documentation issues: Ekaterina Mekhnetsova (`@outoftardis`), Victor Gridnevsky (`@6r1d`)
+         - WASM: Marin Veršić (`@mversic`)
+         - Triggers: Daniil Polyakov (`@Arjentix`)
+         - Theoretical questions: Shunkichi Sato (`@s8sato`)
+         - Other topics: Aleksandr Petrosyan (`@appetrosyan`)
+      placeholder: "@Username ..."
