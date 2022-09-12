@@ -17,16 +17,12 @@ jobs:
       image: 7272721/i2-ci:nightly
     steps:
       - uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-      - uses: tj-actions/changed-files@v29.0.3
-        id: changed-files
       - uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push iroha2-base image
-        if: contains(steps.changed-files.outputs.modified_files, 'Dockerfile.base')
+        # TODO Add `if` condition #2732
         uses: docker/build-push-action@v3
         with:
           push: true
