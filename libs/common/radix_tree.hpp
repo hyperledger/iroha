@@ -25,17 +25,17 @@ namespace iroha {
    */
   struct Alphabet {
     static constexpr uint32_t f0 = 'z' - '_' + 1ul;
-    static constexpr uint32_t f1 = '9' - '.' + 1ul;
+    static constexpr uint32_t f1 = '9' - '-' + 1ul;
     static constexpr uint32_t f2 = 'Z' - '@' + 1ul;
 
     static uint32_t position(char d) {
-      assert((d >= '_' && d <= 'z') || (d >= '.' && d <= '9')
+      assert((d >= '_' && d <= 'z') || (d >= '-' && d <= '9')
              || (d >= '@' && d <= 'Z') || d == '#');
 
       return ((uint32_t)d - uint32_t('_')) < f0
           ? uint32_t(d) - uint32_t('_')
-          : ((uint32_t)d - uint32_t('.')) < f1
-              ? uint32_t(d) - uint32_t('.') + f0
+          : ((uint32_t)d - uint32_t('-')) < f1
+              ? uint32_t(d) - uint32_t('-') + f0
               : ((uint32_t)d - uint32_t('@')) < f2
                   ? uint32_t(d) - uint32_t('@') + f0 + f1
                   : d == '#' ? f2 + f1 + f0 : (uint32_t)-1;
