@@ -41,6 +41,12 @@ namespace iroha {
                   : d == '#' ? f2 + f1 + f0 : (uint32_t)-1;
     }
 
+    static bool allowed(char d) {
+      return ((uint32_t)d - uint32_t('_')) < f0
+          || ((uint32_t)d - uint32_t('-')) < f1
+          || ((uint32_t)d - uint32_t('@')) < f2 || d == '#';
+    }
+
     static constexpr uint32_t size() {
       return f2 + f1 + f0 + 1ul;
     }
