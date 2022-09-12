@@ -505,6 +505,10 @@ pub enum Value {
     Block(BlockValueWrapper),
     /// Block headers
     BlockHeader(BlockHeaderValue),
+    /// IP Version 4 address.
+    Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
+    /// IP Version 6 address.
+    Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
 }
 
 /// Cross-platform wrapper for `BlockValue`.
@@ -599,6 +603,8 @@ impl fmt::Display for Value {
             Value::Hash(v) => fmt::Display::fmt(&v, f),
             Value::Block(v) => fmt::Display::fmt(&**v, f),
             Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
+            Value::Ipv4Addr(v) => fmt::Display::fmt(&v, f),
+            Value::Ipv6Addr(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -625,6 +631,8 @@ impl Value {
             | PermissionToken(_)
             | Hash(_)
             | Block(_)
+            | Ipv4Addr(_)
+            | Ipv6Addr(_)
             | BlockHeader(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
@@ -956,7 +964,7 @@ impl From<LengthLimits> for RangeInclusive<usize> {
 /// Trait for generic predicates.
 pub trait PredicateTrait<T: ?Sized> {
     /// The result of applying the predicate to a value.
-    fn applies(&self, input: &T) -> bool;
+    fn applies(&self, input: T) -> bool;
 }
 
 /// Get the current system time as `Duration` since the unix epoch.
