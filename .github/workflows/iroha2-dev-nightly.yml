@@ -1,0 +1,22 @@
+name: I2::Dev::Nightly::Publish
+
+on: workflow_dispatch
+
+jobs:
+  dockerhub:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:nightly
+    steps:
+      - uses: actions/checkout@v3
+      - uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push iroha2:dev-nightly image
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          tags: hyperledger/iroha2:dev-nightly-${{ github.sha }}
+          labels: commit=${{ github.sha }}
+          build-args: TAG=dev
