@@ -488,7 +488,7 @@ impl Client {
                 match this_event.status {
                     PipelineStatus::Validating => {}
                     PipelineStatus::Rejected(reason) => {
-                        return Err(eyre!("Transaction rejected with reason: {reason}"))
+                        return Err(reason).wrap_err("Transaction rejected");
                     }
                     PipelineStatus::Committed => return Ok(hash.transmute()),
                 }
