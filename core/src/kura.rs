@@ -16,7 +16,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use iroha_actor::broker::*;
 use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::HashOf;
@@ -442,12 +441,19 @@ impl BlockStoreTrait for StdFileBlockStore {
             return Err(Error::OutOfBoundsBlockRead(start_block_height, block_count));
         }
         index_file.seek(SeekFrom::Start(start_location))?;
+        let mut buffer = [0; core::mem::size_of::<u64>()];
         // (start, length), (start,length) ...
         for i in 0..block_count {
             let index: usize = i.try_into().unwrap();
             dest_buffer[index] = (
-                index_file.read_u64::<LittleEndian>()?,
-                index_file.read_u64::<LittleEndian>()?,
+                {
+                    index_file.read_exact(&mut buffer)?;
+                    u64::from_le_bytes(buffer)
+                },
+                {
+                    index_file.read_exact(&mut buffer)?;
+                    u64::from_le_bytes(buffer)
+                },
             );
         }
         Ok(())
@@ -465,8 +471,8 @@ impl BlockStoreTrait for StdFileBlockStore {
         index_file.seek(SeekFrom::Start(start_location))?;
         // block0       | block1
         // start, length| start, length  ... et cetera.
-        index_file.write_u64::<LittleEndian>(start)?;
-        index_file.write_u64::<LittleEndian>(length)?;
+        index_file.write_all(&start.to_le_bytes())?;
+        index_file.write_all(&length.to_le_bytes())?;
         Ok(())
     }
 

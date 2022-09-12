@@ -1912,7 +1912,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "byte-unit",
- "byteorder",
  "criterion",
  "crossbeam-queue",
  "dashmap",

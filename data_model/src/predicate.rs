@@ -74,7 +74,7 @@ impl Default for PredicateBox {
     }
 }
 
-impl PredicateTrait<Value> for PredicateBox {
+impl PredicateTrait<&Value> for PredicateBox {
     #[inline] // This is not a simple function, but it allows you to inline the logic and optimise away the logical operations.
     fn applies(&self, input: &Value) -> bool {
         match self {
@@ -186,7 +186,7 @@ pub mod string {
 
     // TODO: Case insensitive variants?
 
-    impl<T: AsRef<str> + ?Sized> PredicateTrait<T> for Predicate {
+    impl<T: AsRef<str> + ?Sized> PredicateTrait<&T> for Predicate {
         #[inline] // Jump table. Needs inline.
         fn applies(&self, input: &T) -> bool {
             match self {
@@ -198,7 +198,7 @@ pub mod string {
         }
     }
 
-    impl PredicateTrait<IdBox> for Predicate {
+    impl PredicateTrait<&IdBox> for Predicate {
         #[inline] // Jump table. Needs inline.
         fn applies(&self, input: &IdBox) -> bool {
             match input {
@@ -438,22 +438,79 @@ pub mod numerical {
         }
     }
 
+    impl Copy for SemiInterval<u8> {}
+    impl Copy for SemiInterval<u16> {}
+    impl Copy for SemiInterval<u32> {}
+    impl Copy for SemiInterval<u64> {}
+
+    /// A both-inclusive range predicate
+    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    pub struct Interval<T: Copy + Ord> {
+        /// The start of the range (inclusive)
+        start: T,
+        /// The limit of the range (inclusive)
+        limit: T,
+    }
+
+    impl<T: Copy + Ord> From<(T, T)> for Interval<T> {
+        #[inline]
+        fn from((start, limit): (T, T)) -> Self {
+            Self {
+                start: min(start, limit),
+                limit: max(limit, start),
+            }
+        }
+    }
+
+    impl<T: Copy + Ord> From<T> for Interval<T> {
+        #[inline]
+        fn from(single_value: T) -> Self {
+            Self {
+                start: single_value,
+                limit: single_value,
+            }
+        }
+    }
+
+    impl Copy for Interval<u8> {}
+    impl Copy for Interval<u16> {}
+    impl Copy for Interval<u32> {}
+    impl Copy for Interval<u64> {}
+
     /// General purpose predicate for working with Iroha numerical
     /// types.
     ///
     /// # Type checking
     ///
-    /// [`Self`] only applies to `Values` that have the same type. If
-    /// the type of the `Range` and the type of the type do not match,
-    /// it will default to `false`.
+    /// [`Self`] only applies to `Values` that are variants of
+    /// compatible types. If the [`Range`] variant and the [`Value`]
+    /// variant don't match defaults to `false`.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
-    pub enum Range {
+    pub enum SemiRange {
         /// 32-bit
         U32(SemiInterval<u32>),
         /// 128-bit
         U128(SemiInterval<u128>),
         /// Fixed-precision
         Fixed(SemiInterval<Fixed>),
+    }
+
+    /// General-purpose predicate for working with Iroha numerical
+    /// types, both-ends inclusive variant.
+    ///
+    /// # Type checking
+    ///
+    /// [`Self`] only applies to `Values` that are variants of
+    /// compatible types. If the [`Range`] variant and the [`Value`]
+    /// variant don't match defaults to `false`.
+    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    pub enum Range {
+        /// 32-bit
+        U32(Interval<u32>),
+        /// 128-bit
+        U128(Interval<u128>),
+        /// Fixed-precision
+        Fixed(Interval<Fixed>),
     }
 
     /// A trait to mark objects which should be treated as bounded unsigned values.
@@ -468,23 +525,29 @@ pub mod numerical {
         const ZERO: Self;
     }
 
+    impl UnsignedMarker for u8 {
+        const MAX: Self = u8::MAX;
+        const ZERO: Self = 0_u8;
+    }
+
     impl UnsignedMarker for u32 {
-        const MAX: Self = Self::MAX;
+        const MAX: Self = u32::MAX;
         const ZERO: Self = 0_u32;
     }
 
     impl UnsignedMarker for u128 {
-        const MAX: Self = Self::MAX;
+        const MAX: Self = u128::MAX;
         const ZERO: Self = 0_u128;
     }
 
     impl UnsignedMarker for Fixed {
-        const MAX: Self = Fixed::MAX;
-        const ZERO: Self = Fixed::ZERO;
+        const MAX: Self = Fixed::MAX; // Inherent impl
+        const ZERO: Self = Fixed::ZERO; // Inherent impl
     }
 
     impl<T: Copy + Ord + UnsignedMarker> SemiInterval<T> {
-        /// Construct a semi-interval starting at
+        /// Construct a semi-interval starting at `start` and ending
+        /// at `T::MAX`.
         #[inline]
         #[must_use]
         pub fn starting(start: T) -> Self {
@@ -494,7 +557,32 @@ pub mod numerical {
             }
         }
 
-        /// Construct a semi-interval that ends at
+        /// Construct a semi-interval that ends at `end` and starts at
+        /// `T::ZERO`.
+        #[inline]
+        #[must_use]
+        pub fn ending(end: T) -> Self {
+            Self {
+                start: T::ZERO,
+                limit: end,
+            }
+        }
+    }
+
+    impl<T: Copy + Ord + UnsignedMarker> Interval<T> {
+        /// Construct a semi-interval starting at `start` and ending
+        /// at `T::MAX`.
+        #[inline]
+        #[must_use]
+        pub fn starting(start: T) -> Self {
+            Self {
+                start,
+                limit: T::MAX,
+            }
+        }
+
+        /// Construct a semi-interval that ends at `end` and starts at
+        /// `T::ZERO`.
         #[inline]
         #[must_use]
         pub fn ending(end: T) -> Self {
@@ -507,25 +595,53 @@ pub mod numerical {
 
     impl<T: Copy + Ord> PredicateTrait<T> for SemiInterval<T> {
         #[inline]
-        fn applies(&self, input: &T) -> bool {
-            *input < self.limit && *input >= self.start
+        fn applies(&self, input: T) -> bool {
+            input < self.limit && input >= self.start
         }
     }
 
-    impl PredicateTrait<Value> for Range {
+    impl<T: Copy + Ord> PredicateTrait<T> for Interval<T> {
+        #[inline]
+        fn applies(&self, input: T) -> bool {
+            input <= self.limit && input >= self.start
+        }
+    }
+
+    impl PredicateTrait<&Value> for SemiRange {
         #[inline]
         fn applies(&self, input: &Value) -> bool {
             match input {
                 Value::U32(quantity) => match self {
-                    Range::U32(predicate) => predicate.applies(quantity),
+                    SemiRange::U32(predicate) => predicate.applies(*quantity),
                     _ => false,
                 },
                 Value::U128(big_quantity) => match self {
-                    Range::U128(predicate) => predicate.applies(big_quantity),
+                    SemiRange::U128(predicate) => predicate.applies(*big_quantity),
                     _ => false,
                 },
                 Value::Fixed(fixd) => match self {
-                    Range::Fixed(predicate) => predicate.applies(fixd),
+                    SemiRange::Fixed(predicate) => predicate.applies(*fixd),
+                    _ => false,
+                },
+                _ => false,
+            }
+        }
+    }
+
+    impl PredicateTrait<&Value> for Range {
+        #[inline]
+        fn applies(&self, input: &Value) -> bool {
+            match input {
+                Value::U32(quantity) => match self {
+                    Range::U32(predicate) => predicate.applies(*quantity),
+                    _ => false,
+                },
+                Value::U128(big_quantity) => match self {
+                    Range::U128(predicate) => predicate.applies(*big_quantity),
+                    _ => false,
+                },
+                Value::Fixed(fixd) => match self {
+                    Range::Fixed(predicate) => predicate.applies(*fixd),
                     _ => false,
                 },
                 _ => false,
@@ -544,7 +660,7 @@ pub mod numerical {
         #[test]
         fn semi_interval_semantics_u32() {
             use Value::U32;
-            let pred = Range::U32((1_u32, 100_u32).into());
+            let pred = SemiRange::U32((1_u32, 100_u32).into());
             println!("semi_interval range predicate: {pred:?}");
 
             assert!(pred.applies(&U32(1_u32)));
@@ -556,7 +672,7 @@ pub mod numerical {
         #[test]
         fn semi_interval_semantics_u128() {
             use Value::U128;
-            let pred = Range::U128((1_u128, 100_u128).into());
+            let pred = SemiRange::U128((1_u128, 100_u128).into());
 
             assert!(pred.applies(&U128(1_u128)));
             assert!(!pred.applies(&U128(0_u128)));
@@ -567,7 +683,8 @@ pub mod numerical {
         #[test]
         #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
         fn semi_interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
-            let pred = Range::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
+            let pred =
+                SemiRange::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
 
             assert!(pred.applies(&Value::Fixed(Fixed::try_from(1_f64)?)));
             assert!(!pred.applies(&Value::Fixed(Fixed::try_from(0.99_f64)?)));
@@ -577,28 +694,91 @@ pub mod numerical {
         }
 
         #[test]
+        fn interval_semantics_u32() {
+            use Value::U32;
+            {
+                let pred = Range::U32((1_u32, 100_u32).into());
+                println!("semi_interval range predicate: {pred:?}");
+
+                assert!(pred.applies(&U32(1_u32)));
+                assert!(!pred.applies(&U32(0_u32)));
+                assert!(pred.applies(&U32(100_u32)));
+                assert!(!pred.applies(&U32(101_u32)));
+            }
+            {
+                let pred = Range::U32((127_u32, 127_u32).into());
+                assert!(pred.applies(&U32(127_u32)));
+                assert!(!pred.applies(&U32(126_u32)));
+                assert!(!pred.applies(&U32(128_u32)));
+            }
+        }
+
+        #[test]
+        fn interval_semantics_u128() {
+            use Value::U128;
+            let pred = Range::U128((1_u128, 100_u128).into());
+
+            assert!(pred.applies(&U128(1_u128)));
+            assert!(!pred.applies(&U128(0_u128)));
+            assert!(pred.applies(&U128(100_u128)));
+            assert!(!pred.applies(&U128(101_u128)));
+        }
+
+        #[test]
+        #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
+        fn interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
+            let pred = Range::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
+
+            assert!(pred.applies(&Value::Fixed(Fixed::try_from(1_f64)?)));
+            assert!(!pred.applies(&Value::Fixed(Fixed::try_from(0.99_f64)?)));
+            assert!(pred.applies(&Value::Fixed(Fixed::try_from(99.9999_f64)?)));
+            assert!(!pred.applies(&Value::Fixed(Fixed::try_from(100.000_000_001_f64)?))); // Rounding is still a problem.
+            Ok(())
+        }
+
+        #[test]
         fn invalid_types_false() {
             {
-                let pred = Range::U32((0_u32, 100_u32).into());
+                let pred = SemiRange::U32(SemiInterval::ending(100_u32));
                 assert!(!pred.applies(&Value::U128(0_u128)));
                 assert!(!pred.applies(&Value::Fixed(Fixed::ZERO)));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
             }
-            let pred = Range::U128(SemiInterval::starting(0_u128));
+            {
+                let pred = Range::U32(Interval::ending(100_u32));
+                assert!(!pred.applies(&Value::U128(0_u128)));
+                assert!(!pred.applies(&Value::Fixed(Fixed::ZERO)));
+                assert!(!pred.applies(&Value::Vec(Vec::new())));
+            }
+            let pred = SemiRange::U128(SemiInterval::starting(0_u128));
             assert!(!pred.applies(&Value::U32(0_u32)));
         }
 
         #[test]
         fn upper_bounds() {
             {
-                let pred = Range::Fixed(SemiInterval::starting(Fixed::ZERO));
+                let pred = SemiRange::Fixed(SemiInterval::starting(Fixed::ZERO));
                 // Technically the maximum itself is never included in the range.
                 assert!(!pred.applies(&Value::Fixed(Fixed::MAX)));
             }
-            let pred = Range::U32(SemiInterval::ending(100_u32));
-            assert!(pred.applies(&Value::U32(0_u32)));
-            assert!(pred.applies(&Value::U32(99_u32)));
-            assert!(!pred.applies(&Value::U32(100_u32)));
+            {
+                let pred = SemiRange::U32(SemiInterval::ending(100_u32));
+                assert!(pred.applies(&Value::U32(0_u32)));
+                assert!(pred.applies(&Value::U32(99_u32)));
+                assert!(!pred.applies(&Value::U32(100_u32)));
+            }
+
+            {
+                let pred = Range::Fixed(Interval::starting(Fixed::ZERO));
+                // Technically the maximum itself is never included in the range.
+                assert!(pred.applies(&Value::Fixed(Fixed::MAX)));
+            }
+            {
+                let pred = Range::U32(Interval::ending(100_u32));
+                assert!(pred.applies(&Value::U32(0_u32)));
+                assert!(pred.applies(&Value::U32(100_u32)));
+                assert!(!pred.applies(&Value::U32(101_u32)));
+            }
         }
     }
 }
@@ -617,14 +797,18 @@ pub mod value {
         /// Apply predicate to the [`<Value as Display>::to_string`](ToString::to_string()) representation.
         Display(string::Predicate),
         /// Apply predicate to the numerical value.
-        Numerical(numerical::Range),
+        Numerical(numerical::SemiRange),
         /// Timestamp (currently for `BlockValue` only).
         TimeStamp(numerical::SemiInterval<u128>),
+        /// IpAddress
+        Ipv4Addr(ip_addr::Ipv4Predicate),
+        ///
+        Ipv6Addr(ip_addr::Ipv6Predicate),
         /// Always return true.
         Pass,
     }
 
-    impl PredicateTrait<Value> for Predicate {
+    impl PredicateTrait<&Value> for Predicate {
         fn applies(&self, input: &Value) -> bool {
             // Large jump table. Do not inline.
             match self {
@@ -678,7 +862,15 @@ pub mod value {
                 Predicate::Numerical(pred) => pred.applies(input),
                 Predicate::Display(pred) => pred.applies(&input.to_string()),
                 Predicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => pred.applies(&block.header.timestamp),
+                    Value::Block(block) => pred.applies(block.header.timestamp),
+                    _ => false,
+                },
+                Predicate::Ipv4Addr(pred) => match input {
+                    Value::Ipv4Addr(addr) => pred.applies(*addr),
+                    _ => false,
+                },
+                Predicate::Ipv6Addr(pred) => match input {
+                    Value::Ipv6Addr(addr) => pred.applies(*addr),
                     _ => false,
                 },
                 Predicate::Pass => true,
@@ -814,7 +1006,7 @@ pub mod value {
                     ))))
                 );
             }
-            let pred = Predicate::Numerical(numerical::Range::U32((0_u32, 42_u32).into()));
+            let pred = Predicate::Numerical(numerical::SemiRange::U32((0_u32, 42_u32).into()));
             assert!(!pred.applies(&Value::String("alice".to_owned())));
             assert!(pred.applies(&Value::U32(41_u32)));
         }
@@ -878,6 +1070,144 @@ pub mod value {
             assert!(!value_key.applies(&list));
             assert!(!value_key.applies(&meta));
             // TODO: case with non-empty meta
+        }
+    }
+}
+
+pub mod ip_addr {
+    //! Predicates for IP address processing.
+    use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr};
+
+    use super::{numerical::Interval as Mask, *};
+
+    /// A Predicate containing independent octuplet masks to be
+    /// applied to all elements of an IP version 4 address.
+    #[derive(Debug, Clone, Copy, Encode, Decode, IntoSchema, Serialize, Deserialize)]
+    pub struct Ipv4Predicate([Mask<u8>; 4]);
+
+    impl PredicateTrait<Ipv4Addr> for Ipv4Predicate {
+        fn applies(&self, input: Ipv4Addr) -> bool {
+            self.0
+                .iter()
+                .copied()
+                .zip(input.0.iter().copied())
+                .all(|(myself, other)| myself.applies(other))
+        }
+    }
+
+    impl Ipv4Predicate {
+        /// Construct a new predicate.
+        pub fn new(
+            octet_0: impl Into<Mask<u8>>,
+            octet_1: impl Into<Mask<u8>>,
+            octet_2: impl Into<Mask<u8>>,
+            octet_3: impl Into<Mask<u8>>,
+        ) -> Self {
+            Self([
+                octet_0.into(),
+                octet_1.into(),
+                octet_2.into(),
+                octet_3.into(),
+            ])
+        }
+    }
+
+    /// A Predicate containing independent _hexadecuplets_ (u16
+    /// groups) masks to be applied to all elements of an IP version 6
+    /// address.
+    #[derive(Debug, Clone, Copy, Encode, Decode, IntoSchema, Serialize, Deserialize)]
+    pub struct Ipv6Predicate([Mask<u16>; 8]);
+
+    impl PredicateTrait<Ipv6Addr> for Ipv6Predicate {
+        fn applies(&self, input: Ipv6Addr) -> bool {
+            self.0
+                .iter()
+                .copied()
+                .zip(input.0.iter().copied())
+                .all(|(myself, other)| myself.applies(other))
+        }
+    }
+
+    // Could do this with a macro, but it doesn't seem to shorten much.
+    #[allow(clippy::too_many_arguments)]
+    impl Ipv6Predicate {
+        /// Construct a new predicate. The 8 arguments must match a
+        /// mask that filters on all 8 of the _hexadecuplets_ (u16
+        /// groups) in a normal IP version 6 address.
+        pub fn new(
+            hexadecuplet_0: impl Into<Mask<u16>>,
+            hexadecuplet_1: impl Into<Mask<u16>>,
+            hexadecuplet_2: impl Into<Mask<u16>>,
+            hexadecuplet_3: impl Into<Mask<u16>>,
+            hexadecuplet_4: impl Into<Mask<u16>>,
+            hexadecuplet_5: impl Into<Mask<u16>>,
+            hexadecuplet_6: impl Into<Mask<u16>>,
+            hexadecuplet_7: impl Into<Mask<u16>>,
+        ) -> Self {
+            Self([
+                hexadecuplet_0.into(),
+                hexadecuplet_1.into(),
+                hexadecuplet_2.into(),
+                hexadecuplet_3.into(),
+                hexadecuplet_4.into(),
+                hexadecuplet_5.into(),
+                hexadecuplet_6.into(),
+                hexadecuplet_7.into(),
+            ])
+        }
+    }
+
+    #[cfg(test)]
+    mod test {
+        #![allow(clippy::restriction)]
+        use super::*;
+
+        #[test]
+        fn ipv4_filter_example() {
+            {
+                let pred = Ipv4Predicate::new(127, 0, 0, (0, 10));
+                println!("{pred:?}");
+                assert!(pred.applies(Ipv4Addr([127, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr([127, 0, 0, 3])));
+                assert!(pred.applies(Ipv4Addr([127, 0, 0, 4])));
+                assert!(pred.applies(Ipv4Addr([127, 0, 0, 10])));
+                assert!(!pred.applies(Ipv4Addr([127, 0, 0, 11])));
+                assert!(!pred.applies(Ipv4Addr([125, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr([128, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr([127, 1, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr([127, 0, 1, 1])));
+            }
+
+            {
+                let pred = Ipv4Predicate::new(Mask::starting(0), 0, 0, (0, 10));
+                println!("{pred:?}");
+                assert!(pred.applies(Ipv4Addr([0, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr([255, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr([127, 0, 0, 4])));
+                assert!(pred.applies(Ipv4Addr([127, 0, 0, 10])));
+                assert!(pred.applies(Ipv4Addr([128, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr([128, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr([127, 0, 0, 11])));
+                assert!(pred.applies(Ipv4Addr([126, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr([128, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr([127, 1, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr([127, 0, 1, 1])));
+            }
+        }
+
+        #[test]
+        fn ipv6_filter_example() {
+            let pred = Ipv6Predicate::new(12700, 0, 0, (0, 10), 0, 0, 0, 0);
+            println!("{pred:?}");
+            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 1, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 3, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 4, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 10, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr([12700, 0, 0, 11, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr([12500, 0, 0, 1, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr([12800, 0, 0, 1, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr([12700, 1, 0, 1, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr([12700, 0, 1, 1, 0, 0, 0, 0])));
         }
     }
 }
