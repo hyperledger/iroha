@@ -151,7 +151,8 @@ Irohad::Irohad(
 }
 
 Irohad::~Irohad() {
-  iroha_status_subscription_->unsubscribe();
+  if (iroha_status_subscription_)
+    iroha_status_subscription_->unsubscribe();
 
   if (db_context_ && log_) {
     RocksDbCommon common(db_context_);

@@ -1024,12 +1024,15 @@ namespace iroha::ametsuchi {
       valueBuffer().clear();
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
 
-      if (auto c = cache(); c && c->isCacheable(slice.ToStringView())
-          && c->get(slice.ToStringView(), [&](auto const &str) {
-               valueBuffer() = str;
-               return true;
-             })) {
-        return rocksdb::Status();
+      if (auto c = cache(); c && c->isCacheable(slice.ToStringView())) {
+        if (!DatabaseCache<std::string>::allowed(slice.ToStringView()))
+          return rocksdb::Status::InvalidArgument("Contains invalid symbols.");
+
+        if (c->get(slice.ToStringView(), [&](auto const &str) {
+              valueBuffer() = str;
+              return true;
+            }))
+          return rocksdb::Status();
       }
 
       rocksdb::ReadOptions ro;
@@ -1052,6 +1055,10 @@ namespace iroha::ametsuchi {
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
+      if (auto c = cache(); c && c->isCacheable(slice.ToStringView())
+          && !DatabaseCache<std::string>::allowed(slice.ToStringView()))
+        return rocksdb::Status::InvalidArgument("Contains invalid symbols.");
+
       auto status =
           transaction()->Put(getHandle(cf_type), slice, valueBuffer());
 
@@ -1070,8 +1077,11 @@ namespace iroha::ametsuchi {
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
-      if (auto c = cache(); c && c->isCacheable(slice.ToStringView()))
+      if (auto c = cache(); c && c->isCacheable(slice.ToStringView())) {
+        if (!DatabaseCache<std::string>::allowed(slice.ToStringView()))
+          return rocksdb::Status::InvalidArgument("Contains invalid symbols.");
         c->erase(slice.ToStringView());
+      }
 
       return transaction()->Delete(getHandle(cf_type), slice);
     }
