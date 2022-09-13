@@ -499,6 +499,11 @@
           "name": "PermissionTokenDefinition",
           "discriminant": 11,
           "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 12,
+          "ty": "iroha_data_model::permission::validator::Id"
         }
       ]
     }
