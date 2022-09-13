@@ -36,6 +36,8 @@ jobs:
           tags: hyperledger/iroha2:dev
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
+          # This context specification is required
+          context: .
 
   load-rs:
     runs-on: ubuntu-latest
