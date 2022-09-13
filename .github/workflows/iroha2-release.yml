@@ -50,6 +50,8 @@ jobs:
             docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=${{ env.TAG }}
+          # This context specification is required
+          context: .
 
   load-rs:
     runs-on: ubuntu-latest
