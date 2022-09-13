@@ -89,6 +89,8 @@ impl TransactionValidator {
     ///
     /// # Errors
     /// Fails if validation of any transaction fails
+    //
+    // TODO (#2742): Accept `txs` by reference, not by value
     pub fn validate_every(
         &self,
         txs: impl IntoIterator<Item = VersionedAcceptedTransaction>,
