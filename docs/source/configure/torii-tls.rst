@@ -65,3 +65,5 @@ would want 55552)
 such that if you have a key at ``/path/to/server.key`` and a certificate at
 ``/path/to/server.crt``, you need to specify
 ``torii_tls_keypair=/path/to/server``
+
+.. note:: In `the examples directory <https://github.com/hyperledger/iroha/tree/main/example/torii_tls>`_ there are sample certificates, but to enable TLS you need to have a new certificate for your server (the sample will not work).
