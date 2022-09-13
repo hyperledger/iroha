@@ -363,10 +363,7 @@ pub mod isi {
 
             wsv.modify_validators(|validator_chain| {
                 if !validator_chain.remove_validator(&validator_id) {
-                    return Err(Error::Repetition(
-                        InstructionType::Unregister,
-                        IdBox::ValidatorId(validator_id),
-                    ));
+                    return Err(FindError::Validator(validator_id).into());
                 }
 
                 Ok(PermissionValidatorEvent::Removed(validator_id))

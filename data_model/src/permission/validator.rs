@@ -201,12 +201,16 @@ impl NeedsPermission for NeedsPermissionBox {
 /// Validation verdict. All *runtime validators* should return this type.
 ///
 /// All operations are considered to be **valid** unless proven otherwise.
-/// Validators are allowed to either pass an operation to the next validator or to deny an operation.
+/// Validators are allowed to either pass an operation to the next validator
+/// or to deny an operation.
 ///
 /// # Note
 ///
-/// There is no `Allow` variant because it has a wrong connotation and suggests an
-/// incorrect interpretation of validators system. All operations are allowed by default.
+/// There is no `Allow` variant (as well as it isn't a [`Result`] alias)
+/// because `Allow` and `Result` have a wrong connotation and suggest
+/// an incorrect interpretation of validators system.
+///
+/// All operations are allowed by default.
 /// Validators are checking for operation **incorrectness**, not for operation correctness.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Deserialize, Serialize, IntoSchema)]
 pub enum Verdict {

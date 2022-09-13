@@ -23,9 +23,10 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     let arg: syn::Expr = parse_quote! {{
-        let top_operation = ::iroha_wasm::query_operation_to_validate();
-        ::core::convert::TryInto::try_into(top_operation)
-            .dbg_expect("Failed to convert top-level operation to the concrete one")
+        let needs_permission: ::iroha_wasm::data_model::permission::validator::NeedsPermissionBox =
+            ::iroha_wasm::query_operation_to_validate();
+        ::core::convert::TryInto::try_into(needs_permission)
+            .dbg_expect("Failed to convert `NeedsPermissionBox` to the concrete operation")
     }};
 
     block.stmts.insert(
@@ -49,8 +50,9 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
             use ::iroha_wasm::DebugExpectExt as _;
 
             let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#arg);
-            let bytes_box =
-                ::core::mem::ManuallyDrop::new(::iroha_wasm::encode_with_length_prefix(&verdict).into_boxed_slice());
+            let bytes_box = ::core::mem::ManuallyDrop::new(
+                ::iroha_wasm::encode_with_length_prefix(&verdict).into_boxed_slice()
+            );
 
             bytes_box.as_ptr()
         }

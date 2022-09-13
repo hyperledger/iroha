@@ -70,8 +70,8 @@ extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
 /// - `offset` is a pointer to a `[u8; len]` which is allocated in the WASM memory.
 /// - This function can't call destructor of the encoded object.
 #[no_mangle]
-unsafe extern "C" fn _iroha_wasm_dealloc(offset: *const u8, len: usize) {
-    let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset as *mut u8, len));
+unsafe extern "C" fn _iroha_wasm_dealloc(offset: *mut u8, len: usize) {
+    let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
 }
 
 pub trait Execute {

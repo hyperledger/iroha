@@ -36,7 +36,7 @@ pub mod error {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
-    use iroha_data_model::{metadata, prelude::*, trigger};
+    use iroha_data_model::{metadata, permission, prelude::*, trigger};
     use iroha_primitives::fixed::FixedPointOperationError;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -161,6 +161,9 @@ pub mod error {
         /// Failed to find [`PermissionToken`] by id.
         #[error("Failed to find permission definition token by id: `{0}`")]
         PermissionTokenDefinition(PermissionTokenId),
+        /// Failed to find [`Validator`](permission::Validator) by id.
+        #[error("Failed to find permission validator by id: `{0}`")]
+        Validator(permission::validator::Id),
     }
 
     /// Generic structure used to represent a mismatch
