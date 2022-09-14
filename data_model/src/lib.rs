@@ -43,10 +43,7 @@ use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    account::SignatureCheckCondition, name::Name, permissions::PermissionToken,
-    transaction::TransactionValue,
-};
+use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
 
 pub mod account;
 pub mod asset;
@@ -59,7 +56,7 @@ pub mod metadata;
 pub mod name;
 pub mod pagination;
 pub mod peer;
-pub mod permissions;
+pub mod permission;
 pub mod predicate;
 pub mod query;
 pub mod role;
@@ -143,8 +140,7 @@ pub mod utils {
         }
     }
 
-    /// Format `input` separating items with comma, wrapping every item with apostrophe
-    /// and wrapping the whole output into `[` and `]`
+    /// Format `input` separating items with a comma, wrapping the whole output into `[` and `]`
     ///
     /// # Errors
     /// If cannot write to the `f`
@@ -320,8 +316,10 @@ pub enum IdBox {
     TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
     RoleId(<role::Role as Identifiable>::Id),
-    /// [`PermissionTokenId`](`permissions::Id`) variant.
-    PermissionTokenDefinitionId(<permissions::PermissionTokenDefinition as Identifiable>::Id),
+    /// [`PermissionTokenId`](`permission::token::Id`) variant.
+    PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
+    /// [`Validator`](`permission::Validator`) variant.
+    ValidatorId(<permission::Validator as Identifiable>::Id),
 }
 
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
@@ -343,8 +341,10 @@ pub enum RegistrableBox {
     Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<<role::Role as Registered>::With>),
-    /// [`PermissionTokenId`](`permissions::Id`) variant.
-    PermissionTokenDefinition(Box<<permissions::PermissionTokenDefinition as Registered>::With>),
+    /// [`PermissionTokenId`](`permission::token::Id`) variant.
+    PermissionTokenDefinition(Box<<permission::token::Definition as Registered>::With>),
+    /// [`Validator`](`permission::Validator`) variant.
+    Validator(Box<<permission::Validator as Registered>::With>),
 }
 
 /// Sized container for all possible entities.
@@ -386,8 +386,10 @@ pub enum IdentifiableBox {
     Trigger(Box<trigger::Trigger<FilterBox>>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<role::Role>),
-    /// [`PermissionTokenDefinition`](`permissions::PermissionTokenDefinition`) variant.
-    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
+    /// [`PermissionTokenDefinition`](`permission::token::Definition`) variant.
+    PermissionTokenDefinition(Box<permission::token::Definition>),
+    /// [`Validator`](`permission::Validator`) variant.
+    Validator(Box<permission::Validator>),
 }
 
 // TODO: think of a way to `impl Identifiable for IdentifiableBox`.
@@ -408,6 +410,7 @@ impl IdentifiableBox {
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
             IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
+            IdentifiableBox::Validator(a) => a.id().clone().into(),
         }
     }
 }
@@ -497,8 +500,8 @@ pub enum Value {
     TransactionValue(TransactionValue),
     /// Transaction Query
     TransactionQueryResult(TransactionQueryResult),
-    /// [`PermissionToken`].
-    PermissionToken(PermissionToken),
+    /// [`PermissionToken`](permission::Token).
+    PermissionToken(permission::Token),
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
@@ -667,7 +670,7 @@ macro_rules! from_and_try_from_value_idbox {
     ( $($variant:ident( $ty:ty ),)* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+                type Error = ErrorTryFromEnum<Value, Self>;
 
                 fn try_from(value: Value) -> Result<Self, Self::Error> {
                     if let Value::Id(IdBox::$variant(id)) = value {
@@ -704,7 +707,7 @@ macro_rules! from_and_try_from_value_identifiablebox {
     ( $( $variant:ident( Box< $ty:ty > ),)* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+                type Error = ErrorTryFromEnum<Value, Self>;
 
                 fn try_from(value: Value) -> Result<Self, Self::Error> {
                     if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
@@ -727,7 +730,7 @@ macro_rules! from_and_try_from_value_identifiable {
     ( $( $variant:ident( $ty:ty ), )* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+                type Error = ErrorTryFromEnum<Value, Self>;
 
                 fn try_from(value: Value) -> Result<Self, Self::Error> {
                     if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
@@ -759,7 +762,8 @@ from_and_try_from_value_identifiablebox!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::token::Definition>),
+    Validator(Box<permission::Validator>),
 );
 
 from_and_try_from_value_identifiable!(
@@ -772,13 +776,14 @@ from_and_try_from_value_identifiable!(
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
-    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::token::Definition>),
+    Validator(Box<permission::Validator>),
 );
 
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
 
 impl TryFrom<Value> for RegistrableBox {
-    type Error = ErrorTryFromEnum<Self, Value>;
+    type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(source: Value) -> Result<Self, Self::Error> {
         if let Value::Identifiable(identifiable) = source {
@@ -799,7 +804,7 @@ impl From<RegistrableBox> for Value {
 }
 
 impl TryFrom<IdentifiableBox> for RegistrableBox {
-    type Error = ErrorTryFromEnum<Self, IdentifiableBox>;
+    type Error = ErrorTryFromEnum<IdentifiableBox, Self>;
 
     fn try_from(source: IdentifiableBox) -> Result<Self, Self::Error> {
         use IdentifiableBox::*;
@@ -817,7 +822,8 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
-            _ => Err(Self::Error::default()),
+            Validator(validator) => Ok(RegistrableBox::Validator(validator)),
+            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) => Err(Self::Error::default()),
         }
     }
 }
@@ -839,6 +845,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             PermissionTokenDefinition(token_definition) => {
                 IdentifiableBox::PermissionTokenDefinition(token_definition)
             }
+            Validator(validator) => IdentifiableBox::Validator(validator),
         }
     }
 }
@@ -1001,7 +1008,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1010,7 +1017,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1018,7 +1025,7 @@ pub mod ffi {
                 account::Account,
                 asset::Asset,
                 domain::Domain,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1027,7 +1034,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permissions::PermissionToken,
+                permission::Token,
                 role::Role,
                 Name,
             }
@@ -1039,7 +1046,7 @@ pub mod ffi {
         asset::Asset,
         domain::Domain,
         metadata::Metadata,
-        permissions::PermissionToken,
+        permission::Token,
         role::Role,
         Name,
     }
@@ -1059,14 +1066,31 @@ pub mod prelude {
     #[cfg(feature = "mutable_api")]
     pub use super::Registrable;
     pub use super::{
-        account::prelude::*, asset::prelude::*, block_value::prelude::*, domain::prelude::*,
-        name::prelude::*, pagination::prelude::*, peer::prelude::*, role::prelude::*,
-        sorting::prelude::*, trigger::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable,
-        IdentifiableBox, Parameter, PredicateTrait, RegistrableBox, TryAsMut, TryAsRef,
-        ValidationError, Value,
+        account::prelude::*,
+        asset::prelude::*,
+        block_value::prelude::*,
+        domain::prelude::*,
+        events::prelude::*,
+        expression::prelude::*,
+        isi::prelude::*,
+        metadata::prelude::*,
+        name::prelude::*,
+        pagination::{prelude::*, Pagination},
+        peer::prelude::*,
+        permission::{
+            token::{Definition as PermissionTokenDefinition, Id as PermissionTokenId},
+            Token as PermissionToken,
+        },
+        query::prelude::*,
+        role::prelude::*,
+        sorting::prelude::*,
+        transaction::prelude::*,
+        trigger::prelude::*,
+        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
+        PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permissions::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
+        permission::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
     };
 }

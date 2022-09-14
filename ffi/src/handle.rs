@@ -40,13 +40,6 @@ macro_rules! handles {
 
         $crate::handles! {$id + 1, $( $other, )*}
     };
-    ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
-        unsafe impl $crate::Handle for $ty {
-            const ID: $crate::handle::Id = $id;
-        }
-
-        $crate::handles! {$id + 1, $( $other, )*}
-    };
     ( $id:expr, $(,)? ) => {};
 }
 

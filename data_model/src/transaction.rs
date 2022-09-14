@@ -10,7 +10,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::{collections::btree_set, time::Duration, vec};
 
-use derive_more::Display;
+use derive_more::{DebugCustom, Display};
 use iroha_crypto::{Hash, SignatureOf, SignaturesOf};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -139,7 +139,8 @@ impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
 /// Wrapper for byte representation of [`Executable::Wasm`].
 ///
 /// Uses **base64** (de-)serialization format.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Clone, DebugCustom, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[debug(fmt = "<WASM is truncated>")]
 pub struct WasmSmartContract {
     /// Raw wasm blob.
     #[serde(with = "base64")]
@@ -293,7 +294,10 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 /// via network.  Direct usage in business logic is strongly
 /// prohibited. Before any interactions `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "{self:?}")] // TODO ?
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
@@ -750,20 +754,21 @@ impl std::error::Error for BlockRejectionReason {}
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionRejectionReason {
     /// Insufficient authorisation.
-    #[display(fmt = "Transaction rejected due to insufficient authorisation")]
+    #[display(fmt = "Transaction rejected due to insufficient authorisation: {}", self.0)]
     NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
     /// Failed to verify signature condition specified in the account.
-    #[display(fmt = "Transaction rejected due to an unsatisfied signature condition")]
+    #[display(fmt = "Transaction rejected due to an unsatisfied signature condition: {}", self.0)]
     UnsatisfiedSignatureCondition(
         #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
     ),
     /// Failed to validate transaction limits (e.g. number of instructions)
+    #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {}", self.0)]
     LimitCheck(#[cfg_attr(feature = "std", source)] TransactionLimitError),
     /// Failed to execute instruction.
-    #[display(fmt = "Transaction rejected due to failure in instruction execution")]
+    #[display(fmt = "Transaction rejected due to failure in instruction execution: {}", self.0)]
     InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
     /// Failed to execute WebAssembly binary.
-    #[display(fmt = "Transaction rejected due to failure in WebAssembly execution")]
+    #[display(fmt = "Transaction rejected due to failure in WebAssembly execution: {}", self.0)]
     WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
     /// Genesis account can sign only transactions in the genesis block.
     #[display(fmt = "The genesis account can only sign transactions in the genesis block.")]
@@ -787,10 +792,10 @@ pub enum TransactionRejectionReason {
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum RejectionReason {
     /// The reason for rejecting the block.
-    #[display(fmt = "Block was rejected")]
+    #[display(fmt = "Block was rejected: {}", self.0)]
     Block(#[cfg_attr(feature = "std", source)] BlockRejectionReason),
     /// The reason for rejecting transaction.
-    #[display(fmt = "Transaction was rejected")]
+    #[display(fmt = "Transaction was rejected: {}", self.0)]
     Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason),
 }
 

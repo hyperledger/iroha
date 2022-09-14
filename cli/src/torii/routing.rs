@@ -68,6 +68,10 @@ impl VerifiedQueryRequest {
         }
         query_judge
             .judge(&self.payload.account_id, &self.payload.query, wsv)
+            .and_then(|_| {
+                wsv.validators_view()
+                    .validate(wsv, self.payload.query.clone())
+            })
             .map_err(QueryError::Permission)?;
         Ok((
             ValidQueryRequest::new(self.payload.query),

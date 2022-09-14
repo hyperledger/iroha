@@ -68,7 +68,7 @@ macro_rules! declare_token {
         #[allow(missing_copy_implementations)]
         $(#[$outer_meta])*
         ///
-        /// A wrapper around [PermissionToken](iroha_data_model::permissions::PermissionToken).
+        /// A wrapper around [PermissionToken](iroha_data_model::permission::Token).
         #[derive(
             Clone,
             Debug,
@@ -112,7 +112,7 @@ macro_rules! declare_token {
         }
 
         impl iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait for $ident {
-            /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition).
+            /// Get associated [`PermissionTokenDefinition`].
             fn definition() -> &'static PermissionTokenDefinition {
                 static DEFINITION: once_cell::sync::Lazy<PermissionTokenDefinition> =
                     once_cell::sync::Lazy::new(|| {
@@ -122,10 +122,10 @@ macro_rules! declare_token {
             }
         }
 
-        impl From<$ident> for iroha_data_model::permissions::PermissionToken {
+        impl From<$ident> for iroha_data_model::permission::Token {
             #[allow(unused)] // `value` can be unused if token has no params
             fn from(value: $ident) -> Self {
-                iroha_data_model::permissions::PermissionToken::new(
+                iroha_data_model::permission::Token::new(
                     <
                         $ident as
                         iroha_core::smartcontracts::isi::permissions::PermissionTokenTrait
@@ -137,12 +137,12 @@ macro_rules! declare_token {
             }
         }
 
-        impl TryFrom<iroha_data_model::permissions::PermissionToken> for $ident {
+        impl TryFrom<iroha_data_model::permission::Token> for $ident {
             type Error = iroha_core::smartcontracts::isi::permissions::PredefinedTokenConversionError;
 
             #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
-                token: iroha_data_model::permissions::PermissionToken
+                token: iroha_data_model::permission::Token
             ) -> core::result::Result<Self, Self::Error> {
                 if token.definition_id() != <
                         Self as

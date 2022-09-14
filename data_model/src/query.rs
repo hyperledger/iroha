@@ -387,10 +387,10 @@ pub mod permissions {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
-    use crate::prelude::*;
+    use crate::{permission, prelude::*};
 
     /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-    /// [`PermissionTokenDefinition`][crate::permissions::PermissionTokenDefinition]s
+    /// [`PermissionTokenDefinition`][crate::permission::token::Definition]s
     #[derive(
         Debug,
         Display,
@@ -435,7 +435,7 @@ pub mod permissions {
     }
 
     impl Query for FindPermissionTokensByAccountId {
-        type Output = Vec<PermissionToken>;
+        type Output = Vec<permission::Token>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
