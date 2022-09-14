@@ -23,7 +23,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{ffi::ffi_item, Identifiable, Name, Registered, Value};
+use crate::{ffi::ffi_item, IdBox, Identifiable, Name, Registered, Value, ValueKind};
 
 pub mod token;
 pub mod validator;

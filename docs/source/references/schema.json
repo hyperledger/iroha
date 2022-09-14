@@ -3854,11 +3854,15 @@
       "declarations": [
         {
           "name": "id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::validator::Id"
         },
         {
-          "name": "params",
-          "ty": "Map<iroha_data_model::name::Name, iroha_data_model::ValueKind>"
+          "name": "validator_type",
+          "ty": "iroha_data_model::permission::validator::Type"
+        },
+        {
+          "name": "wasm",
+          "ty": "iroha_data_model::transaction::WasmSmartContract"
         }
       ]
     }

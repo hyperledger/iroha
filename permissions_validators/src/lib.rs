@@ -79,7 +79,7 @@ macro_rules! declare_token {
             iroha_schema::IntoSchema,
         )]
         pub struct $ident
-        where $($param_typ: Into<Value> + ::iroha_data_model::permissions::PermissionTokenValueTrait,)* {
+        where $($param_typ: Into<Value> + ::iroha_data_model::permission::token::ValueTrait,)* {
             $(
                 $(#[$inner_meta])*
                 #[doc = concat!(
@@ -125,7 +125,7 @@ macro_rules! declare_token {
                                 $param_string.parse()
                                     .expect("Failed to parse permission token parameter name: \
                                              `{$param_string}`. This is a bug"),
-                                <$param_typ as ::iroha_data_model::permissions::PermissionTokenValueTrait>::TYPE
+                                <$param_typ as ::iroha_data_model::permission::token::ValueTrait>::TYPE
                             ),)*
                         ])
                     });

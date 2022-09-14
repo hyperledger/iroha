@@ -780,7 +780,8 @@ from_and_try_from_value_identifiable!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permissions::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::token::Definition>),
+    Validator(Box<permission::Validator>),
 );
 
 impl TryFrom<Value> for RegistrableBox {
