@@ -210,6 +210,7 @@ pub mod string {
                 IdBox::TriggerId(id) => self.applies(&id.to_string()),
                 IdBox::RoleId(id) => self.applies(&id.to_string()),
                 IdBox::PermissionTokenDefinitionId(id) => self.applies(&id.to_string()),
+                IdBox::ValidatorId(id) => self.applies(&id.to_string()),
             }
         }
     }

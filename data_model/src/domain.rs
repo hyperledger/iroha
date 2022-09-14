@@ -24,10 +24,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     account::{Account, AccountsMap},
-    asset::AssetDefinitionsMap,
+    asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap},
     ffi::ffi_item,
     metadata::Metadata,
-    prelude::{AssetDefinition, AssetDefinitionEntry},
     HasMetadata, Identifiable, Name, ParseError, Registered,
 };
 

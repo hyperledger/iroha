@@ -36,7 +36,6 @@ pub enum ModRepeatsError {
 pub struct RepeatsOverflowError;
 
 /// Specialized structure that maps event filters to Triggers.
-/// TODO: trigger strong-typing
 #[derive(Debug, Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
@@ -420,7 +419,7 @@ impl Set {
             Some(f(action, event))
         };
 
-        // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
+        // Cloning and clearing `self.matched_ids` so that `handle_` call won't deadlock
         let matched_ids = {
             let mut ids_write = self.matched_ids.write().await;
             let ids_clone = ids_write.clone();

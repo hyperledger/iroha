@@ -37,6 +37,18 @@ pub fn dbg<T: Debug + ?Sized>(_obj: &T) {
     }
 }
 
+/// Print `mes` and call [`panic!`].
+///
+/// Only call [`panic!`] if `debug` feature is not specified.
+///
+/// # Panics
+/// Always
+#[allow(clippy::panic)]
+pub fn dbg_panic(mes: &str) -> ! {
+    dbg(mes);
+    panic!()
+}
+
 /// Extension implemented for `Result` and `Option` to provide unwrapping with error message,
 /// cause basic `unwrap()` does not print error due to specific panic handling in WASM Runtime.
 ///

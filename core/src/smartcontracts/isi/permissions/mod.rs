@@ -11,7 +11,11 @@ use core::{fmt::Display, marker::PhantomData, ops::Deref};
 pub use checks::*;
 use derive_more::Display;
 pub use has_token::*;
-use iroha_data_model::{prelude::*, utils::*};
+use iroha_data_model::{
+    permission::validator::{DenialReason, NeedsPermission},
+    prelude::*,
+    utils::*,
+};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -26,54 +30,6 @@ pub mod roles;
 
 /// Result type associated with permission validators
 pub type Result<T> = core::result::Result<T, DenialReason>;
-
-/// Operation for which the permission should be checked
-pub trait NeedsPermission {
-    /// Get the type of validator required to check the operation
-    ///
-    /// Accepts `self` because of the [`NeedsPermissionBox`]
-    fn required_validator_type(&self) -> ValidatorType;
-}
-
-impl NeedsPermission for Instruction {
-    fn required_validator_type(&self) -> ValidatorType {
-        ValidatorType::Instruction
-    }
-}
-
-impl NeedsPermission for QueryBox {
-    fn required_validator_type(&self) -> ValidatorType {
-        ValidatorType::Query
-    }
-}
-
-// Expression might contain a query, therefore needs to be checked.
-impl NeedsPermission for Expression {
-    fn required_validator_type(&self) -> ValidatorType {
-        ValidatorType::Expression
-    }
-}
-
-/// Boxed version of [`NeedsPermission`]
-#[derive(Debug, derive_more::From, derive_more::TryInto)]
-pub enum NeedsPermissionBox {
-    /// [`Instruction`] operation
-    Instruction(Instruction),
-    /// [`QueryBox`] operation
-    Query(QueryBox),
-    /// [`Expression`] operation
-    Expression(Expression),
-}
-
-impl NeedsPermission for NeedsPermissionBox {
-    fn required_validator_type(&self) -> ValidatorType {
-        match self {
-            NeedsPermissionBox::Instruction(_) => ValidatorType::Instruction,
-            NeedsPermissionBox::Query(_) => ValidatorType::Query,
-            NeedsPermissionBox::Expression(_) => ValidatorType::Expression,
-        }
-    }
-}
 
 /// Implementation of this trait provides custom permission checks for the Iroha-base
 pub trait IsAllowed: Display {
@@ -96,17 +52,6 @@ pub trait IsAllowed: Display {
 
 /// Box with dyn type implementing [`IsAllowed`]
 pub type IsOperationAllowedBoxed<O> = Box<dyn IsAllowed<Operation = O> + Send + Sync>;
-
-/// Type of validator
-#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
-pub enum ValidatorType {
-    /// Validator checking [`Instruction`]
-    Instruction,
-    /// Validator checking [`QueryBox`]
-    Query,
-    /// Validator checking [`Expression`]
-    Expression,
-}
 
 /// Verdict returned by validators
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
@@ -224,14 +169,11 @@ impl From<Result<()>> for ValidatorVerdict {
     }
 }
 
-/// Reason for denying the execution of a particular instruction.
-pub type DenialReason = String;
-
 /// Trait for hard-coded strongly-typed permission tokens.
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use iroha_core::smartcontracts::isi::permissions::{
 ///     PermissionTokenTrait, PredefinedTokenConversionError,
 /// };
@@ -285,10 +227,10 @@ pub type DenialReason = String;
 pub trait PermissionTokenTrait:
     Into<PermissionToken> + TryFrom<PermissionToken, Error = PredefinedTokenConversionError>
 {
-    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition).
+    /// Get associated [`PermissionTokenDefinition`].
     fn definition() -> &'static PermissionTokenDefinition;
 
-    /// Get associated [`PermissionTokenDefinition`](iroha_data_model::permissions::PermissionTokenDefinition) id.
+    /// Get associated [`PermissionTokenDefinition`] id.
     fn definition_id() -> &'static <PermissionTokenDefinition as Identifiable>::Id {
         Self::definition().id()
     }
@@ -319,7 +261,7 @@ pub mod prelude {
             QueryJudgeArc,
         },
         roles::{IsGrantAllowed, IsRevokeAllowed},
-        DenialReason, IsAllowed, ValidatorVerdict,
+        IsAllowed, ValidatorVerdict,
     };
 }
 

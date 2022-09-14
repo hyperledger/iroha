@@ -238,7 +238,7 @@ where
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
             transaction_validator
-                .validate_every(genesis)
+                .validate_every(genesis.iter().cloned())
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
 

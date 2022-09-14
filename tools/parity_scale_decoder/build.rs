@@ -28,7 +28,7 @@ where
     let mut path_to_json_sample = path_to.clone();
     path_to_json_sample.set_extension("json");
 
-    let mut path_to_binary = path_to.clone();
+    let mut path_to_binary = path_to;
     path_to_binary.set_extension("bin");
 
     let buf = fs::read_to_string(path_to_json_sample)?;

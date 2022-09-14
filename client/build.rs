@@ -15,8 +15,7 @@ use std::{
 
 use eyre::{eyre, Context as _, Result};
 
-#[allow(clippy::expect_used)]
-fn main() {
+fn main() -> Result<()> {
     const TEST_SMARTCONTRACTS_DIR: &str = "tests/integration/smartcontracts";
 
     println!("cargo:rerun-if-changed={TEST_SMARTCONTRACTS_DIR}");
@@ -30,15 +29,18 @@ fn main() {
     let rustc_version_output = Command::new("rustc")
         .arg("--version")
         .output()
-        .expect("Failed to run `rustc --version`");
+        .wrap_err("Failed to run `rustc --version`")?;
 
     if from_utf8(&rustc_version_output.stdout)
-        .expect("Garbage in `rustc --version` output")
+        .wrap_err("Garbage in `rustc --version` output")?
         .contains("nightly")
     {
-        build_all_smartcontracts(TEST_SMARTCONTRACTS_DIR)
-            .expect("Failed to build smartcontracts in directory: {TEST_SMARTCONTRACTS_DIR}");
+        build_all_smartcontracts(TEST_SMARTCONTRACTS_DIR).wrap_err(format!(
+            "Failed to build smartcontracts in directory: {TEST_SMARTCONTRACTS_DIR}"
+        ))?;
     }
+
+    Ok(())
 }
 
 fn build_all_smartcontracts(path: impl AsRef<Path>) -> Result<()> {
