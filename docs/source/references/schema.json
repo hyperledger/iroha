@@ -3781,6 +3781,10 @@
         {
           "name": "id",
           "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "params",
+          "ty": "Map<iroha_data_model::name::Name, iroha_data_model::ValueKind>"
         }
       ]
     }
