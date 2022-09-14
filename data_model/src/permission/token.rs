@@ -102,7 +102,7 @@ impl PermissionTokenDefinition {
         self
     }
 
-    /// Get an iterator over parameters of the [`PermissionTokenDefinition`]
+    /// Iterate over parameters of the [`PermissionTokenDefinition`]
     ///
     /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]
