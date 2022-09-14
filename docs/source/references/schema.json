@@ -1205,6 +1205,16 @@
           "name": "BlockHeader",
           "discriminant": 18,
           "ty": null
+        },
+        {
+          "name": "Ipv4Addr",
+          "discriminant": 19,
+          "ty": null
+        },
+        {
+          "name": "Ipv6Addr",
+          "discriminant": 20,
+          "ty": null
         }
       ]
     }
