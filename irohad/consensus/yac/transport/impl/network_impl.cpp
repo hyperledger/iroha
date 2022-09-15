@@ -96,7 +96,8 @@ void NetworkImpl::sendState(const shared_model::interface::Peer &to,
               to);
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
-      [peer{to.pubkey()},
+      [wptr{weak_from_this()},
+       peer{to.pubkey()},
        request(std::move(request)),
        wstream_writer(utils::make_weak(stream_writer)),
        log(utils::make_weak(log_)),
@@ -104,16 +105,18 @@ void NetworkImpl::sendState(const shared_model::interface::Peer &to,
                                    state.size(),
                                    state.front().hash.vote_round,
                                    to))] {
+        auto self = wptr.lock();
         auto maybe_log = log.lock();
         auto stream_writer = wstream_writer.lock();
 
-        if (!maybe_log || !stream_writer) {
+        if (!self || !maybe_log || !stream_writer) {
           return;
         }
 
         maybe_log->info(log_sending_msg);
         if (!stream_writer->Write(request)) {
           maybe_log->warn("RPC failed: {}", peer);
+          self->stubs_.exclusiveAccess([&](auto &stubs) { stubs.erase(peer); });
           return;
         }
         maybe_log->info("RPC succeeded: {}", peer);
