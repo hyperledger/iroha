@@ -182,7 +182,7 @@ TEST_F(OnDemandOsTest, OverflowRound4) {
     ASSERT_EQ(transaction_limit,
               os->onRequestProposal(target_round)
                   ->
-                      operator[](ix)
+                  operator[](ix)
                   .first->transactions()
                   .size());
   }

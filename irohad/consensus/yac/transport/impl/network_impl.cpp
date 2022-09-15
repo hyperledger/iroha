@@ -60,12 +60,12 @@ void NetworkImpl::sendState(const shared_model::interface::Peer &to,
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [request(std::move(request)),
-          client(std::move(client)),
-          log(utils::make_weak(log_)),
-          log_sending_msg(fmt::format("Send votes bundle[size={}] for {} to {}",
-                                      state.size(),
-                                      state.front().hash.vote_round,
-                                      to))] {
+       client(std::move(client)),
+       log(utils::make_weak(log_)),
+       log_sending_msg(fmt::format("Send votes bundle[size={}] for {} to {}",
+                                   state.size(),
+                                   state.front().hash.vote_round,
+                                   to))] {
         auto maybe_log = log.lock();
         if (not maybe_log) {
           return;
