@@ -39,5 +39,5 @@ message State {
 }
 
 service Yac {
-  rpc SendState (stream State) returns (google.protobuf.Empty);
+  rpc SendState (State) returns (google.protobuf.Empty);
 }
