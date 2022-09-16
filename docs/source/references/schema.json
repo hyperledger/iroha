@@ -75,6 +75,13 @@
       "sorted_by_key": true
     }
   },
+  "Map<iroha_data_model::name::Name, iroha_data_model::ValueKind>": {
+    "Map": {
+      "key": "iroha_data_model::name::Name",
+      "value": "iroha_data_model::ValueKind",
+      "sorted_by_key": true
+    }
+  },
   "Option<Duration>": {
     "Option": "Duration"
   },
@@ -1097,6 +1104,117 @@
           "name": "Ipv6Addr",
           "discriminant": 20,
           "ty": "iroha_primitives::addr::Ipv6Addr"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::ValueKind": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "U32",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "U128",
+          "discriminant": 1,
+          "ty": null
+        },
+        {
+          "name": "Bool",
+          "discriminant": 2,
+          "ty": null
+        },
+        {
+          "name": "String",
+          "discriminant": 3,
+          "ty": null
+        },
+        {
+          "name": "Name",
+          "discriminant": 4,
+          "ty": null
+        },
+        {
+          "name": "Fixed",
+          "discriminant": 5,
+          "ty": null
+        },
+        {
+          "name": "Vec",
+          "discriminant": 6,
+          "ty": null
+        },
+        {
+          "name": "LimitedMetadata",
+          "discriminant": 7,
+          "ty": null
+        },
+        {
+          "name": "Id",
+          "discriminant": 8,
+          "ty": null
+        },
+        {
+          "name": "Identifiable",
+          "discriminant": 9,
+          "ty": null
+        },
+        {
+          "name": "PublicKey",
+          "discriminant": 10,
+          "ty": null
+        },
+        {
+          "name": "Parameter",
+          "discriminant": 11,
+          "ty": null
+        },
+        {
+          "name": "SignatureCheckCondition",
+          "discriminant": 12,
+          "ty": null
+        },
+        {
+          "name": "TransactionValue",
+          "discriminant": 13,
+          "ty": null
+        },
+        {
+          "name": "TransactionQueryResult",
+          "discriminant": 14,
+          "ty": null
+        },
+        {
+          "name": "PermissionToken",
+          "discriminant": 15,
+          "ty": null
+        },
+        {
+          "name": "Hash",
+          "discriminant": 16,
+          "ty": null
+        },
+        {
+          "name": "Block",
+          "discriminant": 17,
+          "ty": null
+        },
+        {
+          "name": "BlockHeader",
+          "discriminant": 18,
+          "ty": null
+        },
+        {
+          "name": "Ipv4Addr",
+          "discriminant": 19,
+          "ty": null
+        },
+        {
+          "name": "Ipv6Addr",
+          "discriminant": 20,
+          "ty": null
         }
       ]
     }
@@ -3663,6 +3781,10 @@
         {
           "name": "id",
           "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "params",
+          "ty": "Map<iroha_data_model::name::Name, iroha_data_model::ValueKind>"
         }
       ]
     }

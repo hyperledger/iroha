@@ -16,7 +16,7 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{
     alloc::alloc,
-    borrow::ToOwned as _,
+    borrow::{Cow, ToOwned as _},
     boxed::Box,
     format,
     string::{String, ToString},
@@ -24,7 +24,7 @@ use alloc::{
 };
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 #[cfg(feature = "std")]
-use std::alloc::alloc;
+use std::{alloc::alloc, borrow::Cow};
 
 use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
@@ -192,7 +192,7 @@ impl std::error::Error for ParseError {}
 /// Validation of the data model entity failed.
 #[derive(Debug, Display, Clone)]
 pub struct ValidationError {
-    reason: String,
+    reason: Cow<'static, str>,
 }
 
 #[cfg(feature = "std")]
@@ -200,9 +200,9 @@ impl std::error::Error for ValidationError {}
 
 impl ValidationError {
     /// Construct [`ValidationError`].
-    pub fn new(reason: &str) -> Self {
+    pub fn new(reason: impl Into<Cow<'static, str>>) -> Self {
         Self {
-            reason: String::from(reason),
+            reason: reason.into(),
         }
     }
 }
@@ -462,6 +462,11 @@ pub type ValueBox = Box<Value>;
     IntoFfi,
     TryFromReprC,
     IntoSchema,
+    enum_kinds::EnumKind,
+)]
+#[enum_kind(
+    ValueKind,
+    derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema)
 )]
 #[allow(clippy::enum_variant_names)]
 #[repr(u8)]
@@ -776,11 +781,10 @@ from_and_try_from_value_identifiable!(
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
+    Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
 );
-
-from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
 
 impl TryFrom<Value> for RegistrableBox {
     type Error = ErrorTryFromEnum<Value, Self>;

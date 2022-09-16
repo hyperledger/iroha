@@ -315,3 +315,131 @@ fn permissions_differ_not_only_by_names() {
         .submit_blocking(set_shoes_color)
         .expect("Failed to modify Mouse's shoes");
 }
+
+mod token_parameters {
+    use iroha_data_model::ValueKind;
+
+    use super::*;
+
+    lazy_static::lazy_static! {
+        pub static ref TEST_TOKEN_DEFINITION_ID: <PermissionTokenDefinition as Identifiable>::Id =
+            <PermissionTokenDefinition as Identifiable>::Id::new(
+                "test_permission_token_definition".parse().expect("Valid"),
+            );
+
+        pub static ref NUMBER_PARAMETER_NAME: Name =
+            "number".parse().expect("Valid");
+
+        pub static ref STRING_PARAMETER_NAME: Name =
+            "string".parse().expect("Valid");
+    }
+
+    #[test]
+    fn token_with_missing_parameters_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone());
+        let expect = "Expected to fail to grant permission token without parameters";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_one_missing_parameter_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone())
+            .with_params([(NUMBER_PARAMETER_NAME.clone(), 1_u32.into())]);
+        let expect = "Expected to fail to grant permission token with one missing parameter";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_changed_parameter_name_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+            (
+                "it's_a_trap".parse().expect("Valid"),
+                "test".to_owned().into(),
+            ),
+        ]);
+        let expect = "Expected to fail to grant permission token with one changed parameter";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_extra_parameter_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+            (STRING_PARAMETER_NAME.clone(), "test".to_owned().into()),
+            (
+                "extra_param".parse().expect("Valid"),
+                "extra_test".to_owned().into(),
+            ),
+        ]);
+        let expect = "Expected to fail to grant permission token with extra parameter";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    #[test]
+    fn token_with_wrong_parameter_type_is_not_accepted() {
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
+            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
+            (
+                STRING_PARAMETER_NAME.clone(),
+                Value::Name("test".parse().expect("Valid")),
+            ),
+        ]);
+        let expect = "Expected to fail to grant permission token with wrong parameter type";
+
+        run_grant_token_error_test(token.clone(), expect);
+        run_register_role_error_test(token, expect);
+    }
+
+    /// Run granting permission `token` test and expect it to fail.
+    ///
+    /// Will panic with `expect` if permission granting succeeds
+    fn run_grant_token_error_test(token: PermissionToken, expect: &'static str) {
+        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+        wait_for_genesis_committed(&vec![client.clone()], 0);
+
+        register_test_token_definition(&client);
+
+        let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+
+        let _err = client
+            .submit_blocking(GrantBox::new(token, account_id))
+            .expect_err(expect);
+    }
+
+    /// Run role registration with provided permission `token` test and expect it to fail.
+    ///
+    /// Will panic with `expect` if role registration succeeds
+    fn run_register_role_error_test(token: PermissionToken, expect: &'static str) {
+        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+        wait_for_genesis_committed(&vec![client.clone()], 0);
+
+        register_test_token_definition(&client);
+
+        let role_id: <Role as Identifiable>::Id = "test_role".parse().expect("Valid");
+        let role = Role::new(role_id).add_permission(token);
+
+        let _err = client
+            .submit_blocking(RegisterBox::new(role))
+            .expect_err(expect);
+    }
+
+    fn register_test_token_definition(client: &Client) {
+        let token_definition = PermissionTokenDefinition::new(TEST_TOKEN_DEFINITION_ID.clone())
+            .with_params([
+                (NUMBER_PARAMETER_NAME.clone(), ValueKind::U32),
+                (STRING_PARAMETER_NAME.clone(), ValueKind::String),
+            ]);
+        client
+            .submit_blocking(RegisterBox::new(token_definition))
+            .expect("Failed to register permission token definition");
+    }
+}
