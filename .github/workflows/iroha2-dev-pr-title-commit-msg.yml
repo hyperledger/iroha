@@ -3,10 +3,10 @@ name: I2::Dev::Title
 on:
   pull_request:
     branches: [iroha2-dev]
-    types: [opened, edited, reopened]
+    types: [opened, edited, reopened, synchronize]
 
 jobs:
-  check:
+  pr-title-check:
     runs-on: ubuntu-latest
     # TODO: Add labels when https://github.com/actions/first-interaction/issues/10 is fixed.
     steps:
@@ -91,4 +91,71 @@ jobs:
 
       - name: None of the above
         if: steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' && steps.docs-match.outputs.match == '' && steps.ci-match.outputs.match == ''
+        run: exit 1
+
+  commit-msg-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Feature
+        id: feature-match
+        continue-on-error: true
+        uses: gsactions/commit-message-checker@v1
+        with:
+          pattern: '^\[feature\] #\d+(, #\d+)*: .+$'
+          error: 'Wrong [feature] commits message'
+          excludeDescription: 'true'
+          excludeTitle: 'true'
+          checkAllCommitMessages: 'true'
+          accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refactor
+        id: refactor-match
+        continue-on-error: true
+        uses: gsactions/commit-message-checker@v1
+        with:
+          pattern: '^\[refactor\]( #\d+(, #\d+)*)?: .+$'
+          error: 'Wrong [refactor] commits message'
+          excludeDescription: 'true'
+          excludeTitle: 'true'
+          checkAllCommitMessages: 'true'
+          accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fix
+        id: fix-match
+        continue-on-error: true
+        uses: gsactions/commit-message-checker@v1
+        with:
+          pattern: '^\[fix\] #\d+(, #\d+)*: .+$'
+          error: 'Wrong [fix] commits message'
+          excludeDescription: 'true'
+          excludeTitle: 'true'
+          checkAllCommitMessages: 'true'
+          accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Documentation
+        id: docs-match
+        continue-on-error: true
+        uses: gsactions/commit-message-checker@v1
+        with:
+          pattern: '^\[documentation\]( #\d+(, #\d+)*)?: .+$'
+          error: 'Wrong [documentation] commits message'
+          excludeDescription: 'true'
+          excludeTitle: 'true'
+          checkAllCommitMessages: 'true'
+          accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: CI
+        id: ci-match
+        continue-on-error: true
+        uses: gsactions/commit-message-checker@v1
+        with:
+          pattern: '^\[ci\]( #\d+(, #\d+)*)?: .+$'
+          error: 'Wrong [ci] commits message'
+          excludeDescription: 'true'
+          excludeTitle: 'true'
+          checkAllCommitMessages: 'true'
+          accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: None of the above
+        if: steps.feature-match.outcome == 'failure' && steps.refactor-match.outcome == 'failure' && steps.fix-match.outcome == 'failure' && steps.docs-match.outcome == 'failure' && steps.ci-match.outcome == 'failure'
         run: exit 1
