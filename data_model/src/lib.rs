@@ -200,8 +200,10 @@ impl std::error::Error for ValidationError {}
 
 impl ValidationError {
     /// Construct [`ValidationError`].
-    pub fn new(reason: Cow<'static, str>) -> Self {
-        Self { reason }
+    pub fn new(reason: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
     }
 }
 

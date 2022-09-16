@@ -330,20 +330,17 @@ pub fn check_permission_token_parameters(
                     return Err(missing_parameter(expected_key));
                 }
                 if kind != *expected_kind {
-                    return Err(ValidationError::new(
-                        format!(
-                            "Permission token parameter `{key}` type mismatch: \
+                    return Err(ValidationError::new(format!(
+                        "Permission token parameter `{key}` type mismatch: \
                             expected `{expected_kind}`, got `{kind}`"
-                        )
-                        .into(),
-                    ));
+                    )));
                 }
             }
             // No more parameters in the definition
             Left((key, _)) => {
-                return Err(ValidationError::new(
-                    format!("Undefined permission token parameter: `{key}`").into(),
-                ));
+                return Err(ValidationError::new(format!(
+                    "Undefined permission token parameter: `{key}`"
+                )));
             }
             // No more parameters in the permission token
             Right((expected_key, _)) => {
@@ -356,5 +353,5 @@ pub fn check_permission_token_parameters(
 }
 
 fn missing_parameter(key: &Name) -> ValidationError {
-    ValidationError::new(format!("Permission parameter `{key}` is missing").into())
+    ValidationError::new(format!("Permission parameter `{key}` is missing"))
 }

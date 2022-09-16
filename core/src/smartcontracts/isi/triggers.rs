@@ -175,7 +175,7 @@ pub mod isi {
                         wsv.execute_trigger(id.clone(), authority.clone());
                         Ok(())
                     } else {
-                        Err(ValidationError::new("Unauthorized trigger execution".into()).into())
+                        Err(ValidationError::new("Unauthorized trigger execution").into())
                     }
                 })
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
