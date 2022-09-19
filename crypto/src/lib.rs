@@ -439,6 +439,28 @@ impl From<Multihash> for PublicKey {
     }
 }
 
+#[cfg(feature = "std")]
+impl From<PrivateKey> for PublicKey {
+    #[allow(clippy::expect_used)]
+    fn from(private_key: PrivateKey) -> Self {
+        let digest_function = private_key.digest_function();
+        let key_gen_option = Some(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(
+            private_key.payload,
+        )));
+        let (mut public_key, _) = match digest_function {
+            Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
+            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
+            Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
+            Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
+        }
+        .expect("can't fail for valid `PrivateKey`");
+        PublicKey {
+            digest_function: private_key.digest_function,
+            payload: core::mem::take(&mut public_key.0),
+        }
+    }
+}
+
 impl From<PublicKey> for Multihash {
     #[inline]
     fn from(public_key: PublicKey) -> Self {

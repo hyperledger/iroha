@@ -19,3 +19,6 @@ serde_json = "1.0.83"
 thiserror = "1.0.32"
 crossbeam = "0.8.2"
 derive_more = "0.99.17"
+
+[dev-dependencies]
+proptest = "1.0.0"

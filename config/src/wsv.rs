@@ -44,3 +44,25 @@ impl Default for ConfigurationProxy {
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (
+                asset_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
+                asset_definition_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
+                account_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
+                domain_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
+                ident_length_limits in prop::option::of(Just(DEFAULT_IDENT_LENGTH_LIMITS)),
+                wasm_runtime_config in prop::option::of(Just(wasm::ConfigurationProxy::default())),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { asset_metadata_limits, asset_definition_metadata_limits, account_metadata_limits, domain_metadata_limits, ident_length_limits, wasm_runtime_config }
+        }
+    }
+}

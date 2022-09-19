@@ -1,12 +1,9 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
 #![allow(clippy::std_instead_of_core)]
-use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
+use std::fmt::Debug;
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::{
-    derive::{view, Documented, Error as ConfigError, LoadFromEnv, Proxy},
-    proxy::Builder,
-};
+use iroha_config_base::derive::{view, Documented, Error as ConfigError, LoadFromEnv, Proxy};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +12,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, Deserialize, Serialize, Proxy, Documented, LoadFromEnv)]
+    #[derive(Debug, Clone, Deserialize, Serialize, Proxy, Documented, LoadFromEnv, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {
@@ -91,7 +88,7 @@ impl ConfigurationProxy {
     /// # Errors
     /// - If the relevant uppermost Iroha config fields were not provided.
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn finalize(&mut self) -> Result<()> {
+    pub fn finish(&mut self) -> Result<()> {
         if let Some(sumeragi_proxy) = &mut self.sumeragi {
             // First, iroha public/private key and sumeragi keypair are interchangeable, but
             // the user is allowed to provide only the former, and keypair is generated automatically,
@@ -151,52 +148,12 @@ impl ConfigurationProxy {
     ///
     /// # Errors
     /// - Finalisation fails
-    /// - Any of the inner fields had a `None` value when that
+    /// - Building fails, e.g. any of the inner fields had a `None` value when that
     /// is not allowed by the defaults.
     pub fn build(mut self) -> Result<Configuration> {
-        self.finalize()?;
-        <Self as Builder>::build(self)
+        self.finish()?;
+        <Self as iroha_config_base::proxy::Builder>::build(self)
             .wrap_err("Failed to build `Configuration` from `ConfigurationProxy`")
-    }
-}
-
-impl Configuration {
-    /// Construct [`struct@Self`] from a path-like object.
-    ///
-    /// # Errors
-    /// - File not found.
-    /// - File found, but peer configuration parsing failed.
-    /// - The length of the array in raw JSON representation is different
-    /// from the length of the array in
-    /// [`self.sumeragi.trusted_peers.peers`], most likely due to two
-    /// (or more) peers having the same public key.
-    pub fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> Result<Configuration> {
-        let file = File::open(path.clone())
-            .wrap_err(format!("Failed to open the config file {:?}", path))?;
-        let reader = BufReader::new(file);
-        let mut configuration: Configuration = serde_json::from_reader(reader).wrap_err(
-            format!("Failed to parse {:?} as Iroha peer configuration.", path),
-        )?;
-        configuration.finalize()?;
-        Ok(configuration)
-    }
-
-    fn finalize(&mut self) -> Result<()> {
-        self.sumeragi.key_pair = KeyPair::new(self.public_key.clone(), self.private_key.clone())?;
-        self.sumeragi.peer_id =
-            iroha_data_model::peer::Id::new(&self.torii.p2p_addr, &self.public_key.clone());
-
-        Ok(())
-    }
-
-    /// Load configuration from the environment
-    ///
-    /// # Errors
-    /// Fails if Configuration deserialization fails (e.g. if `TrustedPeers` contains entries with duplicate public keys)
-    pub fn load_environment(&mut self) -> Result<()> {
-        <Self as iroha_config_base::proxy::LoadFromEnv>::load_environment(self)?;
-        self.finalize()?;
-        Ok(())
     }
 }
 
@@ -204,10 +161,67 @@ impl Configuration {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use proptest::prelude::*;
+
     use super::*;
     use crate::{base::proxy::LoadFromDisk, sumeragi::TrustedPeers};
 
-    const CONFIGURATION_PATH: &str = "../configs/peer/config.json";
+    const CONFIGURATION_PATH: &str = "./iroha_test_config.json";
+
+    /// Key-pair used for proptests generation
+    #[allow(clippy::expect_used)]
+    pub fn placeholder_keypair() -> KeyPair {
+        let public_key = "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            .parse()
+            .expect("Public key not in mulithash format");
+        let private_key = PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+        ).expect("Private key not hex encoded");
+
+        KeyPair::new(public_key, private_key).expect("Key pair mismatch")
+    }
+
+    fn arb_keys() -> BoxedStrategy<(Option<PublicKey>, Option<PrivateKey>)> {
+        let (pub_key, priv_key) = placeholder_keypair().into();
+        (
+            prop::option::of(Just(pub_key)),
+            prop::option::of(Just(priv_key)),
+        )
+            .boxed()
+    }
+
+    prop_compose! {
+        fn arb_proxy()(
+            (public_key, private_key) in arb_keys(),
+            disable_panic_terminal_colors in prop::option::of(Just(true)),
+            kura in prop::option::of(kura::tests::arb_proxy()),
+            sumeragi in prop::option::of(sumeragi::tests::arb_proxy()),
+            torii in prop::option::of(torii::tests::arb_proxy()),
+            block_sync in prop::option::of(block_sync::tests::arb_proxy()),
+            queue in prop::option::of(queue::tests::arb_proxy()),
+            logger in prop::option::of(logger::tests::arb_proxy()),
+            genesis in prop::option::of(genesis::tests::arb_proxy()),
+            wsv in prop::option::of(wsv::tests::arb_proxy()),
+            network in prop::option::of(network::tests::arb_proxy()),
+            telemetry in prop::option::of(telemetry::tests::arb_proxy()),
+            ) -> ConfigurationProxy {
+            ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
+                                 logger, genesis, wsv, network, telemetry }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn iroha_proxy_build_fails_on_none(proxy in arb_proxy()) {
+            let cfg = proxy.build();
+            let example_cfg = ConfigurationProxy::from_path(CONFIGURATION_PATH)
+                .expect("Failed to read example config file").build().expect("Failed to build example Iroha config");
+            if cfg.is_ok() {
+                assert_eq!(cfg.unwrap(), example_cfg)
+            }
+        }
+    }
 
     #[test]
     fn parse_example_json() -> Result<()> {
@@ -225,6 +239,14 @@ mod tests {
                 .gossip_period_ms
                 .expect("Gossip period was None")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn example_json_proxy_builds() -> Result<()> {
+        let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH)
+            .wrap_err("Failed to read configuration from example config")?;
+        cfg_proxy.build()?;
         Ok(())
     }
 

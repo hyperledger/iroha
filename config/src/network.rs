@@ -23,3 +23,20 @@ impl Default for ConfigurationProxy {
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (
+                actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { actor_channel_capacity }
+        }
+    }
+}

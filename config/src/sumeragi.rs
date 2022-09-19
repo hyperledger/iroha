@@ -84,6 +84,7 @@ impl ConfigurationProxy {
         self.trusted_peers = Some(TrustedPeers { peers });
     }
 }
+
 impl Configuration {
     /// Time estimation from receiving a transaction to storing it in
     /// a block on all peers for the "sunny day" scenario.
@@ -166,5 +167,42 @@ impl TrustedPeers {
         Ok(TrustedPeers {
             peers: trusted_peers,
         })
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (key_pair in Just(None),
+             peer_id in Just(None),
+             block_time_ms in prop::option::of(Just(DEFAULT_BLOCK_TIME_MS)),
+             trusted_peers in Just(None),
+             commit_time_limit_ms in prop::option::of(Just(DEFAULT_COMMIT_TIME_LIMIT_MS)),
+             transaction_limits in prop::option::of(Just(TransactionLimits {
+                max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+            })),
+             actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
+             gossip_batch_size in prop::option::of(Just(DEFAULT_GOSSIP_BATCH_SIZE)),
+             gossip_period_ms in prop::option::of(Just(DEFAULT_GOSSIP_PERIOD_MS)),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy {
+                key_pair,
+                peer_id,
+                block_time_ms,
+                trusted_peers,
+                commit_time_limit_ms,
+                transaction_limits,
+                actor_channel_capacity,
+                gossip_batch_size,
+                gossip_period_ms
+            }
+        }
     }
 }
