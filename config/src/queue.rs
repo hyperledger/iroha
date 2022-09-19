@@ -36,3 +36,23 @@ impl Default for ConfigurationProxy {
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (
+                maximum_transactions_in_block in prop::option::of(Just(DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK)),
+                maximum_transactions_in_queue in prop::option::of(Just(DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE)),
+                transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
+                future_threshold_ms in prop::option::of(Just(DEFAULT_FUTURE_THRESHOLD_MS)),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { maximum_transactions_in_block, maximum_transactions_in_queue, transaction_time_to_live_ms, future_threshold_ms }
+        }
+    }
+}

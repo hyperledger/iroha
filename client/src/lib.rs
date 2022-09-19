@@ -9,7 +9,6 @@ mod http_default;
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
     use iroha_config::{
-        base::proxy::Builder,
         client::{Configuration, ConfigurationProxy},
         torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
     };

@@ -77,8 +77,16 @@ impl From<Level> for SyncLevel {
     }
 }
 
+impl PartialEq for SyncLevel {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.value() == other.0.value()
+    }
+}
+
+impl Eq for SyncLevel {}
+
 /// 'Logger' configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Proxy, LoadFromEnv, Documented)]
+#[derive(Clone, Deserialize, Serialize, Debug, Proxy, LoadFromEnv, Documented, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {
     /// Maximum log level
@@ -103,6 +111,24 @@ impl Default for ConfigurationProxy {
             compact_mode: Some(DEFAULT_COMPACT_MODE),
             log_file_path: Some(None),
             terminal_colors: Some(DEFAULT_TERMINAL_COLORS),
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+        (max_log_level in prop::option::of(Just(SyncLevel::default())),
+        telemetry_capacity in prop::option::of(Just(TELEMETRY_CAPACITY)),
+        compact_mode in prop::option::of(Just(DEFAULT_COMPACT_MODE)),
+        log_file_path in prop::option::of(Just(None)),
+        terminal_colors in prop::option::of(Just(DEFAULT_TERMINAL_COLORS))) -> ConfigurationProxy {
+            ConfigurationProxy { max_log_level, telemetry_capacity, compact_mode, log_file_path, terminal_colors }
         }
     }
 }
