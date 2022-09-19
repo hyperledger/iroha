@@ -153,14 +153,11 @@ jobs:
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
                                   true
                                 else
-                                  echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
-                                  echo "/build ubuntu debug release"
-                                  echo "/build macos debug"
-                                  echo "/build windows debug"
+                                  echo "/build ubuntu debug release normal gcc-10"
                                 } >/tmp/comment_body ;;
-            schedule)           echo >/tmp/comment_body "/build all" ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
           esac
