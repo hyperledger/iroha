@@ -72,3 +72,25 @@ impl Default for Mode {
         Mode::Strict
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        #[allow(clippy::expect_used)]
+        pub fn arb_proxy()
+            (
+                init_mode in prop::option::of(Just(Mode::default())),
+                block_store_path in prop::option::of(Just(DEFAULT_BLOCK_STORE_PATH.into())),
+                blocks_per_storage_file in prop::option::of(Just(NonZeroU64::new(DEFAULT_BLOCKS_PER_STORAGE_FILE).expect("Cannot be set to a negative value"))),
+                actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
+                debug_output_new_blocks in prop::option::of(Just(false))
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { init_mode, block_store_path, blocks_per_storage_file, actor_channel_capacity, debug_output_new_blocks }
+        }
+    }
+}

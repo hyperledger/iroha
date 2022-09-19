@@ -4,9 +4,9 @@ use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
 use serde::{Deserialize, Serialize};
 
 /// Default socket for p2p communication
-pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
+pub const DEFAULT_TORII_P2P_ADDR: &str = "http://127.0.0.1:1337";
 /// Default socket for reporting internal status and metrics
-pub const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
+pub const DEFAULT_TORII_TELEMETRY_URL: &str = "http://127.0.0.1:8180";
 /// Default maximum size of single transaction
 pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: u32 = 2_u32.pow(15);
 /// Default upper bound on `content-length` specified in the HTTP request header
@@ -47,7 +47,7 @@ pub mod uri {
     //! URI that `Torii` uses to route incoming requests.
 
     /// Default socket for listening on external requests
-    pub const DEFAULT_API_URL: &str = "127.0.0.1:8080";
+    pub const DEFAULT_API_URL: &str = "http://127.0.0.1:8080";
     /// Query URI is used to handle incoming Query requests.
     pub const QUERY: &str = "query";
     /// Transaction URI is used to handle incoming ISI requests.
@@ -75,4 +75,25 @@ pub mod uri {
     pub const SCHEMA: &str = "schema";
     /// URI for getting the API version currently used
     pub const API_VERSION: &str = "api_version";
+}
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (
+                p2p_addr in prop::option::of(Just(DEFAULT_TORII_P2P_ADDR.into())),
+                api_url in prop::option::of(Just(uri::DEFAULT_API_URL.into())),
+                telemetry_url in prop::option::of(Just(DEFAULT_TORII_TELEMETRY_URL.into())),
+                max_transaction_size in prop::option::of(Just(DEFAULT_TORII_MAX_TRANSACTION_SIZE)),
+                max_content_len in prop::option::of(Just(DEFAULT_TORII_MAX_CONTENT_LENGTH)),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { p2p_addr, api_url, telemetry_url, max_transaction_size, max_content_len }
+        }
+    }
 }

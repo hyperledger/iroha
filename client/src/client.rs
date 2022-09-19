@@ -1367,7 +1367,6 @@ mod tests {
     use std::str::FromStr;
 
     use iroha_config::{
-        base::proxy::Builder,
         client::{BasicAuth, ConfigurationProxy, WebLogin},
         torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
     };

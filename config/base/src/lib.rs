@@ -182,7 +182,7 @@ pub mod derive {
         #[error("Failed to (de)serialize the field: {}", .0.field)]
         #[serde(skip)]
         FieldError(#[from] FieldError),
-        /// Used in [`Combine`] trait for build errors
+        /// Used in [`Builder`] trait for build errors
         #[error("Proxy failed at build stage due to: {0}")]
         ProxyBuildError(String),
         /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
