@@ -371,9 +371,8 @@ mod client {
     use std::str::FromStr as _;
 
     use iroha_config::{
-        base::proxy::Builder,
         client::{BasicAuth, ConfigurationProxy, WebLogin},
-        torii::DEFAULT_TORII_TELEMETRY_URL,
+        torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
     };
     use iroha_crypto::{Algorithm, PrivateKey, PublicKey};
     use iroha_primitives::small::SmallStr;
@@ -386,10 +385,8 @@ mod client {
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
             let config = ConfigurationProxy {
-                torii_api_url: Some(SmallStr::from_str("http://127.0.0.1:8080")),
-                torii_telemetry_url: Some(SmallStr::from_string(
-                    format!("http://{}", DEFAULT_TORII_TELEMETRY_URL))
-                ),
+                torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
+                torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
                 account_id: Some("alice@wonderland".parse()?),
                 basic_auth: Some(Some(BasicAuth {
                     web_login: WebLogin::new("mad_hatter")?,

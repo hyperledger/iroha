@@ -43,3 +43,24 @@ pub mod retry_period {
     /// Default maximum exponent for the retry delay
     pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = 4;
 }
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (
+                name in prop::option::of(Just(None)),
+                url in prop::option::of(Just(None)),
+                min_retry_period in prop::option::of(Just(retry_period::DEFAULT_MIN_RETRY_PERIOD)),
+                max_retry_delay_exponent in prop::option::of(Just(retry_period::DEFAULT_MAX_RETRY_DELAY_EXPONENT)),
+                file in prop::option::of(Just(None)),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { name, url, min_retry_period, max_retry_delay_exponent, file }
+        }
+    }
+}

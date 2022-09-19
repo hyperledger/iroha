@@ -836,6 +836,8 @@ impl TestRuntime for Runtime {
 
 use std::collections::HashSet;
 
+use iroha_config::base::proxy::LoadFromEnv;
+
 impl TestConfiguration for Configuration {
     fn test() -> Self {
         let mut configuration = iroha::samples::get_config(HashSet::new(), Some(get_key_pair()));
