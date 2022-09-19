@@ -32,3 +32,22 @@ impl Default for ConfigurationProxy {
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        pub fn arb_proxy()
+            (
+                gossip_period_ms in prop::option::of(Just(DEFAULT_GOSSIP_PERIOD_MS)),
+                block_batch_size in prop::option::of(Just(DEFAULT_BLOCK_BATCH_SIZE)),
+                actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
+            )
+            -> ConfigurationProxy {
+            ConfigurationProxy { gossip_period_ms, block_batch_size, actor_channel_capacity }
+        }
+    }
+}

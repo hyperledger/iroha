@@ -21,7 +21,7 @@ pub const SMALL_SIZE: usize = 8_usize;
 mod small_string {
     use super::*;
 
-    #[derive(Debug, Clone, derive_more::Display, Deserialize, Serialize)]
+    #[derive(Debug, Clone, derive_more::Display, Deserialize, Serialize, PartialEq, Eq)]
     /// Wrapper around the [`smallstr::SmallString`] type, enforcing a
     /// specific size of stack-based strings.
     #[serde(transparent)]
