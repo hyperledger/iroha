@@ -398,18 +398,20 @@ pub fn run_sumeragi_main_loop<F>(
         .lock()
         .expect("lock on reciever");
 
-    if state_machine_guard.latest_block_height != 0
-        && state_machine_guard.latest_block_hash != Hash::zeroed().typed()
+    // Initialization code
     {
-        // Normal startup
-        // Aka, we don't have to do anything.
-    } else {
-        // We don't have the genesis block.
-        // We need to perform a round of some form.
-        if let Some(genesis_network) = state_machine_guard.genesis_network.take() {
-            sumeragi_init_commit_genesis(sumeragi, &mut state_machine_guard, genesis_network);
+        if state_machine_guard.latest_block_height != 0
+            && state_machine_guard.latest_block_hash != Hash::zeroed().typed()
+        {
+            // Normal startup
+            // Aka, we don't have to do anything.
         } else {
-            sumeragi_init_listen_for_genesis(
+            // We don't have the genesis block.
+            // We need to perform a round of some form.
+            if let Some(genesis_network) = state_machine_guard.genesis_network.take() {
+                sumeragi_init_commit_genesis(sumeragi, &mut state_machine_guard, genesis_network);
+            } else {
+                sumeragi_init_listen_for_genesis(
                 sumeragi,
                 &mut state_machine_guard,
                 &mut incoming_message_receiver,
@@ -419,10 +421,12 @@ pub fn run_sumeragi_main_loop<F>(
                 if let EarlyReturn::Disconnected = err {
                     panic!("Disconnected")
                 }
-            });
+            });                
+            }
         }
     }
 
+    // Assert initialization was done properly.
     {
         assert!(state_machine_guard.latest_block_height >= 1);
         assert_eq!(
@@ -466,159 +470,248 @@ pub fn run_sumeragi_main_loop<F>(
 
         sumeragi.connect_peers(&state_machine_guard.current_topology);
 
-        // Transaction Cache
         {
-            // We prune expired transactions. We do not check if they are in the blockchain, it would be a waste.
-            let mut read_index = 0;
-            let mut write_index = 0;
-            while read_index < state_machine_guard.transaction_cache.len() {
-                if let Some(tx) = state_machine_guard.transaction_cache[read_index].take() {
-                    if tx.is_expired(sumeragi.queue.tx_time_to_live) {
+            update_transaction_cache(sumeragi, &mut state_machine_guard);
+            fn update_transaction_cache<F>(
+                sumeragi: &SumeragiWithFault<F>,
+                state_machine: &mut SumeragiStateMachineData,
+            ) where
+                F: FaultInjection,
+            {
+                // We prune expired transactions. We do not check if they are in the blockchain, it would be a waste.
+                let mut read_index = 0;
+                let mut write_index = 0;
+                while read_index < state_machine.transaction_cache.len() {
+                    if let Some(tx) = state_machine.transaction_cache[read_index].take() {
+                        if tx.is_expired(sumeragi.queue.tx_time_to_live) {
+                            read_index += 1;
+                            continue;
+                        }
+                        state_machine.transaction_cache[write_index] = Some(tx);
                         read_index += 1;
+                        write_index += 1;
                         continue;
                     }
-                    state_machine_guard.transaction_cache[write_index] = Some(tx);
                     read_index += 1;
-                    write_index += 1;
-                    continue;
                 }
-                read_index += 1;
-            }
-            state_machine_guard.transaction_cache.truncate(write_index);
+                state_machine.transaction_cache.truncate(write_index);
 
-            // Pull in new transactions into the cache.
-            while state_machine_guard.transaction_cache.len() < sumeragi.queue.txs_in_block {
-                let tx_maybe = sumeragi.queue.pop_without_seen(&state_machine_guard.wsv);
-                if tx_maybe.is_none() {
-                    break;
+                // Pull in new transactions into the cache.
+                while state_machine.transaction_cache.len() < sumeragi.queue.txs_in_block {
+                    let tx_maybe = sumeragi.queue.pop_without_seen(&state_machine.wsv);
+                    if tx_maybe.is_none() {
+                        break;
+                    }
+                    state_machine.transaction_cache.push(tx_maybe);
                 }
-                state_machine_guard.transaction_cache.push(tx_maybe);
             }
         }
 
-        if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
-            let mut txs = Vec::new();
-            for tx in &state_machine_guard.transaction_cache {
-                txs.push(tx.clone().expect("Failed to clone `tx`"));
-                if txs.len() >= sumeragi.gossip_batch_size as usize {
-                    break;
-                }
-            }
-            if !txs.is_empty() {
-                debug!(
-                    peer_role = ?state_machine_guard.current_topology.role(&sumeragi.peer_id),
-                    tx_count = txs.len(),
-                    "Gossiping transactions"
-                );
-
-                sumeragi.broadcast_packet(
-                    MessagePacket::new(
-                        view_change_proof_chain.clone(),
-                        TransactionGossip::new(txs).into(),
-                    ),
-                    &state_machine_guard.current_topology,
-                );
-                last_sent_transaction_gossip_time = Instant::now();
-            }
-        }
-
-        assert!(maybe_incoming_message.is_none(),"If there is a message available it must be consumed within one loop cycle. A in house rule in place to stop one from implementing bugs that render a node not responding.");
-        maybe_incoming_message = match incoming_message_receiver.try_recv() {
-            Ok(packet) => {
-                let peer_list = state_machine_guard
-                    .current_topology
-                    .sorted_peers()
-                    .iter()
-                    .cloned()
-                    .collect();
-
-                for proof in packet.view_change_proofs {
-                    let _ = view_change_proof_chain.insert_proof(
-                        &peer_list,
-                        state_machine_guard.current_topology.max_faults(),
-                        &state_machine_guard.latest_block_hash,
-                        &proof,
-                    );
-                }
-                Some(packet.message)
-            }
-            Err(recv_error) => match recv_error {
-                mpsc::TryRecvError::Empty => None,
-                mpsc::TryRecvError::Disconnected => {
-                    panic!("Sumeragi message pump disconnected. This is not a recoverable error.")
-                }
-            },
-        };
-
-        if let Some(stolen_message) = maybe_incoming_message.take() {
-            match stolen_message {
-                Message::TransactionGossip(tx_gossip) => {
-                    for transaction in tx_gossip.txs {
-                        let tx_maybe = VersionedAcceptedTransaction::from_transaction(
-                            transaction.into_v1(),
-                            &sumeragi.transaction_limits,
-                        );
-                        if let Ok(tx) = tx_maybe {
-                            match sumeragi.queue.push(tx, &state_machine_guard.wsv) {
-                                Err((_, crate::queue::Error::InBlockchain)) | Ok(()) => {}
-                                Err((_, err)) => {
-                                    warn!(?err, "Failed to push to queue gossiped transaction.")
-                                }
-                            }
+        {
+            gossip_transactions(
+                sumeragi,
+                &mut state_machine_guard,
+                &view_change_proof_chain,
+                &mut last_sent_transaction_gossip_time,
+            );
+            fn gossip_transactions<F>(
+                sumeragi: &SumeragiWithFault<F>,
+                state_machine: &mut SumeragiStateMachineData,
+                view_change_proof_chain: &Vec<Proof>,
+                last_sent_transaction_gossip_time: &mut Instant,
+            ) where
+                F: FaultInjection,
+            {
+                if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
+                    let mut txs = Vec::new();
+                    for tx in &state_machine.transaction_cache {
+                        txs.push(tx.clone().expect("Failed to clone `tx`"));
+                        if txs.len() >= sumeragi.gossip_batch_size as usize {
+                            break;
                         }
                     }
-                }
-                Message::ViewChangeSuggested => {
-                    trace!("Received view change suggestion.");
-                }
-                Message::TransactionForwarded(tx_forw) => {
-                    maybe_incoming_message = Some(Message::TransactionForwarded(tx_forw));
-                }
-                Message::BlockCreated(block_created) => {
-                    maybe_incoming_message = Some(Message::BlockCreated(block_created));
-                }
-                Message::BlockSigned(block_signed) => {
-                    maybe_incoming_message = Some(Message::BlockSigned(block_signed));
-                }
-                Message::BlockCommitted(block_committed) => {
-                    maybe_incoming_message = Some(Message::BlockCommitted(block_committed));
+                    if !txs.is_empty() {
+                        debug!(
+                            peer_role = ?state_machine.current_topology.role(&sumeragi.peer_id),
+                            tx_count = txs.len(),
+                            "Gossiping transactions"
+                        );
+
+                        sumeragi.broadcast_packet(
+                            MessagePacket::new(
+                                view_change_proof_chain.clone(),
+                                TransactionGossip::new(txs).into(),
+                            ),
+                            &state_machine.current_topology,
+                        );
+                        *last_sent_transaction_gossip_time = Instant::now();
+                    }
                 }
             }
         }
 
-        view_change_proof_chain.prune(&state_machine_guard.latest_block_hash);
-        let current_view_change_index: u64 = view_change_proof_chain.verify_with_state(
-            &state_machine_guard
-                .current_topology
-                .sorted_peers()
-                .iter()
-                .cloned()
-                .collect(),
-            state_machine_guard.current_topology.max_faults(),
-            &state_machine_guard.latest_block_hash,
-        ) as u64;
+        {
+            receive_network_packet(
+                &mut state_machine_guard,
+                &mut view_change_proof_chain,
+                &mut maybe_incoming_message,
+                &mut incoming_message_receiver,
+            );
+            fn receive_network_packet(
+                state_machine: &mut SumeragiStateMachineData,
+                view_change_proof_chain: &mut Vec<Proof>,
+                maybe_incoming_message: &mut Option<Message>,
+                incoming_message_receiver: &mut mpsc::Receiver<MessagePacket>,
+            ) {
+                assert!(maybe_incoming_message.is_none(),"If there is a message available it must be consumed within one loop cycle. A in house rule in place to stop one from implementing bugs that render a node not responding.");
 
-        if old_latest_block_height != state_machine_guard.latest_block_height {
-            voting_block_option = None;
-            block_signature_acc.clear();
-            has_sent_transactions = false;
-            instant_when_we_should_create_a_block = Instant::now() + sumeragi.block_time;
+                *maybe_incoming_message = match incoming_message_receiver.try_recv() {
+                    Ok(packet) => {
+                        let peer_list = state_machine
+                            .current_topology
+                            .sorted_peers()
+                            .iter()
+                            .cloned()
+                            .collect();
 
-            old_latest_block_height = state_machine_guard.latest_block_height;
+                        for proof in packet.view_change_proofs {
+                            let _ = view_change_proof_chain.insert_proof(
+                                &peer_list,
+                                state_machine.current_topology.max_faults(),
+                                &state_machine.latest_block_hash,
+                                &proof,
+                            );
+                        }
+                        Some(packet.message)
+                    }
+                    Err(recv_error) => match recv_error {
+                        mpsc::TryRecvError::Empty => None,
+                        mpsc::TryRecvError::Disconnected => {
+                            panic!("Sumeragi message pump disconnected. This is not a recoverable error.")
+                        }
+                    },
+                };
+            }
         }
-        if current_view_change_index != old_view_change_index {
-            state_machine_guard
-                .current_topology
+
+        let current_view_change_index: u64 = {
+            fn prune_view_change_proofs_and_calculate_current_index(
+                state_machine: &SumeragiStateMachineData,
+                view_change_proof_chain: &mut Vec<Proof>,
+            ) -> u64 {
+                view_change_proof_chain.prune(&state_machine.latest_block_hash);
+                view_change_proof_chain.verify_with_state(
+                    &state_machine
+                        .current_topology
+                        .sorted_peers()
+                        .iter()
+                        .cloned()
+                        .collect(),
+                    state_machine.current_topology.max_faults(),
+                    &state_machine.latest_block_hash,
+                ) as u64
+            }
+            prune_view_change_proofs_and_calculate_current_index(
+                &state_machine_guard,
+                &mut view_change_proof_chain,
+            )
+        };
+
+        {
+            compare_view_change_index_and_block_height_to_old(
+                sumeragi,
+                current_view_change_index,
+                &mut old_view_change_index,
+                state_machine_guard.latest_block_height,
+                &mut old_latest_block_height,
+                
+                &mut state_machine_guard.current_topology,
+                &mut voting_block_option,
+                &mut block_signature_acc,
+                &mut has_sent_transactions,
+                &mut instant_when_we_should_create_a_block,
+            );
+            fn compare_view_change_index_and_block_height_to_old<F>(
+                sumeragi: &SumeragiWithFault<F>,
+                current_view_change_index: u64,
+                old_view_change_index: &mut u64,
+                current_latest_block_height: u64,
+                old_latest_block_height: &mut u64,
+                // below is the state that gets reset.
+                current_topology: &mut Topology,
+                voting_block_option: &mut Option<VotingBlock>,
+                block_signature_acc: &mut Vec<(HashOf<VersionedValidBlock>, SignatureOf<VersionedValidBlock>)>,
+                has_sent_transactions: &mut bool,
+                instant_when_we_should_create_a_block: &mut Instant,
+            ) where
+                F: FaultInjection,
+            {
+        
+        if current_latest_block_height != *old_latest_block_height {
+            *voting_block_option = None;
+            block_signature_acc.clear();
+            *has_sent_transactions = false;
+            *instant_when_we_should_create_a_block = Instant::now() + sumeragi.block_time;
+
+            *old_latest_block_height = current_latest_block_height;
+        }
+        if current_view_change_index != *old_view_change_index {
+            current_topology
                 .rebuild_with_new_view_change_count(current_view_change_index);
 
             // there has been a view change, we must reset state for the next round.
 
-            voting_block_option = None;
+            *voting_block_option = None;
             block_signature_acc.clear();
-            has_sent_transactions = false;
+            *has_sent_transactions = false;
 
-            old_view_change_index = current_view_change_index;
+            *old_view_change_index = current_view_change_index;
             trace!("View change to attempt #{}", current_view_change_index);
+        }
+            }
+        }
+
+        {
+            handle_role_agnostic_messages(
+                sumeragi,
+                &mut state_machine_guard,
+                &mut maybe_incoming_message,
+            );
+            fn handle_role_agnostic_messages<F>(
+                sumeragi: &SumeragiWithFault<F>,
+                state_machine: &mut SumeragiStateMachineData,
+                maybe_incoming_message: &mut Option<Message>,
+            ) where
+                F: FaultInjection,
+            {
+                if let Some(stolen_message) = maybe_incoming_message.take() {
+                    match stolen_message {
+                        Message::TransactionGossip(tx_gossip) => {
+                            for transaction in tx_gossip.txs {
+                                let tx_maybe = VersionedAcceptedTransaction::from_transaction(
+                                    transaction.into_v1(),
+                                    &sumeragi.transaction_limits,
+                                );
+                                if let Ok(tx) = tx_maybe {
+                                    match sumeragi.queue.push(tx, &state_machine.wsv) {
+                                        Err((_, crate::queue::Error::InBlockchain)) | Ok(()) => {}
+                                        Err((_, err)) => {
+                                            warn!(
+                                                ?err,
+                                                "Failed to push to queue gossiped transaction."
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Message::ViewChangeSuggested => {
+                            trace!("Received view change suggestion.");
+                        }
+                        other => *maybe_incoming_message = Some(other),
+                    }
+                }
+            }
         }
 
         if state_machine_guard.current_topology.role(&sumeragi.peer_id) != Role::Leader {
