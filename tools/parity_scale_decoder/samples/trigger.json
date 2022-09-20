@@ -20,10 +20,7 @@
                                             "name": "rose",
                                             "domain_id": "wonderland"
                                         },
-                                        "account_id": {
-                                            "name": "alice",
-                                            "domain_id": "wonderland"
-                                        }
+                                        "account_id": "alice@wonderland"
                                     }
                                 }
                             }
@@ -33,10 +30,7 @@
             ]
         },
         "repeats": "Indefinitely",
-        "technical_account": {
-            "name": "alice",
-            "domain_id": "wonderland"
-        },
+        "technical_account": "alice@wonderland",
         "filter": {
             "Data": {
                 "BySome": {
