@@ -19,6 +19,7 @@ use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumString;
 
 use crate::{
@@ -370,8 +371,8 @@ impl_try_as_for_asset_value! {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoFfi,
     TryFromReprC,
     IntoSchema,
@@ -382,6 +383,27 @@ pub struct DefinitionId {
     pub name: Name,
     /// Domain's id.
     pub domain_id: <Domain as Identifiable>::Id,
+}
+
+/// Asset Definition Identification is represented by `name#domain_name` string.
+impl FromStr for DefinitionId {
+    type Err = ParseError;
+
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        let mut split = string.split('#');
+        match (split.next(), split.next(), split.next()) {
+            (Some(""), _, _) => Err(ParseError {
+                reason: "Asset Definition ID cannot be empty",
+            }),
+            (Some(name), Some(domain_id), None) if !domain_id.is_empty() => Ok(Self {
+                name: name.parse()?,
+                domain_id: domain_id.parse()?,
+            }),
+            _ => Err(ParseError {
+                reason: "Asset Definition ID should have format `asset#domain`",
+            }),
+        }
+    }
 }
 
 /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
@@ -396,18 +418,45 @@ pub struct DefinitionId {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoFfi,
     TryFromReprC,
     IntoSchema,
 )]
-#[display(fmt = "{definition_id}@{account_id}")] // TODO: change this?
+#[display(fmt = "{}#{}", "self.definition_id.name", "self.account_id")]
 pub struct Id {
     /// Entity Identification.
     pub definition_id: <AssetDefinition as Identifiable>::Id,
     /// Account Identification.
     pub account_id: <Account as Identifiable>::Id,
+}
+
+/// Asset Identification is represented by `name#account@domain` string.
+impl FromStr for Id {
+    type Err = ParseError;
+
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        let mut split = string.split('#');
+        match (split.next(), split.next(), split.next()) {
+            (Some(""), _, _) => Err(ParseError {
+                reason: "Asset ID cannot be empty",
+            }),
+            (Some(name), Some(account_id), None) if !account_id.is_empty() => {
+                let name = name.parse()?;
+                let account_id = <Account as Identifiable>::Id::from_str(account_id)?;
+                let definition_id =
+                    <AssetDefinition as Identifiable>::Id::new(name, account_id.domain_id.clone());
+                Ok(Self {
+                    definition_id,
+                    account_id,
+                })
+            }
+            _ => Err(ParseError {
+                reason: "Asset ID should have format `asset#account@domain`",
+            }),
+        }
+    }
 }
 
 ffi_item! {
@@ -638,30 +687,6 @@ impl FromIterator<AssetDefinition> for Value {
             .map(Into::into)
             .collect::<Vec<Self>>()
             .into()
-    }
-}
-
-/// Asset Identification is represented by `name#domain_name` string.
-impl FromStr for DefinitionId {
-    type Err = ParseError;
-
-    fn from_str(string: &str) -> Result<Self, Self::Err> {
-        if string.is_empty() {
-            return Err(ParseError {
-                reason: "`DefinitionId` cannot be empty",
-            });
-        }
-
-        let vector: Vec<&str> = string.split('#').collect();
-        if vector.len() != 2 {
-            return Err(ParseError {
-                reason: "Asset definition ID should have format `name#domain_name`",
-            });
-        }
-        Ok(Self {
-            name: Name::from_str(vector[0])?,
-            domain_id: DomainId::from_str(vector[1])?,
-        })
     }
 }
 

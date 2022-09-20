@@ -40,10 +40,7 @@
               "Raw": {
                 "Identifiable": {
                   "NewAssetDefinition": {
-                    "id": {
-                      "name": "rose",
-                      "domain_id": "wonderland"
-                    },
+                    "id": "rose#wonderland",
                     "value_type": "Quantity",
                     "mintable": "Infinitely",
                     "metadata": {}
@@ -280,13 +277,7 @@
             "destination_id": {
               "Raw": {
                 "Id": {
-                  "AssetId": {
-                    "definition_id": {
-                      "name": "rose",
-                      "domain_id": "wonderland"
-                    },
-                    "account_id": "alice@wonderland"
-                  }
+                  "AssetId": "rose#alice@wonderland"
                 }
               }
             }
