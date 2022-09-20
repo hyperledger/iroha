@@ -8,6 +8,7 @@ use derive_more::Display;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{
     events::prelude::*, metadata::Metadata, prelude::Domain, transaction::Executable, Identifiable,
@@ -156,8 +157,8 @@ impl Identifiable for Trigger<FilterBox> {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoSchema,
 )]
 pub struct Id {
