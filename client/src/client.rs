@@ -72,7 +72,8 @@ where
                         try_decode_all_or_just_decode!(VersionedPaginatedQueryResult, resp.body());
                     res.wrap_err(
                         "Failed to decode response from Iroha. \
-                             Do you use compatible client version?",
+                         You are likely using a version of the client library \
+                         that is incompatible with the version of the peer software",
                     )
                     .map_err(Into::into)
                 }
@@ -87,7 +88,8 @@ where
                     }
                     let err = res.wrap_err(
                         "Failed to decode error-response from Iroha. \
-                         Do you use compatible client version?",
+                         You are likely using a version of the client library \
+                         that is incompatible with the version of the peer software",
                     )?;
                     Err(ClientQueryError::QueryError(err))
                 }
