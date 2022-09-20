@@ -71,7 +71,9 @@ where
                     let res =
                         try_decode_all_or_just_decode!(VersionedPaginatedQueryResult, resp.body());
                     res.wrap_err(
-                        "Failed to decode the whole response body as `VersionedPaginatedQueryResult`",
+                        "Failed to decode response from Iroha. \
+                         You are likely using a version of the client library \
+                         that is incompatible with the version of the peer software",
                     )
                     .map_err(Into::into)
                 }
@@ -84,8 +86,11 @@ where
                         warn!("Can't decode query error, not all bytes were consumed");
                         res = QueryError::decode(&mut resp.body().as_ref());
                     }
-                    let err =
-                        res.wrap_err("Failed to decode the whole response body as `QueryError`")?;
+                    let err = res.wrap_err(
+                        "Failed to decode error-response from Iroha. \
+                         You are likely using a version of the client library \
+                         that is incompatible with the version of the peer software",
+                    )?;
                     Err(ClientQueryError::QueryError(err))
                 }
                 _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
