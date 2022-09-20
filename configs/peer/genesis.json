@@ -56,9 +56,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_unregister_asset_with_definition"
-                    },
+                    "id": "can_unregister_asset_with_definition",
                     "params": {
                       "asset_definition_id": "Id"
                     }
@@ -74,9 +72,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_burn_asset_with_definition"
-                    },
+                    "id": "can_burn_asset_with_definition",
                     "params": {
                       "asset_definition_id": "Id"
                     }
@@ -92,9 +88,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_burn_user_assets"
-                    },
+                    "id": "can_burn_user_assets",
                     "params": {
                       "asset_id": "Id"
                     }
@@ -110,9 +104,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_set_key_value_in_user_assets"
-                    },
+                    "id": "can_set_key_value_in_user_assets",
                     "params": {
                       "asset_id": "Id"
                     }
@@ -128,9 +120,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_remove_key_value_in_user_assets"
-                    },
+                    "id": "can_remove_key_value_in_user_assets",
                     "params": {
                       "asset_id": "Id"
                     }
@@ -146,9 +136,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_set_key_value_in_user_metadata"
-                    },
+                    "id": "can_set_key_value_in_user_metadata",
                     "params": {
                       "account_id": "Id"
                     }
@@ -164,9 +152,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_remove_key_value_in_user_metadata"
-                    },
+                    "id": "can_remove_key_value_in_user_metadata",
                     "params": {
                       "account_id": "Id"
                     }
@@ -182,9 +168,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_set_key_value_in_asset_definition"
-                    },
+                    "id": "can_set_key_value_in_asset_definition",
                     "params": {
                       "asset_definition_id": "Id"
                     }
@@ -200,9 +184,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_remove_key_value_in_asset_definition"
-                    },
+                    "id": "can_remove_key_value_in_asset_definition",
                     "params": {
                       "asset_definition_id": "Id"
                     }
@@ -218,9 +200,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_mint_user_asset_definitions"
-                    },
+                    "id": "can_mint_user_asset_definitions",
                     "params": {
                       "asset_definition_id": "Id"
                     }
@@ -236,9 +216,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_transfer_user_assets"
-                    },
+                    "id": "can_transfer_user_assets",
                     "params": {
                       "asset_id": "Id"
                     }
@@ -254,9 +232,7 @@
               "Raw": {
                 "Identifiable": {
                   "PermissionTokenDefinition": {
-                    "id": {
-                      "name": "can_transfer_only_fixed_number_of_times_per_period"
-                    },
+                    "id": "can_transfer_only_fixed_number_of_times_per_period",
                     "params": {
                       "count": "U32",
                       "period": "U128"
