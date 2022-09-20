@@ -115,6 +115,7 @@ pub struct RemoveKeyValueBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "REGISTER `{object}`")]
+#[serde(transparent)]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<RegistrableBox>,
@@ -261,6 +262,7 @@ pub struct RevokeBox {
 
 /// Generic instruction to set value to the object.
 #[derive(Debug, Display, Clone, Decode, Encode, Deserialize, Serialize)]
+#[serde(transparent)]
 pub struct Set<O>
 where
     O: Into<Value>,
@@ -300,6 +302,7 @@ where
 
 /// Generic instruction for a registration of an object to the identifiable destination.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+#[serde(transparent)]
 pub struct Register<O>
 where
     O: Registered,
