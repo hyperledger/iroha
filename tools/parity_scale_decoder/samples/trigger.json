@@ -15,13 +15,7 @@
                         "destination_id": {
                             "Raw": {
                                 "Id": {
-                                    "AssetId": {
-                                        "definition_id": {
-                                            "name": "rose",
-                                            "domain_id": "wonderland"
-                                        },
-                                        "account_id": "alice@wonderland"
-                                    }
+                                    "AssetId": "rose#alice@wonderland"
                                 }
                             }
                         }
