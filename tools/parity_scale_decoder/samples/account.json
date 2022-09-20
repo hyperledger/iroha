@@ -1,9 +1,7 @@
 {
     "id": {
         "name": "alice",
-        "domain_id": {
-            "name": "wonderland"
-        }
+        "domain_id": "wonderland"
     },
     "assets": {},
     "signatories": [],

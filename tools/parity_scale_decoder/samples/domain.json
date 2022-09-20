@@ -1,7 +1,5 @@
 {
-    "id": {
-        "name": "wonderland"
-    },
+    "id": "wonderland",
     "accounts": {},
     "asset_definitions": {},
     "logo": "/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu",
