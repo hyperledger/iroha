@@ -1,7 +1,5 @@
 {
-    "id": {
-        "name": "mint_rose"
-    },
+    "id": "mint_rose",
     "action": {
         "executable": {
             "Instructions": [
