@@ -22,6 +22,7 @@ use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{ffi::ffi_item, IdBox, Identifiable, Name, Registered, Value, ValueKind};
 
