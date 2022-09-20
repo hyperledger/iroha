@@ -67,11 +67,26 @@ fn main() {
     clippy::expect_fun_call
 )]
 fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64) {
-    let block_store = StdFileBlockStore::new(block_store_path);
+    let mut block_store_path: std::borrow::Cow<'_, Path> = block_store_path.into();
+
+    if let Some(os_str_file_name) = block_store_path.file_name() {
+        let file_name_str = os_str_file_name.to_str().unwrap_or("");
+        if file_name_str == "blocks.data" || file_name_str == "blocks.index" {
+            block_store_path.to_mut().pop();
+        }
+    }
+
+    let block_store = StdFileBlockStore::new(&block_store_path);
 
     let index_count = block_store
         .read_index_count()
         .expect("Failed to read index count from block store {block_store_path:?}.");
+
+    if index_count == 0 {
+        println!("The block store is empty.");
+        return;
+    }
+
     assert!(
         index_count != 0,
         "Index count is zero. This could be because there are no blocks in the store: {:?}",
