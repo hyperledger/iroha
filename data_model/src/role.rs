@@ -42,6 +42,7 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     TryFromReprC,
     IntoSchema,
 )]
+#[serde(transparent)]
 pub struct Id {
     /// Role name, should be unique .
     pub name: Name,
