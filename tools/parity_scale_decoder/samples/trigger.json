@@ -18,15 +18,11 @@
                                     "AssetId": {
                                         "definition_id": {
                                             "name": "rose",
-                                            "domain_id": {
-                                                "name": "wonderland"
-                                            }
+                                            "domain_id": "wonderland"
                                         },
                                         "account_id": {
                                             "name": "alice",
-                                            "domain_id": {
-                                                "name": "wonderland"
-                                            }
+                                            "domain_id": "wonderland"
                                         }
                                     }
                                 }
@@ -39,9 +35,7 @@
         "repeats": "Indefinitely",
         "technical_account": {
             "name": "alice",
-            "domain_id": {
-                "name": "wonderland"
-            }
+            "domain_id": "wonderland"
         },
         "filter": {
             "Data": {
