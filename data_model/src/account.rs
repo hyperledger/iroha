@@ -24,6 +24,7 @@ use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 #[cfg(feature = "mutable_api")]
 use crate::Registrable;
@@ -397,8 +398,8 @@ impl FromIterator<Account> for crate::Value {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoFfi,
     TryFromReprC,
     IntoSchema,

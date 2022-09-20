@@ -1,8 +1,5 @@
 {
-    "id": {
-        "name": "alice",
-        "domain_id": "wonderland"
-    },
+    "id": "alice@wonderland",
     "assets": {},
     "signatories": [],
     "permission_tokens": [],
