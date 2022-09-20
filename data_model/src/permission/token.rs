@@ -1,4 +1,6 @@
 //! Permission Token and related impls
+use serde_with::{DeserializeFromStr, SerializeDisplay};
+
 use super::*;
 use crate::utils::format_comma_separated;
 
@@ -118,8 +120,8 @@ impl<I: Into<IdBox> + Into<Value>> ValueTrait for I {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoSchema,
     TryFromReprC,
     IntoFfi,
