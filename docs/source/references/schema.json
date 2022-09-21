@@ -75,6 +75,13 @@
       "sorted_by_key": true
     }
   },
+  "Map<iroha_data_model::name::Name, iroha_data_model::ValueKind>": {
+    "Map": {
+      "key": "iroha_data_model::name::Name",
+      "value": "iroha_data_model::ValueKind",
+      "sorted_by_key": true
+    }
+  },
   "Option<Duration>": {
     "Option": "Duration"
   },
@@ -172,9 +179,9 @@
       "sorted": false
     }
   },
-  "Vec<iroha_data_model::permissions::PermissionToken>": {
+  "Vec<iroha_data_model::permission::token::Token>": {
     "Vec": {
-      "ty": "iroha_data_model::permissions::PermissionToken",
+      "ty": "iroha_data_model::permission::token::Token",
       "sorted": true
     }
   },
@@ -268,11 +275,11 @@
         },
         {
           "name": "transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "rejected_transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "view_change_proofs",
@@ -473,7 +480,7 @@
         {
           "name": "Transaction",
           "discriminant": 6,
-          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedTransaction>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>"
         },
         {
           "name": "Context",
@@ -498,7 +505,12 @@
         {
           "name": "PermissionTokenDefinition",
           "discriminant": 11,
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 12,
+          "ty": "iroha_data_model::permission::validator::Id"
         }
       ]
     }
@@ -687,23 +699,23 @@
       ]
     }
   },
-  "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>": {
+  "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
       ]
     }
   },
-  "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedTransaction>": {
+  "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
       ]
     }
   },
-  "iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>": {
+  "iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>": {
     "Vec": {
-      "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedTransaction>",
+      "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>",
       "sorted": false
     }
   },
@@ -827,7 +839,12 @@
         {
           "name": "PermissionTokenDefinitionId",
           "discriminant": 7,
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "ValidatorId",
+          "discriminant": 8,
+          "ty": "iroha_data_model::permission::validator::Id"
         }
       ]
     }
@@ -893,7 +910,12 @@
         {
           "name": "PermissionTokenDefinition",
           "discriminant": 11,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 12,
+          "ty": "iroha_data_model::permission::validator::Validator"
         }
       ]
     }
@@ -965,7 +987,12 @@
         {
           "name": "PermissionTokenDefinition",
           "discriminant": 7,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 8,
+          "ty": "iroha_data_model::permission::validator::Validator"
         }
       ]
     }
@@ -1051,7 +1078,7 @@
         {
           "name": "PermissionToken",
           "discriminant": 15,
-          "ty": "iroha_data_model::permissions::PermissionToken"
+          "ty": "iroha_data_model::permission::token::Token"
         },
         {
           "name": "Hash",
@@ -1077,6 +1104,117 @@
           "name": "Ipv6Addr",
           "discriminant": 20,
           "ty": "iroha_primitives::addr::Ipv6Addr"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::ValueKind": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "U32",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "U128",
+          "discriminant": 1,
+          "ty": null
+        },
+        {
+          "name": "Bool",
+          "discriminant": 2,
+          "ty": null
+        },
+        {
+          "name": "String",
+          "discriminant": 3,
+          "ty": null
+        },
+        {
+          "name": "Name",
+          "discriminant": 4,
+          "ty": null
+        },
+        {
+          "name": "Fixed",
+          "discriminant": 5,
+          "ty": null
+        },
+        {
+          "name": "Vec",
+          "discriminant": 6,
+          "ty": null
+        },
+        {
+          "name": "LimitedMetadata",
+          "discriminant": 7,
+          "ty": null
+        },
+        {
+          "name": "Id",
+          "discriminant": 8,
+          "ty": null
+        },
+        {
+          "name": "Identifiable",
+          "discriminant": 9,
+          "ty": null
+        },
+        {
+          "name": "PublicKey",
+          "discriminant": 10,
+          "ty": null
+        },
+        {
+          "name": "Parameter",
+          "discriminant": 11,
+          "ty": null
+        },
+        {
+          "name": "SignatureCheckCondition",
+          "discriminant": 12,
+          "ty": null
+        },
+        {
+          "name": "TransactionValue",
+          "discriminant": 13,
+          "ty": null
+        },
+        {
+          "name": "TransactionQueryResult",
+          "discriminant": 14,
+          "ty": null
+        },
+        {
+          "name": "PermissionToken",
+          "discriminant": 15,
+          "ty": null
+        },
+        {
+          "name": "Hash",
+          "discriminant": 16,
+          "ty": null
+        },
+        {
+          "name": "Block",
+          "discriminant": 17,
+          "ty": null
+        },
+        {
+          "name": "BlockHeader",
+          "discriminant": 18,
+          "ty": null
+        },
+        {
+          "name": "Ipv4Addr",
+          "discriminant": 19,
+          "ty": null
+        },
+        {
+          "name": "Ipv6Addr",
+          "discriminant": 20,
+          "ty": null
         }
       ]
     }
@@ -1340,11 +1478,11 @@
         },
         {
           "name": "transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "rejected_transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>>"
+          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
         },
         {
           "name": "invalidated_blocks_hashes",
@@ -1587,7 +1725,12 @@
         {
           "name": "PermissionToken",
           "discriminant": 7,
-          "ty": "iroha_data_model::events::data::events::permission_token::PermissionTokenEvent"
+          "ty": "iroha_data_model::events::data::events::permission::PermissionTokenEvent"
+        },
+        {
+          "name": "PermissionValidator",
+          "discriminant": 8,
+          "ty": "iroha_data_model::events::data::events::permission::PermissionValidatorEvent"
         }
       ]
     }
@@ -2022,18 +2165,34 @@
       ]
     }
   },
-  "iroha_data_model::events::data::events::permission_token::PermissionTokenEvent": {
+  "iroha_data_model::events::data::events::permission::PermissionTokenEvent": {
     "Enum": {
       "variants": [
         {
           "name": "DefinitionCreated",
           "discriminant": 0,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
         },
         {
           "name": "DefinitionDeleted",
           "discriminant": 1,
-          "ty": "iroha_data_model::permissions::PermissionTokenDefinition"
+          "ty": "iroha_data_model::permission::token::Definition"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::permission::PermissionValidatorEvent": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Added",
+          "discriminant": 0,
+          "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "Removed",
+          "discriminant": 1,
+          "ty": "iroha_data_model::permission::validator::Id"
         }
       ]
     }
@@ -2047,7 +2206,7 @@
         },
         {
           "name": "permission_definition_id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
         }
       ]
     }
@@ -3616,7 +3775,21 @@
       ]
     }
   },
-  "iroha_data_model::permissions::Id": {
+  "iroha_data_model::permission::token::Definition": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "id",
+          "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "params",
+          "ty": "Map<iroha_data_model::name::Name, iroha_data_model::ValueKind>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::permission::token::Id": {
     "Struct": {
       "declarations": [
         {
@@ -3626,12 +3799,12 @@
       ]
     }
   },
-  "iroha_data_model::permissions::PermissionToken": {
+  "iroha_data_model::permission::token::Token": {
     "Struct": {
       "declarations": [
         {
           "name": "definition_id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::token::Id"
         },
         {
           "name": "params",
@@ -3640,12 +3813,60 @@
       ]
     }
   },
-  "iroha_data_model::permissions::PermissionTokenDefinition": {
+  "iroha_data_model::permission::validator::Id": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "name",
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "account_id",
+          "ty": "iroha_data_model::account::Id"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::permission::validator::Type": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Transaction",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "Instruction",
+          "discriminant": 1,
+          "ty": null
+        },
+        {
+          "name": "Query",
+          "discriminant": 2,
+          "ty": null
+        },
+        {
+          "name": "Expression",
+          "discriminant": 3,
+          "ty": null
+        }
+      ]
+    }
+  },
+  "iroha_data_model::permission::validator::Validator": {
     "Struct": {
       "declarations": [
         {
           "name": "id",
-          "ty": "iroha_data_model::permissions::Id"
+          "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "validator_type",
+          "ty": "iroha_data_model::permission::validator::Type"
+        },
+        {
+          "name": "wasm",
+          "ty": "iroha_data_model::transaction::WasmSmartContract"
         }
       ]
     }
@@ -4568,7 +4789,7 @@
         },
         {
           "name": "permissions",
-          "ty": "Vec<iroha_data_model::permissions::PermissionToken>"
+          "ty": "Vec<iroha_data_model::permission::token::Token>"
         }
       ]
     }
@@ -4688,7 +4909,7 @@
       ]
     }
   },
-  "iroha_data_model::transaction::Transaction": {
+  "iroha_data_model::transaction::SignedTransaction": {
     "Struct": {
       "declarations": [
         {
@@ -4765,7 +4986,7 @@
         {
           "name": "Transaction",
           "discriminant": 0,
-          "ty": "iroha_data_model::transaction::VersionedTransaction"
+          "ty": "iroha_data_model::transaction::VersionedSignedTransaction"
         },
         {
           "name": "RejectedTransaction",
@@ -4810,13 +5031,13 @@
       ]
     }
   },
-  "iroha_data_model::transaction::VersionedTransaction": {
+  "iroha_data_model::transaction::VersionedSignedTransaction": {
     "Enum": {
       "variants": [
         {
           "name": "V1",
           "discriminant": 1,
-          "ty": "iroha_data_model::transaction::Transaction"
+          "ty": "iroha_data_model::transaction::SignedTransaction"
         }
       ]
     }

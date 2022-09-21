@@ -7,6 +7,11 @@ use super::*;
 /// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
 
+/// Optional filter. May pass all items or may filter them by `F`
+///
+/// It's better than `Optional<F>` because `Optional` already has its own `filter` method and it
+/// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
+/// Also `FilterOpt` variant names look better for filter needs
 #[derive(
     Clone,
     PartialEq,
@@ -21,16 +26,48 @@ pub type EventFilter = FilterOpt<EntityFilter>;
     IntoSchema,
     Hash,
 )]
-/// Optional filter. May pass all items or may filter them by `F`
-///
-/// It's better than `Optional<F>` because `Optional` already has its own `filter` method and it
-/// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
-/// Also `FilterOpt` variant names look better for filter needs
+#[serde(untagged)]
 pub enum FilterOpt<F: Filter> {
     /// Accept all items that will be passed to `filter()` method
+    #[serde(with = "accept_all_as_string")]
     AcceptAll,
     /// Use filter `F` to choose acceptable items passed to `filter()` method
     BySome(F),
+}
+
+mod accept_all_as_string {
+    //! Module to (de-)serialize `FilterOpt::AcceptAll` variant as string
+
+    #[cfg(not(feature = "std"))]
+    use alloc::format;
+
+    use serde::{Deserializer, Serializer};
+
+    /// Serialize bytes using `base64`
+    pub fn serialize<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str("AcceptAll")
+    }
+
+    /// Deserialize bytes using `base64`
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
+        struct Vis;
+        impl serde::de::Visitor<'_> for Vis {
+            type Value = ();
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("an AcceptAll string")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
+                if s == "AcceptAll" {
+                    Ok(())
+                } else {
+                    Err(E::custom(format!("expected AcceptAll, got {}", s)))
+                }
+            }
+        }
+        deserializer.deserialize_str(Vis)
+    }
 }
 
 impl<F: Filter> Filter for FilterOpt<F> {

@@ -63,9 +63,9 @@ where
 
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
     /// And time at which this transaction was sent to the leader by this peer.
-    pub(crate) txs_awaiting_receipts: HashMap<HashOf<VersionedTransaction>, Instant>,
+    pub(crate) txs_awaiting_receipts: HashMap<HashOf<VersionedSignedTransaction>, Instant>,
     /// Hashes of the transactions that were accepted by the leader and are waiting to be stored in `CreatedBlock`.
-    pub(crate) txs_awaiting_created_block: HashSet<HashOf<VersionedTransaction>>,
+    pub(crate) txs_awaiting_created_block: HashSet<HashOf<VersionedSignedTransaction>>,
 
     pub(crate) commit_time: Duration,
     pub(crate) tx_receipt_time: Duration,

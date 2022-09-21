@@ -1,35 +1,16 @@
 {
-    "id": {
-        "name": "mint_rose"
-    },
+    "id": "mint_rose",
     "action": {
         "executable": {
             "Instructions": [
                 {
                     "Mint": {
                         "object": {
-                            "Raw": {
-                                "U32": 1
-                            }
+                            "U32": 1
                         },
                         "destination_id": {
-                            "Raw": {
-                                "Id": {
-                                    "AssetId": {
-                                        "definition_id": {
-                                            "name": "rose",
-                                            "domain_id": {
-                                                "name": "wonderland"
-                                            }
-                                        },
-                                        "account_id": {
-                                            "name": "alice",
-                                            "domain_id": {
-                                                "name": "wonderland"
-                                            }
-                                        }
-                                    }
-                                }
+                            "Id": {
+                                "AssetId": "rose#alice@wonderland"
                             }
                         }
                     }
@@ -37,17 +18,10 @@
             ]
         },
         "repeats": "Indefinitely",
-        "technical_account": {
-            "name": "alice",
-            "domain_id": {
-                "name": "wonderland"
-            }
-        },
+        "technical_account": "alice@wonderland",
         "filter": {
             "Data": {
-                "BySome": {
-                    "ByAccount": "AcceptAll"
-                }
+                "ByAccount": "AcceptAll"
             }
         },
         "metadata": {}

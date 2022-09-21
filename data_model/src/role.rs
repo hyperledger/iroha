@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ffi::ffi_item,
-    permissions::{PermissionToken, Permissions},
+    permission::{Permissions, Token as PermissionToken},
     Identifiable, Name, Registered,
 };
 
@@ -42,6 +42,7 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     TryFromReprC,
     IntoSchema,
 )]
+#[serde(transparent)]
 pub struct Id {
     /// Role name, should be unique .
     pub name: Name,
@@ -97,7 +98,7 @@ impl Role {
     }
 
     /// Remove permission tokens with specified id from `Role`
-    pub fn remove_permissions(&mut self, definition_id: &crate::permissions::Id) {
+    pub fn remove_permissions(&mut self, definition_id: &crate::permission::token::Id) {
         self.permissions
             .retain(|token| token.definition_id() != definition_id);
     }

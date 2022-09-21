@@ -8,15 +8,16 @@
     clippy::std_instead_of_alloc
 )]
 
+use anyhow::anyhow;
 use eyre::Context;
 use iroha_config::wasm::Configuration;
-use iroha_data_model::{prelude::*, ParseError};
+use iroha_data_model::{permission, prelude::*, ParseError};
 use parity_scale_codec::{Decode, Encode};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::judge::InstructionJudgeArc;
+use super::{permissions::judge::InstructionJudgeArc, Evaluate};
 use crate::{
     smartcontracts::{
         permissions::{check_instruction_permissions, prelude::*},
@@ -32,10 +33,14 @@ pub mod export {
 
     /// Exported function to allocate memory
     pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
+    /// Exported function to deallocate memory
+    pub const WASM_DEALLOC_FN: &str = "_iroha_wasm_dealloc";
     /// Name of the exported memory
     pub const WASM_MEMORY_NAME: &str = "memory";
-    /// Name of the exported entry for smart contract (not trigger) execution
+    /// Name of the exported entry for smart contract (or trigger) execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
+    /// Name of the exported entry for runtime validator execution
+    pub const WASM_VALIDATOR_MAIN_FN_NAME: &str = "_iroha_validator_main";
 }
 
 pub mod import {
@@ -49,6 +54,11 @@ pub mod import {
     pub const QUERY_AUTHORITY_FN_NAME: &str = "query_authority";
     /// Name of the imported function to query event that triggered the smart contract execution
     pub const QUERY_TRIGGERING_EVENT_FN_NAME: &str = "query_triggering_event";
+    /// Name of the imported function to query operation
+    /// that needs to be validated with permission validator
+    pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
+    /// Name of the imported function to evaluate the expression on the host side
+    pub const EVALUATE_ON_HOST_FN_NAME: &str = "evaluate_on_host";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
 }
@@ -57,23 +67,26 @@ pub mod import {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Engine or linker could not be created
-    #[error("Runtime initialization failure")]
+    #[error("Runtime initialization failure: {0}")]
     Initialization(#[source] anyhow::Error),
     /// Module could not be compiled or instantiated
-    #[error("Module instantiation failure")]
+    #[error("Module instantiation failure: {0}")]
     Instantiation(#[source] anyhow::Error),
     /// Expected named export not found in module
-    #[error("Named export not found")]
+    #[error("Named export not found: {0}")]
     ExportNotFound(#[source] anyhow::Error),
     /// Call to the function exported from module failed
     ///
     /// In Wasmtime v0.33, can also mean that max linear memory was
     /// consumed
-    #[error("Exported function call failed")]
+    #[error("Exported function call failed: {0}")]
     ExportFnCall(#[from] Trap),
     /// Parse Error
-    #[error("Failed to Parse valid name")]
+    #[error("Failed to Parse valid name: {0}")]
     Parse(#[source] ParseError),
+    /// Error during decoding object with length prefix
+    #[error("Failed to decode object from bytes with length prefix: {0}")]
+    DecodeWithPrefix(#[source] anyhow::Error),
     /// Some other error happened
     #[error(transparent)]
     Other(eyre::Error),
@@ -148,7 +161,10 @@ struct State<'wrld> {
     validator: Option<Validator<'wrld>>,
     store_limits: StoreLimits,
     wsv: &'wrld WorldStateView,
+    /// Event for triggers
     triggering_event: Option<Event>,
+    /// Operation to pass to a runtime permission validator
+    operation_to_validate: Option<permission::validator::NeedsPermissionBox>,
 }
 
 impl<'wrld> State<'wrld> {
@@ -158,6 +174,7 @@ impl<'wrld> State<'wrld> {
             account_id,
             validator: None,
             triggering_event: None,
+            operation_to_validate: None,
 
             store_limits: StoreLimitsBuilder::new()
                 .memory_size(config.max_memory.try_into().expect(
@@ -190,6 +207,14 @@ impl<'wrld> State<'wrld> {
 
     fn with_triggering_event(mut self, event: Event) -> Self {
         self.triggering_event = Some(event);
+        self
+    }
+
+    fn with_operation_to_validate(
+        mut self,
+        operation: permission::validator::NeedsPermissionBox,
+    ) -> Self {
+        self.operation_to_validate = Some(operation);
         self
     }
 }
@@ -283,7 +308,7 @@ impl<'wrld> Runtime<'wrld> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
-        let query = Self::decode_from_memory(&memory, &mut caller, offset, len)?;
+        let query = Self::decode_from_memory(&memory, &caller, offset, len)?;
 
         if let Some(validator) = &caller.data().validator {
             validator
@@ -297,22 +322,8 @@ impl<'wrld> Runtime<'wrld> {
                 .map_err(|e| Trap::new(e.to_string()))?,
         )?;
 
-        let res_bytes_len: WasmUsize = {
-            let res_bytes_len: Result<WasmUsize, _> = res_bytes.len().try_into();
-            res_bytes_len.map_err(|error| Trap::new(error.to_string()))?
-        };
-
-        let res_offset = {
-            let res_offset = alloc_fn
-                .call(&mut caller, res_bytes_len)
-                .map_err(|e| Trap::new(e.to_string()))?;
-
-            memory
-                .write(&mut caller, res_offset as usize, &res_bytes)
-                .map_err(|error| Trap::new(error.to_string()))?;
-
-            res_offset
-        };
+        let res_offset =
+            Self::encode_bytes_into_memory(&res_bytes, &memory, &alloc_fn, &mut caller)?;
 
         Ok(res_offset)
     }
@@ -335,7 +346,7 @@ impl<'wrld> Runtime<'wrld> {
     ) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
 
-        let instruction = Self::decode_from_memory(&memory, &mut caller, offset, len)?;
+        let instruction = Self::decode_from_memory(&memory, &caller, offset, len)?;
 
         let account_id = caller.data().account_id.clone();
         if let Some(validator) = &mut caller.data_mut().validator {
@@ -377,6 +388,41 @@ impl<'wrld> Runtime<'wrld> {
         Ok(event_offset)
     }
 
+    fn query_operation_to_validate(mut caller: Caller<State>) -> Result<WasmUsize, Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
+        let state = caller.data();
+        let operation = state
+            .operation_to_validate
+            .as_ref()
+            .ok_or_else(|| Trap::new("There is no operation to validate".to_owned()))?;
+
+        let bytes = Self::encode_with_length_prefix(operation)?;
+        let operation_offset =
+            Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
+        Ok(operation_offset)
+    }
+
+    fn evaluate_on_host(
+        mut caller: Caller<State>,
+        offset: WasmUsize,
+        len: WasmUsize,
+    ) -> Result<WasmUsize, Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+        let expression: ExpressionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        let value = expression
+            .evaluate(
+                caller.data().wsv,
+                &iroha_data_model::expression::Context::new(),
+            )
+            .map_err(|err| Trap::new(format!("Failure during expression evaluation: {err}")))?;
+
+        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
+        let bytes = Self::encode_with_length_prefix(&value)?;
+        let value_offset = Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
+        Ok(value_offset)
+    }
+
     /// Host defined function which prints given string. When calling
     /// this function, module serializes ISI to linear memory and
     /// provides offset and length as parameters
@@ -392,7 +438,7 @@ impl<'wrld> Runtime<'wrld> {
     #[allow(clippy::print_stdout)]
     fn dbg(mut caller: Caller<State>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
-        let s: String = Self::decode_from_memory(&memory, &mut caller, offset, len)?;
+        let s: String = Self::decode_from_memory(&memory, &caller, offset, len)?;
         println!("{s}");
         Ok(())
     }
@@ -421,6 +467,20 @@ impl<'wrld> Runtime<'wrld> {
                     Self::query_triggering_event,
                 )
             })
+            .and_then(|l| {
+                l.func_wrap(
+                    "iroha",
+                    import::QUERY_OPERATION_TO_VALIDATE_FN_NAME,
+                    Self::query_operation_to_validate,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    "iroha",
+                    import::EVALUATE_ON_HOST_FN_NAME,
+                    Self::evaluate_on_host,
+                )
+            })
             .and_then(|l| l.func_wrap("iroha", import::DBG_FN_NAME, Self::dbg))
             .map_err(Error::Initialization)?;
 
@@ -439,7 +499,7 @@ impl<'wrld> Runtime<'wrld> {
             })
     }
 
-    fn get_memory(caller: &mut Caller<State>) -> Result<wasmtime::Memory, Trap> {
+    fn get_memory(caller: &mut impl GetExport) -> Result<wasmtime::Memory, Trap> {
         caller
             .get_export(export::WASM_MEMORY_NAME)
             .ok_or_else(|| Trap::new(format!("{}: export not found", export::WASM_MEMORY_NAME)))?
@@ -469,7 +529,7 @@ impl<'wrld> Runtime<'wrld> {
             query_judge,
         );
 
-        self.execute_with_state(bytes, state)
+        self.execute_main_with_state(bytes, state)
     }
 
     /// Executes the given wasm trigger
@@ -477,19 +537,52 @@ impl<'wrld> Runtime<'wrld> {
     /// # Errors
     ///
     /// - if unable to construct wasm module or instance of wasm module
-    /// - if unable to add fuel limit
-    /// - if unable to find expected exports(main, memory, allocator)
-    /// - if unable to write data to the smart contract memory
+    /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
     pub fn execute_trigger(
         &mut self,
         wsv: &WorldStateView,
-        account_id: &AccountId,
+        account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         event: Event,
     ) -> Result<(), Error> {
-        let state = State::new(wsv, account_id.clone(), self.config).with_triggering_event(event);
-        self.execute_with_state(bytes, state)
+        let state = State::new(wsv, account_id, self.config).with_triggering_event(event);
+        self.execute_main_with_state(bytes, state)
+    }
+
+    /// Execute the given wasm runtime permission validator
+    ///
+    /// # Errors
+    ///
+    /// - if unable to construct wasm module or instance of wasm module
+    /// - if unable to find expected main function export
+    /// - if the execution of the smartcontract fails
+    #[allow(unsafe_code)]
+    pub fn execute_permission_validator(
+        &mut self,
+        wsv: &WorldStateView,
+        account_id: AccountId,
+        bytes: impl AsRef<[u8]>,
+        operation: permission::validator::NeedsPermissionBox,
+    ) -> Result<permission::validator::Verdict, Error> {
+        let state = State::new(wsv, account_id, self.config).with_operation_to_validate(operation);
+        let mut store = self.create_store(state)?;
+        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+
+        let validate_fn = smart_contract
+            .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_VALIDATOR_MAIN_FN_NAME)
+            .map_err(Error::ExportNotFound)?;
+
+        // NOTE: This function takes ownership of the pointer
+        let offset = validate_fn
+            .call(&mut store, ())
+            .map_err(Error::ExportFnCall)?;
+
+        let memory = Self::get_memory(&mut (&smart_contract, &mut store))?;
+        let dealloc_fn = smart_contract
+            .get_typed_func(&mut store, export::WASM_DEALLOC_FN)
+            .map_err(Error::ExportNotFound)?;
+        Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
     }
 
     /// Executes the given wasm smartcontract
@@ -497,9 +590,7 @@ impl<'wrld> Runtime<'wrld> {
     /// # Errors
     ///
     /// - if unable to construct wasm module or instance of wasm module
-    /// - if unable to add fuel limit
-    /// - if unable to find expected exports(main, memory, allocator)
-    /// - if unable to write data to the smart contract memory
+    /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
@@ -508,10 +599,14 @@ impl<'wrld> Runtime<'wrld> {
         bytes: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id, self.config);
-        self.execute_with_state(bytes, state)
+        self.execute_main_with_state(bytes, state)
     }
 
-    fn execute_with_state(&mut self, bytes: impl AsRef<[u8]>, state: State) -> Result<(), Error> {
+    fn execute_main_with_state(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        state: State,
+    ) -> Result<(), Error> {
         let mut store = self.create_store(state)?;
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
@@ -524,16 +619,62 @@ impl<'wrld> Runtime<'wrld> {
     }
 
     /// Decode object from the given `memory` at the given `offset` with the given `len`
-    fn decode_from_memory<T: Decode>(
+    ///
+    /// # Warning
+    ///
+    /// This method does not take ownership of the pointer.
+    fn decode_from_memory<C: wasmtime::AsContext, T: Decode>(
         memory: &wasmtime::Memory,
-        caller: &mut Caller<State>,
+        context: &C,
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<T, Trap> {
         // Accessing memory as a byte slice to avoid the use of unsafe
         let mem_range = offset as usize..(offset + len) as usize;
-        let mut bytes = &memory.data(&caller)[mem_range];
+        let mut bytes = &memory.data(context)[mem_range];
         T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
+    }
+
+    /// Decode the object from a given pointer where first element is the size of the object
+    /// following it. This can be considered a custom encoding format.
+    ///
+    /// # Warning
+    ///
+    /// This method takes ownership of the given pointer.
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    fn decode_with_length_prefix_from_memory<
+        C: wasmtime::AsContextMut,
+        T: Decode + std::fmt::Debug,
+    >(
+        memory: &wasmtime::Memory,
+        dealloc_fn: &wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>,
+        mut context: &mut C,
+        offset: WasmUsize,
+    ) -> Result<T, Error> {
+        const U32_TO_USIZE_ERROR_MES: &str = "`u32` should always fit in `usize`";
+
+        let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
+            .try_into()
+            .map_err(|err| {
+                Error::DecodeWithPrefix(anyhow!("Can't convert `usize` to `u32`: {err}"))
+            })?;
+        let len = u32::from_le_bytes(
+            memory.data(&mut context)[offset as usize..(offset + len_size_bytes) as usize]
+                .try_into()
+                .expect("Prefix length size(bytes) incorrect"),
+        );
+
+        let bytes = &memory.data_mut(&mut context)[offset.try_into().expect(U32_TO_USIZE_ERROR_MES)
+            ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)];
+
+        let obj =
+            T::decode(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
+                .map_err(|err| Error::DecodeWithPrefix(err.into()))?;
+
+        dealloc_fn
+            .call(&mut context, (offset, len))
+            .map_err(Error::ExportFnCall)?;
+        Ok(obj)
     }
 
     /// Encode `bytes` to the given `memory` with the given `alloc_fn` and `context`
@@ -581,16 +722,28 @@ impl<'wrld> Runtime<'wrld> {
         obj.encode_to(&mut r);
 
         // Store length as byte array in front of encoding
-        for (i, byte) in WasmUsize::try_from(r.len())
-            .map_err(|e| Trap::new(e.to_string()))?
-            .to_le_bytes()
-            .into_iter()
-            .enumerate()
-        {
-            r[i] = byte;
-        }
+        let len = &WasmUsize::try_from(r.len()).map_err(|e| Trap::new(e.to_string()))?;
+        r[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
 
         Ok(r)
+    }
+}
+
+/// Helper trait to make a function generic over `get_export()` fn from `wasmtime` crate
+trait GetExport {
+    fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern>;
+}
+
+#[allow(clippy::single_char_lifetime_names)]
+impl<'a, T> GetExport for Caller<'a, T> {
+    fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern> {
+        Self::get_export(self, name)
+    }
+}
+
+impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
+    fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern> {
+        wasmtime::Instance::get_export(self.0, &mut self.1, name)
     }
 }
 

@@ -24,16 +24,19 @@ use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 #[cfg(feature = "mutable_api")]
 use crate::Registrable;
 use crate::{
-    asset::{prelude::AssetId, AssetsMap},
+    asset::{
+        prelude::{Asset, AssetId},
+        AssetsMap,
+    },
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     ffi::ffi_item,
     metadata::Metadata,
-    prelude::Asset,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
 };
@@ -375,7 +378,7 @@ impl FromIterator<Account> for crate::Value {
     }
 }
 
-/// Identification of an Account. Consists of Account's name and Domain's name.
+/// Identification of an [`Account`]. Consists of Account's name and Domain's name.
 ///
 /// # Examples
 ///
@@ -395,8 +398,8 @@ impl FromIterator<Account> for crate::Value {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoFfi,
     TryFromReprC,
     IntoSchema,

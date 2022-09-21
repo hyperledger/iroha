@@ -105,11 +105,13 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 if account.signatories().len() < 2 {
                     return Err(ValidationError::new(
-                        "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
-                    ).into());
+                        "Public keys cannot be burned to nothing. \
+                         If you want to delete the account, please use an unregister instruction.",
+                    )
+                    .into());
                 }
                 if !account.remove_signatory(&public_key) {
-                    return Err(ValidationError::new("Public key not found").into())
+                    return Err(ValidationError::new("Public key not found").into());
                 }
 
                 Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
@@ -195,11 +197,14 @@ pub mod isi {
             let account_id = self.destination_id;
             let permission = self.object;
 
-            wsv.permission_token_definitions()
+            let definition = wsv
+                .permission_token_definitions()
                 .get(permission.definition_id())
                 .ok_or_else(|| {
                     FindError::PermissionTokenDefinition(permission.definition_id().clone())
                 })?;
+
+            permissions::check_permission_token_parameters(&permission, definition.value())?;
 
             wsv.modify_account(&account_id, |account| {
                 let id = account.id();

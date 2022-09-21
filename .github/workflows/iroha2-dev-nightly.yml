@@ -20,3 +20,5 @@ jobs:
           tags: hyperledger/iroha2:dev-nightly-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
+          # This context specification is required
+          context: .

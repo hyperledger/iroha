@@ -361,63 +361,96 @@ mod operation {
     }
 }
 
-/// Represents all possible expressions.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-)]
-pub enum Expression {
-    /// Add expression.
-    Add(Add),
-    /// Subtract expression.
-    Subtract(Subtract),
-    /// Multiply expression.
-    Multiply(Multiply),
-    /// Divide expression.
-    Divide(Divide),
-    /// Module expression.
-    Mod(Mod),
-    /// Raise to power expression.
-    RaiseTo(RaiseTo),
-    /// Greater expression.
-    Greater(Greater),
-    /// Less expression.
-    Less(Less),
-    /// Equal expression.
-    Equal(Equal),
-    /// Not expression.
-    Not(Not),
-    /// And expression.
-    And(And),
-    /// Or expression.
-    Or(Or),
-    /// If expression.
-    If(If),
-    /// Raw value.
-    Raw(ValueBox),
-    /// Query to Iroha state.
-    Query(QueryBox),
-    /// Contains expression for vectors.
-    Contains(Contains),
-    /// Contains all expression for vectors.
-    ContainsAll(ContainsAll),
-    /// Contains any expression for vectors.
-    ContainsAny(ContainsAny),
-    /// Where expression to supply temporary values to local context.
-    Where(Where),
-    /// Get a temporary value by name
-    ContextValue(ContextValue),
+/// Macro which generates copy of the provided [`Expression`] in the separate module.
+///
+/// Used to write (de-)serialization for [`Expression`] with optional [`Raw`](Expression::Raw) tag.
+macro_rules! expression_serde_internal_repr {
+    ($(#[$me:meta])* $v:vis enum $i:ident {$(
+        $(#[$var_meta:meta])*
+        $var:ident($ty:ty),
+    )+}) => {
+        $(#[$me])*
+        $v enum $i {
+            $(
+                $(#[$var_meta])*
+                $var($ty),
+            )+
+        }
+
+        mod serde_internal_repr {
+            //! Module with internal representation of [`Expression`] for (de-)serialization.
+
+            use super::*;
+
+            $(#[$me])*
+            #[derive(::serde::Serialize, ::serde::Deserialize)]
+            $v enum $i {
+                $(
+                    $(#[$var_meta])*
+                    $var($ty),
+                )+
+            }
+
+            impl From<$i> for super::Expression {
+                fn from(internal: $i) -> Self {
+                    match internal {
+                        $(
+                            $i::$var(value) => Self::$var(value),
+                        )+
+                    }
+                }
+            }
+        }
+    };
+}
+
+expression_serde_internal_repr! {
+    /// Represents all possible expressions.
+    #[derive(
+        Debug, Display, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema, PartialOrd, Ord,
+    )]
+    pub enum Expression {
+        /// Add expression.
+        Add(Add),
+        /// Subtract expression.
+        Subtract(Subtract),
+        /// Multiply expression.
+        Multiply(Multiply),
+        /// Divide expression.
+        Divide(Divide),
+        /// Module expression.
+        Mod(Mod),
+        /// Raise to power expression.
+        RaiseTo(RaiseTo),
+        /// Greater expression.
+        Greater(Greater),
+        /// Less expression.
+        Less(Less),
+        /// Equal expression.
+        Equal(Equal),
+        /// Not expression.
+        Not(Not),
+        /// And expression.
+        And(And),
+        /// Or expression.
+        Or(Or),
+        /// If expression.
+        If(If),
+        /// Raw value.
+        Raw(ValueBox),
+        /// Query to Iroha state.
+        Query(QueryBox),
+        /// Contains expression for vectors.
+        Contains(Contains),
+        /// Contains all expression for vectors.
+        ContainsAll(ContainsAll),
+        /// Contains any expression for vectors.
+        ContainsAny(ContainsAny),
+        /// Where expression to supply temporary values to local context.
+        Where(Where),
+        /// Get a temporary value by name
+        ContextValue(ContextValue),
+    }
 }
 
 impl Expression {
@@ -457,6 +490,51 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
     }
 }
 
+/// Deserialize [`Expression`] with possibility to omit [`Raw`](Expression::Raw) tag
+/// as it is the most popular variant.
+///
+/// First will try to deserialize as `Raw` and if it fails will try to deserialize as `Expression`.
+impl<'de> Deserialize<'de> for Expression {
+    fn deserialize<D>(deserializer: D) -> Result<Expression, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        #[allow(variant_size_differences)]
+        enum ExpressionDeserializeWrapper {
+            Raw(ValueBox),
+            Expression(serde_internal_repr::Expression),
+        }
+
+        let wrapper = ExpressionDeserializeWrapper::deserialize(deserializer)?;
+        match wrapper {
+            ExpressionDeserializeWrapper::Expression(expression) => Ok(expression.into()),
+            ExpressionDeserializeWrapper::Raw(raw) => Ok(Expression::Raw(raw)),
+        }
+    }
+}
+
+/// Serialize [`Expression`] omitting tag if `self` is [`Raw`](Expression::Raw) variant
+impl Serialize for Expression {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum ExpressionSerializeWrapper<'expr> {
+            Raw(&'expr ValueBox),
+            Expression(&'expr Expression),
+        }
+
+        match self {
+            Expression::Raw(raw) => ExpressionSerializeWrapper::Raw(raw).serialize(serializer),
+            _ => ExpressionSerializeWrapper::Expression(self).serialize(serializer),
+        }
+    }
+}
+
 /// Get a temporary value by name.
 /// The values are brought into [`Context`] by [`Where`] expression.
 //
@@ -476,6 +554,7 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
     Ord,
 )]
 #[display(fmt = "CONTEXT `{}`", value_name)]
+#[serde(transparent)]
 pub struct ContextValue {
     /// Name bound to the value.
     pub value_name: String,
@@ -722,6 +801,7 @@ gen_expr_and_impls! {
         Ord,
     )]
     #[display(fmt = "!{}", "self.expression.parenthesise(Operation::Not)")]
+    #[serde(transparent)]
     pub Not(bool) -> bool
 }
 

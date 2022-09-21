@@ -1,24 +1,15 @@
 {
-    "id": {
-        "name": "alice",
-        "domain_id": {
-            "name": "wonderland"
-        }
-    },
+    "id": "alice@wonderland",
     "assets": {},
     "signatories": [],
     "permission_tokens": [],
     "signature_check_condition": {
         "ContainsAny": {
             "collection": {
-                "ContextValue": {
-                    "value_name": "transaction_signatories"
-                }
+                "ContextValue": "transaction_signatories"
             },
             "elements": {
-                "ContextValue": {
-                    "value_name": "account_signatories"
-                }
+                "ContextValue": "account_signatories"
             }
         }
     },

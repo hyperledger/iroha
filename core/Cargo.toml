@@ -67,6 +67,7 @@ wasmtime = "0.39.1"
 anyhow = "1.0.60"
 derive_more = "0.99.17"
 getset = "0.1.2"
+itertools = "0.10.3"
 
 [dev-dependencies]
 tempfile = "3.3.0"

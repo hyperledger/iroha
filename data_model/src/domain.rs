@@ -21,13 +21,13 @@ use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{
     account::{Account, AccountsMap},
-    asset::AssetDefinitionsMap,
+    asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap},
     ffi::ffi_item,
     metadata::Metadata,
-    prelude::{AssetDefinition, AssetDefinitionEntry},
     HasMetadata, Identifiable, Name, ParseError, Registered,
 };
 
@@ -340,6 +340,7 @@ impl FromIterator<Domain> for crate::Value {
 /// Construct using [`FromStr::from_str`] method.
 #[derive(
     Debug,
+    Display,
     Clone,
     PartialEq,
     Eq,
@@ -347,7 +348,8 @@ impl FromIterator<Domain> for crate::Value {
     Ord,
     Hash,
     Encode,
-    Serialize,
+    SerializeDisplay,
+    DeserializeFromStr,
     IntoFfi,
     TryFromReprC,
     IntoSchema,
@@ -414,23 +416,6 @@ impl IpfsPath {
     }
 }
 
-impl<'de> Deserialize<'de> for IpfsPath {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[cfg(not(feature = "std"))]
-        use alloc::borrow::Cow;
-        #[cfg(feature = "std")]
-        use std::borrow::Cow;
-
-        use serde::de::Error as _;
-
-        let name = <Cow<str>>::deserialize(deserializer)?;
-        Self::from_str(&name).map_err(D::Error::custom)
-    }
-}
-
 impl Decode for IpfsPath {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let name = ConstString::decode(input)?;
@@ -451,8 +436,8 @@ impl Decode for IpfsPath {
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     IntoFfi,
     TryFromReprC,
     IntoSchema,

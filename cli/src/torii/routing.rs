@@ -68,6 +68,10 @@ impl VerifiedQueryRequest {
         }
         query_judge
             .judge(&self.payload.account_id, &self.payload.query, wsv)
+            .and_then(|_| {
+                wsv.validators_view()
+                    .validate(wsv, self.payload.query.clone())
+            })
             .map_err(QueryError::Permission)?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
@@ -95,9 +99,9 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 pub(crate) async fn handle_instructions(
     iroha_cfg: Configuration,
     queue: Arc<Queue>,
-    transaction: VersionedTransaction,
+    transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
-    let transaction: Transaction = transaction.into_v1();
+    let transaction: SignedTransaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
         &iroha_cfg.sumeragi.transaction_limits,
@@ -204,7 +208,7 @@ async fn handle_pending_transactions(
             .all_transactions()
             .into_iter()
             .map(VersionedAcceptedTransaction::into_v1)
-            .map(Transaction::from)
+            .map(SignedTransaction::from)
             .paginate(pagination)
             .collect(),
     ))

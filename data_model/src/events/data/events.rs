@@ -157,7 +157,7 @@ mod role {
     pub enum RoleEvent {
         Created(RoleId),
         Deleted(RoleId),
-        /// [`PermissionToken`]s with particular [`PermissionTokenDefinitionId`] were
+        /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::Id) were
         /// removed from the role.
         PermissionRemoved(PermissionRemoved),
     }
@@ -197,10 +197,11 @@ mod role {
     }
 }
 
-mod permission_token {
-    //! This module contains [`PermissionTokenEvent`] and its impls
+mod permission {
+    //! This module contains [`PermissionTokenEvent`], [`PermissionValidatorEvent`] and their impls
 
     use super::*;
+    use crate::permission::validator::{Id as ValidatorId, Validator};
 
     #[derive(
         Clone,
@@ -231,6 +232,38 @@ mod permission_token {
             match self {
                 PermissionTokenEvent::DefinitionCreated(definition)
                 | PermissionTokenEvent::DefinitionDeleted(definition) => definition.id(),
+            }
+        }
+    }
+
+    #[derive(
+        Clone,
+        Hash,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
+    )]
+    #[non_exhaustive]
+    #[allow(missing_docs)]
+    pub enum PermissionValidatorEvent {
+        Added(ValidatorId),
+        Removed(ValidatorId),
+    }
+
+    impl HasOrigin for PermissionValidatorEvent {
+        type Origin = Validator;
+
+        fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id {
+            match self {
+                PermissionValidatorEvent::Added(id) | PermissionValidatorEvent::Removed(id) => id,
             }
         }
     }
@@ -418,7 +451,8 @@ pub enum WorldEvent {
     Domain(domain::DomainEvent),
     Role(role::RoleEvent),
     Trigger(trigger::TriggerEvent),
-    PermissionToken(permission_token::PermissionTokenEvent),
+    PermissionToken(permission::PermissionTokenEvent),
+    PermissionValidator(permission::PermissionValidatorEvent),
 }
 
 /// Event
@@ -453,7 +487,9 @@ pub enum Event {
     /// Role event
     Role(role::RoleEvent),
     /// Permission token event
-    PermissionToken(permission_token::PermissionTokenEvent),
+    PermissionToken(permission::PermissionTokenEvent),
+    /// Permission validator event
+    PermissionValidator(permission::PermissionValidatorEvent),
 }
 
 impl Event {
@@ -465,7 +501,10 @@ impl Event {
             Self::AssetDefinition(event) => Some(&event.origin_id().domain_id),
             Self::Asset(event) => Some(&event.origin_id().definition_id.domain_id),
             Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
-            Self::Peer(_) | Self::Role(_) | Self::PermissionToken(_) => None,
+            Self::Peer(_)
+            | Self::Role(_)
+            | Self::PermissionToken(_)
+            | Self::PermissionValidator(_) => None,
         }
     }
 }
@@ -496,11 +535,14 @@ impl From<WorldEvent> for SmallVec<[Event; 3]> {
             WorldEvent::Role(role_event) => {
                 events.push(DataEvent::Role(role_event));
             }
+            WorldEvent::Trigger(trigger_event) => {
+                events.push(DataEvent::Trigger(trigger_event));
+            }
             WorldEvent::PermissionToken(token_event) => {
                 events.push(DataEvent::PermissionToken(token_event));
             }
-            WorldEvent::Trigger(trigger_event) => {
-                events.push(DataEvent::Trigger(trigger_event));
+            WorldEvent::PermissionValidator(validator_event) => {
+                events.push(DataEvent::PermissionValidator(validator_event));
             }
         }
 
@@ -517,7 +559,7 @@ pub mod prelude {
         },
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
-        permission_token::PermissionTokenEvent,
+        permission::{PermissionTokenEvent, PermissionValidatorEvent},
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{TriggerEvent, TriggerEventFilter, TriggerFilter},
         Event as DataEvent, HasOrigin, WorldEvent,

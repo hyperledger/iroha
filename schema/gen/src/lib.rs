@@ -39,14 +39,14 @@ pub fn build_schemas() -> MetaMap {
         VersionedEventSubscriberMessage,
         VersionedPaginatedQueryResult,
         VersionedSignedQueryRequest,
-        VersionedTransaction,
+        VersionedSignedTransaction,
         QueryError,
 
         RegistrableBox,
 
         // Even though these schemas are not exchanged between server and client,
         // they can be useful to the client to generate and validate their hashes
-        MerkleTree<VersionedTransaction>,
+        MerkleTree<VersionedSignedTransaction>,
         VersionedValidBlock,
     }
 }

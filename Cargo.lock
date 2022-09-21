@@ -929,6 +929,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4529658bdda7fd6769b8614be250cdcfc3aeb0ee72fe66f9e41e5e5eb73eac02"
+dependencies = [
+ "darling_core",
+ "darling_macro",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "649c91bc01e8b1eac09fb91e8dbc7d517684ca6be8ebc75bb9cafc894f9fdb6f"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "syn",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddfc69c5bfcbd2fc09a0f38451d2daf0e372e367986a83906d1b0dbc88134fb5"
+dependencies = [
+ "darling_core",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "dashmap"
 version = "5.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1097,6 +1132,17 @@ name = "enum-iterator-derive"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b13f1e69590421890f90448c3cd5f554746a31adc6dc0dac406ec6901db8dc25"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "enum-kinds"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e40a16955681d469ab3da85aaa6b42ff656b3c67b52e1d8d3dd36afe97fd462"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1678,6 +1724,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ident_case"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
 name = "idna"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1747,6 +1799,7 @@ checksum = "24c3f4eff5495aee4c0399d7b6a0dc2b6e81be84242ffbfcf253ebacccc1d0cb"
 name = "iroha"
 version = "2.0.0-pre-rc.8"
 dependencies = [
+ "anyhow",
  "async-trait",
  "color-eyre",
  "eyre",
@@ -1772,6 +1825,7 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
+ "vergen",
  "warp",
 ]
 
@@ -1837,6 +1891,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
+ "lazy_static",
  "parity-scale-codec",
  "rand 0.8.5",
  "serde",
@@ -1854,6 +1909,7 @@ dependencies = [
 name = "iroha_client_cli"
 version = "2.0.0-pre-rc.8"
 dependencies = [
+ "anyhow",
  "clap 3.2.16",
  "color-eyre",
  "dialoguer",
@@ -1862,6 +1918,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "serde_json",
+ "vergen",
 ]
 
 [[package]]
@@ -1933,6 +1990,7 @@ dependencies = [
  "iroha_schema",
  "iroha_telemetry",
  "iroha_version",
+ "itertools",
  "once_cell",
  "parity-scale-codec",
  "pin-project",
@@ -1972,6 +2030,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "derive_more",
+ "enum-kinds",
  "getset",
  "hex",
  "iroha",
@@ -1987,6 +2046,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "serde_with",
  "strum",
  "test_network",
  "thiserror",
@@ -3413,6 +3473,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_with"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368f2d60d049ea019a84dcd6687b0d1e0030fe663ae105039bdf967ed5e6a9a7"
+dependencies = [
+ "serde",
+ "serde_with_macros",
+]
+
+[[package]]
+name = "serde_with_macros"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ccadfacf6cf10faad22bbadf55986bdd0856edfb5d9210aa1dcf1f516e84e93"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serial_test"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4277,9 +4359,9 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vergen"
-version = "7.3.2"
+version = "7.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bbc4fafd30514504c7593cfa52eaf4d6c4ef660386e2ec54edc17f14aa08e8d"
+checksum = "73ba753d713ec3844652ad2cb7eb56bc71e34213a14faddac7852a10ba88f61e"
 dependencies = [
  "anyhow",
  "cfg-if",

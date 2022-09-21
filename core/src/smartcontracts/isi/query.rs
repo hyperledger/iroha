@@ -6,12 +6,12 @@
     clippy::std_instead_of_alloc
 )]
 use eyre::Result;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{permission::validator::DenialReason, prelude::*};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
-use super::{permissions::prelude::DenialReason, FindError};
+use super::FindError;
 use crate::{prelude::ValidQuery, WorldStateView};
 
 /// Query Request statefully validated on the Iroha node side.

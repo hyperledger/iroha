@@ -15,6 +15,11 @@ async fn main() -> Result<(), color_eyre::Report> {
         return Ok(());
     }
 
+    if std::env::args().any(|a| is_version(&a)) {
+        print_version();
+        return Ok(());
+    }
+
     if std::env::args().any(|a| is_submit(&a)) {
         args.submit_genesis = true;
         if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
@@ -68,11 +73,16 @@ fn is_submit(arg: &str) -> bool {
     ["--submit-genesis", "-s"].contains(&arg)
 }
 
+fn is_version(arg: &str) -> bool {
+    ["--version", "-V"].contains(&arg)
+}
+
 #[allow(clippy::print_stdout)]
 fn print_help() {
     println!("Iroha 2");
     println!("pass `--help` or `-h` for this message");
     println!("pass `--submit-genesis` or `-s` to submit genesis from this peer");
+    println!("pass `--version` or `-V` to print version information");
     println!();
     println!("Iroha 2 is configured via environment variables:");
     println!("    IROHA2_CONFIG_PATH is the location of your `config.json`");
@@ -91,4 +101,14 @@ as follows:"
     println!("    IROHA_PRIVATE_KEY is the peer's private key");
     println!("    IROHA_GENESIS is the genesis block config");
     println!("Examples of these variables can be found in the default `configs/peer/config.json`.")
+}
+
+#[allow(clippy::print_stdout)]
+fn print_version() {
+    println!(
+        "iroha {} ({})",
+        env!("CARGO_PKG_VERSION"),
+        env!("VERGEN_GIT_SHA")
+    );
+    println!("cargo features: {}", env!("VERGEN_CARGO_FEATURES"));
 }

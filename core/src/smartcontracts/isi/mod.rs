@@ -36,7 +36,7 @@ pub mod error {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
-    use iroha_data_model::{metadata, prelude::*, trigger};
+    use iroha_data_model::{metadata, permission, prelude::*, trigger};
     use iroha_primitives::fixed::FixedPointOperationError;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -145,7 +145,7 @@ pub mod error {
         Block(HashOf<VersionedCommittedBlock>),
         /// Transaction with given hash not found.
         #[error("Transaction not found")]
-        Transaction(HashOf<VersionedTransaction>),
+        Transaction(HashOf<VersionedSignedTransaction>),
         /// Value not found in context.
         #[error("Value named {0} not found in context. ")]
         Context(String),
@@ -158,9 +158,12 @@ pub mod error {
         /// Failed to find Role by id.
         #[error("Failed to find role by id: `{0}`")]
         Role(RoleId),
-        /// Failed to find PermissionToken by id.
+        /// Failed to find [`PermissionToken`] by id.
         #[error("Failed to find permission definition token by id: `{0}`")]
-        PermissionTokenDefinition(PermissionTokenDefinitionId),
+        PermissionTokenDefinition(PermissionTokenId),
+        /// Failed to find [`Validator`](permission::Validator) by id.
+        #[error("Failed to find permission validator by id: `{0}`")]
+        Validator(permission::validator::Id),
     }
 
     /// Generic structure used to represent a mismatch
@@ -279,6 +282,10 @@ impl Execute for RegisterBox {
                 Register::<PermissionTokenDefinition>::new(*token_definition)
                     .execute(authority, wsv)
             }
+            RegistrableBox::Validator(validator) => {
+                Register::<iroha_data_model::permission::Validator>::new(*validator)
+                    .execute(authority, wsv)
+            }
         }
     }
 }
@@ -308,6 +315,10 @@ impl Execute for UnregisterBox {
             IdBox::RoleId(role_id) => Unregister::<Role>::new(role_id).execute(authority, wsv),
             IdBox::TriggerId(trigger_id) => {
                 Unregister::<Trigger<FilterBox>>::new(trigger_id).execute(authority, wsv)
+            }
+            IdBox::ValidatorId(validator_id) => {
+                Unregister::<iroha_data_model::permission::Validator>::new(validator_id)
+                    .execute(authority, wsv)
             }
         }
     }

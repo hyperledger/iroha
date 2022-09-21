@@ -25,8 +25,8 @@ use crate::prelude::*;
 /// Multiple producers, single consumer
 #[derive(Debug)]
 pub struct Queue {
-    queue: ArrayQueue<HashOf<VersionedTransaction>>,
-    txs: DashMap<HashOf<VersionedTransaction>, VersionedAcceptedTransaction>,
+    queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
+    txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
     /// Length of dashmap.
     ///
     /// DashMap right now just iterates over itself and calculates its length like this:
@@ -58,7 +58,7 @@ pub enum Error {
     #[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
     SignatureCondition {
         /// Transaction hash
-        tx_hash: HashOf<VersionedTransaction>,
+        tx_hash: HashOf<VersionedSignedTransaction>,
         /// Failure reason
         reason: Report,
     },
@@ -182,7 +182,7 @@ impl Queue {
     )]
     fn pop(
         &self,
-        seen: &mut Vec<HashOf<VersionedTransaction>>,
+        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
             let hash = self.queue.pop()?;
