@@ -287,6 +287,7 @@ mod tests {
 
     use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
     use iroha_data_model::prelude::*;
+    use rand::Rng as _;
 
     use super::*;
     use crate::{wsv::World, PeersIds};
@@ -333,17 +334,14 @@ mod tests {
             .public_key()
             .clone()])));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
 
         queue
             .push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv)
@@ -359,17 +357,14 @@ mod tests {
             .public_key()
             .clone()])));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: max_txs_in_queue,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
 
         for _ in 0..max_txs_in_queue {
             queue
@@ -403,17 +398,14 @@ mod tests {
             Arc::new(WorldStateView::new(World::with([domain], PeersIds::new())))
         };
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: max_txs_in_queue,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
 
         assert!(matches!(
             queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
@@ -431,17 +423,14 @@ mod tests {
                 .cloned(),
         )));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
         let tx = Transaction::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
             Vec::<Instruction>::new().into(),
@@ -481,16 +470,14 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
         for _ in 0..5 {
             queue
                 .push(
@@ -514,18 +501,18 @@ mod tests {
             .clone()])));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         wsv.transactions.insert(tx.hash());
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        );
-        assert!(matches!(queue.push(tx), Err((_, Error::InBlockchain))));
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
+        assert!(matches!(
+            queue.push(tx, &wsv),
+            Err((_, Error::InBlockchain))
+        ));
         assert_eq!(queue.txs.len(), 0);
     }
 
@@ -537,17 +524,14 @@ mod tests {
             .public_key()
             .clone()])));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            Arc::clone(&wsv),
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
@@ -561,16 +545,14 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 200,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 200,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
         for _ in 0..(max_block_tx - 1) {
             queue
                 .push(
@@ -605,16 +587,14 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let queue = Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: 2,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-        );
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
         queue
             .push(accepted_tx("alice@wonderland", 100_000, alice_key), &wsv)
             .expect("Failed to push tx into queue");
@@ -640,56 +620,60 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
             .clone()])));
-        let wsv_clone = Arc::clone(&wsv);
-        let queue = Arc::new(Queue::from_configuration(
-            &Configuration {
-                maximum_transactions_in_block: max_block_tx,
-                transaction_time_to_live_ms: 100_000,
-                maximum_transactions_in_queue: 100_000_000,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        ));
 
-        let start_time = Instant::now();
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100_000_000,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        }));
+
+        let start_time = std::time::Instant::now();
         let run_for = Duration::from_secs(5);
 
-        let queue_arc_clone_1 = Arc::clone(&queue);
-        let queue_arc_clone_2 = Arc::clone(&queue);
+        let push_txs_handle = {
+            let queue_arc_clone = Arc::clone(&queue);
+            let wsv_clone = wsv.clone();
 
-        // Spawn a thread where we push transactions
-        let push_txs_handle = thread::spawn(move || {
-            while start_time.elapsed() < run_for {
-                let tx = accepted_tx("alice@wonderland", 100_000, alice_key.clone());
-                match queue_arc_clone_1.push(tx) {
-                    Ok(()) => (),
-                    Err((_, Error::Full)) => (),
-                    Err((_, err)) => panic!("{}", err),
+            // Spawn a thread where we push transactions
+            thread::spawn(move || {
+                while start_time.elapsed() < run_for {
+                    let tx = accepted_tx("alice@wonderland", 100_000, alice_key.clone());
+                    match queue_arc_clone.push(tx, &wsv_clone) {
+                        Ok(()) => (),
+                        Err((_, Error::Full)) => (),
+                        Err((_, err)) => panic!("{}", err),
+                    }
                 }
-            }
-        });
+            })
+        };
 
         // Spawn a thread where we get_transactions_for_block and add them to WSV
-        let get_txs_handle = thread::spawn(move || {
-            while start_time.elapsed() < run_for {
-                for tx in queue_arc_clone_2.get_transactions_for_block() {
-                    wsv_clone.transactions.insert(tx.hash());
+        let get_txs_handle = {
+            let queue_arc_clone = Arc::clone(&queue);
+            let wsv_clone = wsv.clone();
+
+            thread::spawn(move || {
+                while start_time.elapsed() < run_for {
+                    for tx in queue_arc_clone.get_transactions_for_block(&wsv_clone) {
+                        wsv_clone.transactions.insert(tx.hash());
+                    }
+                    // Simulate random small delays
+                    thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
                 }
-                // Simulate random small delays
-                thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
-            }
-        });
+            })
+        };
 
         push_txs_handle.join().unwrap();
         get_txs_handle.join().unwrap();
 
         // Last update for queue to drop invalid txs.
-        let _ = queue.get_transactions_for_block();
+        let _ = queue.get_transactions_for_block(&wsv);
 
         // Validate the queue state.
-        let array_queue: Vec<_> = iter::repeat_with(|| queue.queue.pop())
+        let array_queue: Vec<_> = core::iter::repeat_with(|| queue.queue.pop())
             .take_while(Option::is_some)
             .map(Option::unwrap)
             .collect();
@@ -709,15 +693,12 @@ mod tests {
             .public_key()
             .clone()])));
 
-        let queue = Queue::from_configuration(
-            &Configuration {
+        let queue = Queue::from_configuration(&Configuration {
             future_threshold_ms,
-                ..ConfigurationProxy::default()
-                    .build()
-                    .expect("Default queue config should always build")
-            },
-            wsv,
-        );
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
 
         let mut tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());

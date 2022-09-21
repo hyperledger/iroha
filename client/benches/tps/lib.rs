@@ -113,12 +113,6 @@ impl Config {
         #[allow(clippy::float_arithmetic, clippy::cast_precision_loss)]
         let tps = txs_accepted as f64 / elapsed_secs;
         iroha_logger::info!(%tps, %txs_accepted, %elapsed_secs, %txs_rejected);
-        if txs_rejected > 0 {
-            // There will be rejected transactions since we submit more than the
-            // network can process.
-            println!("txs_rejected: {}", txs_rejected);
-        }
-
         Ok(tps)
     }
 }

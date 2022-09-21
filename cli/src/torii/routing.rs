@@ -272,7 +272,7 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
         .await?;
 
     loop {
-        let blocks = sumeragi.blocks_from_height(from_height.try_into().unwrap());
+        let blocks = sumeragi.blocks_from_height(from_height.try_into().wrap_err("Failed to convert `from_height` into `usize`. You should consider upgrading to a 64-bit arch")?);
         if blocks.is_empty() {
             break;
         }
@@ -405,6 +405,7 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
+#[allow(clippy::unused_async)] // TODO: remove?
 async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<String> {
     // TODO: Remove network.
     if let Err(error) = sumeragi.update_metrics() {
@@ -418,10 +419,11 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -
 }
 
 #[cfg(feature = "telemetry")]
+#[allow(clippy::unused_async)] // TODO: remove?
 async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<Json> {
     // TODO: remove network
     if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
+        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
     let status = Status::from(&sumeragi.wsv_mutex_access().metrics);
     Ok(reply::json(&status))

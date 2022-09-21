@@ -33,13 +33,6 @@
       "sorted_by_key": true
     }
   },
-  "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::sumeragi::view_change::Proof>>": {
-    "Map": {
-      "key": "iroha_crypto::PublicKey",
-      "value": "iroha_crypto::signature::SignatureOf<iroha_core::sumeragi::view_change::Proof>",
-      "sorted_by_key": true
-    }
-  },
   "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_data_model::transaction::Payload>>": {
     "Map": {
       "key": "iroha_crypto::PublicKey",
@@ -119,12 +112,6 @@
       "sorted": false
     }
   },
-  "Vec<iroha_core::sumeragi::view_change::Proof>": {
-    "Vec": {
-      "ty": "iroha_core::sumeragi::view_change::Proof",
-      "sorted": false
-    }
-  },
   "Vec<iroha_crypto::PublicKey>": {
     "Vec": {
       "ty": "iroha_crypto::PublicKey",
@@ -134,12 +121,6 @@
   "Vec<iroha_crypto::hash::Hash>": {
     "Vec": {
       "ty": "iroha_crypto::hash::Hash",
-      "sorted": false
-    }
-  },
-  "Vec<iroha_crypto::hash::HashOf<iroha_core::block::VersionedValidBlock>>": {
-    "Vec": {
-      "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedValidBlock>",
       "sorted": false
     }
   },
@@ -280,14 +261,6 @@
         {
           "name": "rejected_transactions_hash",
           "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
-        },
-        {
-          "name": "view_change_proofs",
-          "ty": "iroha_core::sumeragi::view_change::ProofChain"
-        },
-        {
-          "name": "invalidated_blocks_hashes",
-          "ty": "Vec<iroha_crypto::hash::HashOf<iroha_core::block::VersionedValidBlock>>"
         },
         {
           "name": "genesis_topology",
@@ -566,93 +539,6 @@
         {
           "name": "at_block",
           "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
-        },
-        {
-          "name": "view_change_proofs",
-          "ty": "iroha_core::sumeragi::view_change::ProofChain"
-        }
-      ]
-    }
-  },
-  "iroha_core::sumeragi::view_change::BlockCreationTimeout": {
-    "Tuple": {
-      "types": []
-    }
-  },
-  "iroha_core::sumeragi::view_change::CommitTimeout": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedValidBlock>"
-        }
-      ]
-    }
-  },
-  "iroha_core::sumeragi::view_change::NoTransactionReceiptReceived": {
-    "Tuple": {
-      "types": []
-    }
-  },
-  "iroha_core::sumeragi::view_change::Proof": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "payload",
-          "ty": "iroha_core::sumeragi::view_change::ProofPayload"
-        },
-        {
-          "name": "signatures",
-          "ty": "iroha_crypto::signature::SignaturesOf<iroha_core::sumeragi::view_change::Proof>"
-        }
-      ]
-    }
-  },
-  "iroha_core::sumeragi::view_change::ProofChain": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "proofs",
-          "ty": "Vec<iroha_core::sumeragi::view_change::Proof>"
-        }
-      ]
-    }
-  },
-  "iroha_core::sumeragi::view_change::ProofPayload": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "previous_proof",
-          "ty": "iroha_crypto::hash::HashOf<iroha_core::sumeragi::view_change::Proof>"
-        },
-        {
-          "name": "latest_block",
-          "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
-        },
-        {
-          "name": "reason",
-          "ty": "iroha_core::sumeragi::view_change::Reason"
-        }
-      ]
-    }
-  },
-  "iroha_core::sumeragi::view_change::Reason": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "CommitTimeout",
-          "discriminant": 0,
-          "ty": "iroha_core::sumeragi::view_change::CommitTimeout"
-        },
-        {
-          "name": "NoTransactionReceiptReceived",
-          "discriminant": 1,
-          "ty": "iroha_core::sumeragi::view_change::NoTransactionReceiptReceived"
-        },
-        {
-          "name": "BlockCreationTimeout",
-          "discriminant": 2,
-          "ty": "iroha_core::sumeragi::view_change::BlockCreationTimeout"
         }
       ]
     }
@@ -679,20 +565,6 @@
     }
   },
   "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>": {
-    "Tuple": {
-      "types": [
-        "iroha_crypto::hash::Hash"
-      ]
-    }
-  },
-  "iroha_crypto::hash::HashOf<iroha_core::block::VersionedValidBlock>": {
-    "Tuple": {
-      "types": [
-        "iroha_crypto::hash::Hash"
-      ]
-    }
-  },
-  "iroha_crypto::hash::HashOf<iroha_core::sumeragi::view_change::Proof>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
@@ -747,13 +619,6 @@
       ]
     }
   },
-  "iroha_crypto::signature::SignatureOf<iroha_core::sumeragi::view_change::Proof>": {
-    "Tuple": {
-      "types": [
-        "iroha_crypto::signature::Signature"
-      ]
-    }
-  },
   "iroha_crypto::signature::SignatureOf<iroha_data_model::query::Payload>": {
     "Tuple": {
       "types": [
@@ -774,16 +639,6 @@
         {
           "name": "signatures",
           "ty": "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>"
-        }
-      ]
-    }
-  },
-  "iroha_crypto::signature::SignaturesOf<iroha_core::sumeragi::view_change::Proof>": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "signatures",
-          "ty": "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::sumeragi::view_change::Proof>>"
         }
       ]
     }

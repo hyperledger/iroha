@@ -254,7 +254,6 @@ pub mod isi {
 
                 Ok(AssetEvent::Removed(transfer.source_id.clone()))
             })?;
-            let metrics_arc = Arc::clone(&wsv.metrics);
             wsv.modify_asset(&transfer.destination_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -263,7 +262,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(transfer.object)
                     .ok_or(MathError::Overflow)?;
-                metrics_arc.tx_amounts.observe((*quantity).into_metric());
+                wsv.metrics.tx_amounts.observe((*quantity).into_metric());
 
                 Ok(AssetEvent::Added(transfer.destination_id.clone()))
             })?;

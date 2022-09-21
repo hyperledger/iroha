@@ -28,11 +28,15 @@ use crate::{block::VersionedCommittedBlock, handler::ThreadHandler};
 pub struct Kura {
     // TODO: Kura doesn't have different initialisation modes!!!
     #[allow(dead_code)]
+    /// The mode of initialisation of [`Kura`].
     mode: Mode,
+    /// The block storage
     block_store: Mutex<Box<dyn BlockStoreTrait + Send>>,
+    /// The array of block hashes. This is normally recovered from the index file.
     block_hash_array: Mutex<Vec<HashOf<VersionedCommittedBlock>>>,
-    // broker: Broker,
+    /// The receiving actor for the [`VersionedCommittedBlock`]
     block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
+    /// The sending actor for the [`VersionedCommittedBlock`]
     block_sender: Sender<VersionedCommittedBlock>,
 }
 
@@ -644,9 +648,9 @@ mod tests {
     #[allow(clippy::expect_used)]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        assert!(Kura::new(Mode::Strict, temp_dir.path(), 100,)
+        Kura::new(Mode::Strict, temp_dir.path(), 100)
             .unwrap()
             .init()
-            .is_ok());
+            .unwrap();
     }
 }

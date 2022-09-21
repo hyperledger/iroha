@@ -112,8 +112,6 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
-            let mut array = Vec::new();
-
             for domain in wsv.domains().iter() {
                 for account in domain.accounts() {
                     let keys: Vec<_> = account
@@ -129,19 +127,15 @@ pub mod isi {
                         .collect();
 
                     for key_id in keys {
-                        array.push((key_id, account.id().clone()));
+                        wsv.modify_account(account.id(), |account_mut| {
+                            if account_mut.remove_asset(&key_id).is_none() {
+                                error!(%key_id, "asset not found - this is a bug");
+                            }
+
+                            Ok(AccountEvent::Asset(AssetEvent::Deleted(key_id)))
+                        })?;
                     }
                 }
-            }
-
-            for (key_id, account_id) in array {
-                wsv.modify_account(&account_id, |account_mut| {
-                    if account_mut.remove_asset(&key_id).is_none() {
-                        error!(%key_id, "asset not found - this is a bug");
-                    }
-
-                    Ok(AccountEvent::Asset(AssetEvent::Deleted(key_id)))
-                })?;
             }
 
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
