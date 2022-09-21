@@ -6,15 +6,11 @@
                 {
                     "Mint": {
                         "object": {
-                            "Raw": {
-                                "U32": 1
-                            }
+                            "U32": 1
                         },
                         "destination_id": {
-                            "Raw": {
-                                "Id": {
-                                    "AssetId": "rose#alice@wonderland"
-                                }
+                            "Id": {
+                                "AssetId": "rose#alice@wonderland"
                             }
                         }
                     }
