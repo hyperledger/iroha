@@ -233,11 +233,9 @@ impl Topology {
     /// Apply a view change - change topology in case there were faults in the consensus round.
     #[allow(clippy::expect_used)]
     pub fn rebuild_with_new_view_change_count(&mut self, view_change_count: u64) {
-        *self = self
-            .clone()
-            .into_builder()
-            .build(view_change_count)
-            .expect("Given a valid Topology, it is impossible to have error here.")
+        *self = self.clone().into_builder().build(view_change_count).expect(
+            "Invalid topology. At this stage the error is unrecoverable. Please restart the peer.",
+        )
     }
 
     /// Answers if the consensus stage is required with the current number of peers.

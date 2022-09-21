@@ -381,10 +381,10 @@ impl WorldStateView {
         send_event(&self.events_sender, event.into());
     }
 
-    /// Tries to get asset or inserts new with `default_asset_value`.
+    /// Get asset or inserts new with `default_asset_value`.
     ///
     /// # Errors
-    /// Fails if there is no account with such name.
+    /// - There is no account with such name.
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &self,
@@ -454,20 +454,16 @@ impl WorldStateView {
         self.blocks.iter()
     }
 
-    /// Returns a vector of blockchain blocks after the block with the given `hash`
+    /// Return a vector of blockchain blocks after the block with the given `hash`
     pub fn blocks_after_hash(
         &self,
         hash: HashOf<VersionedCommittedBlock>,
     ) -> Vec<VersionedCommittedBlock> {
-        let mut iterator = self.blocks.iter();
-        if Hash::zeroed() != hash.into() {
-            for block in &mut iterator {
-                if block.hash() == hash {
-                    break;
-                }
-            }
-        }
-        iterator.map(|b| b.clone()).collect()
+        self.blocks
+            .iter()
+            .skip_while(move |block_entry| block_entry.value().header().previous_block_hash != hash)
+            .map(|block_entry| block_entry.value().clone())
+            .collect()
     }
 
     /// Get `World` and pass it to closure to modify it
@@ -644,9 +640,11 @@ impl WorldStateView {
     #[allow(clippy::expect_used)]
     pub fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
         for block in blocks {
-            // If we cannot apply the block, it is preferred to signal
-            // failure and have the end user figure out what's wrong.
-            self.apply(block).expect("Initialization of WSV failed.");
+            // TODO: If we cannot apply the block, it is preferred to
+            // signal failure and have the end user figure out what's
+            // wrong.
+            self.apply(block)
+                .expect("World state View failed to apply.");
         }
     }
 
