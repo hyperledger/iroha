@@ -801,6 +801,7 @@ gen_expr_and_impls! {
         Ord,
     )]
     #[display(fmt = "!{}", "self.expression.parenthesise(Operation::Not)")]
+    #[serde(transparent)]
     pub Not(bool) -> bool
 }
 
