@@ -21,9 +21,7 @@
         "technical_account": "alice@wonderland",
         "filter": {
             "Data": {
-                "BySome": {
-                    "ByAccount": "AcceptAll"
-                }
+                "ByAccount": "AcceptAll"
             }
         },
         "metadata": {}

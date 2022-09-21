@@ -378,7 +378,7 @@ macro_rules! expression_serde_internal_repr {
         }
 
         mod serde_internal_repr {
-            /// Module with internal representation of [`Expression`] for (de-)serialization.
+            //! Module with internal representation of [`Expression`] for (de-)serialization.
 
             use super::*;
 
