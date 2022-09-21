@@ -99,6 +99,11 @@ You can also choose to output the key-pair in JSON format:
     ```bash
     kagami genesis >genesis.json
     ```
+ - Generate a synthetic genesis block in JSON format and write the `n` domains, `m` accounts per domain and `p` assets per domain:
+
+    ```bash
+    kagami genesis --synthetic --domains n --accounts-per-domain m --assets-per-domain p
+    ```
 
 ## `schema`
 

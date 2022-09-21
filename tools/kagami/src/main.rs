@@ -175,16 +175,39 @@ mod genesis {
     use super::*;
 
     #[derive(StructOpt, Debug, Clone, Copy)]
-    pub struct Args;
+    pub struct Args {
+        /// If set generate synthetic genesis with specified number of domains, accounts and assets.
+        #[clap(short, long, action)]
+        synthetic: bool,
+        /// Number of domains in synthetic genesis.
+        /// This parameter is ignored if `synthetic` is `false`.
+        #[clap(long, default_value_t = 0)]
+        domains: u64,
+        /// Number of accounts per domains in synthetic genesis.
+        /// Total number of  accounts would be `domains * assets_per_domain`.
+        /// This parameter is ignored if `synthetic` is `false`.
+        #[clap(long, default_value_t = 0)]
+        accounts_per_domain: u64,
+        /// Number of assets per domains in synthetic genesis.
+        /// Total number of assets would be `domains * assets_per_domain`.
+        /// This parameter is ignored if `synthetic` is `false`.
+        #[clap(long, default_value_t = 0)]
+        assets_per_domain: u64,
+    }
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            writeln!(
-                writer,
-                "{}",
-                serde_json::to_string_pretty(&generate_default()?)?
-            )
-            .wrap_err("Failed to write.")
+            let genesis = if self.synthetic {
+                generate_synthetic(
+                    self.domains,
+                    self.accounts_per_domain,
+                    self.assets_per_domain,
+                )
+            } else {
+                generate_default()
+            }?;
+            writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
+                .wrap_err("Failed to write.")
         }
     }
 
@@ -210,6 +233,63 @@ mod genesis {
         );
         result.transactions[0].isi.push(mint.into());
         Ok(result)
+    }
+
+    fn generate_synthetic(
+        domains: u64,
+        accounts_per_domain: u64,
+        assets_per_domain: u64,
+    ) -> color_eyre::Result<RawGenesisBlock> {
+        let mut builder = RawGenesisBlockBuilder::new();
+        for domain in 0..domains {
+            let mut domain_builder = builder.domain(format!("domain_{domain}").parse()?);
+
+            for account in 0..accounts_per_domain {
+                domain_builder = domain_builder.with_account(
+                    format!("account_{account}").parse()?,
+                    DEFAULT_PUBLIC_KEY.parse()?,
+                );
+            }
+
+            for asset in 0..assets_per_domain {
+                domain_builder = domain_builder
+                    .with_asset(format!("asset_{asset}").parse()?, AssetValueType::Quantity);
+            }
+
+            builder = domain_builder.finish_domain();
+        }
+        let mut genesis = builder.build();
+
+        let mints = {
+            let mut acc = Vec::new();
+            for domain in 0..domains {
+                for account in 0..accounts_per_domain {
+                    for asset in 0..assets_per_domain {
+                        let mint = MintBox::new(
+                            iroha_data_model::prelude::Value::U32(13_u32),
+                            iroha_data_model::IdBox::AssetId(
+                                iroha_data_model::prelude::AssetId::new(
+                                    format!("asset_{asset}#domain_{domain}").parse()?,
+                                    format!("account_{account}@domain_{domain}").parse()?,
+                                ),
+                            ),
+                        );
+                        acc.push(mint);
+                    }
+                }
+            }
+            acc
+        }
+        .into_iter()
+        .map(Into::into);
+
+        genesis.transactions[0].isi.extend(
+            public_blockchain::default_permission_token_definitions()
+                .into_iter()
+                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
+        );
+        genesis.transactions[0].isi.extend(mints);
+        Ok(genesis)
     }
 }
 
