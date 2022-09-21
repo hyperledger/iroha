@@ -35,9 +35,7 @@ use crate::{
     CryptographicError, Error, HandshakeError, Message, MessageResult,
 };
 
-/// Max message length in bytes.
-pub const MAX_MESSAGE_LENGTH: usize = 16 * 1024 * 1024;
-/// Max length of message in bytes.
+/// Max length of message handshake in bytes.
 pub const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// Default associated data for AEAD
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
@@ -718,11 +716,10 @@ pub async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::R
 ///
 /// # Errors
 /// If reading from `stream` fails, if the stream doesn't contain exactly `size` zeroes,
-/// where `size` is the first `u32` of the `stream`. Returns [`crate::Error::Format`] if the
-/// length of the message is is more than `MAX_MESSAGE_LENGTH`.
+/// where `size` is the first `u32` of the `stream`.
 pub async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
     let size = stream.read_u32().await? as usize;
-    if size > 0 && size < MAX_MESSAGE_LENGTH {
+    if size > 0 {
         let mut buf = vec![0_u8; size];
         let mut read = 0;
         while read < size {
@@ -738,26 +735,17 @@ pub async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> 
 /// Send byte-encoded message to the peer
 ///
 /// # Errors
-/// If writing to `stream` fails, or [`crate::Error::Format`] if the
-/// message length is more than `MAX_MESSAGE_LENGTH`.
+/// If writing to `stream` fails.
 pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<(), Error> {
-    if data.len() > MAX_MESSAGE_LENGTH {
-        error!(
-            max_msg_len = MAX_MESSAGE_LENGTH,
-            "Message length exceeds maximum length!",
-        );
-        Err(Error::Format)
-    } else {
-        #[allow(clippy::cast_possible_truncation)]
-        let size: u32 = data.len() as u32;
-        let mut buf: Vec<u8> = Vec::with_capacity(data.len() + 2);
-        buf.write_u32(size).await?;
-        buf.write_all(data).await?;
-        stream.as_ref().writable().await?;
-        stream.write_all(buf.as_slice()).await?;
-        stream.flush().await?;
-        Ok(())
-    }
+    #[allow(clippy::cast_possible_truncation)]
+    let size: u32 = data.len() as u32;
+    let mut buf: Vec<u8> = Vec::with_capacity(data.len() + 2);
+    buf.write_u32(size).await?;
+    buf.write_all(data).await?;
+    stream.as_ref().writable().await?;
+    stream.write_all(buf.as_slice()).await?;
+    stream.flush().await?;
+    Ok(())
 }
 
 /// Read the peer's connection stream and close the stream once done.
