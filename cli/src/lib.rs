@@ -295,7 +295,7 @@ impl Iroha {
         );
 
         let sumeragi_relay = FromNetworkBaseRelay {
-            sumeragi: sumeragi.clone(),
+            sumeragi: Arc::clone(&sumeragi),
             broker: broker.clone(),
         }
         .start()
@@ -303,11 +303,11 @@ impl Iroha {
         .expect_running();
 
         let sumeragi_thread_handler =
-            Sumeragi::initialize_and_start_thread(sumeragi.clone(), genesis);
+            Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis);
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
-            sumeragi.clone(),
+            Arc::clone(&sumeragi),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
             broker.clone(),
         )

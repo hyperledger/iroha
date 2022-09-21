@@ -25,17 +25,17 @@ use network_topology::{Role, Topology};
 
 use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
 
-pub mod fault;
+pub mod main_loop;
 pub mod message;
 pub mod network_topology;
 pub mod view_change;
 
 use std::sync::Mutex;
 
-use fault::SumeragiStateMachineData;
+use main_loop::State;
 
 use self::{
-    fault::{NoFault, SumeragiWithFault},
+    main_loop::{NoFault, SumeragiWithFault},
     message::{Message, *},
     view_change::{Proof, ProofChain as ViewChangeProofs},
 };
@@ -97,9 +97,9 @@ impl Sumeragi {
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
                 current_online_peers: Mutex::new(Vec::new()),
-                latest_block_hash_for_use_by_block_sync: Mutex::new(Hash::zeroed().typed()),
-                incoming_message_sender: Mutex::new(incoming_message_sender),
-                incoming_message_receiver: Mutex::new(incoming_message_receiver),
+                latest_block_hash: Mutex::new(Hash::zeroed().typed()),
+                message_sender: Mutex::new(incoming_message_sender),
+                message_receiver: Mutex::new(incoming_message_receiver),
             },
             config: configuration.clone(),
         }
@@ -153,36 +153,26 @@ impl Sumeragi {
 
     /// Get latest block hash for use by the block synchronization subsystem.
     #[allow(clippy::expect_used)]
-    pub fn latest_block_hash_for_use_by_block_sync(&self) -> HashOf<VersionedCommittedBlock> {
+    pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
         *self
             .internal
-            .latest_block_hash_for_use_by_block_sync
+            .latest_block_hash
             .lock()
-            .expect("Mutex on internal WSV poisoned in `latest_block_hash_for_use_by_block_sync`")
+            .expect("Mutex on internal WSV poisoned in `latest_block_hash`")
     }
 
     /// Get an array of blocks after the block identified by `block_hash`. Returns
     /// an empty array if the specified block could not be found.
-    #[allow(clippy::expect_used)]
     pub fn blocks_after_hash(
         &self,
         block_hash: HashOf<VersionedCommittedBlock>,
     ) -> Vec<VersionedCommittedBlock> {
-        self.internal
-            .wsv
-            .lock()
-            .expect("Mutex on internal WSV poisoned in `blocks_after_hash`")
-            .blocks_after_hash(block_hash)
+        self.wsv_mutex_access().blocks_after_hash(block_hash)
     }
 
     /// Get an array of blocks from `block_height`. (`blocks[block_height]`, `blocks[block_height + 1]` etc.)
-    #[allow(clippy::expect_used)]
     pub fn blocks_from_height(&self, block_height: usize) -> Vec<VersionedCommittedBlock> {
-        self.internal
-            .wsv
-            .lock()
-            .expect("Mutex on internal WSV poisoned in `blocks_from_height`.")
-            .blocks_from_height(block_height)
+        self.wsv_mutex_access().blocks_from_height(block_height)
     }
 
     /// Get a random online peer for use in block synchronization.
@@ -191,11 +181,9 @@ impl Sumeragi {
         use rand::{seq::SliceRandom, SeedableRng};
 
         let rng = &mut rand::rngs::StdRng::from_entropy();
-        let peers = self
-            .internal
-            .current_online_peers
-            .lock()
-            .expect("lock on online peers for get random peer");
+        let peers = self.internal.current_online_peers.lock().expect(
+            "Mutex for `current_online_peers` poisoned in `get_random_peer_for_block_sync`",
+        );
         peers.choose(rng).map(|id| Peer::new(id.clone()))
     }
 
@@ -209,7 +197,7 @@ impl Sumeragi {
         self.internal
             .wsv
             .lock()
-            .expect("World state view Mutex access failed")
+            .expect("World state view Mutex poisoned. You have had a panic somewhere else in the process, which didn't shut down the peer.")
     }
 
     /// Start the sumeragi thread for this sumeragi instance.
@@ -223,12 +211,7 @@ impl Sumeragi {
         sumeragi: Arc<Self>,
         genesis_network: Option<GenesisNetwork>,
     ) -> ThreadHandler {
-        let wsv = sumeragi
-            .internal
-            .wsv
-            .lock()
-            .expect("Mutex poisoned")
-            .clone();
+        let wsv = sumeragi.wsv_mutex_access().clone();
 
         let latest_block_height = wsv.height();
         let latest_block_hash = wsv.latest_block_hash();
@@ -249,7 +232,7 @@ impl Sumeragi {
                     .expect("This builder must have been valid. This is a programmer error.")
             };
 
-        let sumeragi_state_machine_data = SumeragiStateMachineData {
+        let sumeragi_state_machine_data = State {
             genesis_network,
             latest_block_hash,
             latest_block_height,
@@ -264,7 +247,7 @@ impl Sumeragi {
         let thread_handle = std::thread::Builder::new()
             .name("sumeragi thread".to_owned())
             .spawn(move || {
-                fault::run_sumeragi_main_loop(
+                main_loop::run(
                     &sumeragi.internal,
                     sumeragi_state_machine_data,
                     shutdown_receiver,
@@ -294,7 +277,7 @@ impl Sumeragi {
     pub fn incoming_message(&self, msg: MessagePacket) {
         if self
             .internal
-            .incoming_message_sender
+            .message_sender
             .lock()
             .expect("Lock on sender")
             .try_send(msg)

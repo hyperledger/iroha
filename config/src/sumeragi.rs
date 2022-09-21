@@ -56,7 +56,6 @@ impl Default for ConfigurationProxy {
             trusted_peers: None,
             block_time_ms: Some(DEFAULT_BLOCK_TIME_MS),
             commit_time_limit_ms: Some(DEFAULT_COMMIT_TIME_LIMIT_MS),
-            tx_receipt_time_limit_ms: Some(DEFAULT_TX_RECEIPT_TIME_LIMIT_MS),
             transaction_limits: Some(TransactionLimits {
                 max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,

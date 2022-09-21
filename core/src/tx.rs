@@ -112,10 +112,6 @@ impl TransactionValidator {
         // Sanity check - should have been checked by now
         tx.check_limits(&self.transaction_limits)?;
 
-        // WSV is cloned here so that instructions don't get applied to the blockchain
-        // Therefore, this instruction execution validates before actually executing
-        let wsv = WorldStateView::clone(wsv);
-
         if !wsv
             .domain(&account_id.domain_id)
             .map_err(|_e| {
@@ -130,9 +126,11 @@ impl TransactionValidator {
             }));
         }
 
+        // TODO: combine the two. Elide the clone.
+
         // WSV is cloned here so that instructions don't get applied to the blockchain
         // Therefore, this instruction execution validates before actually executing
-        let wsv = WorldStateView::clone(&wsv);
+        let wsv = wsv.clone();
 
         self.validate_with_builtin_validators(&tx, &wsv, is_genesis)?;
 

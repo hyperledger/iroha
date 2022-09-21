@@ -192,45 +192,49 @@ fn sign_blocks(criterion: &mut Criterion) {
     );
 }
 
-// fn validate_blocks(criterion: &mut Criterion) {
-//     // Prepare WSV
-//     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-//     let domain_name = "global";
-//     let account_id = AccountId::new(
-//         "root".parse().expect("Valid"),
-//         domain_name.parse().expect("Valid"),
-//     );
-//     let (public_key, _) = key_pair.into();
-//     let account = Account::new(account_id, [public_key]).build();
-//     let domain_id = DomainId::from_str(domain_name).expect("is valid");
-//     let mut domain = Domain::new(domain_id).build();
-//     assert!(domain.add_account(account).is_none());
-//     // Pepare test transaction
-//     let keys = KeyPair::generate().expect("Failed to generate keys");
-//     let transaction =
-//         AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
-//             .expect("Failed to accept transaction.");
-//     let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
-//     let transaction_validator = TransactionValidator::new(
-//         TRANSACTION_LIMITS,
-//         Arc::new(AllowAll::new()),
-//         Arc::new(AllowAll::new()),
-//     );
-//     let _ = criterion.bench_function("validate_block", |b| {
-//         b.iter(|| {
-//             block.clone().validate(
-//                 &transaction_validator,
-//                 &Arc::new(WorldStateView::new(World::with([domain], BTreeSet::new()))),
-//             )
-//         });
-//     });
-// }
+fn validate_blocks(criterion: &mut Criterion) {
+    // Prepare WSV
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+    let domain_name = "global";
+    let account_id = AccountId::new(
+        "root".parse().expect("Valid"),
+        domain_name.parse().expect("Valid"),
+    );
+    let (public_key, _) = key_pair.into();
+    let account = Account::new(account_id, [public_key]).build();
+    let domain_id = DomainId::from_str(domain_name).expect("is valid");
+    let mut domain = Domain::new(domain_id).build();
+    assert!(domain.add_account(account).is_none());
+    // Pepare test transaction
+    let keys = KeyPair::generate().expect("Failed to generate keys");
+    let transaction =
+        AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
+            .expect("Failed to accept transaction.");
+    let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
+    let transaction_validator = TransactionValidator::new(
+        TRANSACTION_LIMITS,
+        Arc::new(AllowAll::new()),
+        Arc::new(AllowAll::new()),
+    );
+    let _ = criterion.bench_function("validate_block", |b| {
+        b.iter(|| {
+            block.clone().validate(
+                &transaction_validator,
+                &Arc::new(WorldStateView::new(World::with(
+                    [domain.clone()],
+                    BTreeSet::new(),
+                ))),
+            )
+        });
+    });
+}
 
 criterion_group!(
     transactions,
     accept_transaction,
     sign_transaction,
-    validate_transaction
+    validate_transaction,
+    validate_blocks
 );
 criterion_group!(
     blocks,
