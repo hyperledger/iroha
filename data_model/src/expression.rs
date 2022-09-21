@@ -554,6 +554,7 @@ impl Serialize for Expression {
     Ord,
 )]
 #[display(fmt = "CONTEXT `{}`", value_name)]
+#[serde(transparent)]
 pub struct ContextValue {
     /// Name bound to the value.
     pub value_name: String,
