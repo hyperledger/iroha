@@ -45,7 +45,6 @@ The following is the default configuration used by Iroha.
     "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": null,
     "COMMIT_TIME_LIMIT_MS": 2000,
-    "TX_RECEIPT_TIME_LIMIT_MS": 500,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
       "max_wasm_size_bytes": 4194304
@@ -67,7 +66,7 @@ The following is the default configuration used by Iroha.
     "ACTOR_CHANNEL_CAPACITY": 100
   },
   "QUEUE": {
-    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
+    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
     "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
@@ -417,7 +416,7 @@ Has type `Option<queue::ConfigurationProxy>`. Can be configured via environment 
 ```json
 {
   "FUTURE_THRESHOLD_MS": 1000,
-  "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
+  "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
   "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
   "TRANSACTION_TIME_TO_LIVE_MS": 86400000
 }
@@ -440,7 +439,7 @@ The upper limit of the number of transactions per block.
 Has type `Option<u32>`. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_BLOCK`. Refer to [configuration types](#configuration-types) for details.
 
 ```json
-8192
+512
 ```
 
 ### `queue.maximum_transactions_in_queue`

@@ -553,7 +553,8 @@ impl From<Option<GenesisNetwork>> for WithGenesis {
     }
 }
 
-/// `PeerBuilder` structure that helps to create a peer.
+/// `PeerBuilder`.
+#[derive(Default)]
 pub struct PeerBuilder {
     configuration: Option<Configuration>,
     genesis: WithGenesis,
@@ -563,60 +564,60 @@ pub struct PeerBuilder {
 }
 
 impl PeerBuilder {
-    /// Creates [`PeerBuilder`].
+    /// Create [`PeerBuilder`].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Sets the optional genesis network.
+    /// Set the optional genesis network.
     #[must_use]
     pub fn with_into_genesis(mut self, genesis: impl Into<WithGenesis>) -> Self {
         self.genesis = genesis.into();
         self
     }
 
-    /// Sets the genesis network.
+    /// Set the genesis network.
     #[must_use]
     pub fn with_genesis(mut self, genesis: GenesisNetwork) -> Self {
         self.genesis = WithGenesis::Has(genesis);
         self
     }
 
-    /// Sets the test genesis network.
+    /// Set the test genesis network.
     #[must_use]
     pub fn with_test_genesis(self, submit_genesis: bool) -> Self {
         self.with_into_genesis(GenesisNetwork::test(submit_genesis))
     }
 
-    /// Sets Iroha configuration
+    /// Set Iroha configuration
     #[must_use]
     pub fn with_configuration(mut self, configuration: Configuration) -> Self {
         self.configuration.replace(configuration);
         self
     }
 
-    /// Sets permissions for instructions.
+    /// Set permissions for instructions.
     #[must_use]
     pub fn with_instruction_judge(mut self, instruction_judge: InstructionJudgeBoxed) -> Self {
         self.instruction_judge.replace(instruction_judge);
         self
     }
 
-    /// Sets permissions for queries.
+    /// Set permissions for queries.
     #[must_use]
     pub fn with_query_judge(mut self, query_judge: QueryJudgeBoxed) -> Self {
         self.query_judge.replace(query_judge);
         self
     }
 
-    /// Sets the directory to be used as a stub.
+    /// Set the directory to be used as a stub.
     #[must_use]
     pub fn with_dir(mut self, temp_dir: Arc<TempDir>) -> Self {
         self.temp_dir.replace(temp_dir);
         self
     }
 
-    /// Accepts a peer and starts it.
+    /// Accept a peer and starts it.
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let configuration = self.configuration.unwrap_or_else(|| {
             let mut config = Configuration::test();
@@ -648,14 +649,14 @@ impl PeerBuilder {
         .await;
     }
 
-    /// Creates and starts a peer with preapplied arguments.
+    /// Create and start a peer with preapplied arguments.
     pub async fn start(self) -> Peer {
         let mut peer = Peer::new().expect("Failed to create a peer.");
         self.start_with_peer(&mut peer).await;
         peer
     }
 
-    /// Creates and starts a peer, creates a client and connects it to the peer and returns both.
+    /// Create and start a peer, create a client and connect it to the peer and return both.
     pub async fn start_with_client(self) -> (Peer, Client) {
         let configuration = self
             .configuration
@@ -674,7 +675,7 @@ impl PeerBuilder {
         (peer, client)
     }
 
-    /// Creates a peer with a client, creates a runtime, and synchronously starts the peer on the runtime.
+    /// Create a peer with a client, create a runtime, and synchronously start the peer on the runtime.
     pub fn start_with_runtime(self) -> PeerWithRuntimeAndClient {
         let rt = Runtime::test();
         let (peer, client) = rt.block_on(self.start_with_client());
@@ -683,18 +684,6 @@ impl PeerBuilder {
 }
 
 type PeerWithRuntimeAndClient = (Runtime, Peer, Client);
-
-impl Default for PeerBuilder {
-    fn default() -> Self {
-        Self {
-            genesis: WithGenesis::default(),
-            configuration: None,
-            instruction_judge: None,
-            query_judge: None,
-            temp_dir: None,
-        }
-    }
-}
 
 fn local_unique_port() -> Result<String> {
     Ok(format!(
@@ -705,7 +694,7 @@ fn local_unique_port() -> Result<String> {
 
 /// Runtime used for testing.
 pub trait TestRuntime {
-    /// Creates test runtime
+    /// Create test runtime
     fn test() -> Self;
 }
 
@@ -727,13 +716,13 @@ pub trait TestClientConfiguration {
 
 /// Client mocking trait
 pub trait TestClient: Sized {
-    /// Creates test client from api url
+    /// Create test client from api url
     fn test(api_url: &str, telemetry_url: &str) -> Self;
 
-    /// Creates test client from api url and keypair
+    /// Create test client from api url and keypair
     fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self;
 
-    /// Creates test client from api url, keypair, and account id
+    /// Create test client from api url, keypair, and account id
     fn test_with_account(
         api_url: &str,
         telemetry_url: &str,
@@ -741,10 +730,10 @@ pub trait TestClient: Sized {
         account_id: &AccountId,
     ) -> Self;
 
-    /// loops for events with filter and handler function
+    /// loop for events with filter and handler function
     fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>));
 
-    /// Submits instruction with polling
+    /// Submit instruction with polling
     ///
     /// # Errors
     /// If predicate is not satisfied, after maximum retries.

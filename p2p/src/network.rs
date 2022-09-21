@@ -431,17 +431,22 @@ where
     }
 }
 
-/// Because of how our translation units are set up, there cannot be interdependencies
-/// between p2p and the modules in core that use p2p. Therefore in order to put incomming
-/// messages in the appropriate queues they must first be sent to cli and then to core.
-/// This message informs sumeragi of the current online peers.
+/// Message which informs `sumeragi` of the current online peers.
+///
+/// # Rationale
+///
+/// Because of how our translation units are set up, there cannot be
+/// interdependencies between `p2p` and the modules in core that use
+/// `p2p`. Therefore, to put incoming messages in the appropriate
+/// queues they must first be sent to `cli` and then to `core`.  
 #[derive(Clone, iroha_actor::Message)]
 pub struct NetworkBaseRelayOnlinePeers {
-    /// A list of the peers we are currently connected to by PeerId.
+    /// A list of [`PeerId`]s of peers currently connected to us.
     pub online_peers: Vec<PeerId>,
 }
 
-/// The message that is sent to [`NetworkBase`] to start connection to some other peer.
+/// The message that is sent to [`NetworkBase`] to start connection to
+/// some other peer.
 #[derive(Clone, Debug, iroha_actor::Message)]
 pub struct ConnectPeer {
     /// Socket address of the outgoing peer
