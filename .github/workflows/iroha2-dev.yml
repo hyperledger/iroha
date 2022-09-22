@@ -21,9 +21,12 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check changed files
+        uses: jitterbit/get-changed-files@v1
+        id: base_image
       - name: Build and push iroha2-base image
-        # TODO Add `if` condition #2732
         uses: docker/build-push-action@v3
+        if: contains(steps.base_image.outputs.added_modified, 'Dockerfile.base')
         with:
           push: true
           tags: hyperledger/iroha2-base:dev

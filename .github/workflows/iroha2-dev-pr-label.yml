@@ -1,0 +1,38 @@
+name: I2::Dev::Label
+
+on:
+  pull_request:
+    branches: [iroha-dev]
+    paths:
+      - 'docs/source/references/schema.json'
+      - 'docs/source/references/api_spec.md'
+      - 'docs/source/references/config.md'
+
+jobs:
+  api-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: jitterbit/get-changed-files@v1
+        continue-on-error: true
+        id: api_label
+      - uses: actions-ecosystem/action-add-labels@v1
+        if: contains(steps.api_label.outputs.added_modified, 'docs/source/references/schema.json') || contains(steps.api_label.outputs.added_modified, 'docs/source/references/api_spec.md')
+        with:
+          github_token: ${{ secrets.github_token }}
+          labels: |
+            api-changes
+
+  config-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: jitterbit/get-changed-files@v1
+        continue-on-error: true
+        id: config_label
+      - uses: actions-ecosystem/action-add-labels@v1
+        if: contains(steps.config_label.outputs.added_modified, 'docs/source/references/config.md')
+        with:
+          github_token: ${{ secrets.github_token }}
+          labels: |
+            config-changes
