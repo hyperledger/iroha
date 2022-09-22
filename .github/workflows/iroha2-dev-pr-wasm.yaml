@@ -41,7 +41,7 @@ jobs:
         run: cargo doc --no-deps --quiet
 
   tests:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
