@@ -239,15 +239,19 @@ mod genesis {
         accounts_per_domain: u64,
         assets_per_domain: u64,
     ) -> color_eyre::Result<RawGenesisBlock> {
-        let mut builder = RawGenesisBlockBuilder::new();
+        // Add default `Domain` and `Account` to still be able to query
+        let mut builder = RawGenesisBlockBuilder::new()
+            .domain("wonderland".parse()?)
+            .with_account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+            .finish_domain();
+
         for domain in 0..domains {
             let mut domain_builder = builder.domain(format!("domain_{domain}").parse()?);
 
             for account in 0..accounts_per_domain {
-                domain_builder = domain_builder.with_account(
-                    format!("account_{account}").parse()?,
-                    DEFAULT_PUBLIC_KEY.parse()?,
-                );
+                let (public_key, _) = iroha_crypto::KeyPair::generate()?.into();
+                domain_builder =
+                    domain_builder.with_account(format!("account_{account}").parse()?, public_key);
             }
 
             for asset in 0..assets_per_domain {
