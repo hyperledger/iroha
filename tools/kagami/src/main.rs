@@ -165,6 +165,7 @@ mod schema {
 }
 
 mod genesis {
+    use clap::{Parser, Subcommand};
     use iroha_core::{
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
         tx::{AssetValueType, MintBox, RegisterBox},
@@ -173,37 +174,42 @@ mod genesis {
 
     use super::*;
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(Parser, Debug, Clone, Copy)]
     pub struct Args {
-        /// If set generate synthetic genesis with specified number of domains, accounts and assets.
-        #[clap(short, long, action)]
-        synthetic: bool,
-        /// Number of domains in synthetic genesis.
-        /// This parameter is ignored if `synthetic` is `false`.
-        #[clap(long, default_value_t = 0)]
-        domains: u64,
-        /// Number of accounts per domains in synthetic genesis.
-        /// Total number of  accounts would be `domains * assets_per_domain`.
-        /// This parameter is ignored if `synthetic` is `false`.
-        #[clap(long, default_value_t = 0)]
-        accounts_per_domain: u64,
-        /// Number of assets per domains in synthetic genesis.
-        /// Total number of assets would be `domains * assets_per_domain`.
-        /// This parameter is ignored if `synthetic` is `false`.
-        #[clap(long, default_value_t = 0)]
-        assets_per_domain: u64,
+        #[clap(subcommand)]
+        mode: Option<Mode>,
+    }
+
+    #[derive(Subcommand, Debug, Clone, Copy, Default)]
+    pub enum Mode {
+        /// Generate default genesis
+        #[default]
+        Default,
+        /// Generate synthetic genesis with specified number of domains, accounts and assets.
+        Synthetic {
+            /// Number of domains in synthetic genesis.
+            #[clap(long, default_value_t)]
+            domains: u64,
+            /// Number of accounts per domains in synthetic genesis.
+            /// Total number of  accounts would be `domains * assets_per_domain`.
+            #[clap(long, default_value_t)]
+            accounts_per_domain: u64,
+            /// Number of assets per domains in synthetic genesis.
+            /// Total number of assets would be `domains * assets_per_domain`.
+            #[clap(long, default_value_t)]
+            assets_per_domain: u64,
+        },
     }
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            let genesis = if self.synthetic {
-                generate_synthetic(
-                    self.domains,
-                    self.accounts_per_domain,
-                    self.assets_per_domain,
-                )
-            } else {
-                generate_default()
+            let genesis = match self.mode.unwrap_or_default() {
+                Mode::Default => generate_default(),
+                Mode::Synthetic {
+                    domains,
+                    accounts_per_domain,
+                    assets_per_domain,
+                } => generate_synthetic(domains, accounts_per_domain, assets_per_domain),
             }?;
             writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
                 .wrap_err("Failed to write.")
