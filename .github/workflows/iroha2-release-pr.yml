@@ -13,7 +13,7 @@ env:
 
 jobs:
   cli:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -48,7 +48,7 @@ jobs:
     # burning CI hours, we will instead run these tests locally, and
     # push the docker image from main only after QA passes.
     if: false
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -73,7 +73,7 @@ jobs:
         run: bash -c './scripts/test_env.sh cleanup docker'
 
   bench:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -85,7 +85,7 @@ jobs:
   # ------------------------------ SDK tests go here ------------------------
 
   java-api:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -130,7 +130,7 @@ jobs:
           rm -f ~/.gradle/caches/modules-2/gc.properties
 
   long:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
       image: 7272721/i2-ci:nightly
     steps:
