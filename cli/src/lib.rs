@@ -84,7 +84,7 @@ pub struct Iroha {
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
     /// Relay that redirects messages from the network subsystem to core subsystems.
-    _sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>,
+    _sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>, // TODO: figure out if truly unused.
 }
 
 impl Drop for Iroha {

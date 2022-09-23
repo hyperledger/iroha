@@ -17,21 +17,21 @@ use crate::{VersionedAcceptedTransaction, VersionedValidBlock};
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
 impl VersionedPacket {
-    /// Converts from `&VersionedMessage` to V1 reference
+    /// Convert `&`[`Self`] to V1 reference
     pub const fn as_v1(&self) -> &MessagePacket {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Converts from `&mut VersionedMessage` to V1 mutable reference
+    /// Convert `&mut` [`Self`] to V1 mutable reference
     pub fn as_mut_v1(&mut self) -> &mut MessagePacket {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Performs the conversion from `VersionedMessage` to V1
+    /// Perform the conversion from [`Self`] to V1
     pub fn into_v1(self) -> MessagePacket {
         match self {
             Self::V1(v1) => v1,

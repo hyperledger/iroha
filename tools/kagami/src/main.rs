@@ -11,7 +11,8 @@ use std::io::{stdout, BufWriter, Write};
 use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
 
-pub type Outcome = color_eyre::Result<()>;
+/// Outcome shorthand used throughout this crate
+pub(crate) type Outcome = color_eyre::Result<()>;
 
 // The reason for hard-coding this default is to ensure that the
 // algorithm is matched to the public key. If you need to change

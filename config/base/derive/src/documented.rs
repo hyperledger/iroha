@@ -242,7 +242,7 @@ pub fn gen_docs(ast: &StructWithFields) -> Vec<LitStr> {
                 });
             let real_doc = real_doc.map(|doc| doc.value() + "\n\n").unwrap_or_default();
             let docs = format!(
-                "{}Has type `{}`. Can be configured via environment variable `{}`. Refer to [configuration types](#configuration-types) for details.",
+                "{}Has type `{}`[^1]. Can be configured via environment variable `{}`",
                 real_doc,
                 quote! { #field_ty }.to_string().replace(' ', ""),
                 env

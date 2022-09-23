@@ -19,7 +19,7 @@ case $1 in
     "client")
         cargo run --bin kagami -- client >"$TMPFILE"
         diff "$TMPFILE" configs/client_cli/config.json || {
-            echo 'Please re-generate schema with `cargo run --bin kagami -- client > configs/client_cli/config.json`'
+            echo 'Please re-generate client config with `cargo run --bin kagami -- client > configs/client_cli/config.json`'
             exit 1
         };;
     "schema")
