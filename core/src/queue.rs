@@ -183,9 +183,9 @@ impl Queue {
         }
     }
 
-    /// Pops single transaction.
+    /// Pop single transaction.
     ///
-    /// Records unsigned transaction in seen.
+    /// Records unsigned transaction in `seen`.
     #[allow(
         clippy::expect_used,
         clippy::unwrap_in_result,
@@ -220,7 +220,9 @@ impl Queue {
         }
     }
 
-    /// Pops a single transaction.
+    /// Pop a single transaction.
+    ///
+    /// Unlike [`Self::pop`], unsigned transactions are not recorded.
     #[allow(
         clippy::expect_used,
         clippy::unwrap_in_result,
@@ -250,7 +252,7 @@ impl Queue {
         }
     }
 
-    /// Returns the number of transactions in the queue
+    /// Return the number of transactions in the queue
     pub fn tx_len(&self) -> usize {
         self.txs.len()
     }

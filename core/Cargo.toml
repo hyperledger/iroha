@@ -48,7 +48,6 @@ iroha_schema = { version = "=2.0.0-pre-rc.8", path = "../schema" }
 iroha_primitives = { version = "=2.0.0-pre-rc.8", path = "../primitives" }
 
 async-trait = "0.1.57"
-async-stream = "0.3.3"
 dashmap = "5.3.4"
 eyre = "0.6.8"
 futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
@@ -57,10 +56,8 @@ rand = "0.8.5"
 serde = { version = "1.0.142", features = ["derive"] }
 serde_json = "1.0.83"
 tokio = { version = "1.20.1", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"] }
-tokio-stream = { version = "0.1.9", features = ["fs"] }
 crossbeam-queue = "0.3.6"
 thiserror = "1.0.32"
-pin-project = "1.0.11"
 wasmtime = "0.39.1"
 
 # transitive dependencies
