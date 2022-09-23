@@ -57,7 +57,6 @@ enum-kinds = { version = "0.5.1", default-features = false, features = ["no-stdl
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.8" }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.8" }
 iroha = { path = "../cli" }
-hex = { version = "0.4.3", default-features = false, features = ["alloc", "serde"] }
 
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.8" }
 

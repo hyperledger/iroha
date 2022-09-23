@@ -730,7 +730,7 @@ pub trait TestClient: Sized {
         account_id: &AccountId,
     ) -> Self;
 
-    /// loop for events with filter and handler function
+    /// Loop for events with filter and handler function
     fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>));
 
     /// Submit instruction with polling

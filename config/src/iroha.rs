@@ -219,7 +219,11 @@ mod tests {
         );
         assert_eq!(
             10000,
-            cfg_proxy.block_sync.unwrap().gossip_period_ms.unwrap()
+            cfg_proxy
+                .block_sync
+                .expect("Block sync configuration was None")
+                .gossip_period_ms
+                .expect("Gossip period was None")
         );
         Ok(())
     }

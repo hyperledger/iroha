@@ -1822,7 +1822,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "test_network",
  "thiserror",
  "tokio",
  "vergen",
@@ -1945,7 +1944,6 @@ name = "iroha_config_base"
 version = "2.0.0-pre-rc.8"
 dependencies = [
  "crossbeam",
- "derive_more",
  "iroha_config_derive",
  "serde",
  "serde_json",
@@ -1956,7 +1954,6 @@ dependencies = [
 name = "iroha_config_derive"
 version = "2.0.0-pre-rc.8"
 dependencies = [
- "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn",
@@ -1967,7 +1964,6 @@ name = "iroha_core"
 version = "2.0.0-pre-rc.8"
 dependencies = [
  "anyhow",
- "async-stream",
  "async-trait",
  "byte-unit",
  "criterion",
@@ -1993,14 +1989,12 @@ dependencies = [
  "itertools",
  "once_cell",
  "parity-scale-codec",
- "pin-project",
  "rand 0.8.5",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
- "tokio-stream",
  "wasmtime",
 ]
 
@@ -2032,7 +2026,6 @@ dependencies = [
  "derive_more",
  "enum-kinds",
  "getset",
- "hex",
  "iroha",
  "iroha_client",
  "iroha_core",
@@ -2133,7 +2126,6 @@ dependencies = [
  "derive_more",
  "iroha_config",
  "once_cell",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -2160,12 +2152,10 @@ dependencies = [
  "derive_more",
  "futures",
  "iroha_actor",
- "iroha_config",
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_logger",
- "iroha_macro",
  "parity-scale-codec",
  "rand 0.8.5",
  "test_network",
@@ -2185,7 +2175,6 @@ dependencies = [
  "once_cell",
  "parity-scale-codec",
  "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -3802,7 +3791,6 @@ dependencies = [
 name = "test_network"
 version = "2.0.0-pre-rc.8"
 dependencies = [
- "async-trait",
  "eyre",
  "futures",
  "iroha",
@@ -3814,7 +3802,6 @@ dependencies = [
  "iroha_logger",
  "iroha_permissions_validators",
  "iroha_primitives",
- "once_cell",
  "rand 0.8.5",
  "tempfile",
  "tokio",
