@@ -15,7 +15,6 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 iroha_logger = { version = "=2.0.0-pre-rc.8", path = "../logger" }
 iroha_crypto = { version = "=2.0.0-pre-rc.8", path = "../crypto" }
 iroha_actor = { version = "=2.0.0-pre-rc.8", path = "../actor" }
-iroha_macro = { version = "=2.0.0-pre-rc.8", path = "../macro" }
 iroha_data_model = { version = "=2.0.0-pre-rc.8", path = "../data_model" }
 iroha_config_base = { version = "=2.0.0-pre-rc.8", path = "../config/base" }
 
@@ -30,5 +29,4 @@ thiserror = "1.0.32"
 derive_more = "0.99.17"
 
 [dev-dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.8", path = "../config" }
 test_network = { version = "=2.0.0-pre-rc.8", path = "../core/test_network" }

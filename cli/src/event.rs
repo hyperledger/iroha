@@ -55,7 +55,7 @@ pub struct Consumer {
 }
 
 impl Consumer {
-    /// Constructs `Consumer`, which consumes `Event`s and forwards it through the `stream`.
+    /// Constructs [`Consumer`], which consumes `Event`s and forwards it through the `stream`.
     ///
     /// # Errors
     /// Can fail due to timeout or without message at websocket or during decoding request

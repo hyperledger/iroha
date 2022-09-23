@@ -128,7 +128,7 @@ The following is the default configuration used by Iroha.
 
 `BlockSynchronizer` configuration
 
-Has type `Option<block_sync::ConfigurationProxy>`. Can be configured via environment variable `IROHA_BLOCK_SYNC`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<block_sync::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_BLOCK_SYNC`
 
 ```json
 {
@@ -142,7 +142,7 @@ Has type `Option<block_sync::ConfigurationProxy>`. Can be configured via environ
 
 Buffer capacity of actor's MPSC channel
 
-Has type `Option<u32>`. Can be configured via environment variable `BLOCK_SYNC_ACTOR_CHANNEL_CAPACITY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `BLOCK_SYNC_ACTOR_CHANNEL_CAPACITY`
 
 ```json
 100
@@ -152,7 +152,7 @@ Has type `Option<u32>`. Can be configured via environment variable `BLOCK_SYNC_A
 
 The number of blocks that can be sent in one message.
 
-Has type `Option<u32>`. Can be configured via environment variable `BLOCK_SYNC_BLOCK_BATCH_SIZE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `BLOCK_SYNC_BLOCK_BATCH_SIZE`
 
 ```json
 4
@@ -162,7 +162,7 @@ Has type `Option<u32>`. Can be configured via environment variable `BLOCK_SYNC_B
 
 The period of time to wait between sending requests for the latest block.
 
-Has type `Option<u64>`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
 
 ```json
 10000
@@ -172,7 +172,7 @@ Has type `Option<u64>`. Can be configured via environment variable `BLOCK_SYNC_G
 
 Disable coloring of the backtrace and error report on panic
 
-Has type `Option<bool>`. Can be configured via environment variable `IROHA_DISABLE_PANIC_TERMINAL_COLORS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<bool>`[^1]. Can be configured via environment variable `IROHA_DISABLE_PANIC_TERMINAL_COLORS`
 
 ```json
 false
@@ -182,7 +182,7 @@ false
 
 `GenesisBlock` configuration
 
-Has type `Option<genesis::ConfigurationProxy>`. Can be configured via environment variable `IROHA_GENESIS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<genesis::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_GENESIS`
 
 ```json
 {
@@ -198,7 +198,7 @@ Has type `Option<genesis::ConfigurationProxy>`. Can be configured via environmen
 
 The private key of the genesis account, only needed for the peer that submits the genesis block.
 
-Has type `Option<Option<PrivateKey>>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PRIVATE_KEY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<Option<PrivateKey>>`[^1]. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PRIVATE_KEY`
 
 ```json
 null
@@ -208,7 +208,7 @@ null
 
 The public key of the genesis account, should be supplied to all peers.
 
-Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<PublicKey>`[^1]. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
 
 ```json
 null
@@ -218,7 +218,7 @@ null
 
 The delay before genesis block submission after minimum number of peers were discovered to be online.
 
-Has type `Option<u64>`. Can be configured via environment variable `IROHA_GENESIS_GENESIS_SUBMISSION_DELAY_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `IROHA_GENESIS_GENESIS_SUBMISSION_DELAY_MS`
 
 ```json
 1000
@@ -228,7 +228,7 @@ Has type `Option<u64>`. Can be configured via environment variable `IROHA_GENESI
 
 The number of attempts to connect to peers while waiting for them to submit genesis.
 
-Has type `Option<u64>`. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT`
 
 ```json
 100
@@ -238,7 +238,7 @@ Has type `Option<u64>`. Can be configured via environment variable `IROHA_GENESI
 
 The period in milliseconds in which to retry connecting to peers while waiting for them to submit genesis.
 
-Has type `Option<u64>`. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_PERIOD_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_PERIOD_MS`
 
 ```json
 500
@@ -248,7 +248,7 @@ Has type `Option<u64>`. Can be configured via environment variable `IROHA_GENESI
 
 `Kura` configuration
 
-Has type `Option<kura::ConfigurationProxy>`. Can be configured via environment variable `IROHA_KURA`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<kura::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_KURA`
 
 ```json
 {
@@ -263,7 +263,7 @@ Has type `Option<kura::ConfigurationProxy>`. Can be configured via environment v
 
 Default buffer capacity of actor's MPSC channel.
 
-Has type `Option<u32>`. Can be configured via environment variable `KURA_ACTOR_CHANNEL_CAPACITY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `KURA_ACTOR_CHANNEL_CAPACITY`
 
 ```json
 100
@@ -273,7 +273,7 @@ Has type `Option<u32>`. Can be configured via environment variable `KURA_ACTOR_C
 
 Path to the existing block store folder or path to create new folder.
 
-Has type `Option<String>`. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<String>`[^1]. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`
 
 ```json
 "./storage"
@@ -283,7 +283,7 @@ Has type `Option<String>`. Can be configured via environment variable `KURA_BLOC
 
 Maximum number of blocks to write into a single storage file.
 
-Has type `Option<NonZeroU64>`. Can be configured via environment variable `KURA_BLOCKS_PER_STORAGE_FILE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `KURA_BLOCKS_PER_STORAGE_FILE`
 
 ```json
 1000
@@ -293,7 +293,7 @@ Has type `Option<NonZeroU64>`. Can be configured via environment variable `KURA_
 
 Initialization mode: `strict` or `fast`.
 
-Has type `Option<Mode>`. Can be configured via environment variable `KURA_INIT_MODE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<Mode>`[^1]. Can be configured via environment variable `KURA_INIT_MODE`
 
 ```json
 "strict"
@@ -303,7 +303,7 @@ Has type `Option<Mode>`. Can be configured via environment variable `KURA_INIT_M
 
 `Logger` configuration
 
-Has type `Option<logger::ConfigurationProxy>`. Can be configured via environment variable `IROHA_LOGGER`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<logger::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_LOGGER`
 
 ```json
 {
@@ -319,7 +319,7 @@ Has type `Option<logger::ConfigurationProxy>`. Can be configured via environment
 
 Compact mode (no spans from telemetry)
 
-Has type `Option<bool>`. Can be configured via environment variable `COMPACT_MODE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<bool>`[^1]. Can be configured via environment variable `COMPACT_MODE`
 
 ```json
 false
@@ -329,7 +329,7 @@ false
 
 If provided, logs will be copied to said file in the
 
-Has type `Option<Option<std::path::PathBuf>>`. Can be configured via environment variable `LOG_FILE_PATH`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<Option<std::path::PathBuf>>`[^1]. Can be configured via environment variable `LOG_FILE_PATH`
 
 ```json
 null
@@ -339,7 +339,7 @@ null
 
 Maximum log level
 
-Has type `Option<SyncLevel>`. Can be configured via environment variable `MAX_LOG_LEVEL`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<SyncLevel>`[^1]. Can be configured via environment variable `MAX_LOG_LEVEL`
 
 ```json
 "INFO"
@@ -349,7 +349,7 @@ Has type `Option<SyncLevel>`. Can be configured via environment variable `MAX_LO
 
 Capacity (or batch size) for telemetry channel
 
-Has type `Option<u32>`. Can be configured via environment variable `TELEMETRY_CAPACITY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `TELEMETRY_CAPACITY`
 
 ```json
 1000
@@ -359,7 +359,7 @@ Has type `Option<u32>`. Can be configured via environment variable `TELEMETRY_CA
 
 Enable ANSI terminal colors for formatted output.
 
-Has type `Option<bool>`. Can be configured via environment variable `TERMINAL_COLORS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<bool>`[^1]. Can be configured via environment variable `TERMINAL_COLORS`
 
 ```json
 true
@@ -369,7 +369,7 @@ true
 
 Network configuration
 
-Has type `Option<network::ConfigurationProxy>`. Can be configured via environment variable `IROHA_NETWORK`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<network::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_NETWORK`
 
 ```json
 {
@@ -381,7 +381,7 @@ Has type `Option<network::ConfigurationProxy>`. Can be configured via environmen
 
 Buffer capacity of actor's MPSC channel
 
-Has type `Option<u32>`. Can be configured via environment variable `IROHA_NETWORK_ACTOR_CHANNEL_CAPACITY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `IROHA_NETWORK_ACTOR_CHANNEL_CAPACITY`
 
 ```json
 100
@@ -391,7 +391,7 @@ Has type `Option<u32>`. Can be configured via environment variable `IROHA_NETWOR
 
 Private key of this peer
 
-Has type `Option<PrivateKey>`. Can be configured via environment variable `IROHA_PRIVATE_KEY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<PrivateKey>`[^1]. Can be configured via environment variable `IROHA_PRIVATE_KEY`
 
 ```json
 null
@@ -401,7 +401,7 @@ null
 
 Public key of this peer
 
-Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_PUBLIC_KEY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<PublicKey>`[^1]. Can be configured via environment variable `IROHA_PUBLIC_KEY`
 
 ```json
 null
@@ -411,7 +411,7 @@ null
 
 `Queue` configuration
 
-Has type `Option<queue::ConfigurationProxy>`. Can be configured via environment variable `IROHA_QUEUE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<queue::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_QUEUE`
 
 ```json
 {
@@ -426,7 +426,7 @@ Has type `Option<queue::ConfigurationProxy>`. Can be configured via environment 
 
 The threshold to determine if a transaction has been tampered to have a future timestamp.
 
-Has type `Option<u64>`. Can be configured via environment variable `QUEUE_FUTURE_THRESHOLD_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `QUEUE_FUTURE_THRESHOLD_MS`
 
 ```json
 1000
@@ -436,7 +436,7 @@ Has type `Option<u64>`. Can be configured via environment variable `QUEUE_FUTURE
 
 The upper limit of the number of transactions per block.
 
-Has type `Option<u32>`. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_BLOCK`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_BLOCK`
 
 ```json
 512
@@ -446,7 +446,7 @@ Has type `Option<u32>`. Can be configured via environment variable `QUEUE_MAXIMU
 
 The upper limit of the number of transactions waiting in the queue.
 
-Has type `Option<u32>`. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_QUEUE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_QUEUE`
 
 ```json
 65536
@@ -456,7 +456,7 @@ Has type `Option<u32>`. Can be configured via environment variable `QUEUE_MAXIMU
 
 The transaction will be dropped after this time if it is still in the queue.
 
-Has type `Option<u64>`. Can be configured via environment variable `QUEUE_TRANSACTION_TIME_TO_LIVE_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `QUEUE_TRANSACTION_TIME_TO_LIVE_MS`
 
 ```json
 86400000
@@ -466,7 +466,7 @@ Has type `Option<u64>`. Can be configured via environment variable `QUEUE_TRANSA
 
 `Sumeragi` configuration
 
-Has type `Option<sumeragi::ConfigurationProxy>`. Can be configured via environment variable `IROHA_SUMERAGI`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_SUMERAGI`
 
 ```json
 {
@@ -481,8 +481,7 @@ Has type `Option<sumeragi::ConfigurationProxy>`. Can be configured via environme
     "max_instruction_number": 4096,
     "max_wasm_size_bytes": 4194304
   },
-  "TRUSTED_PEERS": null,
-  "TX_RECEIPT_TIME_LIMIT_MS": 500
+  "TRUSTED_PEERS": null
 }
 ```
 
@@ -490,7 +489,7 @@ Has type `Option<sumeragi::ConfigurationProxy>`. Can be configured via environme
 
 Buffer capacity of actor's MPSC channel
 
-Has type `Option<u32>`. Can be configured via environment variable `SUMERAGI_ACTOR_CHANNEL_CAPACITY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI_ACTOR_CHANNEL_CAPACITY`
 
 ```json
 100
@@ -500,7 +499,7 @@ Has type `Option<u32>`. Can be configured via environment variable `SUMERAGI_ACT
 
 The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
 
-Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_MS`
 
 ```json
 1000
@@ -510,7 +509,7 @@ Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_BLO
 
 The period of time a peer waits for `CommitMessage` from the proxy tail.
 
-Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_LIMIT_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_LIMIT_MS`
 
 ```json
 2000
@@ -520,7 +519,7 @@ Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_COM
 
 Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
 
-Has type `Option<u32>`. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
 
 ```json
 500
@@ -530,7 +529,7 @@ Has type `Option<u32>`. Can be configured via environment variable `SUMERAGI_GOS
 
 Period in milliseconds for pending transaction gossiping between peers.
 
-Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_GOSSIP_PERIOD_MS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_GOSSIP_PERIOD_MS`
 
 ```json
 1000
@@ -540,7 +539,7 @@ Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_GOS
 
 The key pair consisting of a private and a public key.
 
-Has type `Option<KeyPair>`. Can be configured via environment variable `SUMERAGI_KEY_PAIR`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<KeyPair>`[^1]. Can be configured via environment variable `SUMERAGI_KEY_PAIR`
 
 ```json
 null
@@ -550,7 +549,7 @@ null
 
 Current Peer Identification.
 
-Has type `Option<PeerId>`. Can be configured via environment variable `SUMERAGI_PEER_ID`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<PeerId>`[^1]. Can be configured via environment variable `SUMERAGI_PEER_ID`
 
 ```json
 null
@@ -560,7 +559,7 @@ null
 
 The limits to which transactions must adhere
 
-Has type `Option<TransactionLimits>`. Can be configured via environment variable `SUMERAGI_TRANSACTION_LIMITS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<TransactionLimits>`[^1]. Can be configured via environment variable `SUMERAGI_TRANSACTION_LIMITS`
 
 ```json
 {
@@ -573,27 +572,17 @@ Has type `Option<TransactionLimits>`. Can be configured via environment variable
 
 Optional list of predefined trusted peers.
 
-Has type `Option<TrustedPeers>`. Can be configured via environment variable `SUMERAGI_TRUSTED_PEERS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<TrustedPeers>`[^1]. Can be configured via environment variable `SUMERAGI_TRUSTED_PEERS`
 
 ```json
 null
-```
-
-### `sumeragi.tx_receipt_time_limit_ms`
-
-The period of time a peer waits for `TxReceipt` from the leader.
-
-Has type `Option<u64>`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_TIME_LIMIT_MS`. Refer to [configuration types](#configuration-types) for details.
-
-```json
-500
 ```
 
 ## `telemetry`
 
 Telemetry configuration
 
-Has type `Option<telemetry::ConfigurationProxy>`. Can be configured via environment variable `IROHA_TELEMETRY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<telemetry::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_TELEMETRY`
 
 ```json
 {
@@ -609,7 +598,7 @@ Has type `Option<telemetry::ConfigurationProxy>`. Can be configured via environm
 
 The filepath that to write dev-telemetry to
 
-Has type `Option<Option<std::path::PathBuf>>`. Can be configured via environment variable `TELEMETRY_FILE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<Option<std::path::PathBuf>>`[^1]. Can be configured via environment variable `TELEMETRY_FILE`
 
 ```json
 null
@@ -619,7 +608,7 @@ null
 
 The maximum exponent of 2 that is used for increasing delay between reconnections
 
-Has type `Option<u8>`. Can be configured via environment variable `TELEMETRY_MAX_RETRY_DELAY_EXPONENT`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u8>`[^1]. Can be configured via environment variable `TELEMETRY_MAX_RETRY_DELAY_EXPONENT`
 
 ```json
 4
@@ -629,7 +618,7 @@ Has type `Option<u8>`. Can be configured via environment variable `TELEMETRY_MAX
 
 The minimum period of time in seconds to wait before reconnecting
 
-Has type `Option<u64>`. Can be configured via environment variable `TELEMETRY_MIN_RETRY_PERIOD`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `TELEMETRY_MIN_RETRY_PERIOD`
 
 ```json
 1
@@ -639,7 +628,7 @@ Has type `Option<u64>`. Can be configured via environment variable `TELEMETRY_MI
 
 The node's name to be seen on the telemetry
 
-Has type `Option<Option<String>>`. Can be configured via environment variable `TELEMETRY_NAME`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<Option<String>>`[^1]. Can be configured via environment variable `TELEMETRY_NAME`
 
 ```json
 null
@@ -649,7 +638,7 @@ null
 
 The url of the telemetry, e.g., ws://127.0.0.1:8001/submit
 
-Has type `Option<Option<Url>>`. Can be configured via environment variable `TELEMETRY_URL`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<Option<Url>>`[^1]. Can be configured via environment variable `TELEMETRY_URL`
 
 ```json
 null
@@ -659,7 +648,7 @@ null
 
 `Torii` configuration
 
-Has type `Option<torii::ConfigurationProxy>`. Can be configured via environment variable `IROHA_TORII`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<torii::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_TORII`
 
 ```json
 {
@@ -675,7 +664,7 @@ Has type `Option<torii::ConfigurationProxy>`. Can be configured via environment 
 
 Torii URL for client API.
 
-Has type `Option<String>`. Can be configured via environment variable `TORII_API_URL`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<String>`[^1]. Can be configured via environment variable `TORII_API_URL`
 
 ```json
 null
@@ -685,7 +674,7 @@ null
 
 Maximum number of bytes in raw message. Used to prevent from DOS attacks.
 
-Has type `Option<u32>`. Can be configured via environment variable `TORII_MAX_CONTENT_LEN`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `TORII_MAX_CONTENT_LEN`
 
 ```json
 16384000
@@ -695,7 +684,7 @@ Has type `Option<u32>`. Can be configured via environment variable `TORII_MAX_CO
 
 Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
 
-Has type `Option<u32>`. Can be configured via environment variable `TORII_MAX_TRANSACTION_SIZE`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `TORII_MAX_TRANSACTION_SIZE`
 
 ```json
 32768
@@ -705,7 +694,7 @@ Has type `Option<u32>`. Can be configured via environment variable `TORII_MAX_TR
 
 Torii URL for p2p communication for consensus and block synchronization purposes.
 
-Has type `Option<String>`. Can be configured via environment variable `TORII_P2P_ADDR`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<String>`[^1]. Can be configured via environment variable `TORII_P2P_ADDR`
 
 ```json
 null
@@ -715,7 +704,7 @@ null
 
 Torii URL for reporting internal status and metrics for administration.
 
-Has type `Option<String>`. Can be configured via environment variable `TORII_TELEMETRY_URL`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<String>`[^1]. Can be configured via environment variable `TORII_TELEMETRY_URL`
 
 ```json
 null
@@ -725,7 +714,7 @@ null
 
 `WorldStateView` configuration
 
-Has type `Option<wsv::ConfigurationProxy>`. Can be configured via environment variable `IROHA_WSV`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<wsv::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_WSV`
 
 ```json
 {
@@ -760,7 +749,7 @@ Has type `Option<wsv::ConfigurationProxy>`. Can be configured via environment va
 
 [`MetadataLimits`] of any account metadata.
 
-Has type `Option<MetadataLimits>`. Can be configured via environment variable `WSV_ACCOUNT_METADATA_LIMITS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<MetadataLimits>`[^1]. Can be configured via environment variable `WSV_ACCOUNT_METADATA_LIMITS`
 
 ```json
 {
@@ -773,7 +762,7 @@ Has type `Option<MetadataLimits>`. Can be configured via environment variable `W
 
 [`MetadataLimits`] of any asset definition metadata.
 
-Has type `Option<MetadataLimits>`. Can be configured via environment variable `WSV_ASSET_DEFINITION_METADATA_LIMITS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<MetadataLimits>`[^1]. Can be configured via environment variable `WSV_ASSET_DEFINITION_METADATA_LIMITS`
 
 ```json
 {
@@ -786,7 +775,7 @@ Has type `Option<MetadataLimits>`. Can be configured via environment variable `W
 
 [`MetadataLimits`] for every asset with store.
 
-Has type `Option<MetadataLimits>`. Can be configured via environment variable `WSV_ASSET_METADATA_LIMITS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<MetadataLimits>`[^1]. Can be configured via environment variable `WSV_ASSET_METADATA_LIMITS`
 
 ```json
 {
@@ -799,7 +788,7 @@ Has type `Option<MetadataLimits>`. Can be configured via environment variable `W
 
 [`MetadataLimits`] of any domain metadata.
 
-Has type `Option<MetadataLimits>`. Can be configured via environment variable `WSV_DOMAIN_METADATA_LIMITS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<MetadataLimits>`[^1]. Can be configured via environment variable `WSV_DOMAIN_METADATA_LIMITS`
 
 ```json
 {
@@ -812,7 +801,7 @@ Has type `Option<MetadataLimits>`. Can be configured via environment variable `W
 
 [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
 
-Has type `Option<LengthLimits>`. Can be configured via environment variable `WSV_IDENT_LENGTH_LIMITS`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<LengthLimits>`[^1]. Can be configured via environment variable `WSV_IDENT_LENGTH_LIMITS`
 
 ```json
 {
@@ -825,7 +814,7 @@ Has type `Option<LengthLimits>`. Can be configured via environment variable `WSV
 
 WASM runtime configuration
 
-Has type `Option<wasm::ConfigurationProxy>`. Can be configured via environment variable `WSV_WASM_RUNTIME_CONFIG`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<wasm::ConfigurationProxy>`[^1]. Can be configured via environment variable `WSV_WASM_RUNTIME_CONFIG`
 
 ```json
 {
@@ -838,7 +827,7 @@ Has type `Option<wasm::ConfigurationProxy>`. Can be configured via environment v
 
 The fuel limit determines the maximum number of instructions that can be executed within a smart contract.
 
-Has type `Option<u64>`. Can be configured via environment variable `WASM_FUEL_LIMIT`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u64>`[^1]. Can be configured via environment variable `WASM_FUEL_LIMIT`
 
 ```json
 1000000
@@ -848,7 +837,7 @@ Has type `Option<u64>`. Can be configured via environment variable `WASM_FUEL_LI
 
 Maximum amount of linear memory a given smart contract can allocate.
 
-Has type `Option<u32>`. Can be configured via environment variable `WASM_MAX_MEMORY`. Refer to [configuration types](#configuration-types) for details.
+Has type `Option<u32>`[^1]. Can be configured via environment variable `WASM_MAX_MEMORY`
 
 ```json
 524288000
