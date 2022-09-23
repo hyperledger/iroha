@@ -44,8 +44,10 @@ pub enum Args {
     Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
-    /// Generate the default genesis block that is used in tests
+    /// Generate the genesis block that is used in tests
     Genesis(genesis::Args),
+    /// Generate the default client configuration
+    Client(client::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
@@ -60,6 +62,7 @@ impl<T: Write> RunArgs<T> for Args {
             Crypto(args) => args.run(writer),
             Schema(args) => args.run(writer),
             Genesis(args) => args.run(writer),
+            Client(args) => args.run(writer),
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
         }
@@ -299,6 +302,50 @@ mod genesis {
         );
         genesis.transactions[0].isi.extend(mints);
         Ok(genesis)
+    }
+}
+
+mod client {
+    use std::str::FromStr as _;
+
+    use iroha_config::{
+        base::proxy::Builder,
+        client::{BasicAuth, ConfigurationProxy, WebLogin},
+        torii::DEFAULT_TORII_TELEMETRY_URL,
+    };
+    use iroha_crypto::{Algorithm, PrivateKey, PublicKey};
+    use iroha_primitives::small::SmallStr;
+
+    use super::*;
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            let config = ConfigurationProxy {
+                torii_api_url: Some(SmallStr::from_str("http://127.0.0.1:8080")),
+                torii_telemetry_url: Some(SmallStr::from_string(
+                    format!("http://{}", DEFAULT_TORII_TELEMETRY_URL))
+                ),
+                account_id: Some("alice@wonderland".parse()?),
+                basic_auth: Some(Some(BasicAuth {
+                    web_login: WebLogin::new("mad_hatter")?,
+                    password: SmallStr::from_str("ilovetea"),
+                })),
+                public_key: Some(PublicKey::from_str(
+                    "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+                )?),
+                private_key: Some(PrivateKey::from_hex(
+                    Algorithm::Ed25519,
+                    "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                )?),
+                ..ConfigurationProxy::default()
+            }
+            .build()?;
+            writeln!(writer, "{}", serde_json::to_string_pretty(&config)?)
+                .wrap_err("Failed to write.")
+        }
     }
 }
 
