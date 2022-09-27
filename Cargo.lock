@@ -2380,6 +2380,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_permissions_validators",
+ "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
  "serde_json",
