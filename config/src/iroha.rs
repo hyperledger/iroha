@@ -213,7 +213,10 @@ mod tests {
     fn parse_example_json() -> Result<()> {
         let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH)
             .wrap_err("Failed to read configuration from example config")?;
-        assert_eq!("127.0.0.1:1337", cfg_proxy.torii.unwrap().p2p_addr.unwrap());
+        assert_eq!(
+            "./storage",
+            cfg_proxy.kura.unwrap().block_store_path.unwrap()
+        );
         assert_eq!(
             10000,
             cfg_proxy.block_sync.unwrap().gossip_period_ms.unwrap()

@@ -32,6 +32,7 @@ iroha_data_model = { version = "=2.0.0-pre-rc.8", path = "../../data_model" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.8", path = "../../schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.8", path = "../../schema" }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.8", path = "../../permissions_validators" }
+iroha_primitives = { version = "2.0.0-pre-rc.8", path = "../../primitives" }
 
 color-eyre = "0.6.2"
 clap = { version = "3.2.16", features = ["derive"] }
