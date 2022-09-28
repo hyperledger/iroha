@@ -485,8 +485,8 @@ mod trigger {
     pub enum TriggerEvent {
         Created(TriggerId),
         Deleted(TriggerId),
-        Extended(TriggerId),
-        Shortened(TriggerId),
+        Extended(TriggerExtended),
+        Shortened(TriggerShortened),
     }
 
     impl HasOrigin for TriggerEvent {
@@ -496,10 +496,52 @@ mod trigger {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Extended(id)
-                | Self::Shortened(id) => id,
+                | Self::Extended(TriggerExtended { trigger_id: id, .. })
+                | Self::Shortened(TriggerShortened { trigger_id: id, .. }) => id,
             }
         }
+    }
+
+    /// [`TriggerShortened`] event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct TriggerShortened {
+        pub trigger_id: TriggerId,
+        pub by: u32,
+    }
+
+    /// [`TriggerExtended`] event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct TriggerExtended {
+        pub trigger_id: TriggerId,
+        pub by: u32,
     }
 }
 
@@ -648,7 +690,9 @@ pub mod prelude {
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::{PermissionTokenEvent, PermissionValidatorEvent},
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
-        trigger::{TriggerEvent, TriggerEventFilter, TriggerFilter},
+        trigger::{
+            TriggerEvent, TriggerEventFilter, TriggerExtended, TriggerFilter, TriggerShortened,
+        },
         Event as DataEvent, HasOrigin, WorldEvent,
     };
 }
