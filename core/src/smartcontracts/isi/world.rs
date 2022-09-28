@@ -179,7 +179,10 @@ pub mod isi {
                         error!(%role_id, "role not found - this is a bug");
                     }
 
-                    Ok(AccountEvent::RoleRevoked(account_id))
+                    Ok(AccountEvent::RoleRevoked(AccountRoleRevoked {
+                        account_id,
+                        role_id: role_id.clone(),
+                    }))
                 })?;
             }
 
@@ -315,7 +318,10 @@ pub mod isi {
                         error!(%token, "token not found - this is a bug");
                     }
 
-                    Ok(AccountEvent::PermissionRemoved(id.clone()))
+                    Ok(AccountEvent::PermissionRemoved(AccountPermissionRemoved {
+                        account_id: id.clone(),
+                        permission_id: token.definition_id().clone(),
+                    }))
                 })?;
             }
         }

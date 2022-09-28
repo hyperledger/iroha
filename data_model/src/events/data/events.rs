@@ -298,10 +298,10 @@ mod account {
         Deleted(AccountId),
         AuthenticationAdded(AccountId),
         AuthenticationRemoved(AccountId),
-        PermissionAdded(AccountId),
-        PermissionRemoved(AccountId),
-        RoleRevoked(AccountId),
-        RoleGranted(AccountId),
+        PermissionAdded(AccountPermissionAdded),
+        PermissionRemoved(AccountPermissionRemoved),
+        RoleRevoked(AccountRoleRevoked),
+        RoleGranted(AccountRoleGranted),
         MetadataInserted(AccountId),
         MetadataRemoved(AccountId),
     }
@@ -316,14 +316,98 @@ mod account {
                 | Self::Deleted(id)
                 | Self::AuthenticationAdded(id)
                 | Self::AuthenticationRemoved(id)
-                | Self::PermissionAdded(id)
-                | Self::PermissionRemoved(id)
-                | Self::RoleRevoked(id)
-                | Self::RoleGranted(id)
+                | Self::PermissionAdded(AccountPermissionAdded { account_id: id, .. })
+                | Self::PermissionRemoved(AccountPermissionRemoved { account_id: id, .. })
+                | Self::RoleRevoked(AccountRoleRevoked { account_id: id, .. })
+                | Self::RoleGranted(AccountRoleGranted { account_id: id, .. })
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }
         }
+    }
+
+    /// [`AccountPermissionAdded`] event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct AccountPermissionAdded {
+        pub account_id: AccountId,
+        pub permission_id: PermissionTokenId,
+    }
+
+    /// [`AccountPermissionRemoved`] event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct AccountPermissionRemoved {
+        pub account_id: AccountId,
+        pub permission_id: PermissionTokenId,
+    }
+
+    /// [`AccountRoleGranted`] event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct AccountRoleGranted {
+        pub account_id: AccountId,
+        pub role_id: RoleId,
+    }
+
+    /// [`AccountRoleRevoked`] event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Debug,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct AccountRoleRevoked {
+        pub account_id: AccountId,
+        pub role_id: RoleId,
     }
 }
 
@@ -552,7 +636,10 @@ impl From<WorldEvent> for SmallVec<[Event; 3]> {
 
 pub mod prelude {
     pub use super::{
-        account::{AccountEvent, AccountEventFilter, AccountFilter},
+        account::{
+            AccountEvent, AccountEventFilter, AccountFilter, AccountPermissionAdded,
+            AccountPermissionRemoved, AccountRoleGranted, AccountRoleRevoked,
+        },
         asset::{
             AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter, AssetEvent,
             AssetEventFilter, AssetFilter,

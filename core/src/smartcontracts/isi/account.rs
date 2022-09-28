@@ -212,8 +212,13 @@ pub mod isi {
                     return Err(ValidationError::new("Permission already exists").into());
                 }
 
+                let permission_id = permission.definition_id().clone();
+
                 wsv.add_account_permission(id, permission);
-                Ok(AccountEvent::PermissionAdded(id.clone()))
+                Ok(AccountEvent::PermissionAdded(AccountPermissionAdded {
+                    account_id: id.clone(),
+                    permission_id,
+                }))
             })
         }
     }
@@ -236,7 +241,10 @@ pub mod isi {
                 if !wsv.remove_account_permission(&account_id, &permission) {
                     return Err(ValidationError::new("Permission not found").into());
                 }
-                Ok(AccountEvent::PermissionRemoved(account_id.clone()))
+                Ok(AccountEvent::PermissionRemoved(AccountPermissionRemoved {
+                    account_id: account_id.clone(),
+                    permission_id: permission.definition_id().clone(),
+                }))
             })
         }
     }
@@ -266,7 +274,10 @@ pub mod isi {
                     ));
                 }
 
-                Ok(AccountEvent::RoleGranted(account_id))
+                Ok(AccountEvent::RoleGranted(AccountRoleGranted {
+                    account_id,
+                    role_id,
+                }))
             })
         }
     }
@@ -289,7 +300,10 @@ pub mod isi {
                     return Err(FindError::Account(account_id).into());
                 }
 
-                Ok(AccountEvent::RoleRevoked(account_id))
+                Ok(AccountEvent::RoleRevoked(AccountRoleRevoked {
+                    account_id,
+                    role_id,
+                }))
             })
         }
     }
