@@ -86,7 +86,6 @@ declare_item! {
         FfiType,
         IntoSchema,
     )]
-    #[id(type = "<Domain as Identifiable>::Id")]
     #[display(fmt = "[{id}]")]
     pub struct NewDomain {
         /// The identification associated with the domain builder.
@@ -138,11 +137,6 @@ impl NewDomain {
         }
     }
 
-    /// Identification
-    pub(crate) fn id(&self) -> &<Domain as Identifiable>::Id {
-        &self.id
-    }
-
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
     pub fn with_logo(mut self, logo: IpfsPath) -> Self {
@@ -178,10 +172,9 @@ declare_item! {
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "[{id}]")]
-    #[id(type = "Id")]
     pub struct Domain {
         /// Identification of this [`Domain`].
-        id: <Self as Identifiable>::Id,
+        id: Id,
         /// [`Account`]s of the domain.
         accounts: AccountsMap,
         /// [`Asset`](AssetDefinition)s defined of the `Domain`.
