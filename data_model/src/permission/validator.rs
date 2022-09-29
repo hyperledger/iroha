@@ -7,6 +7,7 @@
 //! In the future they will be replaced with *runtime validators* that use WASM.
 //! The architecture of the new validators is quite different from the old ones.
 //! That's why some parts of this module may not be used anywhere yet.
+use iroha_data_model_derive::IdOrdEqHash;
 use iroha_ffi::FfiType;
 
 use super::*;
@@ -42,9 +43,8 @@ declare_item! {
     )]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "{id}")]
-    #[id(type = "Id")]
     pub struct Validator {
-        id: <Self as Identifiable>::Id,
+        id: Id,
         #[getset(get = "pub")]
         /// Type of the validator
         validator_type: Type,

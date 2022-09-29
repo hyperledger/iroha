@@ -1,120 +1,121 @@
-#![allow(clippy::expect_used, clippy::mixed_read_write_in_expression)]
+#![allow(clippy::str_to_string, clippy::mixed_read_write_in_expression)]
 
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
+use proc_macro_error::abort;
 use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream},
-    Attribute, Field, Generics, Ident, Token, TypePath, Visibility,
-};
+use syn::parse_quote;
 
-pub struct IdInput {
-    ident: Ident,
-    id_type: TypePath,
-}
+fn derive_identifiable(input: &syn::ItemStruct) -> TokenStream {
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let (id_type, id_expr) = get_id_type(input);
 
-impl Parse for IdInput {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let attrs = input.call(Attribute::parse_outer)?;
-        let id_type = parse_id_attribute(&attrs);
+    quote! {
+        impl #impl_generics Identifiable for #name #ty_generics #where_clause {
+            type Id = #id_type;
 
-        let _vis = input.parse::<Visibility>()?;
-        let _struct_token = input.parse::<Token![struct]>()?;
-        let ident = input.parse()?;
-        let _generics = input.parse::<Generics>()?;
-        let content;
-        let _brace_token = syn::braced!(content in input);
-        let _struct_fields = content.parse_terminated::<Field, Token![,]>(Field::parse_named)?;
-
-        Ok(IdInput { ident, id_type })
+            #[inline]
+            fn id(&self) -> &Self::Id {
+                #id_expr
+            }
+        }
     }
 }
 
-fn impl_ordeqhash(ast: &IdInput) -> proc_macro2::TokenStream {
-    let name = &ast.ident;
+pub fn impl_id(input: &syn::ItemStruct) -> TokenStream {
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let identifiable_derive = derive_identifiable(input);
 
     quote! {
-        impl core::cmp::PartialOrd for #name {
+        #identifiable_derive
+
+        impl #impl_generics ::core::cmp::PartialOrd for #name #ty_generics #where_clause where Self: Identifiable {
             #[inline]
-            fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
                 Some(self.cmp(other))
             }
         }
 
-        impl core::cmp::Ord for #name {
-            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        impl #impl_generics ::core::cmp::Ord for #name #ty_generics #where_clause where Self: Identifiable {
+            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
                 self.id().cmp(other.id())
             }
         }
 
-        impl core::cmp::PartialEq for #name {
+        impl #impl_generics ::core::cmp::Eq for #name #ty_generics #where_clause where Self: Identifiable  {}
+        impl #impl_generics ::core::cmp::PartialEq for #name #ty_generics #where_clause  where Self: Identifiable {
             fn eq(&self, other: &Self) -> bool {
                 self.id() == other.id()
             }
         }
 
-        impl core::cmp::Eq for #name {}
-
-        impl core::hash::Hash for #name {
-            fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        impl #impl_generics ::core::hash::Hash for #name #ty_generics #where_clause  where Self: Identifiable {
+            fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
                 self.id().hash(state);
             }
         }
     }
 }
 
-pub fn impl_id(ast: &IdInput) -> TokenStream {
-    let id = &ast.id_type;
-    let name = &ast.ident;
+fn get_id_type(input: &syn::ItemStruct) -> (TokenStream, TokenStream) {
+    match &input.fields {
+        syn::Fields::Named(fields) => {
+            for field in &fields.named {
+                let (field_name, field_ty) = (&field.ident, &field.ty);
 
-    let ordeqhash = impl_ordeqhash(ast);
-
-    let body = if ast.ident.to_string().starts_with("NewRole") {
-        // `NewRole` struct only has unconventional body
-        quote! { &self.inner.id }
-    } else {
-        // Most usual case for many `data_model` structs
-        quote! { &self.id }
-    };
-    quote! {
-        impl Identifiable for #name {
-            type Id = #id;
-
-            #[inline]
-            fn id(&self) -> &Self::Id {
-                #body
+                if is_identifier(&field.attrs) {
+                    return (quote! {#field_ty}, quote! {&self.#field_name});
+                }
+                if is_transparent(&field.attrs) {
+                    return (
+                        quote! {<#field_ty as Identifiable>::Id},
+                        quote! {Identifiable::id(&self.#field_name)},
+                    );
+                }
             }
         }
-        #ordeqhash
+        syn::Fields::Unnamed(fields) => {
+            for (i, field) in fields.unnamed.iter().enumerate() {
+                let (field_id, field_ty): (syn::Index, _) = (i.into(), &field.ty);
+
+                if is_identifier(&field.attrs) {
+                    return (quote! {#field_ty}, quote! {&self.#field_id});
+                }
+                if is_transparent(&field.attrs) {
+                    return (
+                        quote! {<#field_ty as Identifiable>::Id},
+                        quote! {Identifiable::id(&self.#field_id)},
+                    );
+                }
+            }
+        }
+        syn::Fields::Unit => {}
     }
-    .into()
+
+    match &input.fields {
+        syn::Fields::Named(named) => {
+            for field in &named.named {
+                let field_ty = &field.ty;
+
+                #[allow(clippy::expect_used)]
+                if field.ident.as_ref().expect("Field must be named") == "id" {
+                    return (quote! {#field_ty}, quote! {&self.id});
+                }
+            }
+        }
+        syn::Fields::Unnamed(_) | syn::Fields::Unit => {}
+    }
+
+    abort!(input, "Identifier not found")
 }
 
-/// Find an attribute that is called `id`, parse only the provided
-/// literal inside it. E.g. if it is #[id(type = "Id")], only `Id`
-/// is extracted. Technically, the first component inside parentheses
-/// could be anything with the current implementation.
-fn parse_id_attribute(attrs: &[Attribute]) -> TypePath {
+fn is_identifier(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| attr == &parse_quote! {#[id]})
+}
+
+fn is_transparent(attrs: &[syn::Attribute]) -> bool {
     attrs
         .iter()
-        .find_map(|attr| {
-            attr.path.is_ident("id").then(|| match attr.parse_meta() {
-                Ok(syn::Meta::List(syn::MetaList { nested, .. })) => {
-                    nested.iter().find_map(|m| match m {
-                        syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue {
-                            lit: syn::Lit::Str(inner),
-                            ..
-                        })) => {
-                            let path = inner
-                                .parse::<syn::TypePath>()
-                                .expect("Failed to parse the provided literal");
-                            Some(path)
-                        }
-                        _ => None,
-                    })
-                }
-                _ => None,
-            })
-        })
-        .flatten()
-        .expect("Should provide a valid type as an attribute to derive `Identifiable`")
+        .any(|attr| attr == &parse_quote! {#[id(transparent)]})
 }

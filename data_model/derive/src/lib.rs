@@ -1,4 +1,5 @@
 //! A crate containing various derive macros for `data_model`
+#![allow(clippy::std_instead_of_core)]
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
@@ -6,61 +7,41 @@ use syn::parse_macro_input;
 mod filter;
 mod id;
 
-/// A derive macro for `Identifiable` trait and id-based comparison traits. Currently supports derivations only for
-/// `IdBox` and structs from the `data_model` crate that don't have generic parameters.
+/// Derive macro for `Identifiable` trait which also automatically implements [`Ord`], [`Eq`],
+/// and [`Hash`] for the annotated struct by delegating to it's identifier field. Identifier
+/// field for the struct can be selected by annotating the desired field with `#[id]` or
+/// `#[id(transparent)]`. The use of `transparent` assumes that the field is also `Identifiable`,
+/// and the macro takes the field identifier of the annotated structure. In the absence
+/// of any helper attribute, the macro uses the field named `id` if there is such a field.
+/// Otherwise, the macro expansion fails.
 ///
-/// As such, the macro introduces a new
-/// outer attribute `id` for the entities it is derived from. This attribute should
-/// be supplied with the associated type to be used in `impl Identifiable`. The type
-/// should be supplied as a string literal that constitutes a
-/// legal Rust type path.
-///
-/// As this macro also derives an implementation of `Ord`, `PartialOrd`, `Eq`, `PartialEq` and `Hash` traits that always
-/// conforms to the same implementation principles based on ids of the entities.
-/// Thus none of the entities that derive this macro should derive neither of the aforementioned traits,
-/// as they will be overridden.
-///
-/// As a rule of thumb, this derive should never be used on any structs that can't be uniquely identifiable,
-/// as all the derived traits here rely on the fact of that uniqueness.
+/// The macro should never be used on structs that aren't uniquely identifiable
 ///
 /// # Examples
+///
+/// The common use-case:
 ///
 /// ```rust
 /// use iroha_data_model_derive::IdOrdEqHash;
 /// use iroha_data_model::Identifiable;
-///
-/// #[derive(Debug, IdOrdEqHash)]
-/// #[id(type = "Id")]
-/// struct Struct {
-///     id: <Self as Identifiable>::Id,
-/// }
 ///
 /// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// struct Id {
 ///     name: u32,
 /// }
 ///
-/// ```
-///
-/// Deriving [`IdOrdEqHash`] for `Struct` expands as follows:
-///
-/// ```rust
-/// # use iroha_data_model::Identifiable;
-/// #
-/// # #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// # struct Id {
-/// #     name: u32,
-/// # }
-/// #[derive(Debug)]
+/// #[derive(Debug, IdOrdEqHash)]
 /// struct Struct {
-///     id: <Self as Identifiable>::Id,
+///     id: Id,
 /// }
 ///
+/// /* which will expand into:
 /// impl Identifiable for Struct {
 ///     type Id = Id;
+///
 ///     #[inline]
 ///     fn id(&self) -> &Self::Id {
-///         &self.id
+///         &self.field
 ///     }
 /// }
 ///
@@ -89,13 +70,37 @@ mod id;
 ///     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
 ///         self.id().hash(state);
 ///     }
+/// }*/
+/// ```
+///
+/// Manual selection of the identifier field:
+///
+/// ```rust
+/// use iroha_data_model_derive::IdOrdEqHash;
+/// use iroha_data_model::Identifiable;
+///
+/// #[derive(Debug, IdOrdEqHash)]
+/// struct InnerStruct {
+///     #[id]
+///     field: Id,
 /// }
 ///
+/// #[derive(Debug, IdOrdEqHash)]
+/// struct Struct {
+///     #[id(transparent)]
+///     inner: InnerStruct,
+/// }
+///
+/// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// struct Id {
+///     name: u32,
+/// }
 /// ```
+///
+#[proc_macro_error::proc_macro_error]
 #[proc_macro_derive(IdOrdEqHash, attributes(id))]
 pub fn id_derive(input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as id::IdInput);
-    id::impl_id(&ast)
+    id::impl_id(&parse_macro_input!(input)).into()
 }
 
 /// [`Filter`] is used for code generation of `...Filter` structs and `...EventFilter` enums, as well as
@@ -111,8 +116,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// TODO Remove `ignore` #2604. Needs to be fixed
-/// ```ignore
+/// ```
 /// use iroha_data_model_derive::{Filter, IdOrdEqHash};
 /// use iroha_data_model::prelude::{HasOrigin, Identifiable};
 /// use iroha_schema::IntoSchema;
@@ -173,89 +177,14 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///         }
 ///     }
 /// }
-///
 /// ```
 ///
-/// Deriving [`Filter`] for `LayerEvent` expands as follows:
-///  
-/// TODO Remove `ignore` #2604. Needs to be fixed
-/// ```ignore
-/// # use iroha_data_model_derive::{Filter, IdOrdEqHash};
-/// # use iroha_data_model::prelude::{HasOrigin, Identifiable};
-/// # use iroha_schema::IntoSchema;
-/// # use parity_scale_codec::{Decode, Encode};
-/// # use serde::{Deserialize, Serialize};
-/// #
-/// # #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
-/// # pub enum LayerEvent {
-/// #     SubLayer(SubLayerEvent),
-/// #     Created(LayerId),
-/// # }
-/// #
-/// # #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
-/// # pub enum SubLayerEvent {
-/// #     Created(SubLayerId),
-/// # }
-/// #
-/// # #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
-/// # pub struct LayerId {
-/// #     name: u32,
-/// # }
-/// #
-/// # #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
-/// # pub struct SubLayerId {
-/// #     name: u32,
-/// #     parent_id: LayerId,
-/// # }
-/// #
-/// # #[derive(Debug, Clone, IdOrdEqHash)]
-/// # #[id(type = "LayerId")]
-/// # pub struct Layer {
-/// #     id: <Self as Identifiable>::Id,
-/// # }
-/// #
-/// # #[derive(Debug, Clone, IdOrdEqHash)]
-/// # #[id(type = "SubLayerId")]
-/// # pub struct SubLayer {
-/// #     id: <Self as Identifiable>::Id,
-/// # }
-/// #
-/// # impl HasOrigin for LayerEvent {
-/// #     type Origin = Layer;
-/// #
-/// #     fn origin_id(&self) -> &<Layer as Identifiable>::Id {
-/// #         match self {
-/// #             Self::SubLayer(sub_layer) => &sub_layer.origin_id().parent_id,
-/// #             Self::Created(id) => id,
-/// #         }
-/// #     }
-/// # }
-/// #
-/// # impl HasOrigin for SubLayerEvent {
-/// #     type Origin = SubLayer;
-/// #
-/// #     fn origin_id(&self) -> &<SubLayer as Identifiable>::Id {
-/// #         match self {
-/// #             Self::Created(id) => id,
-/// #         }
-/// #     }
-/// # }
-/// #
-/// #[derive(
-///     Clone,
-///     PartialEq,
-///     PartialOrd,
-///     Ord,
-///     Eq,
-///     Debug,
-///     Decode,
-///     Encode,
-///     Deserialize,
-///     Serialize,
-///     IntoSchema,
-///     Hash,
-/// )]
+/// Deriving [`Filter`] for `LayerEvent` expands into:
+///
+/// ```
+/// /*
 /// #[doc = " Filter for LayerEvent entity"]
+/// #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
 /// pub struct LayerFilter {
 ///     origin_filter:
 ///         crate::prelude::FilterOpt<crate::prelude::OriginFilter<crate::prelude::LayerEvent>>,
@@ -293,22 +222,9 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///         self.origin_filter.matches(event) && self.event_filter.matches(event)
 ///     }
 /// }
-/// #[derive(
-///     Clone,
-///     PartialEq,
-///     PartialOrd,
-///     Ord,
-///     Eq,
-///     Debug,
-///     Decode,
-///     Encode,
-///     Deserialize,
-///     Serialize,
-///     IntoSchema,
-///     Hash,
-/// )]
-/// #[allow(clippy::enum_variant_names, missing_docs)]
 /// #[doc = " Event filter for LayerEvent entity"]
+/// #[allow(clippy::enum_variant_names, missing_docs)]
+/// #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
 /// pub enum LayerEventFilter {
 ///     ByCreated,
 ///     BySubLayer(crate::prelude::FilterOpt<SubLayerFilter>),
@@ -324,8 +240,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///             _ => false,
 ///         }
 ///     }
-/// }
-///
+/// } */
 /// ```
 #[proc_macro_derive(Filter)]
 pub fn filter_derive(input: TokenStream) -> TokenStream {

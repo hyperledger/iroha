@@ -144,7 +144,6 @@ declare_item! {
         FfiType,
         IntoSchema,
     )]
-    #[id(type = "<Account as Identifiable>::Id")]
     #[display(fmt = "[{id}]")]
     pub struct NewAccount {
         /// Identification
@@ -197,11 +196,6 @@ impl NewAccount {
         }
     }
 
-    /// Identification
-    pub(crate) fn id(&self) -> &<Account as Identifiable>::Id {
-        &self.id
-    }
-
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
@@ -229,10 +223,9 @@ declare_item! {
     )]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "({id})")] // TODO: Add more?
-    #[id(type = "Id")]
     pub struct Account {
         /// An Identification of the [`Account`].
-        id: <Self as Identifiable>::Id,
+        id: Id,
         /// Assets in this [`Account`].
         assets: AssetsMap,
         /// [`Account`]'s signatories.

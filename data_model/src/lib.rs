@@ -917,15 +917,13 @@ where
     }
 }
 
-/// This trait marks entity that implement it as identifiable with an
-/// `Id` type. `Id`s are unique, which is relevant for `PartialOrd`
-/// and `PartialCmp` implementations.
-pub trait Identifiable: Debug {
-    /// The type of the `Id` of the entity.
-    type Id;
+/// Uniquely identifiable entity ([`Domain`], [`Account`], etc.).
+/// This trait should always be derived with [`IdOrdEqHash`]
+pub trait Identifiable: Ord + Eq + core::hash::Hash {
+    /// Type of the entity identifier
+    type Id: Ord + Eq + core::hash::Hash;
 
-    /// Get reference to the type's `Id`. There should be no other
-    /// inherent `impl` with the same name (e.g. `getset`).
+    /// Get reference to the type identifier
     fn id(&self) -> &Self::Id;
 }
 

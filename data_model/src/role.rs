@@ -66,11 +66,10 @@ declare_item! {
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
     #[display(fmt = "{id}")]
     #[getset(get = "pub")]
-    #[id(type = "Id")]
     pub struct Role {
         /// Unique name of the role.
         #[getset(skip)]
-        id: <Self as Identifiable>::Id,
+        id: Id,
         /// Permission tokens.
         #[getset(skip)]
         permissions: Permissions,
@@ -120,8 +119,8 @@ impl Registered for Role {
     FfiType,
     IntoSchema,
 )]
-#[id(type = "<Role as Identifiable>::Id")]
 pub struct NewRole {
+    #[id(transparent)]
     inner: Role,
 }
 

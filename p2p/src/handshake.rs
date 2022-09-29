@@ -6,7 +6,8 @@
 use async_trait::async_trait;
 use iroha_actor::broker::Broker;
 use iroha_crypto::ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
-use iroha_data_model::peer;
+use iroha_data_model::{peer, Identifiable};
+use iroha_data_model_derive::IdOrdEqHash;
 use parity_scale_codec::{Decode, Encode};
 
 use crate::peer::{Connection, Cryptographer};
@@ -110,8 +111,8 @@ pub mod peer_state {
 
     /// Peer that is connecting. This is the initial stage of a new
     /// outgoing peer.
-    #[derive(Debug)]
-    pub struct Connecting(peer::Id, pub Broker);
+    #[derive(Debug, IdOrdEqHash)]
+    pub struct Connecting(#[id] peer::Id, pub Broker);
 
     impl Connecting {
         pub async fn connect_to(Self(id, broker): Self) -> Result<ConnectedTo, crate::Error> {
@@ -122,8 +123,8 @@ pub mod peer_state {
     }
 
     /// Peer that is being connected to.
-    #[derive(Debug)]
-    pub struct ConnectedTo(peer::Id, Broker, Connection);
+    #[derive(Debug, IdOrdEqHash)]
+    pub struct ConnectedTo(#[id] peer::Id, Broker, Connection);
 
     impl ConnectedTo {
         pub async fn send_client_hello<T: Pload, K: Kex, E: Enc>(
@@ -150,8 +151,8 @@ pub mod peer_state {
     }
 
     /// Peer that is being connected from
-    #[derive(Debug)]
-    pub struct ConnectedFrom(peer::Id, Broker, Connection);
+    #[derive(Debug, IdOrdEqHash)]
+    pub struct ConnectedFrom(#[id] peer::Id, Broker, Connection);
 
     impl ConnectedFrom {
         #[allow(clippy::expect_used)]
@@ -253,26 +254,10 @@ pub mod peer_state {
     );
 
     /// Peer in disconnected state.
-    #[derive(Debug)]
-    pub struct Disconnected(peer::Id);
+    #[derive(Debug, IdOrdEqHash)]
+    pub struct Disconnected(#[id] peer::Id);
 
     /// Peer in broken state.
-    #[derive(Debug)]
-    pub struct Broken(peer::Id, crate::Error);
-
-    macro_rules! impl_id {
-        [ $($ty:ty),* ] => {
-            $(
-            impl iroha_data_model::Identifiable for $ty {
-                type Id = iroha_data_model::peer::Id;
-
-                fn id(&self) -> &Self::Id {
-                    &self.0
-                }
-            }
-            )*
-        }
-    }
-
-    impl_id![Connecting, ConnectedTo, ConnectedFrom, Disconnected, Broken];
+    #[derive(Debug, IdOrdEqHash)]
+    pub struct Broken(#[id] peer::Id, crate::Error);
 }
