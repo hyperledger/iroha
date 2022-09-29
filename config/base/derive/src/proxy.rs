@@ -59,29 +59,26 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
             let as_str_attr = field.has_as_str;
             let ident = &field.ident;
             let field_env = &field.env_str;
-            let is_string = if let Type::Path(TypePath { path, .. }) = ty {
-                path.is_ident("String")
-            } else {
-                false
-            };
 
-            let set_field = if is_string {
-                quote! { #l_value = var }
-            } else if as_str_attr {
+            let set_field = {
+                let inner_ty = field.has_option.then(|| get_inner_type("Option", ty)).unwrap_or(ty);
+                let is_string = if let Type::Path(TypePath { path, .. }) = inner_ty {
+                    path.is_ident("String")
+                } else {
+                    false
+                };
+                let inner = if is_string {
+                    quote! { Ok(var) }
+                } else if as_str_attr {
+                    quote! { serde_json::from_value(var.into()) }
+                } else {
+                    quote! { serde_json::from_str(&var) }
+                };
                 quote! {
-                    #l_value = serde_json::from_value(var.into())
-                        .map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
-                }
-            } else if field.has_option {
-                quote! {
-                    #l_value = Some(serde_json::from_value(var.into())
-                        .map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?)
-                }
-            }
-            else {
-                quote! {
-                    #l_value = serde_json::from_str(&var)
-                        .map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
+                    let inner: Result<#inner_ty, _> = #inner;
+                    #l_value = <#ty as From<#inner_ty>>::from(
+                        inner.map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
+                    );
                 }
             };
 
@@ -103,7 +100,7 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
 
             quote! {
                 if let Ok(var) = std::env::var(#field_env) {
-                    #set_field;
+                    #set_field
                 }
                 #inner_thing2
             }
