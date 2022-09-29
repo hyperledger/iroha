@@ -303,7 +303,7 @@ pub mod string {
                 // Should we also include a check into string
                 // predicates? If the internal predicate starts with
                 // whitespace, it can't possibly match any Id, but
-                // there's no way to enforce this at both type leve
+                // there's no way to enforce this at both type level
                 // and run-time.
                 assert!(!Predicate::starts_with(" alice@").applies(&id));
                 assert!(!Predicate::ends_with("@wonderland ").applies(&id));
@@ -320,10 +320,10 @@ pub mod string {
                     definition_id,
                     account_id,
                 });
-                assert!(Predicate::starts_with("rose#wonderland").applies(&id));
-                assert!(Predicate::ends_with("@alice@wonderland").applies(&id));
-                assert!(Predicate::is("rose#wonderland@alice@wonderland").applies(&id)); // Feels weird
-                assert!(Predicate::contains("wonderland@alice").applies(&id));
+                assert!(Predicate::starts_with("rose#alice").applies(&id));
+                assert!(Predicate::ends_with("#alice@wonderland").applies(&id));
+                assert!(Predicate::is("rose#alice@wonderland").applies(&id));
+                assert!(Predicate::contains("#alice@").applies(&id));
             }
 
             #[test]
@@ -335,7 +335,7 @@ pub mod string {
                 // Should we also include a check into string
                 // predicates? If the internal predicate starts with
                 // whitespace, it can't possibly match any Id, but
-                // there's no way to enforce this at both type leve
+                // there's no way to enforce this at both type level
                 // and run-time.
                 assert!(!Predicate::starts_with(" rose#").applies(&id));
                 assert!(!Predicate::ends_with("#wonderland ").applies(&id));

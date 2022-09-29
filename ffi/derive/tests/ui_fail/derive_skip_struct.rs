@@ -1,10 +1,10 @@
-use std::{alloc::alloc, mem::MaybeUninit};
+use std::mem::MaybeUninit;
 
 use getset::{MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, FfiConvert, FfiType};
 
 /// FfiStruct
-#[derive(Clone, Setters, MutGetters, IntoFfi, TryFromReprC)]
+#[derive(Clone, Setters, MutGetters, FfiType)]
 #[getset(skip)]
 #[ffi_export]
 pub struct FfiStruct {
@@ -21,12 +21,18 @@ fn main() {
     let mut b = MaybeUninit::<*mut i32>::uninit();
 
     unsafe {
-        FfiStruct__a_mut(IntoFfi::into_ffi(&mut s), a.as_mut_ptr());
-        let a: &mut u32 = TryFromReprC::try_from_repr_c(a.assume_init(), &mut ()).unwrap();
-        FfiStruct__set_a(IntoFfi::into_ffi(&mut s), IntoFfi::into_ffi(*a));
+        FfiStruct__a_mut(FfiConvert::into_ffi(&mut s, &mut ()), a.as_mut_ptr());
+        let a: &mut u32 = FfiConvert::try_from_ffi(a.assume_init(), &mut ()).unwrap();
+        FfiStruct__set_a(
+            FfiConvert::into_ffi(&mut s, &mut ()),
+            FfiConvert::into_ffi(*a, &mut ()),
+        );
 
-        FfiStruct__b_mut(IntoFfi::into_ffi(&s), b.as_mut_ptr());
-        let b: &mut i32 = TryFromReprC::try_from_repr_c(b.assume_init(), &mut ()).unwrap();
-        FfiStruct__set_b(IntoFfi::into_ffi(&mut s), IntoFfi::into_ffi(*b));
+        FfiStruct__b_mut(FfiConvert::into_ffi(&s, &mut ()), b.as_mut_ptr());
+        let b: &mut i32 = FfiConvert::try_from_ffi(b.assume_init(), &mut ()).unwrap();
+        FfiStruct__set_b(
+            FfiConvert::into_ffi(&mut s, &mut ()),
+            FfiConvert::into_ffi(*b, &mut ()),
+        );
     }
 }

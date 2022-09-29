@@ -4,7 +4,7 @@ use quote::quote;
 
 use crate::{
     ffi_fn,
-    impl_visitor::{Arg, FnDescriptor, ReturnArg},
+    impl_visitor::{Arg, FnDescriptor},
     util::{gen_arg_ffi_to_src, gen_arg_src_to_ffi},
 };
 
@@ -25,8 +25,10 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
                 #(#attrs)*
                 #[repr(transparent)]
                 #vis #item_type #ident {
-                    __opaque_ptr: *mut iroha_ffi::Opaque
+                    __opaque_ptr: *mut iroha_ffi::Extern
                 };
+
+                unsafe impl iroha_ffi::ReprC for #ident {}
             }
         }
         syn::Data::Union(_) => {
@@ -76,7 +78,7 @@ fn gen_wrapper_method_body(fn_descriptor: &FnDescriptor) -> TokenStream {
 
 fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     if let Some(arg) = &fn_descriptor.receiver {
-        return gen_arg_ffi_to_src(arg, false);
+        return gen_arg_ffi_to_src(arg);
     }
 
     let mut stmts = quote! {};
@@ -88,7 +90,7 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 }
 
 fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
-    let ffi_fn_name = ffi_fn::gen_fn_name(fn_descriptor.self_ty_name(), &fn_descriptor.sig.ident);
+    let ffi_fn_name = ffi_fn::gen_fn_name(fn_descriptor);
     let arg_names: Vec<_> = fn_descriptor.input_args.iter().map(Arg::name).collect();
 
     quote! {
@@ -96,8 +98,8 @@ fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     }
 }
 
-fn gen_return_stmt(arg: &ReturnArg) -> TokenStream {
-    let (arg_name, output_arg_conversion) = (arg.name(), gen_arg_ffi_to_src(arg, true));
+fn gen_return_stmt(arg: &Arg) -> TokenStream {
+    let (arg_name, output_arg_conversion) = (arg.name(), gen_arg_ffi_to_src(arg));
 
     quote! {
         #output_arg_conversion

@@ -1,15 +1,15 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::{alloc::alloc, mem::MaybeUninit};
+use std::mem::MaybeUninit;
 
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, FfiType};
 
-#[derive(Debug, Clone, PartialEq, Eq, IntoFfi, TryFromReprC)]
+#[derive(Debug, Clone, PartialEq, Eq, FfiType)]
 pub struct Name(String);
 
 /// FfiStruct
-#[derive(Clone, Setters, Getters, MutGetters, IntoFfi, TryFromReprC)]
+#[derive(Clone, Setters, Getters, MutGetters, FfiType)]
 #[getset(get = "pub")]
 #[ffi_export]
 pub struct FfiStruct {

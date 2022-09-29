@@ -14,15 +14,13 @@ mod varint;
 #[cfg(not(feature = "std"))]
 use alloc::{alloc::alloc, borrow::ToOwned, boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
-#[cfg(feature = "std")]
-use std::alloc::alloc;
 
 #[cfg(feature = "base64")]
 pub use base64;
 use derive_more::{DebugCustom, Display, From};
 use getset::Getters;
 pub use hash::*;
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
@@ -66,7 +64,7 @@ impl std::error::Error for NoSuchAlgorithm {}
 
 ffi::ffi_item! {
     /// Algorithm for hashing
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, IntoFfi, TryFromReprC)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, FfiType)]
     #[repr(u8)]
     pub enum Algorithm {
         /// Ed25519
@@ -168,7 +166,7 @@ impl KeyGenConfiguration {
 
 ffi::ffi_item! {
     /// Pair of Public and Private keys.
-    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, IntoFfi, TryFromReprC)]
+    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, FfiType)]
     #[getset(get = "pub")]
     pub struct KeyPair {
         /// Public Key.
@@ -364,7 +362,7 @@ impl std::error::Error for KeyParseError {}
 
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, IntoFfi, TryFromReprC, IntoSchema)]
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, FfiType, IntoSchema)]
     #[debug(
         fmt = "{{ digest: {digest_function}, payload: {} }}",
         "hex::encode_upper(payload.as_slice())"
@@ -501,7 +499,7 @@ impl Decode for PublicKey {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, IntoFfi, TryFromReprC)]
+    #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, FfiType)]
     #[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
     #[display(fmt = "{}", "hex::encode(payload)")]
     #[allow(clippy::multiple_inherent_impl)]

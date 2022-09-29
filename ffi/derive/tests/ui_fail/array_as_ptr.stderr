@@ -1,0 +1,16 @@
+error[E0308]: mismatched types
+ --> tests/ui_fail/array_as_ptr.rs:9:17
+  |
+9 |     __array_arg(arg);
+  |     ----------- ^^^ expected *-ptr, found array `[u32; 2]`
+  |     |
+  |     arguments to this function are incorrect
+  |
+  = note: expected raw pointer `*mut u32`
+                   found array `[u32; 2]`
+note: function defined here
+ --> tests/ui_fail/array_as_ptr.rs:4:1
+  |
+4 | #[ffi_export]
+  | ^^^^^^^^^^^^^
+  = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)

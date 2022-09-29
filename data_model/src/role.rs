@@ -1,20 +1,20 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, boxed::Box, collections::btree_set, format, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
 #[cfg(feature = "std")]
-use std::{alloc::alloc, collections::btree_set};
+use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ffi::ffi_item,
+    ffi::declare_item,
     permission::{Permissions, Token as PermissionToken},
     Identifiable, Name, Registered,
 };
@@ -38,8 +38,7 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     Encode,
     Deserialize,
     Serialize,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[serde(transparent)]
@@ -48,7 +47,7 @@ pub struct Id {
     pub name: Name,
 }
 
-ffi_item! {
+declare_item! {
     /// Role is a tag for a set of permission tokens.
     #[derive(
         Debug,
@@ -60,8 +59,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
@@ -119,8 +117,7 @@ impl Registered for Role {
     Encode,
     Deserialize,
     Serialize,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[id(type = "<Role as Identifiable>::Id")]
