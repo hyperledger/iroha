@@ -1,13 +1,11 @@
 //! This module contains [`Name`](`crate::name::Name`) structure
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
-#[cfg(feature = "std")]
-use std::alloc::alloc;
 
 use derive_more::{DebugCustom, Display};
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -29,8 +27,7 @@ use crate::{ParseError, ValidationError};
     Hash,
     Encode,
     Serialize,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 // FIXME: #[repr(transparent)] (https://github.com/hyperledger/iroha/issues/2645)

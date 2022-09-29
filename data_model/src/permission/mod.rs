@@ -2,7 +2,6 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    alloc::alloc,
     boxed::Box,
     collections::{btree_map, btree_set},
     format,
@@ -10,21 +9,17 @@ use alloc::{
     vec::Vec,
 };
 #[cfg(feature = "std")]
-use std::{
-    alloc::alloc,
-    collections::{btree_map, btree_set},
-};
+use std::collections::{btree_map, btree_set};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::{IntoFfi, TryFromReprC};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-use crate::{ffi::ffi_item, IdBox, Identifiable, Name, Registered, Value, ValueKind};
+use crate::{ffi::declare_item, IdBox, Identifiable, Name, Registered, Value, ValueKind};
 
 pub mod token;
 pub mod validator;

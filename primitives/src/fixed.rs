@@ -2,13 +2,14 @@
 #![allow(clippy::std_instead_of_core)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use derive_more::Display;
 use fixnum::{
     ops::{Bounded, CheckedAdd, CheckedSub, Zero},
     ArithmeticError,
 };
+use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -44,8 +45,11 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
     Encode,
     Deserialize,
     Serialize,
+    FfiType,
     IntoSchema,
 )]
+// TODO: Make transparent
+//#[repr(transparent)]
 pub struct Fixed(FixNum);
 
 impl Fixed {

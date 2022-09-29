@@ -4,6 +4,7 @@
 use alloc::{format, string::String, vec::Vec};
 
 use iroha_crypto::Hash;
+use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -28,6 +29,7 @@ pub use crate::transaction::RejectionReason as PipelineRejectionReason;
     Hash,
     Serialize,
     Deserialize,
+    FfiType,
 )]
 pub struct EventFilter {
     /// If `Some::<EntityKind>` filters by the [`EntityKind`]. If `None` accepts all the [`EntityKind`].

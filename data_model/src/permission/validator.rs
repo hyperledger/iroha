@@ -7,6 +7,7 @@
 //! In the future they will be replaced with *runtime validators* that use WASM.
 //! The architecture of the new validators is quite different from the old ones.
 //! That's why some parts of this module may not be used anywhere yet.
+use iroha_ffi::FfiType;
 
 use super::*;
 use crate::{
@@ -18,7 +19,7 @@ use crate::{
     ParseError,
 };
 
-ffi_item! {
+declare_item! {
     /// Permission validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
@@ -36,8 +37,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[allow(clippy::multiple_inherent_impl)]
@@ -76,8 +76,7 @@ impl Registered for Validator {
     Encode,
     DeserializeFromStr,
     SerializeDisplay,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[display(fmt = "{name}%{account_id}")]

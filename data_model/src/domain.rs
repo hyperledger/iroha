@@ -7,16 +7,14 @@
 #![allow(clippy::std_instead_of_alloc)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::str::FromStr;
-#[cfg(feature = "std")]
-use std::alloc::alloc;
 
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
 use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -26,7 +24,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use crate::{
     account::{Account, AccountsMap},
     asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap},
-    ffi::ffi_item,
+    ffi::declare_item,
     metadata::Metadata,
     HasMetadata, Identifiable, Name, ParseError, Registered,
 };
@@ -74,7 +72,7 @@ impl From<GenesisDomain> for Domain {
     }
 }
 
-ffi_item! {
+declare_item! {
     /// Builder which can be submitted in a transaction to create a new [`Domain`]
     #[derive(
         Debug,
@@ -85,8 +83,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[id(type = "<Domain as Identifiable>::Id")]
@@ -161,7 +158,7 @@ impl NewDomain {
     }
 }
 
-ffi_item! {
+declare_item! {
     /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
     #[derive(
         Debug,
@@ -174,8 +171,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
@@ -350,8 +346,7 @@ impl FromIterator<Domain> for crate::Value {
     Encode,
     SerializeDisplay,
     DeserializeFromStr,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 pub struct IpfsPath(ConstString);
@@ -438,8 +433,7 @@ impl Decode for IpfsPath {
     Encode,
     DeserializeFromStr,
     SerializeDisplay,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[display(fmt = "{name}")]

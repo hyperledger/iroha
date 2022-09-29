@@ -4,11 +4,11 @@ use std::{marker::PhantomData, mem::MaybeUninit};
 
 use iroha_ffi::{
     ffi_export,
-    slice::{OutBoxedSlice, OutSliceRef, SliceRef},
-    AsReprCRef, FfiReturn, IntoFfi, TryFromReprC,
+    slice::{OutBoxedSlice, SliceRef},
+    FfiConvert, FfiReturn, FfiType,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, IntoFfi, TryFromReprC)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
 #[repr(transparent)]
 pub struct GenericTransparentStruct<P>(u64, PhantomData<P>);
 
@@ -18,10 +18,9 @@ impl<P> GenericTransparentStruct<P> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, IntoFfi, TryFromReprC)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
 #[repr(transparent)]
 pub struct TransparentStruct {
-    // NOTE: non-ZST enforced to be first field
     payload: GenericTransparentStruct<()>,
     _zst1: [u8; 0],
     _zst2: (),
@@ -73,11 +72,11 @@ fn transparent_self_to_self() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            __self_to_self(transparent_struct.into_ffi().as_ref(), output.as_mut_ptr())
+            __self_to_self(transparent_struct.into_ffi(&mut ()), output.as_mut_ptr())
         );
         assert_eq!(
             Ok(transparent_struct),
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ())
+            TransparentStruct::try_from_ffi(output.assume_init(), &mut ())
         );
     }
 }
@@ -96,13 +95,14 @@ fn transparent_vec_to_vec() {
         MaybeUninit::new(6),
     ];
     let mut len = MaybeUninit::new(0);
+    let mut store = Default::default();
     let output =
         OutBoxedSlice::from_uninit_slice(Some(transparent_struct_uninit.as_mut()), &mut len);
 
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            __vec_to_vec(transparent_struct_vec.clone().into_ffi().as_ref(), output,)
+            __vec_to_vec(transparent_struct_vec.clone().into_ffi(&mut store), output)
         );
 
         // NOTE: it's really inconvenient now to receive `Vec` from ffi
@@ -114,33 +114,36 @@ fn transparent_vec_to_vec() {
         {
             assert_eq!(
                 Ok(transparent_struct),
-                TryFromReprC::try_from_repr_c(output.assume_init(), &mut ())
+                TransparentStruct::try_from_ffi(output.assume_init(), &mut ())
             );
         }
     }
 }
 
 #[test]
+// False positive
+#[allow(clippy::let_unit_value)]
 fn transparent_slice_to_slice() {
     let transparent_struct_slice = [
         TransparentStruct::new(GenericTransparentStruct::new(1)),
         TransparentStruct::new(GenericTransparentStruct::new(2)),
         TransparentStruct::new(GenericTransparentStruct::new(3)),
     ];
-    let mut data_ptr = core::ptr::null();
-    let mut len = MaybeUninit::new(0);
-    let output = OutSliceRef::from_raw(Some(&mut data_ptr), &mut len);
+    let mut output = MaybeUninit::new(SliceRef::from_raw_parts(core::ptr::null(), 0));
 
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            __slice_to_slice(transparent_struct_slice.as_slice().into_ffi(), output)
+            __slice_to_slice(
+                transparent_struct_slice.as_slice().into_ffi(&mut ()),
+                output.as_mut_ptr()
+            )
         );
-        let slice_ref = SliceRef::from_raw_parts(data_ptr, len.assume_init());
-        assert_eq!(
-            Ok(transparent_struct_slice.as_slice()),
-            TryFromReprC::try_from_repr_c(slice_ref, &mut ())
-        );
+
+        let mut store = ();
+        let output: &[TransparentStruct] =
+            FfiConvert::try_from_ffi(output.assume_init(), &mut store).expect("Invalid output");
+        assert_eq!(output, transparent_struct_slice);
     }
 }
 
@@ -155,13 +158,13 @@ fn transparent_method_consume() {
         assert_eq!(
             FfiReturn::Ok,
             TransparentStruct__with_payload(
-                transparent_struct.into_ffi(),
-                payload.into_ffi(),
+                transparent_struct.into_ffi(&mut ()),
+                payload.into_ffi(&mut ()),
                 output.as_mut_ptr()
             )
         );
         transparent_struct =
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).expect("valid");
+            TransparentStruct::try_from_ffi(output.assume_init(), &mut ()).expect("valid");
 
         assert_eq!(transparent_struct.payload, payload);
     }
@@ -175,11 +178,14 @@ fn transparent_method_borrow() {
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            TransparentStruct__payload(IntoFfi::into_ffi(&transparent_struct), output.as_mut_ptr())
+            TransparentStruct__payload(
+                (&transparent_struct).into_ffi(&mut ()),
+                output.as_mut_ptr()
+            )
         );
         assert_eq!(
             Ok(&transparent_struct.payload),
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ())
+            <&GenericTransparentStruct<_>>::try_from_ffi(output.assume_init(), &mut ())
         );
     }
 }

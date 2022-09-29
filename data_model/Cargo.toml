@@ -23,7 +23,7 @@ default = ["std"]
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-ffi_import = ["iroha_crypto/ffi_import"]
+#ffi_import = ["iroha_crypto/ffi_import"]
 
 # Expose FFI API for dynamic linking (Internal use only)
 ffi_export = ["std", "iroha_crypto/ffi_export"]
