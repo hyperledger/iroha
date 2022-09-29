@@ -1,0 +1,18 @@
+error[E0277]: the trait bound `IrVec<FfiStruct, Opaque<FfiStruct>>: NonLocal` is not satisfied
+  --> tests/ui_fail/nested_owned_structure.rs:12:1
+   |
+12 | #[ffi_export]
+   | ^^^^^^^^^^^^^ the trait `NonLocal` is not implemented for `IrVec<FfiStruct, Opaque<FfiStruct>>`
+   |
+   = help: the following other types implement trait `NonLocal`:
+             &'__iroha_ffi_itm FfiStruct
+             &'__iroha_ffi_itm mut FfiStruct
+             &T
+             &mut T
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A, B, C, D, E)
+           and 17 others
+   = note: required because of the requirements on the impl of `COutPtr` for `IrVec<Vec<FfiStruct>, IrVec<FfiStruct, Opaque<FfiStruct>>>`
+   = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)

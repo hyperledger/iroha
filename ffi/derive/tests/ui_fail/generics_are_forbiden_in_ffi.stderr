@@ -1,23 +1,17 @@
 error: Generics are not supported
- --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:6:16
+ --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:5:16
   |
-6 | fn freestanding<T>(v: T) -> T { v }
+5 | fn freestanding<T>(v: T) -> T {
   |                ^^^
 
 error: Generics are not supported
-  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:11:21
+  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:12:21
    |
-11 | pub struct FfiStruct<T> {
+12 | pub struct FfiStruct<T> {
    |                     ^^^
 
 error[E0412]: cannot find type `FfiStruct` in this scope
-  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:11:12
+  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:12:12
    |
-11 | pub struct FfiStruct<T> {
+12 | pub struct FfiStruct<T> {
    |            ^^^^^^^^^ not found in this scope
-
-error[E0282]: type annotations needed
-  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:11:22
-   |
-11 | pub struct FfiStruct<T> {
-   |                      ^ cannot infer type for type parameter `T`

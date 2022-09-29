@@ -5,21 +5,32 @@ use alloc::{format, string::String, vec::Vec};
 use core::{cmp, str::FromStr};
 
 use derive_more::Display;
+use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{
-    events::prelude::*, metadata::Metadata, prelude::Domain, transaction::Executable, Identifiable,
-    Name, ParseError, Registered,
+    events::prelude::*, ffi, metadata::Metadata, prelude::Domain, transaction::Executable,
+    Identifiable, Name, ParseError, Registered,
 };
 
 pub mod set;
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FfiType,
+    IntoSchema,
 )]
 #[display(fmt = "@@{id}")]
 pub struct Trigger<F: Filter> {
@@ -146,26 +157,29 @@ impl Identifiable for Trigger<FilterBox> {
     }
 }
 
-/// Identification of a `Trigger`.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    IntoSchema,
-)]
-pub struct Id {
-    /// Name given to trigger by its creator.
-    pub name: Name,
-    /// DomainId of domain of the trigger.
-    pub domain_id: Option<<Domain as Identifiable>::Id>,
+ffi::declare_item! {
+    /// Identification of a `Trigger`.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        FfiType,
+        IntoSchema,
+    )]
+    pub struct Id {
+        /// Name given to trigger by its creator.
+        pub name: Name,
+        /// DomainId of domain of the trigger.
+        pub domain_id: Option<<Domain as Identifiable>::Id>,
+    }
 }
 
 impl Id {

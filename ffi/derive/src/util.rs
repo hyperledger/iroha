@@ -38,45 +38,23 @@ pub fn gen_derived_methods(item: &syn::ItemStruct) -> Vec<FnDescriptor> {
     ffi_derives
 }
 
-pub fn gen_arg_ffi_to_src(arg: &Arg, is_output: bool) -> TokenStream {
-    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
-
-    if is_output {
-        let mut stmt = quote! {
-            let mut store = ();
-            let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
-        };
-
-        if let Type::Reference(ref_type) = &src_type {
-            let elem = &ref_type.elem;
-
-            stmt.extend(if ref_type.mutability.is_some() {
-                quote! {
-                    // NOTE: Type having `type TryFromReprC::Store = ()` will never reference
-                    // local context, i.e. it's lifetime can be attached to that of the wrapping fn
-                    unsafe { &mut *(#arg_name as *mut #elem) }
-                }
-            } else {
-                quote! {
-                    unsafe { &*(#arg_name as *const #elem) }
-                }
-            });
-        }
-
-        return stmt;
-    }
+pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
+    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved(false));
+    let store_name = gen_store_name(arg_name);
 
     quote! {
-        let mut store = Default::default();
-        let #arg_name: #src_type = iroha_ffi::TryFromReprC::try_from_repr_c(#arg_name, &mut store)?;
+        let mut #store_name = Default::default();
+        let #arg_name: #src_type = iroha_ffi::FfiConvert::try_from_ffi(#arg_name, &mut #store_name)?;
     }
 }
 
 #[allow(clippy::expect_used)]
 pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
+    let store_name = gen_store_name(arg_name);
 
     let mut resolve_impl_trait = None;
+    let ffi_type = arg.ffi_type_resolved();
     if let Type::ImplTrait(type_) = &src_type {
         for bound in &type_.bounds {
             if let syn::TypeParamBound::Trait(trait_) = bound {
@@ -95,36 +73,22 @@ pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
         }
     }
 
-    let ffi_conversion = quote! {
-        #resolve_impl_trait
-        let #arg_name = iroha_ffi::IntoFfi::into_ffi(#arg_name);
-    };
-
-    if is_output {
-        if unwrap_result_type(src_type).is_some() {
-            return quote! {
-                let #arg_name = if let Ok(ok) = #arg_name {
-                    iroha_ffi::IntoFfi::into_ffi(ok)
-                } else {
-                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    return Err(iroha_ffi::FfiReturn::ExecutionFail);
-                };
+    if is_output && unwrap_result_type(src_type).is_some() {
+        return quote! {
+            let mut #store_name = Default::default();
+            let #arg_name = if let Ok(ok) = #arg_name {
+                iroha_ffi::FfiConvert::into_ffi(ok, &mut #store_name)
+            } else {
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                return Err(iroha_ffi::FfiReturn::ExecutionFail);
             };
-        }
-
-        return ffi_conversion;
-    }
-
-    if let Type::Reference(ref_type) = &src_type {
-        if ref_type.mutability.is_some() {
-            return ffi_conversion;
-        }
+        };
     }
 
     quote! {
-        #ffi_conversion
-        // NOTE: `AsReprCRef` prevents ownerhip transfer over FFI
-        let #arg_name = iroha_ffi::AsReprCRef::as_ref(&#arg_name);
+        #resolve_impl_trait
+        let mut #store_name = Default::default();
+        let #arg_name: #ffi_type = iroha_ffi::FfiConvert::into_ffi(#arg_name, &mut #store_name);
     }
 }
 
@@ -240,4 +204,8 @@ fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature 
             fn #method_name(&mut self) -> &mut #field_ty
         },
     }
+}
+
+fn gen_store_name(arg_name: &Ident) -> Ident {
+    Ident::new(&format!("{arg_name}_store"), proc_macro2::Span::call_site())
 }

@@ -3,17 +3,15 @@
 #![allow(clippy::std_instead_of_alloc)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, boxed::Box, collections::btree_map, format, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::btree_map, format, string::String, vec::Vec};
 use core::{cmp::Ordering, str::FromStr};
-#[cfg(feature = "std")]
-use std::alloc::alloc;
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
 use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -23,7 +21,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumString;
 
 use crate::{
-    account::prelude::*, domain::prelude::*, ffi::ffi_item, metadata::Metadata, HasMetadata,
+    account::prelude::*, domain::prelude::*, ffi::declare_item, metadata::Metadata, HasMetadata,
     Identifiable, Name, ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
@@ -50,7 +48,7 @@ pub enum MintabilityError {
 #[cfg(feature = "std")]
 impl std::error::Error for MintabilityError {}
 
-ffi_item! {
+declare_item! {
     /// An entry in [`AssetDefinitionsMap`].
     #[derive(
         Debug,
@@ -63,8 +61,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
@@ -123,7 +120,7 @@ impl AssetDefinitionEntry {
     }
 }
 
-ffi_item! {
+declare_item! {
     /// Asset definition defines type of that asset.
     #[derive(
         Debug,
@@ -136,8 +133,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[display(fmt = "{id} {value_type}{mintable}")]
@@ -180,8 +176,7 @@ impl HasMetadata for AssetDefinition {
     Encode,
     Deserialize,
     Serialize,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[repr(u8)]
@@ -198,7 +193,7 @@ pub enum Mintable {
     // TODO: Support more variants using bit-compacted tag, and `u32` mintability tokens.
 }
 
-ffi_item! {
+declare_item! {
     /// Asset represents some sort of commodity or value.
     /// All possible variants of [`Asset`] entity's components.
     #[derive(
@@ -211,8 +206,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
@@ -244,8 +238,7 @@ ffi_item! {
     Encode,
     Deserialize,
     Serialize,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[repr(u8)]
@@ -276,11 +269,9 @@ pub enum AssetValueType {
     Deserialize,
     Serialize,
     FromVariant,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
-#[repr(u8)]
 pub enum AssetValue {
     /// Asset's Quantity.
     #[display(fmt = "{_0}q")]
@@ -373,8 +364,7 @@ impl_try_as_for_asset_value! {
     Encode,
     DeserializeFromStr,
     SerializeDisplay,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[display(fmt = "{name}#{domain_id}")]
@@ -420,8 +410,7 @@ impl FromStr for DefinitionId {
     Encode,
     DeserializeFromStr,
     SerializeDisplay,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[display(fmt = "{}#{}", "self.definition_id.name", "self.account_id")]
@@ -459,7 +448,7 @@ impl FromStr for Id {
     }
 }
 
-ffi_item! {
+declare_item! {
     /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
     #[derive(
         Debug,
@@ -470,8 +459,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[id(type = "<AssetDefinition as Identifiable>::Id")]

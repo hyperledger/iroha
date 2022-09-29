@@ -1,14 +1,14 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::{alloc::alloc, mem::MaybeUninit};
+use std::mem::MaybeUninit;
 
 use getset::Getters;
-use iroha_ffi::{ffi_export, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, FfiConvert, FfiType};
 
-#[derive(Clone, Copy, IntoFfi, TryFromReprC, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
 pub struct GenericFfiStruct<T>(T);
 
-#[derive(IntoFfi, TryFromReprC, Clone, Copy, Getters)]
+#[derive(Clone, Copy, Getters, FfiType)]
 #[getset(get = "pub")]
 #[ffi_export]
 pub struct FfiStruct {
@@ -28,9 +28,9 @@ fn get_return_generic() {
     let mut output = MaybeUninit::<*const GenericFfiStruct<bool>>::new(core::ptr::null());
 
     unsafe {
-        FfiStruct__inner(ffi_struct.into_ffi(), output.as_mut_ptr());
+        FfiStruct__inner(ffi_struct.into_ffi(&mut ()), output.as_mut_ptr());
         assert_eq!(
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()),
+            FfiConvert::try_from_ffi(output.assume_init(), &mut ()),
             Ok(&ffi_struct.inner)
         );
     }
@@ -42,9 +42,9 @@ fn freestanding_accept_and_return_generic() {
     let mut output = MaybeUninit::<*mut GenericFfiStruct<String>>::new(core::ptr::null_mut());
 
     unsafe {
-        __freestanding(inner.clone().into_ffi(), output.as_mut_ptr());
+        __freestanding(inner.clone().into_ffi(&mut ()), output.as_mut_ptr());
         assert_eq!(
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()),
+            FfiConvert::try_from_ffi(output.assume_init(), &mut ()),
             Ok(inner)
         );
     }

@@ -1,10 +1,10 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::{alloc::alloc, mem::MaybeUninit};
+use std::mem::MaybeUninit;
 
-use iroha_ffi::{ffi_export, FfiReturn, IntoFfi, TryFromReprC};
+use iroha_ffi::{ffi_export, FfiConvert, FfiReturn, FfiType};
 
-#[derive(IntoFfi, TryFromReprC, PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
 #[repr(u8)]
 pub enum Ambiguous {
     Inherent,
@@ -14,9 +14,8 @@ pub enum Ambiguous {
 }
 
 /// FfiStruct
-#[derive(Clone, Copy, IntoFfi, TryFromReprC)]
-#[ffi_export]
-pub struct FfiStruct {}
+#[derive(Clone, Copy, FfiType)]
+pub struct FfiStruct;
 
 #[ffi_export]
 impl FfiStruct {
@@ -54,24 +53,21 @@ fn unambiguous_method_call() {
 
     unsafe {
         assert_eq!(FfiReturn::Ok, FfiStruct__ambiguous(output.as_mut_ptr()));
-        let inherent: Ambiguous =
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).unwrap();
+        let inherent = Ambiguous::try_from_ffi(output.assume_init(), &mut ()).unwrap();
         assert_eq!(Ambiguous::Inherent, inherent);
 
         assert_eq!(
             FfiReturn::Ok,
             FfiStruct__AmbiguousX__ambiguous(output.as_mut_ptr())
         );
-        let ambiguous_x: Ambiguous =
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).unwrap();
+        let ambiguous_x = Ambiguous::try_from_ffi(output.assume_init(), &mut ()).unwrap();
         assert_eq!(Ambiguous::AmbiguousX, ambiguous_x);
 
         assert_eq!(
             FfiReturn::Ok,
             FfiStruct__AmbiguousY__ambiguous(output.as_mut_ptr())
         );
-        let ambiguous_y: Ambiguous =
-            TryFromReprC::try_from_repr_c(output.assume_init(), &mut ()).unwrap();
+        let ambiguous_y = Ambiguous::try_from_ffi(output.assume_init(), &mut ()).unwrap();
         assert_eq!(Ambiguous::AmbiguousY, ambiguous_y);
     }
 }

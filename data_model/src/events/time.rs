@@ -3,6 +3,8 @@
 
 use core::{ops::Range, time::Duration};
 
+use iroha_ffi::FfiType;
+
 use super::*;
 
 /// Special event that is emitted when `WSV` is ready for handling time-triggers
@@ -42,7 +44,9 @@ impl Event {
     Hash,
     Serialize,
     Deserialize,
+    FfiType,
 )]
+#[repr(transparent)]
 pub struct EventFilter(pub ExecutionTime);
 
 impl Filter for EventFilter {
@@ -134,6 +138,7 @@ fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
     Serialize,
     Deserialize,
     IntoSchema,
+    FfiType,
     Hash,
 )]
 pub enum ExecutionTime {
@@ -157,6 +162,7 @@ pub enum ExecutionTime {
     Serialize,
     Deserialize,
     IntoSchema,
+    FfiType,
     Hash,
 )]
 pub struct Schedule {
