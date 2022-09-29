@@ -138,10 +138,9 @@ declare_item! {
     )]
     #[display(fmt = "{id} {value_type}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
-    #[id(type = "DefinitionId")]
     pub struct AssetDefinition {
         /// An Identification of the [`AssetDefinition`].
-        id: <Self as Identifiable>::Id,
+        id: DefinitionId,
         /// Type of [`AssetValue`]
         #[getset(get = "pub")]
         value_type: AssetValueType,
@@ -213,11 +212,10 @@ declare_item! {
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
     #[display(fmt = "{id}: {value}")]
     #[getset(get = "pub")]
-    #[id(type = "Id")]
     pub struct Asset {
         /// Component Identification.
         #[getset(skip)]
-        id: <Self as Identifiable>::Id,
+        id: Id,
         /// Asset's Quantity.
         value: AssetValue,
     }
@@ -481,7 +479,6 @@ declare_item! {
         FfiType,
         IntoSchema,
     )]
-    #[id(type = "<AssetDefinition as Identifiable>::Id")]
     #[display(fmt = "{id} {mintable}{value_type}")]
     pub struct NewAssetDefinition {
         id: <AssetDefinition as Identifiable>::Id,
@@ -527,12 +524,6 @@ impl NewAssetDefinition {
             mintable: Mintable::Infinitely,
             metadata: Metadata::default(),
         }
-    }
-
-    /// Identification
-    #[inline]
-    pub(crate) fn id(&self) -> &<AssetDefinition as Identifiable>::Id {
-        &self.id
     }
 
     /// Set mintability to [`Mintable::Once`]

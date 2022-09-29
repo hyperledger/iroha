@@ -31,10 +31,9 @@ ffi::declare_item! {
         IntoSchema,
     )]
     #[display(fmt = "@@{}", "id.address")]
-    #[id(type = "Id")]
     pub struct Peer {
         /// Peer Identification.
-        pub id: <Self as Identifiable>::Id,
+        pub id: Id,
     }
 }
 
