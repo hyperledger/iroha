@@ -39,6 +39,9 @@ telemetry_ports[iroha1]='8181'
 telemetry_ports[iroha2]='8182'
 telemetry_ports[iroha3]='8183'
 
+IROHA_GENESIS_ACCOUNT_PUBLIC_KEY='ed01203f4e3e98571b55514edc5ccf7e53ca7509d89b2868e62921180a6f57c2f4e255'
+IROHA_GENESIS_ACCOUNT_PRIVATE_KEY="{ \"digest_function\": \"ed25519\", \"payload\": \"038ae16b219da35aa036335ed0a43c28a2cc737150112c78a7b8034b9d99c9023f4e3e98571b55514edc5ccf7e53ca7509d89b2868e62921180a6f57c2f4e255\" }"
+
 function trusted_peer_entry {
     # This way it's easier to read when debugging the script
     echo "{"
@@ -80,6 +83,8 @@ function bulk_export {
     export IROHA_PUBLIC_KEY
     export IROHA_PRIVATE_KEY
     export SUMERAGI_TRUSTED_PEERS
+    export IROHA_GENESIS_ACCOUNT_PUBLIC_KEY
+    export IROHA_GENESIS_ACCOUNT_PRIVATE_KEY
     export IROHA2_CONFIG_PATH
     export IROHA2_GENESIS_PATH
 }
@@ -141,7 +146,7 @@ case $1 in
             *)
                 clean_up_peers
         esac
-        rm "$TEST" -r -f
+        rm -rf "$TEST"
         ;;
 
     *)
