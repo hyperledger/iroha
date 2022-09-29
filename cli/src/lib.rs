@@ -180,7 +180,8 @@ where
 
             iroha_logger::error!(%panic_message, %location, "A panic occured, shutting down");
 
-            notify_shutdown.notify_one();
+            // NOTE: shutdown all currently listening waiters
+            notify_shutdown.notify_waiters();
         }));
     }
 
@@ -390,6 +391,7 @@ where
                 _ = sigterm.recv() => {},
             }
 
+            // NOTE: shutdown all currently listening waiters
             notify_shutdown.notify_waiters();
         });
 
@@ -408,24 +410,26 @@ fn domains(configuration: &Configuration) -> [Domain; 1] {
 
 #[cfg(test)]
 mod tests {
-    use std::{panic, thread};
+    use std::{iter::repeat, panic, thread};
 
+    use futures::future::join_all;
     use serial_test::serial;
 
     use super::*;
 
-    #[allow(clippy::panic)]
+    #[allow(clippy::panic, clippy::print_stdout)]
     #[tokio::test]
     #[serial]
     async fn iroha_should_notify_on_panic() {
         let notify = Arc::new(Notify::new());
         let hook = panic::take_hook();
         <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
-        let _res = thread::spawn(move || {
+        let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
+        let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
+        thread::spawn(move || {
             panic!("Test panic");
-        })
-        .join();
-        notify.notified().await;
+        });
+        join_all(handles).await;
         panic::set_hook(hook);
     }
 }
