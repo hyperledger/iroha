@@ -382,11 +382,9 @@ macro_rules! expression_serde_internal_repr {
 
             use super::*;
 
-            $(#[$me])*
-            #[derive(::serde::Serialize, ::serde::Deserialize)]
-            $v enum $i {
+            #[derive(::serde::Deserialize)]
+            pub enum $i {
                 $(
-                    $(#[$var_meta])*
                     $var($ty),
                 )+
             }
@@ -397,6 +395,27 @@ macro_rules! expression_serde_internal_repr {
                         $(
                             $i::$var(value) => Self::$var(value),
                         )+
+                    }
+                }
+            }
+
+            pub mod reference {
+                use super::*;
+
+                #[derive(::serde::Serialize)]
+                pub enum $i <'re> {
+                    $(
+                        $var(&'re $ty),
+                    )+
+                }
+
+                impl<'re> From<&'re super::super::Expression> for $i<'re> {
+                    fn from(expression: &'re super::super::Expression) -> Self {
+                        match expression {
+                            $(
+                                super::super::Expression::$var(value) => Self::$var(&value),
+                            )+
+                        }
                     }
                 }
             }
@@ -525,12 +544,12 @@ impl Serialize for Expression {
         #[serde(untagged)]
         enum ExpressionSerializeWrapper<'expr> {
             Raw(&'expr ValueBox),
-            Expression(&'expr Expression),
+            Expression(serde_internal_repr::reference::Expression<'expr>),
         }
 
         match self {
             Expression::Raw(raw) => ExpressionSerializeWrapper::Raw(raw).serialize(serializer),
-            _ => ExpressionSerializeWrapper::Expression(self).serialize(serializer),
+            _ => ExpressionSerializeWrapper::Expression(self.into()).serialize(serializer),
         }
     }
 }
