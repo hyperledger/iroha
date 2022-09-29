@@ -12,6 +12,7 @@ use std::{collections::btree_set, time::Duration, vec};
 
 use derive_more::{DebugCustom, Display};
 use iroha_crypto::{Hash, SignatureOf, SignaturesOf};
+use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
@@ -20,7 +21,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+use crate::{account::Account, ffi, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -233,6 +234,7 @@ declare_versioned!(
     PartialEq,
     Eq,
     FromVariant,
+    FfiType,
     IntoSchema,
 );
 
@@ -303,7 +305,17 @@ pub trait Sign {
 
 /// Structure that represents the initial state of a transaction before the transaction receives any signatures.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FfiType,
+    IntoSchema,
 )]
 #[display(fmt = "{self:?}")] // TODO ?
 pub struct Transaction {
@@ -386,7 +398,17 @@ impl Txn for Transaction {
 /// The peer verifies the signatures and checks the limits.
 #[version(n = 1, versioned = "VersionedSignedTransaction")]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FfiType,
+    IntoSchema,
 )]
 #[display(fmt = "{self:?}")] // TODO ?
 pub struct SignedTransaction {
@@ -487,7 +509,10 @@ impl IntoIterator for PendingTransactions {
 }
 
 /// Transaction Value used in Instructions and Queries
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
+)]
+#[local]
 pub enum TransactionValue {
     /// Committed transaction
     Transaction(Box<VersionedSignedTransaction>),
@@ -525,13 +550,15 @@ impl PartialOrd for TransactionValue {
     }
 }
 
-/// `TransactionQueryResult` is used in `FindAllTransactions` query
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct TransactionQueryResult {
-    /// Transaction
-    pub tx_value: TransactionValue,
-    /// The hash of the block to which `tx` belongs to
-    pub block_hash: Hash,
+ffi::declare_item! {
+    /// `TransactionQueryResult` is used in `FindAllTransactions` query
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema)]
+    pub struct TransactionQueryResult {
+        /// Transaction
+        pub tx_value: TransactionValue,
+        /// The hash of the block to which `tx` belongs to
+        pub block_hash: Hash,
+    }
 }
 
 impl TransactionQueryResult {
@@ -618,7 +645,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, FfiType, IntoSchema);
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
@@ -659,7 +686,9 @@ impl Txn for VersionedRejectedTransaction {
 
 /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
 #[version(n = 1, versioned = "VersionedRejectedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
+)]
 pub struct RejectedTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,

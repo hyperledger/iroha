@@ -15,7 +15,6 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    alloc::alloc,
     borrow::{Cow, ToOwned as _},
     boxed::Box,
     format,
@@ -24,7 +23,7 @@ use alloc::{
 };
 use core::{convert::AsRef, fmt, fmt::Debug, ops::RangeInclusive};
 #[cfg(feature = "std")]
-use std::{alloc::alloc, borrow::Cow};
+use std::borrow::Cow;
 
 use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
@@ -32,7 +31,7 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
     fixed,
@@ -267,6 +266,7 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
     Encode,
     Deserialize,
     Serialize,
+    FfiType,
     IntoSchema,
 )]
 pub enum Parameter {
@@ -298,6 +298,7 @@ pub enum Parameter {
     Deserialize,
     Serialize,
     FromVariant,
+    FfiType,
     IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
@@ -361,6 +362,7 @@ pub enum RegistrableBox {
     Deserialize,
     Serialize,
     FromVariant,
+    FfiType,
     IntoSchema,
 )]
 pub enum IdentifiableBox {
@@ -459,8 +461,6 @@ pub type ValueBox = Box<Value>;
     Deserialize,
     Serialize,
     FromVariant,
-    IntoFfi,
-    TryFromReprC,
     IntoSchema,
     enum_kinds::EnumKind,
 )]
@@ -469,7 +469,6 @@ pub type ValueBox = Box<Value>;
     derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema)
 )]
 #[allow(clippy::enum_variant_names)]
-#[repr(u8)]
 pub enum Value {
     /// [`u32`] integer.
     U32(u32),
@@ -519,49 +518,57 @@ pub enum Value {
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
 }
 
-/// Cross-platform wrapper for `BlockValue`.
 #[cfg(not(target_arch = "aarch64"))]
-#[derive(
-    AsRef,
-    Clone,
-    Debug,
-    Decode,
-    Deref,
-    Deserialize,
-    Encode,
-    Eq,
-    From,
-    Into,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-)]
-#[serde(transparent)]
-pub struct BlockValueWrapper(BlockValue);
+ffi::declare_item! {
+    /// Cross-platform wrapper for `BlockValue`.
+    #[derive(
+        AsRef,
+        Clone,
+        Debug,
+        Decode,
+        Deref,
+        Deserialize,
+        Encode,
+        Eq,
+        From,
+        Into,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+        FfiType,
+    )]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    pub struct BlockValueWrapper(BlockValue);
+}
 
-/// Cross-platform wrapper for `BlockValue`.
 #[cfg(target_arch = "aarch64")]
-#[derive(
-    AsRef,
-    Clone,
-    Debug,
-    Decode,
-    Deref,
-    Deserialize,
-    Encode,
-    Eq,
-    From,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-)]
-#[as_ref(forward)]
-#[deref(forward)]
-#[from(forward)]
-#[serde(transparent)]
-pub struct BlockValueWrapper(Box<BlockValue>);
+ffi::declare_item! {
+    /// Cross-platform wrapper for `BlockValue`.
+    #[derive(
+        AsRef,
+        Clone,
+        Debug,
+        Decode,
+        Deref,
+        Deserialize,
+        Encode,
+        Eq,
+        From,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+        FfiType,
+    )]
+    #[as_ref(forward)]
+    #[deref(forward)]
+    #[from(forward)]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    pub struct BlockValueWrapper(Box<BlockValue>);
+}
 
 #[cfg(target_arch = "aarch64")]
 impl From<BlockValueWrapper> for BlockValue {
@@ -994,7 +1001,7 @@ pub mod ffi {
 
     use super::*;
 
-    macro_rules! ffi_item {
+    macro_rules! declare_item {
         ($it: item) => {
             #[cfg(not(feature = "ffi_import"))]
             $it
@@ -1060,7 +1067,7 @@ pub mod ffi {
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     ffi_fn! {def_ffi_fn}
 
-    pub(crate) use ffi_item;
+    pub(crate) use declare_item;
 }
 
 pub mod prelude {

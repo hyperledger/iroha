@@ -1,9 +1,10 @@
 //! Permission Token and related impls
+use iroha_ffi::FfiType;
 
 use super::*;
 use crate::utils::format_comma_separated;
 
-ffi_item! {
+declare_item! {
     /// Stored proof of the account having a permission for a certain action.
     #[derive(
         Debug,
@@ -18,8 +19,7 @@ ffi_item! {
         Deserialize,
         Serialize,
         IntoSchema,
-        IntoFfi,
-        TryFromReprC
+        FfiType,
     )]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
@@ -122,8 +122,7 @@ impl<I: Into<IdBox> + Into<Value>> ValueTrait for I {
     DeserializeFromStr,
     SerializeDisplay,
     IntoSchema,
-    TryFromReprC,
-    IntoFfi,
+    FfiType,
 )]
 #[cfg_attr(feature = "ffi", derive(IntoFfi, TryFromFfi))]
 pub struct Id {
@@ -131,10 +130,10 @@ pub struct Id {
     name: Name,
 }
 
-ffi_item! {
+declare_item! {
     /// Defines a type of [`PermissionToken`] with given id
     #[derive(
-        Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema, IntoFfi, TryFromReprC
+        Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema, FfiType
     )]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]

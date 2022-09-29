@@ -1,17 +1,17 @@
 error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__b_mut` in this scope
-  --> tests/ui_fail/derive_skip_struct.rs:28:9
+  --> tests/ui_fail/derive_skip_struct.rs:31:9
    |
 9  | #[ffi_export]
    | ------------- similarly named function `FfiStruct__a_mut` defined here
 ...
-28 |         FfiStruct__b_mut(IntoFfi::into_ffi(&s), b.as_mut_ptr());
+31 |         FfiStruct__b_mut(FfiConvert::into_ffi(&s, &mut ()), b.as_mut_ptr());
    |         ^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `FfiStruct__a_mut`
 
 error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__set_b` in this scope
-  --> tests/ui_fail/derive_skip_struct.rs:30:9
+  --> tests/ui_fail/derive_skip_struct.rs:33:9
    |
 9  | #[ffi_export]
    | ------------- similarly named function `FfiStruct__set_a` defined here
 ...
-30 |         FfiStruct__set_b(IntoFfi::into_ffi(&mut s), IntoFfi::into_ffi(*b));
+33 |         FfiStruct__set_b(
    |         ^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `FfiStruct__set_a`

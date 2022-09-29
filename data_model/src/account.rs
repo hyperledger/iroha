@@ -3,7 +3,6 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    alloc::alloc,
     boxed::Box,
     collections::{btree_map, btree_set},
     format,
@@ -12,15 +11,12 @@ use alloc::{
 };
 use core::str::FromStr;
 #[cfg(feature = "std")]
-use std::{
-    alloc::alloc,
-    collections::{btree_map, btree_set},
-};
+use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::{IntoFfi, TryFromReprC};
+use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -35,7 +31,7 @@ use crate::{
     },
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
-    ffi::ffi_item,
+    ffi::declare_item,
     metadata::Metadata,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
@@ -97,8 +93,7 @@ impl From<GenesisAccount> for Account {
     Encode,
     Deserialize,
     Serialize,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
@@ -135,7 +130,7 @@ impl Default for SignatureCheckCondition {
     }
 }
 
-ffi_item! {
+declare_item! {
     /// Builder which should be submitted in a transaction to create a new [`Account`]
     #[derive(
         Debug,
@@ -146,8 +141,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[id(type = "<Account as Identifiable>::Id")]
@@ -216,7 +210,7 @@ impl NewAccount {
     }
 }
 
-ffi_item! {
+declare_item! {
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
     #[derive(
         Debug,
@@ -230,8 +224,7 @@ ffi_item! {
         Encode,
         Deserialize,
         Serialize,
-        IntoFfi,
-        TryFromReprC,
+        FfiType,
         IntoSchema,
     )]
     #[allow(clippy::multiple_inherent_impl)]
@@ -400,8 +393,7 @@ impl FromIterator<Account> for crate::Value {
     Encode,
     DeserializeFromStr,
     SerializeDisplay,
-    IntoFfi,
-    TryFromReprC,
+    FfiType,
     IntoSchema,
 )]
 #[display(fmt = "{name}@{domain_id}")]
