@@ -1,4 +1,5 @@
 //! Permission Token and related impls
+use iroha_data_model_derive::IdOrdEqHash;
 use iroha_ffi::FfiType;
 
 use super::*;
@@ -139,7 +140,6 @@ declare_item! {
     #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
     #[display(fmt = "{id}")]
     #[getset(get = "pub")]
-    #[id(type = "Id")]
     pub struct Definition {
         /// Definition Id
         id: Id,

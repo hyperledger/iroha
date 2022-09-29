@@ -13,7 +13,6 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::{Getters, MutGetters, Setters};
-use iroha_data_model_derive::IdOrdEqHash;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};

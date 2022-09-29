@@ -5,6 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 use core::{cmp, str::FromStr};
 
 use derive_more::Display;
+use iroha_data_model_derive::IdOrdEqHash;
 use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -20,42 +21,18 @@ pub mod set;
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
+    Debug, Display, Clone, Decode, Encode, Deserialize, Serialize, FfiType, IdOrdEqHash, IntoSchema,
 )]
 #[display(fmt = "@@{id}")]
 pub struct Trigger<F: Filter> {
     /// [`Id`] of the [`Trigger`].
-    pub id: <Trigger<FilterBox> as Identifiable>::Id,
+    pub id: Id,
     /// Action to be performed when the trigger matches.
     pub action: action::Action<F>,
 }
 
 impl Registered for Trigger<FilterBox> {
     type With = Self;
-}
-
-impl<F: Filter + PartialEq> PartialOrd for Trigger<F> {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.id.cmp(&other.id))
-    }
-}
-
-impl<F: Filter + Eq> Ord for Trigger<F> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
 }
 
 impl<F: Filter> Trigger<F> {
@@ -146,14 +123,6 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
         } else {
             Err("Expected `FilterBox::ExecuteTrigger`, but another variant found")
         }
-    }
-}
-
-impl Identifiable for Trigger<FilterBox> {
-    type Id = Id;
-
-    fn id(&self) -> &Self::Id {
-        &self.id
     }
 }
 
