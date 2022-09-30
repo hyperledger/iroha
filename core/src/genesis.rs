@@ -231,6 +231,8 @@ pub struct RawGenesisBlock {
 }
 
 impl RawGenesisBlock {
+    const WARN_ON_GENESIS_GTE: u64 = 1024 * 1024 * 1024; // 1Gb
+
     /// Construct a genesis block from a `.json` file at the specified
     /// path-like object.
     ///
@@ -238,6 +240,13 @@ impl RawGenesisBlock {
     /// If file not found or deserialization from file fails.
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
         let file = File::open(&path).wrap_err(format!("Failed to open {:?}", &path))?;
+        let size = file
+            .metadata()
+            .wrap_err("Unable to access genesis file metadata")?
+            .len();
+        if size >= Self::WARN_ON_GENESIS_GTE {
+            iroha_logger::warn!(%size, threshold = %Self::WARN_ON_GENESIS_GTE, "Genesis is quite large, it will take some time to apply it");
+        }
         let reader = BufReader::new(file);
         serde_json::from_reader(reader).wrap_err(format!(
             "Failed to deserialize raw genesis block from {:?}",
