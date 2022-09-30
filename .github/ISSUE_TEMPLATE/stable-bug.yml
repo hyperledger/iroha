@@ -105,5 +105,5 @@ body:
     attributes:
       label: Notes
       description: |
-        Specify the type of LibC you're using (`GNU libc` or `musl libc`) and its version. Use the `ldd --version ldd` command to determine it.
-      placeholder: any usefull information
+        For example specify the type of LibC you're using (`GNU libc` or `musl libc`) and its version etc. Use the `ldd --version ldd` command to determine it.
+      placeholder: Any useful information
