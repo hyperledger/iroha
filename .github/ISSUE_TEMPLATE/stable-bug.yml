@@ -12,7 +12,7 @@ body:
          - JavaScript library for Iroha, [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
          - Java 8 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-java)
          - Python 3 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-python)
-   - type: input
+  - type: input
     id: env
     attributes:
       label: OS and Environment
