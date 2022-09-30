@@ -332,7 +332,7 @@ pub fn check_permission_token_parameters(
                 if kind != *expected_kind {
                     return Err(ValidationError::new(format!(
                         "Permission token parameter `{key}` type mismatch: \
-                            expected `{expected_kind}`, got `{kind}`"
+                         expected `{expected_kind}`, got `{kind}`"
                     )));
                 }
             }
