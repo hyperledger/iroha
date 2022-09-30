@@ -95,12 +95,13 @@ body:
         You can use `git blame` or check the following list of people **you can tag** based on what the issue is connected to:
 
          - Documentation issues: Ekaterina Mekhnetsova (`@outoftardis`), Victor Gridnevsky (`@6r1d`)
+         - Quality Assurence (`@astrokov7`)
          - WASM: Marin Veršić (`@mversic`)
          - Triggers: Daniil Polyakov (`@Arjentix`)
          - Theoretical questions: Shunkichi Sato (`@s8sato`)
          - Other topics: Aleksandr Petrosyan (`@appetrosyan`)
       placeholder: "@Username ..."
-  - type: input
+  - type: textarea
     id: notes
     attributes:
       label: Notes
