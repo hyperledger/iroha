@@ -11,7 +11,7 @@ body:
         Please be aware that SDK issues belong to other repositories:
          - JavaScript library for Iroha, [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
          - Java 8 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-java)
-         - Python 3 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-python)
+         - Python 3 client library for Iroha, [`iroha-python`](https://github.com/hyperledger/iroha-python)
   - type: input
     id: env
     attributes:
