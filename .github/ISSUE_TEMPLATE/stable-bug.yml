@@ -30,7 +30,7 @@ body:
         What is the commit hash of your Iroha version?
         You can use the `git rev-parse --short HEAD` command to retrieve it.
         Note that older versions may have more bugs.
-      placeholder: 4936869
+      placeholder: 4936869d
     validations:
       required: true
   - type: textarea
