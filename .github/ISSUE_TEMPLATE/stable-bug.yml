@@ -19,7 +19,7 @@ body:
       description: |
         Which operating system did you use when you encountered the issue?
         Did you build Iroha from the source code or pulled it from [Docker Hub](https://hub.docker.com/) or [Nix](https://search.nixos.org/packages) packages?
-      placeholder: Ubuntu; Docker Hub
+      placeholder: Ubuntu, Docker Hub
     validations:
       required: true       
   - type: input
