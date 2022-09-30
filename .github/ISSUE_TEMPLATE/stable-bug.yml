@@ -11,6 +11,17 @@ body:
         Please be aware that SDK issues belong to other repositories:
          - JavaScript library for Iroha, [`iroha-javascript`](https://github.com/hyperledger/iroha-javascript)
          - Java 8 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-java)
+         - Python 3 client library for Iroha, [`iroha-java`](https://github.com/hyperledger/iroha-python)
+   - type: input
+    id: env
+    attributes:
+      label: OS and Environment
+      description: |
+        Which operating system did you use when you encountered the issue?
+        Did you build Iroha from the source code or pulled it from [Docker Hub](https://hub.docker.com/) or [Nix](https://search.nixos.org/packages) packages?
+      placeholder: Ubuntu; Docker Hub
+    validations:
+      required: true       
   - type: input
     id: commit-hash
     attributes:
@@ -19,13 +30,13 @@ body:
         What is the commit hash of your Iroha version?
         You can use the `git rev-parse --short HEAD` command to retrieve it.
         Note that older versions may have more bugs.
-      placeholder: abc123
+      placeholder: 4936869
     validations:
       required: true
   - type: textarea
     id: mwe
     attributes:
-      label: Minimum working example
+      label: Minimum working example / Steps to reproduce
       description: |
         Please share a minimal working code that allows us to reproduce the issue.
         Make sure you enable [syntax highlighting](https://help.github.com/en/github/writing-on-github/creating-and-highlighting-code-blocks#syntax-highlighting).
@@ -37,17 +48,9 @@ body:
     validations:
       required: true
   - type: textarea
-    id: expected-behaviour
-    attributes:
-      label: Expected behaviour
-      description: What is the result or behaviour you expected to get?
-      placeholder: I expected Iroha to run normally on bare-metal after building a stable version.
-    validations:
-      required: true
-  - type: textarea
     id: actual-behaviour
     attributes:
-      label: Actual behaviour
+      label: Actual result
       description: What is the result or behaviour you got?
       placeholder: |
         I get an error message when running Iroha:
@@ -55,33 +58,12 @@ body:
         Example error #123 
     validations:
       required: true
-  - type: input
-    id: os-type
+  - type: textarea
+    id: expected-behaviour
     attributes:
-      label: Operating system
-      description: |
-        Which operating system did you use when you encountered the issue?
-      placeholder: Arch Linux
-    validations:
-      required: true
-  - type: input
-    id: libc-type-and-version
-    attributes:
-      label: LibC type and version
-      description: |
-        Please specify the type of LibC you're using (`GNU libc` or `musl libc`) and its version.
-        Use the `ldd --version ldd` command to determine it.
-      placeholder: musl libc v1.2.3
-  - type: dropdown
-    id: env
-    attributes:
-      label: Current environment
-      description: |
-        Did you build Iroha from the source code or pulled it from [Docker Hub](https://hub.docker.com/) or [Nix](https://search.nixos.org/packages) packages?
-      options:
-        - Source code build
-        - Docker Hub
-        - Nix
+      label: Expected result
+      description: What is the result or behaviour you expected to get?
+      placeholder: I expected Iroha to run normally on bare-metal after building a stable version.
     validations:
       required: true
   - type: textarea
@@ -107,7 +89,7 @@ body:
   - type: input
     id: who-can-help
     attributes:
-      label: Who can help?
+      label: Who can help to reproduce?
       description: |
         If you figure out the right person to tag, your issue might be resolved faster.
         You can use `git blame` or check the following list of people **you can tag** based on what the issue is connected to:
@@ -118,3 +100,10 @@ body:
          - Theoretical questions: Shunkichi Sato (`@s8sato`)
          - Other topics: Aleksandr Petrosyan (`@appetrosyan`)
       placeholder: "@Username ..."
+  - type: input
+    id: notes
+    attributes:
+      label: Notes
+      description: |
+        Specify the type of LibC you're using (`GNU libc` or `musl libc`) and its version. Use the `ldd --version ldd` command to determine it.
+      placeholder: 
