@@ -59,6 +59,7 @@ allow = [
     # As soon as trait specialisation is stable we need to remove it.
     'clippy::same_name_method',
     'clippy::pub_use',
+    'unknown_lints',
 
     # TODO: Remove when stabilized
     ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn

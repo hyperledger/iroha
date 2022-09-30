@@ -19,11 +19,11 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
     for i in 0_u32..num_domains {
         builder = builder
             .domain(format!("wonderland-{}", i).parse().expect("Valid"))
-            .with_account(
+            .account(
                 format!("Alice-{}", i).parse().expect("Valid"),
                 key_pair.public_key().clone(),
             )
-            .with_asset(
+            .asset(
                 format!("xor-{}", i).parse().expect("Valid"),
                 AssetValueType::Quantity,
             )
