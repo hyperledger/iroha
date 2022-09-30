@@ -6,10 +6,14 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::io::{stdout, BufWriter, Write};
+use std::{
+    io::{stdout, BufWriter, Write},
+    str::FromStr as _,
+};
 
 use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
+use iroha_data_model::prelude::*;
 
 /// Outcome shorthand used throughout this crate
 pub(crate) type Outcome = color_eyre::Result<()>;
@@ -174,7 +178,10 @@ mod genesis {
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
         tx::{AssetValueType, MintBox, RegisterBox},
     };
-    use iroha_permissions_validators::public_blockchain;
+    use iroha_data_model::metadata::Limits;
+    use iroha_permissions_validators::public_blockchain::{
+        self, key_value::CanSetKeyValueInUserMetadata,
+    };
 
     use super::*;
 
@@ -221,12 +228,25 @@ mod genesis {
     }
 
     pub fn generate_default() -> color_eyre::Result<RawGenesisBlock> {
+        let mut meta = Metadata::new();
+        meta.insert_with_limits(
+            "key".parse()?,
+            "value".to_owned().into(),
+            Limits::new(1024, 1024),
+        )?;
+
         let mut result = RawGenesisBlockBuilder::new()
-            .domain("wonderland".parse()?)
-            .with_account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
-            .with_asset("rose".parse()?, AssetValueType::Quantity)
+            .domain_with_metadata("wonderland".parse()?, meta.clone())
+            .account_with_metadata(
+                "alice".parse()?,
+                crate::DEFAULT_PUBLIC_KEY.parse()?,
+                meta.clone(),
+            )
+            .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta)
+            .asset("rose".parse()?, AssetValueType::Quantity)
             .finish_domain()
             .build();
+
         let mint = MintBox::new(
             iroha_data_model::prelude::Value::U32(13_u32),
             iroha_data_model::IdBox::AssetId(iroha_data_model::prelude::AssetId::new(
@@ -234,6 +254,26 @@ mod genesis {
                 "alice@wonderland".parse()?,
             )),
         );
+        let token = PermissionToken::new("allowed_to_do_stuff".parse()?);
+
+        let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
+            token.definition_id().clone(),
+        ));
+        let register_role = RegisterBox::new(
+            Role::new("staff_that_does_stuff_in_genesis".parse()?).add_permission(token.clone()),
+        );
+
+        let register_user_metadata_access = RegisterBox::new(
+            Role::new("USER_METADATA_ACCESS".parse()?)
+                .add_permission(CanSetKeyValueInUserMetadata::new(
+                    "alice@wonderland".parse()?,
+                ))
+                .add_permission(PermissionToken::new(
+                    "can_remove_key_value_in_user_metadata".parse()?,
+                )),
+        );
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+        let grant_permission = GrantBox::new(token, alice_id);
 
         result.transactions[0].isi.extend(
             public_blockchain::default_permission_token_definitions()
@@ -241,6 +281,12 @@ mod genesis {
                 .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
         );
         result.transactions[0].isi.push(mint.into());
+        result.transactions[0].isi.push(register_permission.into());
+        result.transactions[0]
+            .isi
+            .push(register_user_metadata_access.into());
+        result.transactions[0].isi.push(grant_permission.into());
+        result.transactions[0].isi.push(register_role.into());
         Ok(result)
     }
 
@@ -252,7 +298,7 @@ mod genesis {
         // Add default `Domain` and `Account` to still be able to query
         let mut builder = RawGenesisBlockBuilder::new()
             .domain("wonderland".parse()?)
-            .with_account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+            .account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
             .finish_domain();
 
         for domain in 0..domains {
@@ -261,12 +307,12 @@ mod genesis {
             for account in 0..accounts_per_domain {
                 let (public_key, _) = iroha_crypto::KeyPair::generate()?.into();
                 domain_builder =
-                    domain_builder.with_account(format!("account_{account}").parse()?, public_key);
+                    domain_builder.account(format!("account_{account}").parse()?, public_key);
             }
 
             for asset in 0..assets_per_domain {
                 domain_builder = domain_builder
-                    .with_asset(format!("asset_{asset}").parse()?, AssetValueType::Quantity);
+                    .asset(format!("asset_{asset}").parse()?, AssetValueType::Quantity);
             }
 
             builder = domain_builder.finish_domain();
