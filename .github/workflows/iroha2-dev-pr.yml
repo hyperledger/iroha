@@ -36,6 +36,9 @@ jobs:
       - name: Check client_cli/config.json
         if: always()
         run: ./scripts/check.sh client
+      - name: Check peer/config.json
+        if: always()
+        run: ./scripts/check.sh peer
       - name: Check schema.json
         if: always()
         run: ./scripts/check.sh schema

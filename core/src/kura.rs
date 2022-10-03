@@ -79,7 +79,7 @@ impl Kura {
     }
 
     /// Create a kura instance that doesn't write to disk. Instead it serves as a handler
-    /// for in memory blocks only.
+    /// for in-memory blocks only.
     pub fn blank_kura_for_testing() -> Arc<Kura> {
         let block_store = StdFileBlockStore::new(Path::new(""));
         Arc::new(Self {
@@ -317,8 +317,8 @@ impl Kura {
     /// Get a reference to block by hash, loading it from disk if needed.
     ///
     /// Internally this function searches linearly for the block's height and
-    /// then calls `get_block_by_height`. If you know the height of the block
-    /// call it instead.
+    /// then calls `get_block_by_height`. If you know the height of the block,
+    /// call `get_block_by_height` directly.
     pub fn get_block_by_hash(
         &self,
         block_hash: &HashOf<VersionedCommittedBlock>,

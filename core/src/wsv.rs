@@ -299,7 +299,7 @@ impl WorldStateView {
         Ok(())
     }
 
-    /// Get a reference to the latest block. Returns none of genesis is not committed.
+    /// Get a reference to the latest block. Returns none if genesis is not committed.
     #[inline]
     pub fn latest_block_ref(&self) -> Option<Arc<VersionedCommittedBlock>> {
         self.kura
@@ -474,7 +474,7 @@ impl WorldStateView {
         &self.world.trusted_peers_ids
     }
 
-    /// Returns iterator over blockchain block hashes starting with the block of the given `height`
+    /// Return an iterator over blockchain block hashes starting with the block of the given `height`
     pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<VersionedCommittedBlock>> {
         self.block_hashes
             .borrow()

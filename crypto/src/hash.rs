@@ -16,7 +16,7 @@ use crate::ffi;
 
 ffi::ffi_item! {
     /// Hash of Iroha entities. Currently supports only blake2b-32.
-    /// Least significant bit of hash is set to 1.
+    /// The least significant bit of hash is set to 1.
     #[derive(
         Clone,
         Copy,
