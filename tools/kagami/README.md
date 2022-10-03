@@ -29,6 +29,7 @@ kagami <SUBCOMMAND>
 | [`genesis`](#genesis) | Generate the default genesis block that is used in tests             |
 | [`schema`](#schema)   | Generate the schema used for code generation in Iroha SDKs           |
 | [`tokens`](#tokens)   | Generate a list of predefined permission tokens and their parameters |
+| [`config`](#config)   | Generate the default configuration for the client or the peer        |
 | `help`                | Print the help message for the tool or a subcommand                  |
 
 ## `crypto`
@@ -141,4 +142,18 @@ The output should be identical to the [reference configuration](../../docs/sourc
 
     ```bash
     kagami tokens >tokens.json
+    ```
+
+## `config`
+
+- Generate the default peer configuration:
+
+    ```bash
+    kagami config peer > peer-config.json
+    ```
+
+- Generate the default client configuration:
+
+    ```bash
+    kagami config client > client-config.json
     ```
