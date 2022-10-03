@@ -239,7 +239,13 @@
                   "permissions": [
                     {
                       "definition_id": "can_remove_key_value_in_user_metadata",
-                      "params": {}
+                      "params": {
+                        "account_id": {
+                          "Id": {
+                            "AccountId": "alice@wonderland"
+                          }
+                        }
+                      }
                     },
                     {
                       "definition_id": "can_set_key_value_in_user_metadata",

@@ -180,7 +180,8 @@ mod genesis {
     };
     use iroha_data_model::metadata::Limits;
     use iroha_permissions_validators::public_blockchain::{
-        self, key_value::CanSetKeyValueInUserMetadata,
+        self,
+        key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
     };
 
     use super::*;
@@ -268,8 +269,8 @@ mod genesis {
                 .add_permission(CanSetKeyValueInUserMetadata::new(
                     "alice@wonderland".parse()?,
                 ))
-                .add_permission(PermissionToken::new(
-                    "can_remove_key_value_in_user_metadata".parse()?,
+                .add_permission(CanRemoveKeyValueInUserMetadata::new(
+                    "alice@wonderland".parse()?,
                 )),
         );
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
