@@ -205,8 +205,6 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
         #[derive(
             Clone,
             PartialEq,
-            PartialOrd,
-            Ord,
             Eq,
             Debug,
             Decode,
@@ -215,7 +213,6 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
             Serialize,
             iroha_ffi::FfiType,
             IntoSchema,
-            Hash,
         )]
         #[doc = #filter_doc]
         #vis struct #filter_ident #generics {
@@ -286,8 +283,6 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
         #[derive(
             Clone,
             PartialEq,
-            PartialOrd,
-            Ord,
             Eq,
             Debug,
             Decode,
@@ -295,7 +290,6 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
             Deserialize,
             Serialize,
             IntoSchema,
-            Hash,
         )]
         #[allow(clippy::enum_variant_names, missing_docs)]
         #[doc = #event_filter_doc]
