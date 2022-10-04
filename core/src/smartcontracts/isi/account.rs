@@ -60,9 +60,9 @@ pub mod isi {
                 account
                     .remove_asset(&asset_id)
                     .map(|asset| {
-                        AccountEvent::Asset(AssetEvent::Removed(AssetRemoved {
+                        AccountEvent::Asset(AssetEvent::Removed(AssetChangedBy {
                             asset_id: asset.id().clone(),
-                            amount: asset.value().clone(),
+                            by: asset.value().clone(),
                         }))
                     })
                     .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
@@ -228,7 +228,7 @@ pub mod isi {
                 let permission_id = permission.definition_id().clone();
 
                 wsv.add_account_permission(id, permission);
-                Ok(AccountEvent::PermissionAdded(AccountPermissionAdded {
+                Ok(AccountEvent::PermissionAdded(AccountPermissionChanged {
                     account_id: id.clone(),
                     permission_id,
                 }))
@@ -254,7 +254,7 @@ pub mod isi {
                 if !wsv.remove_account_permission(&account_id, &permission) {
                     return Err(ValidationError::new("Permission not found").into());
                 }
-                Ok(AccountEvent::PermissionRemoved(AccountPermissionRemoved {
+                Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
                     account_id: account_id.clone(),
                     permission_id: permission.definition_id().clone(),
                 }))
@@ -287,7 +287,7 @@ pub mod isi {
                     ));
                 }
 
-                Ok(AccountEvent::RoleGranted(AccountRoleGranted {
+                Ok(AccountEvent::RoleGranted(AccountRoleChanged {
                     account_id,
                     role_id,
                 }))
@@ -313,7 +313,7 @@ pub mod isi {
                     return Err(FindError::Account(account_id).into());
                 }
 
-                Ok(AccountEvent::RoleRevoked(AccountRoleRevoked {
+                Ok(AccountEvent::RoleRevoked(AccountRoleChanged {
                     account_id,
                     role_id,
                 }))

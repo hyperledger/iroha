@@ -33,8 +33,8 @@ mod asset {
     pub enum AssetEvent {
         Created(AssetId),
         Deleted(AssetId),
-        Added(AssetAdded),
-        Removed(AssetRemoved),
+        Added(AssetChangedBy),
+        Removed(AssetChangedBy),
         MetadataInserted(AssetMetadataChanged),
         MetadataRemoved(AssetMetadataChanged),
     }
@@ -46,8 +46,8 @@ mod asset {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Added(AssetAdded { asset_id: id, .. })
-                | Self::Removed(AssetRemoved { asset_id: id, .. })
+                | Self::Added(AssetChangedBy { asset_id: id, .. })
+                | Self::Removed(AssetChangedBy { asset_id: id, .. })
                 | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
                 | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
             }
@@ -95,20 +95,12 @@ mod asset {
         }
     }
 
-    /// [`AssetAdded`] event
+    /// [`AssetChangedBy`] depending on wrapping event represents added/removed asset quantity
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(missing_docs)]
-    pub struct AssetAdded {
+    pub struct AssetChangedBy {
         pub asset_id: AssetId,
-        pub amount: AssetValue,
-    }
-
-    /// [`AssetRemoved`] event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[allow(missing_docs)]
-    pub struct AssetRemoved {
-        pub asset_id: AssetId,
-        pub amount: AssetValue,
+        pub by: AssetValue,
     }
 }
 
@@ -306,10 +298,10 @@ mod account {
         Deleted(AccountId),
         AuthenticationAdded(AccountId),
         AuthenticationRemoved(AccountId),
-        PermissionAdded(AccountPermissionAdded),
-        PermissionRemoved(AccountPermissionRemoved),
-        RoleRevoked(AccountRoleRevoked),
-        RoleGranted(AccountRoleGranted),
+        PermissionAdded(AccountPermissionChanged),
+        PermissionRemoved(AccountPermissionChanged),
+        RoleRevoked(AccountRoleChanged),
+        RoleGranted(AccountRoleChanged),
         MetadataInserted(AccountMetadataChanged),
         MetadataRemoved(AccountMetadataChanged),
     }
@@ -324,17 +316,17 @@ mod account {
                 | Self::Deleted(id)
                 | Self::AuthenticationAdded(id)
                 | Self::AuthenticationRemoved(id)
-                | Self::PermissionAdded(AccountPermissionAdded { account_id: id, .. })
-                | Self::PermissionRemoved(AccountPermissionRemoved { account_id: id, .. })
-                | Self::RoleRevoked(AccountRoleRevoked { account_id: id, .. })
-                | Self::RoleGranted(AccountRoleGranted { account_id: id, .. })
+                | Self::PermissionAdded(AccountPermissionChanged { account_id: id, .. })
+                | Self::PermissionRemoved(AccountPermissionChanged { account_id: id, .. })
+                | Self::RoleRevoked(AccountRoleChanged { account_id: id, .. })
+                | Self::RoleGranted(AccountRoleChanged { account_id: id, .. })
                 | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
                 | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
             }
         }
     }
 
-    /// [`AccountPermissionAdded`] event
+    /// [`AccountPermissionChanged`] role depending on wrapping event represents added/removed account role
     #[derive(
         Clone,
         PartialEq,
@@ -350,12 +342,12 @@ mod account {
         IntoSchema,
     )]
     #[allow(missing_docs)]
-    pub struct AccountPermissionAdded {
+    pub struct AccountPermissionChanged {
         pub account_id: AccountId,
         pub permission_id: PermissionTokenId,
     }
 
-    /// [`AccountPermissionRemoved`] event
+    /// [`AccountRoleChanged`] depending on wrapping event represent granted/revoked role
     #[derive(
         Clone,
         PartialEq,
@@ -371,49 +363,7 @@ mod account {
         IntoSchema,
     )]
     #[allow(missing_docs)]
-    pub struct AccountPermissionRemoved {
-        pub account_id: AccountId,
-        pub permission_id: PermissionTokenId,
-    }
-
-    /// [`AccountRoleGranted`] event
-    #[derive(
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Debug,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[allow(missing_docs)]
-    pub struct AccountRoleGranted {
-        pub account_id: AccountId,
-        pub role_id: RoleId,
-    }
-
-    /// [`AccountRoleRevoked`] event
-    #[derive(
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Debug,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[allow(missing_docs)]
-    pub struct AccountRoleRevoked {
+    pub struct AccountRoleChanged {
         pub account_id: AccountId,
         pub role_id: RoleId,
     }
@@ -484,8 +434,8 @@ mod trigger {
     pub enum TriggerEvent {
         Created(TriggerId),
         Deleted(TriggerId),
-        Extended(TriggerExtended),
-        Shortened(TriggerShortened),
+        Extended(TriggerNumberOfExecutionsChangedBy),
+        Shortened(TriggerNumberOfExecutionsChangedBy),
     }
 
     impl HasOrigin for TriggerEvent {
@@ -495,13 +445,13 @@ mod trigger {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Extended(TriggerExtended { trigger_id: id, .. })
-                | Self::Shortened(TriggerShortened { trigger_id: id, .. }) => id,
+                | Self::Extended(TriggerNumberOfExecutionsChangedBy { trigger_id: id, .. })
+                | Self::Shortened(TriggerNumberOfExecutionsChangedBy { trigger_id: id, .. }) => id,
             }
         }
     }
 
-    /// [`TriggerShortened`] event
+    /// [`TriggerNumberOfExecutionsChangedBy`] depending on wrapping event represents increased/decreased number of event executions
     #[derive(
         Clone,
         PartialEq,
@@ -517,28 +467,7 @@ mod trigger {
         IntoSchema,
     )]
     #[allow(missing_docs)]
-    pub struct TriggerShortened {
-        pub trigger_id: TriggerId,
-        pub by: u32,
-    }
-
-    /// [`TriggerExtended`] event
-    #[derive(
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Debug,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[allow(missing_docs)]
-    pub struct TriggerExtended {
+    pub struct TriggerNumberOfExecutionsChangedBy {
         pub trigger_id: TriggerId,
         pub by: u32,
     }
@@ -654,19 +583,19 @@ impl From<WorldEvent> for SmallVec<[Event; 3]> {
 pub mod prelude {
     pub use super::{
         account::{
-            AccountEvent, AccountEventFilter, AccountFilter, AccountPermissionAdded,
-            AccountPermissionRemoved, AccountRoleGranted, AccountRoleRevoked,
+            AccountEvent, AccountEventFilter, AccountFilter, AccountPermissionChanged,
+            AccountRoleChanged,
         },
         asset::{
-            AssetAdded, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
-            AssetEvent, AssetEventFilter, AssetFilter, AssetRemoved,
+            AssetChangedBy, AssetDefinitionEvent, AssetDefinitionEventFilter,
+            AssetDefinitionFilter, AssetEvent, AssetEventFilter, AssetFilter,
         },
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::{PermissionTokenEvent, PermissionValidatorEvent},
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{
-            TriggerEvent, TriggerEventFilter, TriggerExtended, TriggerFilter, TriggerShortened,
+            TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChangedBy,
         },
         Event as DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
