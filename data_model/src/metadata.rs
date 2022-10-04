@@ -88,9 +88,12 @@ impl Limits {
     FfiType,
     IntoSchema,
 )]
+#[repr(transparent)]
 #[serde(transparent)]
-#[allow(clippy::multiple_inherent_impl)]
+// SAFETY: Metadata has no trap representations in BTreeMap
+#[ffi_type(unsafe {robust})]
 #[display(fmt = "Metadata")]
+#[allow(clippy::multiple_inherent_impl)]
 pub struct Metadata {
     map: btree_map::BTreeMap<Name, Value>,
 }

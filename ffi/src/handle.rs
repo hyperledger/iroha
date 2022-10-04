@@ -78,13 +78,13 @@ macro_rules! def_ffi_fn {
                 #[allow(clippy::let_unit_value)]
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let handle_ptr = handle_ptr.cast::<$other>();
                         let mut store = Default::default();
+                        let handle_ptr = handle_ptr as <&$other as FfiType>::ReprC;
                         let handle_ref: &$other = $crate::FfiConvert::try_from_ffi(handle_ptr, &mut store)?;
 
                         let new_handle = Clone::clone(handle_ref);
-                        let new_handle_ptr = $crate::FfiConvert::into_ffi(new_handle, &mut ()).into();
-                        output_ptr.cast::<*mut $other>().write(new_handle_ptr);
+                        let new_handle_ptr = $crate::FfiConvert::into_ffi(new_handle, &mut ());
+                        (output_ptr as <$other as $crate::FfiOutPtr>::OutPtr).write(new_handle_ptr);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
@@ -115,7 +115,10 @@ macro_rules! def_ffi_fn {
                 #[allow(clippy::let_unit_value)]
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
+                        let (lhandle_ptr, rhandle_ptr) = (
+                            left_handle_ptr as <&$other as FfiType>::ReprC,
+                            right_handle_ptr as <&$other as FfiType>::ReprC
+                        );
 
                         let mut lhandle_store = Default::default();
                         let mut rhandle_store = Default::default();
@@ -154,7 +157,10 @@ macro_rules! def_ffi_fn {
                 #[allow(clippy::let_unit_value)]
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
+                        let (lhandle_ptr, rhandle_ptr) = (
+                            left_handle_ptr as <&$other as FfiType>::ReprC,
+                            right_handle_ptr as <&$other as FfiType>::ReprC
+                        );
 
                         let mut lhandle_store = Default::default();
                         let mut rhandle_store = Default::default();
@@ -187,7 +193,7 @@ macro_rules! def_ffi_fn {
             $crate::def_ffi_fn!(@catch_unwind {
                 match handle_id {
                     $( <$other as $crate::Handle>::ID => {
-                        let handle_ptr = handle_ptr.cast::<$other>();
+                        let handle_ptr = handle_ptr as <$other as FfiType>::ReprC;
                         let handle: $other = $crate::FfiConvert::try_from_ffi(handle_ptr, &mut ())?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
