@@ -20,7 +20,7 @@ services:
     command: iroha --submit-genesis
     volumes:
       - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+      - './:/app/soramitsu/iroha'
 
 
   iroha1:
@@ -42,7 +42,7 @@ services:
     init: true
     volumes:
       - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+      - './:/app/soramitsu/iroha'
 
 
   iroha2:
@@ -64,7 +64,7 @@ services:
     init: true
     volumes:
       - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+      - './:/app/soramitsu/iroha'
 
 
   iroha3:
@@ -86,4 +86,4 @@ services:
     init: true
     volumes:
       - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+      - './:/app/soramitsu/iroha'

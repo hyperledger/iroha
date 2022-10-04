@@ -4,6 +4,12 @@ version = "2.0.0-pre-rc.9"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
+[features]
+# Enables sharing mutable references of non-robust transmutable types across FFI.
+# When handing out non-robust mutable references across FFI, it's possible for the caller
+# to modify the given reference and store a trap representation causing immediate UB.
+non_robust_ref_mut = []
+
 [dependencies]
 iroha_ffi_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 

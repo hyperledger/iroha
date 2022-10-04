@@ -1,0 +1,5 @@
+error: one-variant enums have representation of ()
+ --> tests/ui_fail/fieldless_enum_with_one_variant.rs:5:10
+  |
+5 | pub enum FfiStruct {
+  |          ^^^^^^^^^

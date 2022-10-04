@@ -512,7 +512,7 @@ impl IntoIterator for PendingTransactions {
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
 )]
-#[local]
+#[ffi_type(local)]
 pub enum TransactionValue {
     /// Committed transaction
     Transaction(Box<VersionedSignedTransaction>),

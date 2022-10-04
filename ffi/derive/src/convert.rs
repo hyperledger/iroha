@@ -1,56 +1,93 @@
 use core::str::FromStr as _;
 
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, DeriveInput, Generics, Ident};
+use syn::{parse_quote, Data, DataEnum, DeriveInput, Generics, Ident, Type};
 
-use crate::{find_attr, is_opaque, is_repr_attr};
+use crate::{find_attr, is_extern, is_opaque, is_repr_attr};
 
-pub fn derive_ffi_type(input: DeriveInput) -> TokenStream2 {
-    if !matches!(input.vis, syn::Visibility::Public(_)) {
-        abort!(input.vis, "Only public items are supported");
-    }
-
+pub fn derive_ffi_type(mut input: DeriveInput) -> TokenStream {
     let name = &input.ident;
+    if is_extern(&input.attrs) {
+        return derive_ffi_type_for_extern_item(name, &mut input.generics);
+    }
+    if is_opaque(&input) {
+        return derive_ffi_type_for_opaque_item(name, &mut input.generics);
+    }
     if is_transparent(&input) {
-        return derive_ffi_type_for_transparent_item(&input);
+        return derive_ffi_type_for_transparent_item(&mut input);
     }
 
     match input.data {
-        syn::Data::Enum(item) => {
+        Data::Enum(item) => {
             let repr = find_attr(&input.attrs, "repr");
+
+            if item.variants.is_empty() {
+                abort!(name, "uninhabited enum's cannot be instantiated");
+            }
 
             if is_fieldless_enum(&item) {
                 derive_ffi_type_for_fieldless_enum(&input.ident, &item, &repr)
             } else {
-                derive_ffi_type_for_data_carrying_enum(
-                    &input.ident,
-                    &input.attrs,
-                    input.generics,
-                    &item,
+                let local = !is_non_local(&input.attrs);
+                derive_ffi_type_for_data_carrying_enum(&input.ident, input.generics, &item, local)
+            }
+        }
+        Data::Struct(_) => {
+            if is_owning(&input.attrs, &input.data) {
+                abort!(
+                    name,
+                    "Structure contains raw pointers. If the pointers don't own the data, attach `#[ffi_type(unsafe {non_owning})`"
                 )
             }
+
+            derive_ffi_type_for_repr_c(name, &input.generics)
         }
-        syn::Data::Struct(_) => {
-            if is_opaque(&input) {
-                derive_ffi_type_for_opaque_struct(name, input.generics)
-            } else if is_opaque_wrapper(&input.attrs) {
-                derive_ffi_type_for_extern_struct(name, input.generics)
-            } else {
-                derive_ffi_type_for_repr_c_struct(name)
+        Data::Union(_) => {
+            if is_owning(&input.attrs, &input.data) {
+                abort!(
+                    name,
+                    "Structure contains raw pointers. If the pointers don't own the data, attach `#[ffi_type(unsafe {non_owning})`"
+                )
             }
+
+            derive_ffi_type_for_repr_c(name, &input.generics)
         }
-        syn::Data::Union(item) => abort!(item.union_token, "Unions are not yet supported"),
     }
 }
 
-fn derive_ffi_type_for_transparent_item(input: &syn::DeriveInput) -> TokenStream2 {
+fn derive_ffi_type_for_extern_item(name: &Ident, generics: &mut Generics) -> TokenStream {
+    let ref_name = Ident::new(&format!("{}Ref", name), proc_macro2::Span::call_site());
+
+    let (impl_generics, ty_generics, where_clause) = split_for_impl(generics);
+
+    quote! {
+        impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
+            // NOTE: It's ok to get null pointer, dereferencing opaque pointer is UB anyhow
+            type Type = iroha_ffi::ir::Robust<Self>;
+        }
+        impl<#impl_generics> iroha_ffi::ir::Ir for #ref_name #ty_generics #where_clause {
+            type Type = iroha_ffi::ir::Transparent<Self>;
+        }
+    }
+}
+
+fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &mut Generics) -> TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        iroha_ffi::ffi_type! { impl #impl_generics Opaque for #name #ty_generics #where_clause }
+    }
+}
+
+fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenStream {
+    let name = &input.ident;
+
     // TODO: We don't check to find which field is not a ZST.
     // It is just assumed that it is the first field
-    let name = &input.ident;
     let inner = match &input.data {
-        syn::Data::Enum(item) => item
+        Data::Enum(item) => item
             .variants
             .iter()
             .next()
@@ -58,153 +95,101 @@ fn derive_ffi_type_for_transparent_item(input: &syn::DeriveInput) -> TokenStream
             .expect_or_abort(
                 "transparent `enum` must have at least one variant with at least one field",
             ),
-        syn::Data::Struct(item) => item
+        Data::Struct(item) => item
             .fields
             .iter()
             .next()
             .map(|field| &field.ty)
             .expect_or_abort("transparent struct must have at least one field"),
-        syn::Data::Union(item) => abort!(item.union_token, "Unions are not supported"),
+        Data::Union(item) => item
+            .fields
+            .named
+            .iter()
+            .next()
+            .map(|field| &field.ty)
+            .expect_or_abort("transparent union must have at least one field"),
     };
 
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    if is_robust(&input.attrs) {
+        let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    quote! {
-        unsafe impl #impl_generics iroha_ffi::ir::Transmute for #name #ty_generics #where_clause {
-            type Target = #inner;
+        quote! {
+            iroha_ffi::ffi_type! { unsafe impl #impl_generics Transparent for #name #ty_generics[#inner] #where_clause validated with {|_| true} }
+            unsafe impl #impl_generics iroha_ffi::ir::InfallibleTransmute for #name #ty_generics #where_clause {}
+        }
+    } else {
+        let (impl_generics, ty_generics, where_clause) = split_for_impl(&mut input.generics);
+        let lifetime = quote! {'__iroha_ffi_itm};
 
-            // FIXME: We should force the transparent type to have `from_inner` and derive implementation
-            // only if requested specifically by the user (via macro attribute). The reason for this is
-            // that even though two types are equal on the byte level, they may have different semantics
-            // that cannot be proven when deriving `from_inner` (e.g. `NonZeroU8` is a wrapper for `u8`)
-            // Deriving implementation of this method cannot be guaranteed to always return true
-            unsafe fn is_valid(inner: &#inner) -> bool {
-                true
+        quote! {
+            unsafe impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime #name #ty_generics #where_clause {
+                type Target = &#lifetime #inner;
+
+                #[inline]
+                unsafe fn is_valid(target: &Self::Target) -> bool {
+                    <#name #ty_generics as iroha_ffi::ir::Transmute>::is_valid(target)
+                }
+            }
+
+            unsafe impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime mut #name #ty_generics #where_clause {
+                type Target = &#lifetime mut #inner;
+
+                #[inline]
+                unsafe fn is_valid(target: &Self::Target) -> bool {
+                    <#name #ty_generics as iroha_ffi::ir::Transmute>::is_valid(target)
+                }
+            }
+
+            impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
+                type Type = iroha_ffi::ir::Transparent<Self>;
             }
         }
-
-        impl #impl_generics iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Transparent<Self>;
-        }
-        impl #impl_generics iroha_ffi::ir::Ir for &#name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Transparent<Self>;
-        }
-    }
-}
-
-fn derive_ffi_type_for_opaque_struct(name: &Ident, mut generics: Generics) -> TokenStream2 {
-    let lifetime = quote!('__iroha_ffi_itm);
-
-    let (impl_generics, ty_generics, where_clause) =
-        split_for_impl_with_type_params(&mut generics, &[]);
-
-    quote! {
-        unsafe impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime #name #ty_generics #where_clause {
-            type Target = *const #name #ty_generics;
-
-            unsafe fn is_valid(source: &Self::Target) -> bool {
-                source.as_ref().is_some()
-            }
-        }
-        unsafe impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime mut #name #ty_generics #where_clause {
-            type Target = *mut #name #ty_generics;
-
-            unsafe fn is_valid(source: &Self::Target) -> bool {
-                source.as_mut().is_some()
-            }
-        }
-
-        impl<#impl_generics> iroha_ffi::option::Niche for #name #ty_generics #where_clause {
-            const NICHE_VALUE: Self::ReprC = core::ptr::null_mut();
-        }
-
-        impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Opaque<Self>;
-        }
-        impl<#lifetime, #impl_generics> iroha_ffi::ir::Ir for &#lifetime #name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Transparent<&#lifetime #name #ty_generics>;
-        }
-
-        unsafe impl<#lifetime, #impl_generics> iroha_ffi::repr_c::NonLocal for &#lifetime #name #ty_generics #where_clause {}
-        unsafe impl<#lifetime, #impl_generics> iroha_ffi::repr_c::NonLocal for &#lifetime mut #name #ty_generics #where_clause {}
-    }
-}
-
-fn derive_ffi_type_for_extern_struct(name: &Ident, mut generics: Generics) -> TokenStream2 {
-    let ref_name = Ident::new(&format!("{}Ref", name), proc_macro2::Span::call_site());
-
-    let lifetime = quote!('__iroha_ffi_itm);
-    let (impl_generics, ty_generics, where_clause) =
-        split_for_impl_with_type_params(&mut generics, &[]);
-
-    quote! {
-        impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime #name #ty_generics #where_clause {
-            type Target = *mut iroha_ffi::Extern;
-
-            unsafe fn is_valid(source: Self::ReprC) -> bool {
-                source.as_mut().is_some()
-            }
-        }
-
-        impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
-            // NOTE: It's ok to get null pointer, dereferencing opaque pointer is UB anyhow
-            type Type = iroha_ffi::ir::Robust<Self>;
-        }
-        impl<#impl_generics> iroha_ffi::ir::Ir for #ref_name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Robust<Self>;
-        }
-    }
-}
-
-fn derive_ffi_type_for_repr_c_struct(_: &Ident) -> TokenStream2 {
-    quote! {
-        // TODO:
     }
 }
 
 fn derive_ffi_type_for_fieldless_enum(
     enum_name: &Ident,
-    enum_: &syn::DataEnum,
+    enum_: &DataEnum,
     repr: &[syn::NestedMeta],
-) -> TokenStream2 {
+) -> TokenStream {
+    if enum_.variants.len() == 1 {
+        abort!(enum_name, "one-variant enums have representation of ()");
+    }
+
     let ffi_type = enum_size(enum_name, repr);
     let (discriminants, discriminant_decls) = gen_discriminants(enum_name, enum_, &ffi_type);
 
     quote! {
-        unsafe impl iroha_ffi::ir::Transmute for #enum_name {
-            type Target = #ffi_type;
+        impl iroha_ffi::option::Niche for #enum_name {
+            const NICHE_VALUE: Self::ReprC = Self::ReprC::MAX;
+        }
 
-            unsafe fn is_valid(inner: &#ffi_type) -> bool {
+        iroha_ffi::ffi_type! {
+            unsafe impl Transparent for #enum_name[#ffi_type] validated with {|target: &#ffi_type| {
                 #(#discriminant_decls)*
 
-                match *inner {
+                match *target {
                     #( | #discriminants )* => true,
                     _ => false,
                 }
-            }
-        }
-        impl iroha_ffi::ir::Ir for #enum_name {
-            type Type = iroha_ffi::ir::Transparent<Self>;
-        }
-        impl iroha_ffi::ir::Ir for &#enum_name {
-            type Type = iroha_ffi::ir::Transparent<Self>;
+            }}
         }
     }
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn derive_ffi_type_for_data_carrying_enum(
+fn derive_ffi_type_for_data_carrying_enum(
     enum_name: &Ident,
-    attrs: &[syn::Attribute],
-    mut generics: syn::Generics,
-    enum_: &syn::DataEnum,
-) -> TokenStream2 {
-    let (repr_c_enum_name, repr_c_enum) = gen_repr_c_enum(enum_name, &mut generics, enum_);
+    mut generics: Generics,
+    enum_: &DataEnum,
+    local: bool,
+) -> TokenStream {
+    let (repr_c_enum_name, repr_c_enum) =
+        gen_data_carrying_repr_c_enum(enum_name, &mut generics, enum_);
     let mut non_local_where_clause = generics.make_where_clause().clone();
-    let lifetime: syn::Lifetime = parse_quote!('__iroha_ffi_itm);
 
-    let (impl_generics, ty_generics, where_clause) =
-        split_for_impl_with_type_params(&mut generics, &[]);
+    let lifetime = quote! {'__iroha_ffi_itm};
+    let (impl_generics, ty_generics, where_clause) = split_for_impl(&mut generics);
 
     let variant_rust_stores = enum_
         .variants
@@ -238,7 +223,7 @@ pub fn derive_ffi_type_for_data_carrying_enum(
 
     #[allow(clippy::expect_used)]
     let variants_into_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
-        let idx = TokenStream2::from_str(&format!("{i}")).expect("Valid");
+        let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let payload_name = gen_repr_c_enum_payload_name(enum_name);
         let variant_name = &variant.ident;
 
@@ -267,7 +252,7 @@ pub fn derive_ffi_type_for_data_carrying_enum(
 
     #[allow(clippy::expect_used)]
     let variants_try_from_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
-        let idx = TokenStream2::from_str(&format!("{i}")).expect("Valid");
+        let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let variant_name = &variant.ident;
 
         variant_mapper(
@@ -306,7 +291,9 @@ pub fn derive_ffi_type_for_data_carrying_enum(
             )
         };
 
-    let non_locality = if is_non_local(attrs) {
+    let non_locality = if local {
+        quote! {}
+    } else {
         enum_
             .variants
             .iter()
@@ -326,19 +313,19 @@ pub fn derive_ffi_type_for_data_carrying_enum(
             .for_each(|predicate| non_local_where_clause.predicates.push(predicate));
 
         quote! {unsafe impl<#impl_generics> iroha_ffi::repr_c::NonLocal for #enum_name #ty_generics #non_local_where_clause {}}
-    } else {
-        quote! {}
     };
 
     quote! {
         #repr_c_enum
-        #non_locality
 
         // TODO: Enum can be transmutable if all variants are transmutable and the enum is `repr(C)`
         impl<#impl_generics> iroha_ffi::repr_c::NonTransmute for #enum_name #ty_generics #where_clause where Self: Clone {}
 
         // NOTE: Data-carrying enum cannot implement `ReprC` unless it is robust `repr(C)`
         impl<#impl_generics> iroha_ffi::ir::Ir for #enum_name #ty_generics #where_clause {
+            type Type = Self;
+        }
+        impl<#impl_generics> iroha_ffi::ir::Ir for &#enum_name #ty_generics #where_clause {
             type Type = Self;
         }
 
@@ -370,90 +357,94 @@ pub fn derive_ffi_type_for_data_carrying_enum(
         impl<#impl_generics> iroha_ffi::repr_c::COutPtr for #enum_name #ty_generics #where_clause {
             type OutPtr = *mut Self::ReprC;
         }
+
+        #non_locality
     }
 }
 
-fn gen_repr_c_enum(
+fn derive_ffi_type_for_repr_c(name: &Ident, generics: &Generics) -> TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        iroha_ffi::ffi_type! { unsafe impl #impl_generics Robust for #name #ty_generics #where_clause }
+    }
+}
+
+fn gen_data_carrying_repr_c_enum(
     enum_name: &Ident,
-    generics: &mut syn::Generics,
-    enum_: &syn::DataEnum,
-) -> (Ident, TokenStream2) {
-    let (payload_name, payload) = gen_enum_payload(enum_name, generics, enum_);
+    generics: &mut Generics,
+    enum_: &DataEnum,
+) -> (Ident, TokenStream) {
+    let (payload_name, payload) = gen_data_carrying_enum_payload(enum_name, generics, enum_);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let doc = format!(" [`ReprC`] equivalent of [`{}`]", enum_name);
     let enum_tag_type = gen_enum_tag_type(enum_name, enum_);
     let repr_c_enum_name = gen_repr_c_enum_name(enum_name);
-    (
-        repr_c_enum_name.clone(),
-        quote! {
-            #payload
 
-            #[repr(C)]
-            #[doc = #doc]
-            #[derive(Clone)]
-            #[allow(non_camel_case_types)]
-            pub struct #repr_c_enum_name #impl_generics #where_clause {
-                tag: #enum_tag_type, payload: #payload_name #ty_generics,
-            }
+    let repr_c_enum = quote! {
+        #payload
 
-            impl #impl_generics Copy for #repr_c_enum_name #ty_generics where #payload_name #ty_generics: Copy {}
-            unsafe impl #impl_generics iroha_ffi::ReprC for #repr_c_enum_name #ty_generics #where_clause {}
-        },
-    )
+        #[repr(C)]
+        #[doc = #doc]
+        #[derive(Clone)]
+        #[allow(non_camel_case_types)]
+        pub struct #repr_c_enum_name #impl_generics #where_clause {
+            tag: #enum_tag_type, payload: #payload_name #ty_generics,
+        }
+
+        impl #impl_generics Copy for #repr_c_enum_name #ty_generics where #payload_name #ty_generics: Copy {}
+        unsafe impl #impl_generics iroha_ffi::ReprC for #repr_c_enum_name #ty_generics #where_clause {}
+    };
+
+    (repr_c_enum_name, repr_c_enum)
 }
 
-fn gen_enum_payload(
+fn gen_data_carrying_enum_payload(
     enum_name: &Ident,
-    generics: &mut syn::Generics,
-    enum_: &syn::DataEnum,
-) -> (Ident, TokenStream2) {
+    generics: &mut Generics,
+    enum_: &DataEnum,
+) -> (Ident, TokenStream) {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let field_names = enum_.variants.iter().map(|variant| &variant.ident);
     let payload_name = gen_repr_c_enum_payload_name(enum_name);
+    let doc = format!(" [`ReprC`] equivalent of [`{}`]", enum_name);
 
-    let variants = enum_
-        .variants
-        .iter()
-        .map(|variant| &variant.ident)
-        .map(|ident| quote! { #ident });
-
-    let variant_tys = enum_
+    let field_tys = enum_
         .variants
         .iter()
         .map(|variant| {
             variant_mapper(
                 variant,
-                || quote! { () },
+                || quote! {()},
                 |field| {
                     let field_ty = &field.ty;
-
-                    // NOTE: Compiler cannot infer `FfiType::ReprC: Copy` so it is wrapped by `ManuallyDrop` for the moment
-                    // When this limitation is lifted, variants will no longer have to be wrapped by `ManuallyDrop`
-                    quote! { core::mem::ManuallyDrop<<#field_ty as iroha_ffi::FfiType>::ReprC> }
+                    quote! {core::mem::ManuallyDrop<<#field_ty as iroha_ffi::FfiType>::ReprC>}
                 },
             )
         })
         .collect::<Vec<_>>();
 
-    (
-        payload_name.clone(),
-        quote! {
-            #[repr(C)]
-            #[derive(Clone)]
-            #[allow(non_snake_case, non_camel_case_types)]
-            union #payload_name #impl_generics #where_clause {
-                #(#variants: #variant_tys),*
-            }
+    let payload = quote! {
+        #[repr(C)]
+        #[doc = #doc]
+        #[derive(Clone)]
+        #[allow(non_snake_case, non_camel_case_types)]
+        pub union #payload_name #impl_generics #where_clause {
+            #(#field_names: #field_tys),*
+        }
 
-            impl #impl_generics Copy for #payload_name #ty_generics where #( #variant_tys: Copy ),* {}
-        },
-    )
+        impl #impl_generics Copy for #payload_name #ty_generics where #( #field_tys: Copy ),* {}
+        unsafe impl #impl_generics iroha_ffi::ReprC for #payload_name #ty_generics #where_clause {}
+    };
+
+    (payload_name, payload)
 }
 
 fn gen_discriminants(
     enum_name: &Ident,
-    enum_: &syn::DataEnum,
-    tag_type: &syn::Type,
-) -> (Vec<Ident>, Vec<TokenStream2>) {
+    enum_: &DataEnum,
+    tag_type: &Type,
+) -> (Vec<Ident>, Vec<TokenStream>) {
     let variant_names: Vec<_> = enum_.variants.iter().map(|v| &v.ident).collect();
     let discriminant_values = variant_discriminants(enum_);
 
@@ -475,7 +466,7 @@ fn gen_discriminants(
     )
 }
 
-fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
+fn variant_discriminants(enum_: &DataEnum) -> Vec<syn::Expr> {
     let mut curr_discriminant: syn::Expr = parse_quote! {0};
 
     enum_.variants.iter().fold(Vec::new(), |mut acc, variant| {
@@ -493,11 +484,11 @@ fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
     })
 }
 
-fn variant_mapper<F0: FnOnce() -> TokenStream2, F1: FnOnce(&syn::Field) -> TokenStream2>(
+fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&syn::Field) -> TokenStream>(
     variant: &syn::Variant,
     unit_mapper: F0,
     field_mapper: F1,
-) -> TokenStream2 {
+) -> TokenStream {
     match &variant.fields {
         syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => {
             field_mapper(&unnamed[0])
@@ -526,29 +517,64 @@ fn gen_repr_c_enum_payload_name(enum_name: &Ident) -> Ident {
     )
 }
 
-fn is_opaque_wrapper(attrs: &[syn::Attribute]) -> bool {
-    let opaque_attr = parse_quote! {#[opaque_wrapper]};
-    attrs.iter().any(|a| *a == opaque_attr)
-}
-
 fn is_transparent(input: &DeriveInput) -> bool {
     let repr = &find_attr(&input.attrs, "repr");
     is_repr_attr(repr, "transparent")
 }
 
+fn is_robust(attrs: &[syn::Attribute]) -> bool {
+    // NOTE: Marked as unsafe to inform the user about the danger of using this attribute. It's not
+    // possible to know whether all values of the inner type are valid for the transparent wrapper
+    let robust_attr = parse_quote! {#[ffi_type(unsafe {robust})]};
+    attrs.iter().any(|a| *a == robust_attr)
+}
+
+fn is_owning(attrs: &[syn::Attribute], data: &syn::Data) -> bool {
+    // TODO: The type is sure to be "non-owning" if it implements `Copy`
+    let non_owning = parse_quote! {#[ffi_type(unsafe {non_owning})]};
+
+    if attrs.iter().any(|attr| *attr == non_owning) {
+        return false;
+    }
+
+    if contains_ptr(data) {
+        return true;
+    }
+
+    // NOTE: Except for the raw pointers there should be no other type
+    // that is at the same time Robust and also transfers ownership
+    false
+}
+
+// TODO: `local` is a workaround for https://github.com/rust-lang/rust/issues/48214
+// because some derived types cannot derive `NonLocal` othwerise
 fn is_non_local(attrs: &[syn::Attribute]) -> bool {
-    let local_attr = parse_quote! {#[local]};
-    attrs.iter().all(|a| *a != local_attr)
+    let local = parse_quote! {#[ffi_type(local)]};
+    !attrs.iter().any(|attr| *attr == local)
 }
 
-fn is_fieldless_enum(item: &syn::DataEnum) -> bool {
-    !item
-        .variants
+fn contains_ptr(data: &syn::Data) -> bool {
+    use syn::visit::Visit;
+
+    struct PtrVistor(bool);
+    impl Visit<'_> for PtrVistor {
+        fn visit_type_ptr(&mut self, _: &syn::TypePtr) {
+            self.0 = true;
+        }
+    }
+
+    let mut ptr_visitor = PtrVistor(false);
+    ptr_visitor.visit_data(data);
+    ptr_visitor.0
+}
+
+fn is_fieldless_enum(item: &DataEnum) -> bool {
+    item.variants
         .iter()
-        .any(|variant| !matches!(variant.fields, syn::Fields::Unit))
+        .all(|variant| matches!(variant.fields, syn::Fields::Unit))
 }
 
-fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> syn::Type {
+fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> Type {
     if is_repr_attr(repr, "u8") {
         parse_quote! {u8}
     } else if is_repr_attr(repr, "i8") {
@@ -566,7 +592,7 @@ fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> syn::Type {
     }
 }
 
-fn gen_enum_tag_type(enum_name: &Ident, enum_: &syn::DataEnum) -> TokenStream2 {
+fn gen_enum_tag_type(enum_name: &Ident, enum_: &DataEnum) -> TokenStream {
     const U8_MAX: usize = u8::MAX as usize;
     const U16_MAX: usize = u16::MAX as usize;
     const U32_MAX: usize = u32::MAX as usize;
@@ -581,18 +607,14 @@ fn gen_enum_tag_type(enum_name: &Ident, enum_: &syn::DataEnum) -> TokenStream2 {
     }
 }
 
-fn split_for_impl_with_type_params<'generics>(
-    generics: &'generics mut syn::Generics,
-    type_params: &'generics [syn::TypeParam],
+fn split_for_impl(
+    generics: &mut Generics,
 ) -> (
     syn::punctuated::Punctuated<syn::GenericParam, syn::Token![,]>,
-    syn::TypeGenerics<'generics>,
-    Option<&'generics syn::WhereClause>,
+    syn::TypeGenerics<'_>,
+    Option<&syn::WhereClause>,
 ) {
+    let impl_generics = generics.params.clone();
     let (_, ty_generics, where_clause) = generics.split_for_impl();
-
-    let mut impl_generics = generics.params.clone();
-    impl_generics.extend(type_params.iter().cloned().map(syn::GenericParam::Type));
-
     (impl_generics, ty_generics, where_clause)
 }

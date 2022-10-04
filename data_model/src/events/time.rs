@@ -47,6 +47,9 @@ impl Event {
     FfiType,
 )]
 #[repr(transparent)]
+#[serde(transparent)]
+// SAFETY: EventFilter has no trap representations in ExecutionTime
+#[ffi_type(unsafe {robust})]
 pub struct EventFilter(pub ExecutionTime);
 
 impl Filter for EventFilter {

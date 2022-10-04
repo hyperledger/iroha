@@ -41,7 +41,10 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     FfiType,
     IntoSchema,
 )]
+#[repr(transparent)]
 #[serde(transparent)]
+// SAFETY: RoleId has no trap representations in Name
+#[ffi_type(unsafe {robust})]
 pub struct Id {
     /// Role name, should be unique .
     pub name: Name,
