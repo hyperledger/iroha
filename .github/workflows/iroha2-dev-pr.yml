@@ -79,11 +79,7 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: true
-      - name: Upload codecov report artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: lcov-${{ github.event.pull_request.head.sha }}.info
-          path: lcov.info
+          commit_parent: ${{ github.event.pull_request.base.sha }}
 
   integration:
     runs-on: ubuntu-latest
