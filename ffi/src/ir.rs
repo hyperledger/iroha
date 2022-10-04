@@ -2,7 +2,7 @@
 //! While you can implement [`FfiType`] on your `Rust` type directly, it is encouraged
 //! that you map your type into IR by providing the implementation of [`Ir`] and benefit
 //! from automatic, correct and performant conversions from IR to C type equivalent.
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::mem::ManuallyDrop;
 
 use crate::ReprC;
@@ -25,6 +25,15 @@ pub unsafe trait Transmute {
     /// Any raw pointer in [`Self::Target`] that will be dereferenced must be valid.
     unsafe fn is_valid(source: &Self::Target) -> bool;
 }
+
+/// Marker trait for a type whose [`Transmute::is_valid`] always returns true. The main
+/// use of this trait is to guard against the use of `&mut T` in FFI where the caller
+/// can set the underlying `T` to a trap representation and cause UB.
+///
+/// # Safety
+///
+/// Implementation of [`Transmute::is_valid`] must always return true for this type
+pub unsafe trait InfallibleTransmute {}
 
 /// Designates a type that can be converted to/from internal representation.
 /// IR types are given automatic implementation of [`FfiType`]
@@ -84,77 +93,98 @@ pub struct IrVec<T: Ir<Type = U>, U>(pub Vec<T>);
 #[derive(Debug)]
 pub struct IrArray<T: Ir<Type = U>, U, const N: usize>(pub [T; N]);
 
+// SAFETY: `ReprC` are guaranteed to be robust
+unsafe impl<T: ReprC + Ir<Type = Robust<T>>> InfallibleTransmute for T {}
+
 impl<T> IrTypeOf<Self> for T {
+    #[inline]
     fn into_ir(source: T) -> Self {
         source
     }
+    #[inline]
     fn into_rust(self) -> Self {
         self
     }
 }
 
 impl<T> IrTypeOf<T> for Opaque<T> {
+    #[inline]
     fn into_ir(source: T) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> T {
         self.0
     }
 }
 impl<T: Transmute> IrTypeOf<T> for Transparent<T> {
+    #[inline]
     fn into_ir(source: T) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> T {
         self.0
     }
 }
 impl<T: ReprC> IrTypeOf<T> for Robust<T> {
+    #[inline]
     fn into_ir(source: T) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> T {
         self.0
     }
 }
 
 impl<T: Ir> IrTypeOf<Box<T>> for IrBox<T, T::Type> {
+    #[inline]
     fn into_ir(source: Box<T>) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> Box<T> {
         self.0
     }
 }
 impl<'itm, T: Ir> IrTypeOf<&'itm [T]> for IrSlice<'itm, T, T::Type> {
+    #[inline]
     fn into_ir(source: &'itm [T]) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> &'itm [T] {
         self.0
     }
 }
 impl<'itm, T: Ir> IrTypeOf<&'itm mut [T]> for IrSliceMut<'itm, T, T::Type> {
+    #[inline]
     fn into_ir(source: &'itm mut [T]) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> &'itm mut [T] {
         self.0
     }
 }
 impl<T: Ir> IrTypeOf<Vec<T>> for IrVec<T, T::Type> {
+    #[inline]
     fn into_ir(source: Vec<T>) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> Vec<T> {
         self.0
     }
 }
 
 impl<T: Ir, const N: usize> IrTypeOf<[T; N]> for IrArray<T, T::Type, N> {
+    #[inline]
     fn into_ir(source: [T; N]) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> [T; N] {
         self.0
     }
@@ -224,43 +254,24 @@ impl<T: Transmute> Transparent<T> {
     }
 }
 
-// SAFETY: Trivially transmutable
-unsafe impl<T: Transmute> Transmute for &T {
-    type Target = *const T::Target;
+// SAFETY: Transmuting reference to a pointer of the same type
+unsafe impl<'itm, T: ReprC + Ir<Type = Robust<T>>> Transmute for &'itm T {
+    type Target = *const T;
 
     #[inline]
-    unsafe fn is_valid(source: &*const T::Target) -> bool {
-        if let Some(item) = source.as_ref() {
-            return T::is_valid(item);
-        }
-
-        false
+    unsafe fn is_valid(target: &Self::Target) -> bool {
+        !target.is_null()
     }
 }
 
-// SAFETY: Trivially transmutable
-unsafe impl<T: Transmute> Transmute for &mut T {
-    type Target = *mut T::Target;
+// SAFETY: Transmuting reference to a pointer of the same type
+unsafe impl<'itm, T: ReprC + Ir<Type = Robust<T>>> Transmute for &'itm mut T {
+    type Target = *mut T;
 
     #[inline]
-    unsafe fn is_valid(source: &*mut T::Target) -> bool {
-        if let Some(item) = source.as_mut() {
-            return T::is_valid(item);
-        }
-
-        false
+    unsafe fn is_valid(target: &Self::Target) -> bool {
+        !target.is_null()
     }
-}
-
-impl<'itm, T: Ir + crate::repr_c::NonTransmute> Ir for &'itm T {
-    type Type = &'itm T;
-}
-
-impl<'itm, T> Ir for &'itm mut T
-where
-    &'itm mut T: Transmute,
-{
-    type Type = Transparent<&'itm mut T>;
 }
 
 impl<T> Ir for *const T {
@@ -271,50 +282,50 @@ impl<T> Ir for *mut T {
     type Type = Robust<Self>;
 }
 
+impl<'itm, T: Ir> Ir for &'itm T
+where
+    Self: Transmute,
+{
+    type Type = Transparent<Self>;
+}
+#[cfg(feature = "non_robust_ref_mut")]
+impl<'itm, T: Ir> Ir for &'itm mut T
+where
+    Self: Transmute,
+{
+    type Type = Transparent<Self>;
+}
+#[cfg(not(feature = "non_robust_ref_mut"))]
+impl<'itm, T: Ir + InfallibleTransmute> Ir for &'itm mut T
+where
+    Self: Transmute,
+{
+    type Type = Transparent<Self>;
+}
 impl<T: Ir> Ir for Box<T> {
     type Type = IrBox<T, T::Type>;
 }
 impl<'itm, T: Ir> Ir for &'itm [T] {
     type Type = IrSlice<'itm, T, T::Type>;
 }
-impl<'itm, T: Ir> Ir for &'itm mut [T] {
+#[cfg(feature = "non_robust_ref_mut")]
+impl<'itm, T: Ir> Ir for &'itm mut [T]
+where
+    &'itm mut T: Transmute,
+{
     type Type = IrSliceMut<'itm, T, T::Type>;
 }
+#[cfg(not(feature = "non_robust_ref_mut"))]
+impl<'itm, T: Ir + InfallibleTransmute> Ir for &'itm mut [T]
+where
+    &'itm mut T: Transmute,
+{
+    type Type = IrSliceMut<'itm, T, T::Type>;
+}
+
 impl<T: Ir> Ir for Vec<T> {
     type Type = IrVec<T, T::Type>;
 }
 impl<T: Ir, const N: usize> Ir for [T; N] {
     type Type = IrArray<T, T::Type, N>;
-}
-
-// NOTE: This can be contested as it is nowhere documented that String is
-// actually transmutable into Vec<u8>, but implicitly it should be
-// SAFETY: Vec<String> type should be transmutable into Vec<u8>
-unsafe impl Transmute for String {
-    type Target = Vec<u8>;
-
-    #[inline]
-    unsafe fn is_valid(source: &Vec<u8>) -> bool {
-        core::str::from_utf8(source).is_ok()
-    }
-}
-
-// NOTE: `core::str::as_bytes` uses transmute internally which means that
-// even though it's a string slice it can be transmuted into byte slice.
-// SAFETY: &str type should be transmutable into &[u8]
-unsafe impl<'itm> Transmute for &'itm str {
-    type Target = &'itm [u8];
-
-    #[inline]
-    unsafe fn is_valid(source: &&'itm [u8]) -> bool {
-        core::str::from_utf8(source).is_ok()
-    }
-}
-
-impl Ir for String {
-    type Type = Transparent<Self>;
-}
-
-impl<'itm> Ir for &'itm str {
-    type Type = Transparent<Self>;
 }

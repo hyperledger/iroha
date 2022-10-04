@@ -1273,9 +1273,9 @@ checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
 name = "fixnum"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7bb4d4380b82ea92dfa6df95e4dae07879d404e0e25aa44040744fe601221df"
+checksum = "44b2a966c379dfa6584275025608c73116b3b41cd91715c48bf8087ae035587f"
 dependencies = [
  "derive_more",
  "itoa 1.0.3",

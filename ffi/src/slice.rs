@@ -22,7 +22,7 @@ pub struct SliceMut<T>(*mut T, usize);
 /// Returned length is [`isize`] to be able to support `None` values when converting types such as [`Option<T>`]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct OutBoxedSlice<T>(*mut T, usize, *mut isize);
+pub struct OutBoxedSlice<T>(pub *mut T, pub usize, pub *mut isize);
 
 impl<T> Copy for SliceRef<T> {}
 impl<T> Clone for SliceRef<T> {
@@ -143,7 +143,12 @@ impl<T> OutBoxedSlice<T> {
         )
     }
 
-    pub(crate) unsafe fn write_none(self) {
+    /// Write the equivalent of `Option<T>::None`
+    ///
+    /// # Safety
+    ///
+    /// The pointer to [`OutBoxedSlice`]'s total length must be valid for writes
+    pub unsafe fn write_none(self) {
         self.2.write(Self::NONE);
     }
 }

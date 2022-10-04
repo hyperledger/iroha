@@ -8,7 +8,7 @@ edition = "2021"
 iroha_schema_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 
 serde = { version = "1.0.142", default-features = false, features = ["derive", "alloc"] }
-fixnum = { version = "0.8.0", default-features = false, features = ["i64"] }
+fixnum = { version = "0.9.1", default-features = false, features = ["i64"] }
 
 [dev-dependencies]
 parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive", "full"] }

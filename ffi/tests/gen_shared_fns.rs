@@ -4,12 +4,16 @@ use std::{cmp::Ordering, mem::MaybeUninit};
 
 use iroha_ffi::{def_ffi_fn, ffi_export, handles, FfiConvert, FfiReturn, FfiType, Handle};
 
+/// Struct without a repr attribute is opaque by default
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FfiType)]
 pub struct FfiStruct1 {
     name: String,
 }
 
+/// Struct with a repr attribute can be forced to become opaque with `#[ffi_type(opaque)]`
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FfiType)]
+#[ffi_type(opaque)]
+#[repr(C)]
 pub struct FfiStruct2 {
     name: String,
 }
