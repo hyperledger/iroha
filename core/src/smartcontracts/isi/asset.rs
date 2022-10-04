@@ -35,9 +35,17 @@ pub mod isi {
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                store.insert_with_limits(self.key, self.value, asset_metadata_limits)?;
+                store.insert_with_limits(
+                    self.key.clone(),
+                    self.value.clone(),
+                    asset_metadata_limits,
+                )?;
 
-                Ok(AssetEvent::MetadataInserted(asset_id.clone()))
+                Ok(AssetEvent::MetadataInserted(MetadataChanged {
+                    origin_id: asset_id.clone(),
+                    key: self.key,
+                    value: Box::new(self.value),
+                }))
             })
         }
     }
@@ -59,11 +67,15 @@ pub mod isi {
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                store
+                let value = store
                     .remove(&self.key)
-                    .ok_or(FindError::MetadataKey(self.key))?;
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                Ok(AssetEvent::MetadataRemoved(asset_id.clone()))
+                Ok(AssetEvent::MetadataRemoved(MetadataChanged {
+                    origin_id: asset_id.clone(),
+                    key: self.key,
+                    value: Box::new(value),
+                }))
             })
         }
     }

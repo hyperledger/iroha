@@ -5,10 +5,25 @@ use iroha_primitives::small::SmallVec;
 
 use super::*;
 
+/// Generic [`MetadataChanged`] struct.
+/// Depending on wrapping event could mean inserted or removed metadata `(key, value)` pair.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[allow(missing_docs)]
+pub struct MetadataChanged<ID> {
+    pub origin_id: ID,
+    pub key: Name,
+    pub value: Box<Value>,
+}
+
 mod asset {
     //! This module contains `AssetEvent`, `AssetDefinitionEvent` and its impls
 
     use super::*;
+
+    type AssetMetadataChanged = MetadataChanged<AssetId>;
+    type AssetDefinitionMetadataChanged = MetadataChanged<AssetDefinitionId>;
 
     #[derive(
         Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
@@ -20,8 +35,8 @@ mod asset {
         Deleted(AssetId),
         Added(AssetAdded),
         Removed(AssetRemoved),
-        MetadataInserted(AssetId),
-        MetadataRemoved(AssetId),
+        MetadataInserted(AssetMetadataChanged),
+        MetadataRemoved(AssetMetadataChanged),
     }
 
     impl HasOrigin for AssetEvent {
@@ -33,8 +48,8 @@ mod asset {
                 | Self::Deleted(id)
                 | Self::Added(AssetAdded { asset_id: id, .. })
                 | Self::Removed(AssetRemoved { asset_id: id, .. })
-                | Self::MetadataInserted(id)
-                | Self::MetadataRemoved(id) => id,
+                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
             }
         }
     }
@@ -46,7 +61,6 @@ mod asset {
         PartialOrd,
         Ord,
         Debug,
-        Hash,
         Decode,
         Encode,
         Deserialize,
@@ -60,8 +74,8 @@ mod asset {
         Created(AssetDefinitionId),
         MintabilityChanged(AssetDefinitionId),
         Deleted(AssetDefinitionId),
-        MetadataInserted(AssetDefinitionId),
-        MetadataRemoved(AssetDefinitionId),
+        MetadataInserted(AssetDefinitionMetadataChanged),
+        MetadataRemoved(AssetDefinitionMetadataChanged),
     }
     // NOTE: Whenever you add a new event here, please also update the
     // AssetDefinitionEventFilter enum and its `impl Filter for
@@ -75,8 +89,8 @@ mod asset {
                 Self::Created(id)
                 | Self::Deleted(id)
                 | Self::MintabilityChanged(id)
-                | Self::MetadataInserted(id)
-                | Self::MetadataRemoved(id) => id,
+                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
             }
         }
     }
@@ -278,6 +292,8 @@ mod account {
 
     use super::*;
 
+    type AccountMetadataChanged = MetadataChanged<AccountId>;
+
     /// Account event
     #[derive(
         Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
@@ -294,8 +310,8 @@ mod account {
         PermissionRemoved(AccountPermissionRemoved),
         RoleRevoked(AccountRoleRevoked),
         RoleGranted(AccountRoleGranted),
-        MetadataInserted(AccountId),
-        MetadataRemoved(AccountId),
+        MetadataInserted(AccountMetadataChanged),
+        MetadataRemoved(AccountMetadataChanged),
     }
 
     impl HasOrigin for AccountEvent {
@@ -312,8 +328,8 @@ mod account {
                 | Self::PermissionRemoved(AccountPermissionRemoved { account_id: id, .. })
                 | Self::RoleRevoked(AccountRoleRevoked { account_id: id, .. })
                 | Self::RoleGranted(AccountRoleGranted { account_id: id, .. })
-                | Self::MetadataInserted(id)
-                | Self::MetadataRemoved(id) => id,
+                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
             }
         }
     }
@@ -408,6 +424,8 @@ mod domain {
 
     use super::*;
 
+    type DomainMetadataChanged = MetadataChanged<DomainId>;
+
     /// Domain Event
     #[derive(
         Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
@@ -420,8 +438,8 @@ mod domain {
         AssetDefinition(AssetDefinitionEvent),
         Created(DomainId),
         Deleted(DomainId),
-        MetadataInserted(DomainId),
-        MetadataRemoved(DomainId),
+        MetadataInserted(DomainMetadataChanged),
+        MetadataRemoved(DomainMetadataChanged),
     }
 
     impl HasOrigin for DomainEvent {
@@ -433,8 +451,8 @@ mod domain {
                 Self::AssetDefinition(asset_definition) => &asset_definition.origin_id().domain_id,
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::MetadataInserted(id)
-                | Self::MetadataRemoved(id) => id,
+                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
             }
         }
     }
@@ -650,6 +668,6 @@ pub mod prelude {
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerExtended, TriggerFilter, TriggerShortened,
         },
-        Event as DataEvent, HasOrigin, WorldEvent,
+        Event as DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
 }

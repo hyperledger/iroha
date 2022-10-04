@@ -158,12 +158,16 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 account.metadata_mut().insert_with_limits(
-                    self.key,
-                    self.value,
+                    self.key.clone(),
+                    self.value.clone(),
                     account_metadata_limits,
                 )?;
 
-                Ok(AccountEvent::MetadataInserted(account_id.clone()))
+                Ok(AccountEvent::MetadataInserted(MetadataChanged {
+                    origin_id: account_id.clone(),
+                    key: self.key.clone(),
+                    value: Box::new(self.value),
+                }))
             })
         }
     }
@@ -180,12 +184,16 @@ pub mod isi {
             let account_id = self.object_id;
 
             wsv.modify_account(&account_id, |account| {
-                account
+                let value = account
                     .metadata_mut()
                     .remove(&self.key)
-                    .ok_or(FindError::MetadataKey(self.key))?;
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                Ok(AccountEvent::MetadataRemoved(account_id.clone()))
+                Ok(AccountEvent::MetadataRemoved(MetadataChanged {
+                    origin_id: account_id.clone(),
+                    key: self.key,
+                    value: Box::new(value),
+                }))
             })
         }
     }

@@ -173,12 +173,16 @@ pub mod isi {
                     let asset_definition = asset_definition_entry.definition_mut();
 
                     asset_definition.metadata_mut().insert_with_limits(
-                        self.key,
-                        self.value,
+                        self.key.clone(),
+                        self.value.clone(),
                         metadata_limits,
                     )?;
 
-                    Ok(AssetDefinitionEvent::MetadataInserted(asset_definition_id))
+                    Ok(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
+                        origin_id: asset_definition_id,
+                        key: self.key,
+                        value: Box::new(self.value),
+                    }))
                 },
             )
         }
@@ -200,12 +204,16 @@ pub mod isi {
                 |asset_definition_entry| {
                     let asset_definition = asset_definition_entry.definition_mut();
 
-                    asset_definition
+                    let value = asset_definition
                         .metadata_mut()
                         .remove(&self.key)
-                        .ok_or(FindError::MetadataKey(self.key))?;
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                    Ok(AssetDefinitionEvent::MetadataRemoved(asset_definition_id))
+                    Ok(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
+                        origin_id: asset_definition_id,
+                        key: self.key,
+                        value: Box::new(value),
+                    }))
                 },
             )
         }
@@ -225,11 +233,17 @@ pub mod isi {
             let limits = wsv.config.domain_metadata_limits;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
-                domain
-                    .metadata_mut()
-                    .insert_with_limits(self.key, self.value, limits)?;
+                domain.metadata_mut().insert_with_limits(
+                    self.key.clone(),
+                    self.value.clone(),
+                    limits,
+                )?;
 
-                Ok(DomainEvent::MetadataInserted(domain_id))
+                Ok(DomainEvent::MetadataInserted(MetadataChanged {
+                    origin_id: domain_id,
+                    key: self.key,
+                    value: Box::new(self.value),
+                }))
             })
         }
     }
@@ -246,12 +260,16 @@ pub mod isi {
             let domain_id = self.object_id;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
-                domain
+                let value = domain
                     .metadata_mut()
                     .remove(&self.key)
-                    .ok_or(FindError::MetadataKey(self.key))?;
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                Ok(DomainEvent::MetadataRemoved(domain_id))
+                Ok(DomainEvent::MetadataRemoved(MetadataChanged {
+                    origin_id: domain_id,
+                    key: self.key,
+                    value: Box::new(value),
+                }))
             })
         }
     }
