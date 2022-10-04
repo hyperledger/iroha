@@ -59,7 +59,12 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account
                     .remove_asset(&asset_id)
-                    .map(|asset| AccountEvent::Asset(AssetEvent::Removed(asset.id().clone())))
+                    .map(|asset| {
+                        AccountEvent::Asset(AssetEvent::Removed(AssetRemoved {
+                            asset_id: asset.id().clone(),
+                            amount: asset.value().clone(),
+                        }))
+                    })
                     .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
             })
         }

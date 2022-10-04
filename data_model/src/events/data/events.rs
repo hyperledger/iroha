@@ -11,27 +11,15 @@ mod asset {
     use super::*;
 
     #[derive(
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Debug,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        Filter,
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum AssetEvent {
         Created(AssetId),
         Deleted(AssetId),
-        Added(AssetId),
-        Removed(AssetId),
+        Added(AssetAdded),
+        Removed(AssetRemoved),
         MetadataInserted(AssetId),
         MetadataRemoved(AssetId),
     }
@@ -43,8 +31,8 @@ mod asset {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Added(id)
-                | Self::Removed(id)
+                | Self::Added(AssetAdded { asset_id: id, .. })
+                | Self::Removed(AssetRemoved { asset_id: id, .. })
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }
@@ -91,6 +79,22 @@ mod asset {
                 | Self::MetadataRemoved(id) => id,
             }
         }
+    }
+
+    /// [`AssetAdded`] event
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(missing_docs)]
+    pub struct AssetAdded {
+        pub asset_id: AssetId,
+        pub amount: AssetValue,
+    }
+
+    /// [`AssetRemoved`] event
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(missing_docs)]
+    pub struct AssetRemoved {
+        pub asset_id: AssetId,
+        pub amount: AssetValue,
     }
 }
 
@@ -276,19 +280,7 @@ mod account {
 
     /// Account event
     #[derive(
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Debug,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        Filter,
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -418,22 +410,11 @@ mod domain {
 
     /// Domain Event
     #[derive(
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Debug,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        Filter,
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
     )]
     #[non_exhaustive]
-    #[allow(missing_docs)]
+    // TODO: fix variant size differences
+    #[allow(missing_docs, variant_size_differences)]
     pub enum DomainEvent {
         Account(AccountEvent),
         AssetDefinition(AssetDefinitionEvent),
@@ -557,19 +538,7 @@ pub trait HasOrigin {
 ///
 /// Does not participate in `Event`, but useful for events warranties when modifying `wsv`
 #[derive(
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 #[allow(missing_docs)]
 pub enum WorldEvent {
@@ -583,19 +552,7 @@ pub enum WorldEvent {
 
 /// Event
 #[derive(
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum Event {
     /// Peer event
@@ -683,8 +640,8 @@ pub mod prelude {
             AccountPermissionRemoved, AccountRoleGranted, AccountRoleRevoked,
         },
         asset::{
-            AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter, AssetEvent,
-            AssetEventFilter, AssetFilter,
+            AssetAdded, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
+            AssetEvent, AssetEventFilter, AssetFilter, AssetRemoved,
         },
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
