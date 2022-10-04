@@ -1593,6 +1593,78 @@
       ]
     }
   },
+  "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::account::Id>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "origin_id",
+          "ty": "iroha_data_model::account::Id"
+        },
+        {
+          "name": "key",
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "value",
+          "ty": "iroha_data_model::Value"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "origin_id",
+          "ty": "iroha_data_model::asset::DefinitionId"
+        },
+        {
+          "name": "key",
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "value",
+          "ty": "iroha_data_model::Value"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::Id>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "origin_id",
+          "ty": "iroha_data_model::asset::Id"
+        },
+        {
+          "name": "key",
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "value",
+          "ty": "iroha_data_model::Value"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::domain::Id>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "origin_id",
+          "ty": "iroha_data_model::domain::Id"
+        },
+        {
+          "name": "key",
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "value",
+          "ty": "iroha_data_model::Value"
+        }
+      ]
+    }
+  },
   "iroha_data_model::events::data::events::account::AccountEvent": {
     "Enum": {
       "variants": [
@@ -1624,32 +1696,32 @@
         {
           "name": "PermissionAdded",
           "discriminant": 5,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::events::data::events::account::AccountPermissionChanged"
         },
         {
           "name": "PermissionRemoved",
           "discriminant": 6,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::events::data::events::account::AccountPermissionChanged"
         },
         {
           "name": "RoleRevoked",
           "discriminant": 7,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::events::data::events::account::AccountRoleChanged"
         },
         {
           "name": "RoleGranted",
           "discriminant": 8,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::events::data::events::account::AccountRoleChanged"
         },
         {
           "name": "MetadataInserted",
           "discriminant": 9,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::account::Id>"
         },
         {
           "name": "MetadataRemoved",
           "discriminant": 10,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::account::Id>"
         }
       ]
     }
@@ -1729,6 +1801,48 @@
       ]
     }
   },
+  "iroha_data_model::events::data::events::account::AccountPermissionChanged": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "account_id",
+          "ty": "iroha_data_model::account::Id"
+        },
+        {
+          "name": "permission_id",
+          "ty": "iroha_data_model::permission::token::Id"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::account::AccountRoleChanged": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "account_id",
+          "ty": "iroha_data_model::account::Id"
+        },
+        {
+          "name": "role_id",
+          "ty": "iroha_data_model::role::Id"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::asset::AssetChangedBy": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "asset_id",
+          "ty": "iroha_data_model::asset::Id"
+        },
+        {
+          "name": "by",
+          "ty": "iroha_data_model::asset::AssetValue"
+        }
+      ]
+    }
+  },
   "iroha_data_model::events::data::events::asset::AssetDefinitionEvent": {
     "Enum": {
       "variants": [
@@ -1750,12 +1864,12 @@
         {
           "name": "MetadataInserted",
           "discriminant": 3,
-          "ty": "iroha_data_model::asset::DefinitionId"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>"
         },
         {
           "name": "MetadataRemoved",
           "discriminant": 4,
-          "ty": "iroha_data_model::asset::DefinitionId"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>"
         }
       ]
     }
@@ -1821,22 +1935,22 @@
         {
           "name": "Added",
           "discriminant": 2,
-          "ty": "iroha_data_model::asset::Id"
+          "ty": "iroha_data_model::events::data::events::asset::AssetChangedBy"
         },
         {
           "name": "Removed",
           "discriminant": 3,
-          "ty": "iroha_data_model::asset::Id"
+          "ty": "iroha_data_model::events::data::events::asset::AssetChangedBy"
         },
         {
           "name": "MetadataInserted",
           "discriminant": 4,
-          "ty": "iroha_data_model::asset::Id"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::Id>"
         },
         {
           "name": "MetadataRemoved",
           "discriminant": 5,
-          "ty": "iroha_data_model::asset::Id"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::Id>"
         }
       ]
     }
@@ -1917,12 +2031,12 @@
         {
           "name": "MetadataInserted",
           "discriminant": 4,
-          "ty": "iroha_data_model::domain::Id"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::domain::Id>"
         },
         {
           "name": "MetadataRemoved",
           "discriminant": 5,
-          "ty": "iroha_data_model::domain::Id"
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::domain::Id>"
         }
       ]
     }
@@ -2141,12 +2255,12 @@
         {
           "name": "Extended",
           "discriminant": 2,
-          "ty": "iroha_data_model::trigger::Id"
+          "ty": "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChangedBy"
         },
         {
           "name": "Shortened",
           "discriminant": 3,
-          "ty": "iroha_data_model::trigger::Id"
+          "ty": "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChangedBy"
         }
       ]
     }
@@ -2187,6 +2301,20 @@
         {
           "name": "event_filter",
           "ty": "iroha_data_model::events::data::filters::FilterOpt<iroha_data_model::events::data::events::trigger::TriggerEventFilter>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChangedBy": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "trigger_id",
+          "ty": "iroha_data_model::trigger::Id"
+        },
+        {
+          "name": "by",
+          "ty": "u32"
         }
       ]
     }
