@@ -113,15 +113,13 @@ fn gen_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStre
 
 fn gen_input_arg(arg: &Arg) -> TokenStream {
     let arg_name = arg.name();
-    let arg_type = arg.ffi_type_resolved();
+    let arg_type = arg.ffi_type_resolved(false);
 
     quote! { #arg_name: #arg_type }
 }
 
 fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
-    let arg_name = arg.name();
-    let arg_type = arg.src_type_resolved(true);
-
+    let (arg_name, arg_type) = (arg.name(), arg.src_type_resolved());
     quote! { #arg_name: <#arg_type as iroha_ffi::FfiOutPtr>::OutPtr }
 }
 
@@ -188,9 +186,9 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     match &fn_descriptor.output_arg {
-        Some(output_arg) => {
-            let (arg_name, arg_type) = (output_arg.name(), output_arg.src_type_resolved(true));
-            let output_arg_conversion = crate::util::gen_arg_src_to_ffi(output_arg, true);
+        Some(out_arg) => {
+            let (arg_name, arg_type) = (out_arg.name(), out_arg.src_type_resolved());
+            let output_arg_conversion = crate::util::gen_arg_src_to_ffi(out_arg, true);
 
             quote! {
                 #output_arg_conversion

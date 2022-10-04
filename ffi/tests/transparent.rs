@@ -9,6 +9,7 @@ use iroha_ffi::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
+#[ffi_type(unsafe {robust})]
 #[repr(transparent)]
 pub struct GenericTransparentStruct<P>(u64, PhantomData<P>);
 
@@ -19,6 +20,7 @@ impl<P> GenericTransparentStruct<P> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
+#[ffi_type(unsafe {robust})]
 #[repr(transparent)]
 pub struct TransparentStruct {
     payload: GenericTransparentStruct<()>,

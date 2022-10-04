@@ -30,7 +30,8 @@ use crate::{ParseError, ValidationError};
     FfiType,
     IntoSchema,
 )]
-// FIXME: #[repr(transparent)] (https://github.com/hyperledger/iroha/issues/2645)
+#[repr(transparent)]
+#[serde(transparent)]
 pub struct Name(ConstString);
 
 impl Name {
@@ -121,6 +122,18 @@ impl Decode for Name {
         Self::validate_str(&name)
             .map(|_| Self(name))
             .map_err(|error| error.reason.into())
+    }
+}
+
+#[allow(unsafe_code)]
+// SAFETY: `Name` is transmutable into `ConstString`
+// and `is_valid` is not returning false positives
+unsafe impl iroha_ffi::ir::Transmute for Name {
+    type Target = ConstString;
+
+    #[inline]
+    unsafe fn is_valid(inner: &Self::Target) -> bool {
+        Self::validate_str(inner).is_ok()
     }
 }
 

@@ -302,6 +302,7 @@ pub enum Parameter {
     FfiType,
     IntoSchema,
 )]
+#[ffi_type(local)]
 #[allow(clippy::enum_variant_names)]
 pub enum IdBox {
     /// [`DomainId`](`domain::Id`) variant.
@@ -541,6 +542,8 @@ ffi::declare_item! {
     )]
     #[repr(transparent)]
     #[serde(transparent)]
+    // SAFETY: BlockValueWrapper has no trap representations in BlockValue
+    #[ffi_type(unsafe {robust})]
     pub struct BlockValueWrapper(BlockValue);
 }
 
@@ -1020,7 +1023,6 @@ pub mod ffi {
                 metadata::Metadata,
                 permission::Token,
                 role::Role,
-                Name,
             }
             iroha_ffi::$macro_name! { pub Eq:
                 account::Account,
@@ -1029,15 +1031,14 @@ pub mod ffi {
                 metadata::Metadata,
                 permission::Token,
                 role::Role,
-                Name,
             }
             iroha_ffi::$macro_name! { pub Ord:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
+                metadata::Metadata,
                 permission::Token,
                 role::Role,
-                Name,
             }
             iroha_ffi::$macro_name! { pub Drop:
                 account::Account,
@@ -1046,7 +1047,6 @@ pub mod ffi {
                 metadata::Metadata,
                 permission::Token,
                 role::Role,
-                Name,
             }
         };
     }
@@ -1058,7 +1058,6 @@ pub mod ffi {
         metadata::Metadata,
         permission::Token,
         role::Role,
-        Name,
     }
 
     #[cfg(feature = "ffi_import")]
