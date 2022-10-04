@@ -47,6 +47,7 @@ impl Event {
     FfiType,
 )]
 #[repr(transparent)]
+#[serde(transparent)]
 pub struct EventFilter(pub ExecutionTime);
 
 impl Filter for EventFilter {

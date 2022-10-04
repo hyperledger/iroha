@@ -26,6 +26,7 @@ use core::{
 use std::{borrow::Borrow, str::from_utf8_unchecked};
 
 use derive_more::{DebugCustom, Display};
+use iroha_ffi::FfiType;
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
 use serde::{
@@ -296,6 +297,95 @@ struct BoxedString {
     ptr: NonNull<u8>,
 }
 
+mod ffi {
+    use core::mem::ManuallyDrop;
+
+    use iroha_ffi::{
+        ir::{Ir, Robust, Transmute, Transparent},
+        repr_c::CTypeConvert,
+    };
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct ReprCBoxedString {
+        #[cfg(target_endian = "little")]
+        ptr: *const u8,
+        len: usize,
+        #[cfg(target_endian = "big")]
+        ptr: *const u8,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub union ReprCConstString {
+        inlined: super::InlinedString,
+        boxed: ManuallyDrop<ReprCBoxedString>,
+    }
+
+    unsafe impl iroha_ffi::ReprC for ReprCConstString {}
+    unsafe impl iroha_ffi::ReprC for ReprCBoxedString {}
+
+    unsafe impl Transmute for super::ConstString {
+        type Target = ReprCConstString;
+
+        unsafe fn is_valid(source: &Self::Target) -> bool {
+            source.boxed.ptr.is_null()
+        }
+    }
+    unsafe impl Transmute for super::BoxedString {
+        type Target = ReprCBoxedString;
+
+        unsafe fn is_valid(source: &Self::Target) -> bool {
+            source.ptr.is_null()
+        }
+    }
+    impl Ir for super::ConstString {
+        type Type = Self;
+    }
+    impl Ir for super::BoxedString {
+        type Type = Self;
+    }
+    impl Ir for ReprCConstString {
+        type Type = Robust<Self>;
+    }
+    impl Ir for ReprCBoxedString {
+        type Type = Robust<Self>;
+    }
+    impl CTypeConvert<'_, ReprCConstString> for super::ConstString {
+        type RustStore = ();
+        type FfiStore = ();
+
+        fn into_repr_c(self, _: &mut ()) -> ReprCConstString {
+            unimplemented!()
+        }
+
+        unsafe fn try_from_repr_c(_: ReprCConstString, _: &mut ()) -> iroha_ffi::Result<Self> {
+            unimplemented!()
+        }
+    }
+    impl CTypeConvert<'_, ReprCBoxedString> for super::BoxedString {
+        type RustStore = ();
+        type FfiStore = ();
+
+        fn into_repr_c(self, _: &mut ()) -> ReprCBoxedString {
+            unimplemented!()
+        }
+
+        unsafe fn try_from_repr_c(_: ReprCBoxedString, _: &mut ()) -> iroha_ffi::Result<Self> {
+            unimplemented!()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn test() {
+            let const_string: &super::super::ConstString =
+                "Somewhat big string that goes on a heap".as_ref();
+        }
+    }
+}
+
 impl BoxedString {
     #[inline]
     const fn len(&self) -> usize {
@@ -381,7 +471,7 @@ unsafe impl Send for BoxedString {}
 #[allow(unsafe_code)]
 unsafe impl Sync for BoxedString {}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, FfiType)]
 #[repr(C)]
 struct InlinedString {
     #[cfg(target_endian = "little")]

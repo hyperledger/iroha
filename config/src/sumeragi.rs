@@ -99,6 +99,7 @@ impl Configuration {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(transparent)]
+#[repr(transparent)]
 pub struct TrustedPeers {
     /// Optional list of predefined trusted peers. Must contain unique
     /// entries. Custom deserializer raises error if duplicates found.

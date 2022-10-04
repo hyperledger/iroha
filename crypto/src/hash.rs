@@ -34,8 +34,8 @@ ffi::ffi_item! {
         IntoSchema,
         FfiType,
     )]
-    // TODO: Make transparent
-    //#[repr(transparent)]
+    #[repr(transparent)]
+    #[serde(transparent)]
     #[display(fmt = "{}", "hex::encode(_0)")]
     #[debug(fmt = "{{ Hash({}) }}", "hex::encode(_0)")]
     pub struct Hash([u8; Self::LENGTH]);

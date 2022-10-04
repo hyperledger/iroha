@@ -39,7 +39,7 @@ pub fn gen_derived_methods(item: &syn::ItemStruct) -> Vec<FnDescriptor> {
 }
 
 pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
-    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved(false));
+    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
     let store_name = gen_store_name(arg_name);
 
     quote! {
@@ -51,10 +51,10 @@ pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
 #[allow(clippy::expect_used)]
 pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
+    let ffi_type = arg.ffi_type_resolved(is_output);
     let store_name = gen_store_name(arg_name);
 
     let mut resolve_impl_trait = None;
-    let ffi_type = arg.ffi_type_resolved();
     if let Type::ImplTrait(type_) = &src_type {
         for bound in &type_.bounds {
             if let syn::TypeParamBound::Trait(trait_) = bound {

@@ -172,6 +172,7 @@ pub type ExpressionBox = Box<Expression>;
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord,
 )]
+#[repr(transparent)]
 #[serde(transparent)]
 // As this structure exists only for type checking
 // it makes sense to display `expression` directly
@@ -555,6 +556,7 @@ impl Serialize for Expression {
 )]
 #[display(fmt = "CONTEXT `{}`", value_name)]
 #[serde(transparent)]
+#[repr(transparent)]
 pub struct ContextValue {
     /// Name bound to the value.
     pub value_name: String,
@@ -802,6 +804,7 @@ gen_expr_and_impls! {
     )]
     #[display(fmt = "!{}", "self.expression.parenthesise(Operation::Not)")]
     #[serde(transparent)]
+    #[repr(transparent)]
     pub Not(bool) -> bool
 }
 

@@ -30,7 +30,8 @@ use crate::{ParseError, ValidationError};
     FfiType,
     IntoSchema,
 )]
-// FIXME: #[repr(transparent)] (https://github.com/hyperledger/iroha/issues/2645)
+#[repr(transparent)]
+#[serde(transparent)]
 pub struct Name(ConstString);
 
 impl Name {

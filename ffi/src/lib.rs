@@ -17,6 +17,7 @@ pub mod option;
 mod primitives;
 pub mod repr_c;
 pub mod slice;
+mod std_impls;
 
 /// A specialized `Result` type for FFI operations
 pub type Result<T> = core::result::Result<T, FfiReturn>;
@@ -219,12 +220,6 @@ impl<T: ReprC, const N: usize> OutPtrOf<[T; N]> for *mut T {
     }
 }
 
-// SAFETY: &T doesn't use store if T doesn't
-unsafe impl<T: NonLocal> NonLocal for &T {}
-// SAFETY: &T doesn't use store if T doesn't
-// NOTE: `&mut T` should never use store
-unsafe impl<T: NonLocal> NonLocal for &mut T {}
-
 macro_rules! impl_tuple {
     ( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ) => {
         /// FFI-compatible tuple with n elements
@@ -236,15 +231,17 @@ macro_rules! impl_tuple {
         impl<$($ty),+> From<($( $ty, )+)> for $ffi_ty<$($ty),+> {
             fn from(source: ($( $ty, )+)) -> Self {
                 let ($($ty,)+) = source;
-                Self($( $ty ),*)
+                Self($( $ty ),+)
             }
         }
 
         // SAFETY: Implementing type is robust with a defined C ABI
         unsafe impl<$($ty: ReprC),+> ReprC for $ffi_ty<$($ty),+> {}
-        impl<$($ty: Clone),+> NonTransmute for ($($ty,)+) where Self: CType {}
 
         impl<$($ty),+> $crate::ir::Ir for ($($ty,)+) {
+            type Type = Self;
+        }
+        impl<$($ty),+> $crate::ir::Ir for &($($ty,)+) {
             type Type = Self;
         }
 
@@ -277,8 +274,10 @@ macro_rules! impl_tuple {
             type OutPtr = *mut Self::ReprC;
         }
 
+        impl<$($ty),+> NonTransmute for ($($ty,)+) where Self: CType {}
+
         // SAFETY: Tuple doesn't use store if it's inner types don't use it
-        unsafe impl<$($ty: NonLocal),+> NonLocal for ($($ty,)+) where Self: CType {}
+        unsafe impl<$($ty: Ir),+> NonLocal for ($($ty,)+) where $($ty::Type: NonLocal,)+ {}
     };
 
     // NOTE: This is a trick to index tuples

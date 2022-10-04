@@ -46,6 +46,15 @@ pub enum DataCarryingEnum {
     D,
 }
 
+/// ReprC union
+#[derive(Clone, Copy, FfiType)]
+#[repr(C)]
+pub union ReprCUnion {
+    a: u8,
+    b: u32,
+    c: core::mem::ManuallyDrop<i16>,
+}
+
 handles! {0, OpaqueStruct}
 def_ffi_fn! {Drop: OpaqueStruct}
 
@@ -86,6 +95,11 @@ impl OpaqueStruct {
     /// Params
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
+    }
+
+    /// Tokens
+    pub fn remove_param(&mut self, param: &Name) -> Option<Value> {
+        self.params.remove(param)
     }
 
     /// Tokens
@@ -131,6 +145,12 @@ pub fn freestanding_with_array(arr: [u8; 1]) -> [u8; 1] {
 /// Return array wrapped in a tuple
 pub fn freestanding_with_array_in_struct(arr: ([u8; 1],)) -> ([u8; 1],) {
     arr
+}
+
+#[ffi_export]
+/// Return array wrapped in a tuple
+pub fn freestanding_with_repr_c_union(union_: ReprCUnion) -> ReprCUnion {
+    union_
 }
 
 #[ffi_export]
@@ -199,34 +219,19 @@ fn get_new_struct_with_params() -> OpaqueStruct {
 #[test]
 fn constructor() {
     let ffi_struct = get_new_struct();
-
-    unsafe {
-        assert_eq!(Some(Name(String::from('X'))), ffi_struct.name);
-        assert!(ffi_struct.params.is_empty());
-
-        assert_eq!(
-            FfiReturn::Ok,
-            __drop(OpaqueStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
-        );
-    }
+    assert_eq!(Some(Name(String::from('X'))), ffi_struct.name);
+    assert!(ffi_struct.params.is_empty());
 }
 
 #[test]
 fn builder_method() {
     let ffi_struct = get_new_struct_with_params();
 
-    unsafe {
-        assert_eq!(2, ffi_struct.params.len());
-        assert_eq!(
-            ffi_struct.params,
-            get_default_params().into_iter().collect()
-        );
-
-        assert_eq!(
-            FfiReturn::Ok,
-            __drop(OpaqueStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
-        );
-    }
+    assert_eq!(2, ffi_struct.params.len());
+    assert_eq!(
+        ffi_struct.params,
+        get_default_params().into_iter().collect()
+    );
 }
 
 #[test]
@@ -268,11 +273,30 @@ fn into_iter_item_impl_into() {
 
         assert_eq!(2, ffi_struct.tokens.len());
         assert_eq!(ffi_struct.tokens, tokens);
+    }
+}
 
+#[test]
+fn mutate_opaque() {
+    let param_name = Name(String::from("Nomen"));
+    let mut ffi_struct = get_new_struct_with_params();
+    let mut removed = MaybeUninit::new(core::ptr::null_mut());
+
+    unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            __drop(OpaqueStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
+            OpaqueStruct__remove_param(
+                FfiConvert::into_ffi(&mut ffi_struct, &mut ()),
+                &param_name,
+                removed.as_mut_ptr(),
+            )
         );
+
+        let removed = removed.assume_init();
+        assert!(!removed.is_null());
+        let removed: Option<Value> = FfiConvert::try_from_ffi(removed, &mut ()).unwrap();
+        assert_eq!(Some(Value(String::from("Omen"))), removed);
+        assert!(!ffi_struct.params.contains_key(&param_name));
     }
 }
 
@@ -314,10 +338,6 @@ fn return_option() {
         let mut store = ();
         let param2: Option<&Value> = FfiConvert::try_from_ffi(param2, &mut store).unwrap();
         assert_eq!(Some(&Value(String::from("Omen"))), param2);
-        assert_eq!(
-            FfiReturn::Ok,
-            __drop(OpaqueStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
-        );
     }
 }
 
@@ -334,10 +354,6 @@ fn empty_return_iterator() {
             OpaqueStruct__params(FfiConvert::into_ffi(&ffi_struct, &mut ()), out_params)
         );
         assert!(params_len.assume_init() == 2);
-        assert_eq!(
-            FfiReturn::Ok,
-            __drop(OpaqueStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
-        );
     }
 }
 
@@ -365,11 +381,6 @@ fn return_iterator() {
             <(_, _) as FfiConvert<_>>::try_from_ffi(params[0].assume_init(), &mut store).unwrap();
         let expected = get_default_params();
         assert_eq!((&expected[0].0, &expected[0].1), item);
-
-        assert_eq!(
-            FfiReturn::Ok,
-            __drop(OpaqueStruct::ID, ffi_struct.into_ffi(&mut ()).cast())
-        );
     }
 }
 
@@ -396,7 +407,7 @@ fn array_to_pointer() {
     let array = [1_u8];
     let mut store = Default::default();
     let ptr: *mut u8 = array.into_ffi(&mut store);
-    let mut output = MaybeUninit::new(core::ptr::null_mut());
+    let mut output = MaybeUninit::new([0_u8]);
 
     unsafe {
         assert_eq!(
@@ -428,6 +439,23 @@ fn array_in_struct() {
             ([1_u8],),
             <([u8; 1],)>::try_from_ffi(output.assume_init(), &mut ((),)).unwrap()
         );
+    }
+}
+
+#[test]
+fn repr_c_union() {
+    let union_ = ReprCUnion { a: 42 };
+    let mut output = MaybeUninit::new(ReprCUnion {
+        c: core::mem::ManuallyDrop::new(-1),
+    });
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_repr_c_union(union_, output.as_mut_ptr())
+        );
+
+        assert!(output.assume_init().a == 42);
     }
 }
 

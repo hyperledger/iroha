@@ -71,8 +71,7 @@ pub struct Robust<T: ReprC>(pub T);
 /// Marker struct for [`Box<T>`]
 #[derive(Debug)]
 pub struct IrBox<T: Ir<Type = U>, U>(pub Box<T>);
-/// Marker struct for `&[T]`
-#[derive(Debug)]
+/// Marker struct for `&[T]` #[derive(Debug)]
 pub struct IrSlice<'itm, T: Ir<Type = U>, U>(pub &'itm [T]);
 /// Marker struct for `&mut [T]`
 #[derive(Debug)]
@@ -252,17 +251,6 @@ unsafe impl<T: Transmute> Transmute for &mut T {
     }
 }
 
-impl<'itm, T: Ir + crate::repr_c::NonTransmute> Ir for &'itm T {
-    type Type = &'itm T;
-}
-
-impl<'itm, T> Ir for &'itm mut T
-where
-    &'itm mut T: Transmute,
-{
-    type Type = Transparent<&'itm mut T>;
-}
-
 impl<T> Ir for *const T {
     type Type = Robust<Self>;
 }
@@ -271,6 +259,18 @@ impl<T> Ir for *mut T {
     type Type = Robust<Self>;
 }
 
+impl<'itm, T: Ir + Transmute> Ir for &'itm T
+where
+    Self: Transmute,
+{
+    type Type = Transparent<Self>;
+}
+impl<'itm, T: Ir + Transmute> Ir for &'itm mut T
+where
+    Self: Transmute,
+{
+    type Type = Transparent<Self>;
+}
 impl<T: Ir> Ir for Box<T> {
     type Type = IrBox<T, T::Type>;
 }

@@ -48,15 +48,15 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
     FfiType,
     IntoSchema,
 )]
-// TODO: Make transparent
-//#[repr(transparent)]
+#[serde(transparent)]
+#[repr(transparent)]
+// TODO: revisit after https://github.com/loyd/fixnum/pull/31
+#[ffi_type(opaque)]
 pub struct Fixed(FixNum);
 
 impl Fixed {
     /// Constant, representing zero value
     pub const ZERO: Fixed = Fixed(FixNum::ZERO);
-
-    // TODO FixNum::Bounded is private.
 
     /// The minimum value that can be stored in this type.
     pub const MIN: Self = Fixed(<FixNum as Bounded>::MIN);
@@ -213,8 +213,15 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn deserialize_from_json_should_fail() {
+    fn deserialize_negative_from_json_should_fail() {
         serde_json::from_str("-10.00").unwrap()
+    }
+
+    #[test]
+    #[should_panic]
+    fn decode_negative_should_fail() {
+        let bytes = Fixed::negative_one().encode();
+        Fixed::decode(&mut &bytes[..]).unwrap();
     }
 
     #[test]

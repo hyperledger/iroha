@@ -1,0 +1,5 @@
+error: uninhabited enum's cannot be instantiated
+ --> tests/ui_fail/uninhabited_enum.rs:5:10
+  |
+5 | pub enum FfiStruct {}
+  |          ^^^^^^^^^

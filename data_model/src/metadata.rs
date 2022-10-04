@@ -88,6 +88,7 @@ impl Limits {
     FfiType,
     IntoSchema,
 )]
+#[repr(transparent)]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "Metadata")]

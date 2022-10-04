@@ -17,29 +17,23 @@ impl Arg {
     pub fn src_type(&self) -> &Type {
         &self.type_
     }
-    pub fn src_type_resolved(&self, decay_array: bool) -> Type {
-        let src_type = if decay_array {
-            Self::decay_array(&self.type_)
+    pub fn src_type_resolved(&self) -> Type {
+        resolve_type(self.self_ty.as_ref(), self.type_.clone())
+    }
+    pub fn ffi_type_resolved(&self, is_output: bool) -> Type {
+        let src_type = if let Type::Array(array) = &self.type_ {
+            if is_output {
+                self.type_.clone()
+            } else {
+                let elem = &array.elem;
+                parse_quote! {&mut #elem}
+            }
         } else {
             self.type_.clone()
         };
 
-        resolve_type(self.self_ty.as_ref(), src_type)
-    }
-    pub fn ffi_type_resolved(&self) -> Type {
-        let src_type = Self::decay_array(&self.type_);
         let arg_type = resolve_type(self.self_ty.as_ref(), src_type);
         parse_quote! {<#arg_type as iroha_ffi::FfiType>::ReprC}
-    }
-
-    /// Decay array to pointer
-    fn decay_array(type_: &Type) -> Type {
-        if let Type::Array(array) = type_ {
-            let elem = &array.elem;
-            parse_quote! {&mut #elem}
-        } else {
-            type_.clone()
-        }
     }
 }
 

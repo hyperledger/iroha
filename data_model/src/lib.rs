@@ -1037,6 +1037,7 @@ pub mod ffi {
                 account::Account,
                 asset::Asset,
                 domain::Domain,
+                metadata::Metadata,
                 permission::Token,
                 role::Role,
                 Name,
