@@ -1,0 +1,33 @@
+error[E0271]: type mismatch resolving `<Wrapper as Ir>::Type == Robust<Wrapper>`
+  --> tests/ui_fail/fallible_transmute_mut_ref.rs:18:1
+   |
+18 | #[ffi_export]
+   | ^^^^^^^^^^^^^ expected struct `Transparent`, found struct `Robust`
+   |
+   = note: expected struct `Transparent<Wrapper>`
+              found struct `Robust<Wrapper>`
+   = note: required because of the requirements on the impl of `InfallibleTransmute` for `Wrapper`
+   = note: required because of the requirements on the impl of `Ir` for `&mut Wrapper`
+   = note: required because of the requirements on the impl of `FfiType` for `&mut Wrapper`
+   = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Wrapper: ReprC` is not satisfied
+  --> tests/ui_fail/fallible_transmute_mut_ref.rs:18:1
+   |
+18 | #[ffi_export]
+   | ^^^^^^^^^^^^^ the trait `ReprC` is not implemented for `Wrapper`
+   |
+   = help: the following other types implement trait `ReprC`:
+             *const T
+             *mut T
+             FfiTuple10<A, B, C, D, E, F, G, H, I, J>
+             FfiTuple11<A, B, C, D, E, F, G, H, I, J, K>
+             FfiTuple12<A, B, C, D, E, F, G, H, I, J, K, L>
+             FfiTuple1<A>
+             FfiTuple2<A, B>
+             FfiTuple3<A, B, C>
+           and 21 others
+   = note: required because of the requirements on the impl of `InfallibleTransmute` for `Wrapper`
+   = note: required because of the requirements on the impl of `Ir` for `&mut Wrapper`
+   = note: required because of the requirements on the impl of `FfiType` for `&mut Wrapper`
+   = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)

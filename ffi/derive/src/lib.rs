@@ -9,7 +9,7 @@ use impl_visitor::{FnDescriptor, ImplDescriptor};
 use proc_macro::TokenStream;
 use proc_macro_error::abort;
 use quote::quote;
-use syn::{parse_macro_input, Item, NestedMeta};
+use syn::{parse_macro_input, parse_quote, Item, NestedMeta};
 
 use crate::convert::derive_ffi_type;
 
@@ -40,7 +40,7 @@ impl quote::ToTokens for FfiItems {
     }
 }
 
-/// Replace struct/enum definition with opaque pointer. This applies to structs/enums that
+/// Replace struct/enum/union definition with opaque pointer. This applies to types that
 /// are converted to an opaque pointer when sent across FFI but does not affect any other
 /// item wrapped with this macro (e.g. fieldless enums). This is so that most of the time
 /// users can safely wrap all of their structs with this macro and not be concerned with the
@@ -53,26 +53,22 @@ pub fn ffi(input: TokenStream) -> TokenStream {
     items
         .iter_mut()
         .filter(|item| is_opaque(item))
-        .for_each(|item| item.attrs.push(syn::parse_quote! {#[opaque_wrapper]}));
+        .map(|item| &mut item.attrs)
+        .for_each(|attrs| attrs.push(parse_quote! {#[ffi_type(r#extern)]}));
+
     let items = items.iter().map(|item| {
-        if is_opaque(item) {
+        if is_extern(&item.attrs) {
             wrapper::wrap_as_opaque(item)
         } else {
             quote! {#item}
         }
     });
 
-    quote! {
-        #(#items)*
-    }
-    .into()
+    quote! { #(#items)* }.into()
 }
 
 /// Derive implementations of traits required to convert to and from an FFI-compatible type
-// TODO: `local` is a temporary workaround for https://github.com/rust-lang/rust/issues/48214
-// because some derived types cannot derive `NonLocal` othwerise
-// TODO: prefix derive macro helper attributes with `ffi_type(_)`
-#[proc_macro_derive(FfiType, attributes(opaque_wrapper, local))]
+#[proc_macro_derive(FfiType, attributes(ffi_type))]
 #[proc_macro_error::proc_macro_error]
 pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as syn::DeriveInput);
@@ -252,27 +248,27 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
-fn is_opaque(input: &syn::DeriveInput) -> bool {
-    if matches!(&input.data, syn::Data::Enum(_)) {
-        return false;
-    }
-
-    let repr = find_attr(&input.attrs, "repr");
-    !is_repr_attr(&repr, "C") && !is_repr_attr(&repr, "transparent")
+fn is_extern(attrs: &[syn::Attribute]) -> bool {
+    let opaque_attr = parse_quote! {#[ffi_type(r#extern)]};
+    attrs.iter().any(|a| *a == opaque_attr)
 }
 
-fn find_attr(attrs: &[syn::Attribute], name: &str) -> syn::AttributeArgs {
-    attrs
-        .iter()
-        .filter_map(|attr| {
-            if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
-                return meta_list.path.is_ident(name).then_some(meta_list.nested);
-            }
+fn is_opaque(input: &syn::DeriveInput) -> bool {
+    if is_opaque_attr(&input.attrs) {
+        return true;
+    }
 
-            None
-        })
-        .flatten()
-        .collect()
+    // NOTE: Enums without defined representation, by default, are not opaque
+    !matches!(&input.data, syn::Data::Enum(_)) && without_repr(&input.attrs)
+}
+
+fn is_opaque_attr(attrs: &[syn::Attribute]) -> bool {
+    let opaque_attr = parse_quote! {#[ffi_type(opaque)]};
+    attrs.iter().any(|a| *a == opaque_attr)
+}
+
+fn without_repr(attrs: &[syn::Attribute]) -> bool {
+    find_attr(attrs, "repr").is_empty()
 }
 
 fn is_repr_attr(repr: &[NestedMeta], name: &str) -> bool {
@@ -290,4 +286,18 @@ fn is_repr_attr(repr: &[NestedMeta], name: &str) -> bool {
 
         false
     })
+}
+
+fn find_attr(attrs: &[syn::Attribute], name: &str) -> syn::AttributeArgs {
+    attrs
+        .iter()
+        .filter_map(|attr| {
+            if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
+                return meta_list.path.is_ident(name).then_some(meta_list.nested);
+            }
+
+            None
+        })
+        .flatten()
+        .collect()
 }

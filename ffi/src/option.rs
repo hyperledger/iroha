@@ -18,9 +18,11 @@ pub trait Niche: FfiType {
 pub struct IrOption<T: Niche<ReprC = N>, N>(pub Option<T>);
 
 impl<T: Niche> IrTypeOf<Option<T>> for IrOption<T, T::ReprC> {
+    #[inline]
     fn into_ir(source: Option<T>) -> Self {
         Self(source)
     }
+    #[inline]
     fn into_rust(self) -> Option<T> {
         self.0
     }
