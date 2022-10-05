@@ -23,6 +23,8 @@ pub struct Configuration {
     pub blocks_per_storage_file: NonZeroU64,
     /// Default buffer capacity of actor's MPSC channel.
     pub actor_channel_capacity: u32,
+    /// Whether or not new blocks be outputted to a file called blocks.json.
+    pub debug_output_new_blocks: bool,
 }
 
 impl Default for ConfigurationProxy {
@@ -36,6 +38,7 @@ impl Default for ConfigurationProxy {
                     .expect("BLOCKS_PER_STORAGE cannot be set to a non-positive value."),
             ),
             actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
+            debug_output_new_blocks: Some(false),
         }
     }
 }

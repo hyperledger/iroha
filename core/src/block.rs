@@ -25,6 +25,7 @@ use iroha_data_model::{
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
+use serde::Serialize;
 
 use crate::{
     prelude::*,
@@ -273,7 +274,7 @@ pub struct ChainedBlock {
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
 pub struct BlockHeader {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
@@ -658,7 +659,7 @@ impl From<&ValidBlock> for Vec<Event> {
     }
 }
 
-declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCommittedBlock {
     /// Converts from `&VersionedCommittedBlock` to V1 reference
@@ -742,7 +743,7 @@ impl VersionedCommittedBlock {
 /// When Kura receives `ValidBlock`, the block is stored and
 /// then sent to later stage of the pipeline as `CommittedBlock`.
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
 pub struct CommittedBlock {
     /// Header
     pub header: BlockHeader,
