@@ -152,6 +152,7 @@ pub(crate) async fn handle_queries(
     let paginated_result = PaginatedQueryResult {
         result,
         pagination,
+        sorting,
         filter,
         total,
     };

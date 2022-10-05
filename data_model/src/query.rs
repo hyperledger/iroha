@@ -18,7 +18,8 @@ use self::{
     trigger::*,
 };
 use crate::{
-    account::Account, pagination::Pagination, predicate::PredicateBox, Identifiable, Value,
+    account::Account, pagination::Pagination, predicate::PredicateBox, prelude::Sorting,
+    Identifiable, Value,
 };
 
 /// Sized container for all possible Queries.
@@ -189,6 +190,8 @@ pub struct PaginatedQueryResult {
     pub filter: PredicateBox,
     /// pagination
     pub pagination: Pagination,
+    /// sorting
+    pub sorting: Sorting,
     /// Total query amount (if applicable) else 0.
     pub total: u64,
 }

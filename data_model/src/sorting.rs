@@ -2,10 +2,13 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    format,
     string::{String, ToString as _},
     vec::Vec,
 };
 
+use iroha_schema::IntoSchema;
+use iroha_version::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{Filter, Rejection};
@@ -15,7 +18,7 @@ use crate::prelude::*;
 const SORT_BY_KEY: &str = "sort_by_metadata_key";
 
 /// Enum for sorting requests
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Decode, Encode, IntoSchema)]
 pub struct Sorting {
     /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
     pub sort_by_metadata_key: Option<Name>,
