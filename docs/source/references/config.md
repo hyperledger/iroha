@@ -37,7 +37,8 @@ The following is the default configuration used by Iroha.
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",
     "BLOCKS_PER_STORAGE_FILE": 1000,
-    "ACTOR_CHANNEL_CAPACITY": 100
+    "ACTOR_CHANNEL_CAPACITY": 100,
+    "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
     "KEY_PAIR": null,
@@ -255,6 +256,7 @@ Has type `Option<kura::ConfigurationProxy>`[^1]. Can be configured via environme
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCKS_PER_STORAGE_FILE": 1000,
   "BLOCK_STORE_PATH": "./storage",
+  "DEBUG_OUTPUT_NEW_BLOCKS": false,
   "INIT_MODE": "strict"
 }
 ```
@@ -287,6 +289,16 @@ Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `K
 
 ```json
 1000
+```
+
+### `kura.debug_output_new_blocks`
+
+Whether or not new blocks be outputted to a file called blocks.json.
+
+Has type `Option<bool>`[^1]. Can be configured via environment variable `KURA_DEBUG_OUTPUT_NEW_BLOCKS`
+
+```json
+false
 ```
 
 ### `kura.init_mode`
