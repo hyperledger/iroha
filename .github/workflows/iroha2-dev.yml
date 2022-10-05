@@ -21,17 +21,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Check changed files
-        uses: jitterbit/get-changed-files@v1
-        id: base_image
-      - name: Build and push iroha2-base image
-        uses: docker/build-push-action@v3
-        if: contains(steps.base_image.outputs.added_modified, 'Dockerfile.base')
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
         with:
-          push: true
-          tags: hyperledger/iroha2-base:dev
-          labels: commit=${{ github.sha }}
-          file: Dockerfile.base
+          install: true
       - name: Build and push iroha2:dev image
         uses: docker/build-push-action@v3
         with:
@@ -39,8 +33,11 @@ jobs:
           tags: hyperledger/iroha2:dev
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
+          file: Dockerfile
           # This context specification is required
           context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   load-rs:
     runs-on: ubuntu-latest
@@ -58,7 +55,6 @@ jobs:
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
           workflow_file_name: update-dependencies.yaml
           ref: iroha2-dev
-
       - name: Build and push docker image (load-rs:dev)
         run: |
           sleep 10s
