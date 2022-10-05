@@ -102,6 +102,9 @@
   "Option<iroha_data_model::isi::Instruction>": {
     "Option": "iroha_data_model::isi::Instruction"
   },
+  "Option<iroha_data_model::name::Name>": {
+    "Option": "iroha_data_model::name::Name"
+  },
   "Option<u32>": {
     "Option": "u32"
   },
@@ -4004,6 +4007,10 @@
           "ty": "iroha_data_model::pagination::Pagination"
         },
         {
+          "name": "sorting",
+          "ty": "iroha_data_model::sorting::Sorting"
+        },
+        {
           "name": "total",
           "ty": "u64"
         }
@@ -4645,6 +4652,16 @@
         {
           "name": "permissions",
           "ty": "Vec<iroha_data_model::permission::token::Token>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::sorting::Sorting": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "sort_by_metadata_key",
+          "ty": "Option<iroha_data_model::name::Name>"
         }
       ]
     }
