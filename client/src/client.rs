@@ -202,6 +202,8 @@ where
     /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
     pub pagination: Pagination,
     /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
+    pub sorting: Sorting,
+    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
     pub total: u64,
 }
 
@@ -227,6 +229,7 @@ where
         PaginatedQueryResult {
             result,
             pagination,
+            sorting,
             total,
             filter,
         }: PaginatedQueryResult,
@@ -239,6 +242,7 @@ where
         Ok(Self {
             output,
             pagination,
+            sorting,
             total,
             filter,
         })
