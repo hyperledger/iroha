@@ -21,6 +21,7 @@ pub use iroha_data_model::prelude::*;
 use iroha_primitives::must_use::MustUse;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
+use serde::Serialize;
 
 use crate::{
     prelude::*,
@@ -258,7 +259,7 @@ impl TransactionValidator {
     }
 }
 
-declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant);
+declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, Serialize);
 
 impl VersionedAcceptedTransaction {
     /// Converts from `&VersionedAcceptedTransaction` to V1 reference
@@ -312,7 +313,7 @@ impl Txn for VersionedAcceptedTransaction {
 
 /// `AcceptedTransaction` — a transaction accepted by iroha peer.
 #[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
-#[derive(Debug, Clone, Decode, Encode)]
+#[derive(Debug, Clone, Decode, Encode, Serialize)]
 #[non_exhaustive]
 pub struct AcceptedTransaction {
     /// Payload of this transaction.

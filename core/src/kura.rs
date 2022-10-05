@@ -38,6 +38,8 @@ pub struct Kura {
     block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
     /// The sending actor for the [`VersionedCommittedBlock`]
     block_sender: Sender<VersionedCommittedBlock>,
+    /// Path to file for plain text blocks.
+    block_plain_text_path: Option<PathBuf>,
 }
 
 impl Kura {
@@ -54,6 +56,7 @@ impl Kura {
         block_store_path: &Path,
         // broker: Broker,
         block_channel_size: u32,
+        debug_output_new_blocks: bool,
     ) -> Result<Arc<Self>> {
         let (block_sender, block_reciever) = channel(
             block_channel_size
@@ -64,6 +67,12 @@ impl Kura {
         let mut block_store = StdFileBlockStore::new(block_store_path);
         block_store.create_files_if_they_do_not_exist()?;
 
+        let block_plain_text_path = debug_output_new_blocks.then(|| {
+            let mut path_buf = block_store_path.to_path_buf();
+            path_buf.push("blocks.json");
+            path_buf
+        });
+
         let kura = Arc::new(Self {
             mode,
             block_store: Mutex::new(Box::new(block_store)),
@@ -71,6 +80,7 @@ impl Kura {
             // broker,
             block_reciever: Mutex::new(block_reciever),
             block_sender,
+            block_plain_text_path,
         });
 
         Ok(kura)
@@ -104,6 +114,7 @@ impl Kura {
             Path::new(&configuration.block_store_path),
             // broker,
             configuration.actor_channel_capacity,
+            configuration.debug_output_new_blocks,
         )
     }
 
@@ -192,6 +203,17 @@ impl Kura {
                     #[cfg(feature = "telemetry")]
                     if new_block.header().height == 1 {
                         iroha_logger::telemetry!(msg = iroha_telemetry::msg::SYSTEM_CONNECTED, genesis_hash = %new_block.hash());
+                    }
+
+                    if let Some(path) = kura.block_plain_text_path.as_ref() {
+                        let mut plain_text_file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(path)
+                            .expect("Couldn't create file for plain text blocks.");
+
+                        serde_json::to_writer_pretty(&mut plain_text_file, &new_block)
+                            .expect("Failed to write to plain text file for blocks.");
                     }
 
                     let block_hash = new_block.hash();
@@ -648,7 +670,7 @@ mod tests {
     #[allow(clippy::expect_used)]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        Kura::new(Mode::Strict, temp_dir.path(), 100)
+        Kura::new(Mode::Strict, temp_dir.path(), 100, false)
             .unwrap()
             .init()
             .unwrap();

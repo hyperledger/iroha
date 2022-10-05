@@ -13,6 +13,7 @@ use iroha_data_model::{prelude::PeerId, transaction::VersionedSignedTransaction}
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use serde::Serialize;
 
 use crate::{
     block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock},
@@ -197,7 +198,7 @@ impl Builder {
 }
 
 /// Network topology - order of peers that defines their roles in this round.
-#[derive(Clone, Debug, Encode, Decode, IntoSchema)]
+#[derive(Clone, Debug, Encode, Decode, IntoSchema, Serialize)]
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
