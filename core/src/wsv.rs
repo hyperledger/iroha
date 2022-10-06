@@ -23,24 +23,16 @@ use iroha_crypto::HashOf;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
-use iroha_telemetry::metrics::Metrics;
-use tokio::sync::broadcast;
 
 use crate::{
     block::Chain,
     prelude::*,
-    send_event,
     smartcontracts::{
         isi::{query::Error as QueryError, Error},
         wasm, Execute, FindError,
     },
-    DomainsMap, EventsSender, PeersIds,
+    DomainsMap, PeersIds,
 };
-
-/// Sender type of the new block notification channel
-pub type NewBlockNotificationSender = tokio::sync::watch::Sender<()>;
-/// Receiver type of the new block notification channel
-pub type NewBlockNotificationReceiver = tokio::sync::watch::Receiver<()>;
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
@@ -101,12 +93,12 @@ pub struct WorldStateView {
     blocks: Arc<Chain>,
     /// Hashes of transactions
     pub transactions: DashSet<HashOf<VersionedSignedTransaction>>,
-    /// Metrics for prometheus endpoint.
-    pub metrics: Arc<Metrics>,
-    /// Notifies subscribers when new block is applied
-    new_block_notifier: Arc<NewBlockNotificationSender>,
-    /// Transmitter to broadcast [`WorldStateView`]-related events.
-    events_sender: EventsSender,
+    /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
+    pub events_buffer: std::cell::RefCell<Vec<Event>>,
+    /// Accumulated amount of any asset that has been transacted.
+    pub metric_tx_amounts: std::cell::Cell<f64>,
+    /// Count of how many mints, transfers and burns have happened.
+    pub metric_tx_amounts_counter: std::cell::Cell<u64>,
 }
 
 impl Default for WorldStateView {
@@ -124,9 +116,9 @@ impl Clone for WorldStateView {
             config: self.config,
             blocks: Arc::clone(&self.blocks),
             transactions: self.transactions.clone(),
-            metrics: Arc::clone(&self.metrics),
-            new_block_notifier: Arc::clone(&self.new_block_notifier),
-            events_sender: self.events_sender.clone(),
+            events_buffer: std::cell::RefCell::new(Vec::new()),
+            metric_tx_amounts: std::cell::Cell::new(0.0_f64),
+            metric_tx_amounts_counter: std::cell::Cell::new(0),
         }
     }
 }
@@ -139,11 +131,10 @@ impl WorldStateView {
     #[allow(clippy::expect_used)]
     pub fn new(world: World) -> Self {
         // Added to remain backward compatible with other code primary in tests
-        let (events_sender, _) = broadcast::channel(1);
         let config = ConfigurationProxy::default()
             .build()
             .expect("Wsv proxy always builds");
-        Self::from_configuration(config, world, events_sender)
+        Self::from_configuration(config, world)
     }
 
     /// Get `Account`'s `Asset`s
@@ -291,7 +282,9 @@ impl WorldStateView {
     #[allow(clippy::too_many_lines)]
     pub fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         let time_event = self.create_time_event(block.as_v1())?;
-        self.produce_event(Event::Time(time_event));
+        self.events_buffer
+            .borrow_mut()
+            .push(Event::Time(time_event));
 
         self.execute_transactions(block.as_v1())?;
 
@@ -310,8 +303,6 @@ impl WorldStateView {
         }
 
         self.blocks.push(block);
-        self.block_commit_metrics_update_callback();
-        self.new_block_notifier.send_replace(());
 
         Ok(())
     }
@@ -376,11 +367,6 @@ impl WorldStateView {
         })?
     }
 
-    /// Send [`Event`]s to known subscribers.
-    fn produce_event(&self, event: impl Into<Event>) {
-        send_event(&self.events_sender, event.into());
-    }
-
     /// Get asset or inserts new with `default_asset_value`.
     ///
     /// # Errors
@@ -409,35 +395,6 @@ impl WorldStateView {
         })?;
 
         self.asset(id).map_err(Into::into)
-    }
-
-    /// Update metrics; run when block commits.
-    fn block_commit_metrics_update_callback(&self) {
-        let last_block_txs_accepted = self
-            .blocks
-            .iter()
-            .last()
-            .map(|block| block.as_v1().transactions.len() as u64)
-            .unwrap_or_default();
-        let last_block_txs_rejected = self
-            .blocks
-            .iter()
-            .last()
-            .map(|block| block.as_v1().rejected_transactions.len() as u64)
-            .unwrap_or_default();
-        self.metrics
-            .txs
-            .with_label_values(&["accepted"])
-            .inc_by(last_block_txs_accepted);
-        self.metrics
-            .txs
-            .with_label_values(&["rejected"])
-            .inc_by(last_block_txs_rejected);
-        self.metrics
-            .txs
-            .with_label_values(&["total"])
-            .inc_by(last_block_txs_accepted + last_block_txs_rejected);
-        self.metrics.block_height.inc();
     }
 
     // TODO: There could be just this one method `blocks` instead of
@@ -485,10 +442,12 @@ impl WorldStateView {
         let world_event = f(&self.world)?;
         let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
 
-        for event in data_events {
+        for event in data_events.iter() {
             self.world.triggers.handle_data_event(event.clone());
-            self.produce_event(event);
         }
+        self.events_buffer
+            .borrow_mut()
+            .extend(data_events.into_iter().map(Into::into));
 
         Ok(())
     }
@@ -596,21 +555,15 @@ impl WorldStateView {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(
-        config: Configuration,
-        world: World,
-        events_sender: EventsSender,
-    ) -> Self {
-        let (new_block_notifier, _) = tokio::sync::watch::channel(());
-
+    pub fn from_configuration(config: Configuration, world: World) -> Self {
         Self {
             world,
             config,
             transactions: DashSet::new(),
             blocks: Arc::new(Chain::new()),
-            metrics: Arc::new(Metrics::default()),
-            new_block_notifier: Arc::new(new_block_notifier),
-            events_sender,
+            events_buffer: std::cell::RefCell::new(Vec::new()),
+            metric_tx_amounts: std::cell::Cell::new(0.0_f64),
+            metric_tx_amounts_counter: std::cell::Cell::new(0),
         }
     }
 
@@ -633,7 +586,7 @@ impl WorldStateView {
     /// Height of blockchain
     #[inline]
     pub fn height(&self) -> u64 {
-        self.metrics.block_height.get()
+        self.blocks.len() as u64
     }
 
     /// Initializes WSV with the blocks from block storage.
@@ -751,14 +704,6 @@ impl WorldStateView {
             .asset_definition(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
             .map(Clone::clone)
-    }
-
-    /// Returns receiving end of the mpsc channel through which
-    /// subscribers are notified when new block is added to the
-    /// blockchain(after block validation).
-    #[inline]
-    pub fn subscribe_to_new_block_notifications(&self) -> NewBlockNotificationReceiver {
-        self.new_block_notifier.subscribe()
     }
 
     /// Get all transactions
@@ -903,7 +848,7 @@ impl WorldStateView {
         self.world
             .triggers
             .handle_execute_trigger_event(event.clone());
-        self.produce_event(event);
+        self.events_buffer.borrow_mut().push(event.into());
     }
 
     /// Get chain of validators and modify it with `f`

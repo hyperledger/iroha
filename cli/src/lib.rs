@@ -250,7 +250,7 @@ impl Iroha {
         );
 
         let kura = Kura::from_configuration(&config.kura)?;
-        let wsv = WorldStateView::from_configuration(config.wsv, world, events_sender.clone());
+        let wsv = WorldStateView::from_configuration(config.wsv, world);
 
         let query_judge = Arc::from(query_judge);
 

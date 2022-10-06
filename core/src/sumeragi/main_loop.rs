@@ -293,6 +293,9 @@ where
         .wsv
         .apply(block.clone())
         .expect("Failed to apply block on WSV. This is absolutely not acceptable.");
+
+    let events_buffer = state.wsv.events_buffer.replace(Vec::new());
+
     // Update WSV copy that is public facing
     {
         let mut wsv = sumeragi
@@ -302,7 +305,7 @@ where
         *wsv = state.wsv.clone();
     }
 
-    for event in Vec::<Event>::from(&block) {
+    for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
         trace!(?event);
         sumeragi
             .events_sender

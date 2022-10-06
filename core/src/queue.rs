@@ -619,9 +619,7 @@ mod tests {
     fn concurrent_stress_test() {
         let max_block_tx = 10;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
-            .public_key()
-            .clone()])));
+        let wsv = WorldStateView::new(world_with_test_domains([alice_key.public_key().clone()]));
 
         let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
