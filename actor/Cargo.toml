@@ -1,6 +1,6 @@
 [package]
 name = "iroha_actor"
-version = "2.0.0-pre-rc.8"
+version = "2.0.0-pre-rc.9"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -12,9 +12,9 @@ default = []
 deadlock_detection = ["petgraph"]
 
 [dependencies]
-iroha_actor_derive = { version = "=2.0.0-pre-rc.8", path = "derive" }
-iroha_logger = { version = "=2.0.0-pre-rc.8", path = "../logger" }
-iroha_primitives = { version = "=2.0.0-pre-rc.8", path = "../primitives" }
+iroha_actor_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
+iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger" }
+iroha_primitives = { version = "=2.0.0-pre-rc.9", path = "../primitives" }
 
 async-trait = "0.1.57"
 once_cell = "1.13.0"

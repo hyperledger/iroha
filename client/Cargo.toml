@@ -1,6 +1,6 @@
 [package]
 name = "iroha_client"
-version = "2.0.0-pre-rc.8"
+version = "2.0.0-pre-rc.9"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "Iroha Client is a Rust Library which encapsulates network related logic and gives users an ability to interact with Iroha Peers like they are non-distributed application."
@@ -17,14 +17,14 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.8", path = "../config" }
-iroha_crypto = { version = "=2.0.0-pre-rc.8", path = "../crypto"}
-iroha_data_model = { version = "=2.0.0-pre-rc.8", path = "../data_model", features = ["warp"] }
-iroha_primitives = { version = "=2.0.0-pre-rc.8", path = "../primitives" }
-iroha_logger = { version = "=2.0.0-pre-rc.8", path = "../logger"}
-iroha_telemetry = { version ="=2.0.0-pre-rc.8", path = "../telemetry" }
-iroha_version = { version = "=2.0.0-pre-rc.8", path = "../version" }
-iroha_core = { version = "=2.0.0-pre-rc.8", path = "../core", features = ["dev-telemetry", "telemetry"]}
+iroha_config = { version = "=2.0.0-pre-rc.9", path = "../config" }
+iroha_crypto = { version = "=2.0.0-pre-rc.9", path = "../crypto"}
+iroha_data_model = { version = "=2.0.0-pre-rc.9", path = "../data_model", features = ["warp"] }
+iroha_primitives = { version = "=2.0.0-pre-rc.9", path = "../primitives" }
+iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger"}
+iroha_telemetry = { version ="=2.0.0-pre-rc.9", path = "../telemetry" }
+iroha_version = { version = "=2.0.0-pre-rc.9", path = "../version" }
+iroha_core = { version = "=2.0.0-pre-rc.9", path = "../core", features = ["dev-telemetry", "telemetry"]}
 
 attohttpc = "0.18.0"
 eyre = "0.6.8"
@@ -41,10 +41,10 @@ crossbeam = "0.8.2"
 
 
 [dev-dependencies]
-iroha_permissions_validators = { version = "=2.0.0-pre-rc.8", path = "../permissions_validators" }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.9", path = "../permissions_validators" }
 iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 
-test_network = { version = "=2.0.0-pre-rc.8", path = "../core/test_network" }
+test_network = { version = "=2.0.0-pre-rc.9", path = "../core/test_network" }
 tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread"] }
 criterion = { version = "0.3.6", features = ["html_reports"] }
 color-eyre = "0.6.2"
