@@ -1,5 +1,7 @@
 codecov:
   allow_coverage_offsets: True
+  notify:
+    wait_for_ci: false
 coverage:
   status:
     project:
