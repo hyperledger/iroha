@@ -1,7 +1,7 @@
 {
     "peers": 4,
-    "interval_us_per_tx": 10000,
-    "max_txs_per_block": 512,
+    "interval_us_per_tx": 0,
+    "max_txs_per_block": 1024,
     "blocks": 15,
     "sample_size": 10
 }
