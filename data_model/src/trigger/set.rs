@@ -379,8 +379,7 @@ impl Set {
     /// Repeats count of failed actions won't be decreased.
     pub fn inspect_matched<F, E>(&self, f: F) -> Result<(), Vec<E>>
     where
-        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Send + Copy,
-        E: Send + Sync,
+        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
     {
         let (succeed, res) = self.map_matched(f);
 
@@ -410,8 +409,7 @@ impl Set {
     /// and result with errors vector if there are some
     fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, Result<(), Vec<E>>)
     where
-        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Send + Copy,
-        E: Send + Sync,
+        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
     {
         let mut succeed = Vec::new();
         let mut errors = Vec::new();
