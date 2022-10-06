@@ -1,6 +1,6 @@
 [package]
 name = "iroha_telemetry_derive"
-version = "2.0.0-pre-rc.8"
+version = "2.0.0-pre-rc.9"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 description = "Tracking metrics in iroha_core, requires some instrumentation that is most conveniently expressed as attribute-like macros."
 edition = "2021"
@@ -26,6 +26,6 @@ proc-macro2 = "1.0.43"
 proc-macro-error = "1.0.4"
 
 [dev-dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.8", path = "../../core" }
+iroha_core = { version = "=2.0.0-pre-rc.9", path = "../../core" }
 
 trybuild = "1.0.64"
