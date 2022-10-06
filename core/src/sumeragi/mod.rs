@@ -21,6 +21,7 @@ use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
+use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
 use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
@@ -55,16 +56,30 @@ trait Consensus {
     ) -> Option<VersionedPendingBlock>;
 }
 
+/*
+The values in the following struct are not atomics because the code that
+operates on them assumes their values does not change during the course of
+the function.
+*/
+#[derive(Debug)]
+struct LastUpdateMetricsData {
+    block_height: u64,
+    metric_tx_amounts: f64,
+    metric_tx_amounts_counter: u64,
+}
+
 /// `Sumeragi` is the implementation of the consensus.
 #[derive(Debug)]
 pub struct Sumeragi {
     internal: SumeragiWithFault<NoFault>,
     config: Configuration,
+    metrics_mutex: Mutex<Metrics>,
+    last_update_metrics_mutex: Mutex<LastUpdateMetricsData>,
 }
 
 impl Sumeragi {
     /// Construct [`Sumeragi`].
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::mutex_integer)]
     pub fn new(
         configuration: &Configuration,
         events_sender: EventsSender,
@@ -102,6 +117,12 @@ impl Sumeragi {
                 message_receiver: Mutex::new(incoming_message_receiver),
             },
             config: configuration.clone(),
+            metrics_mutex: Mutex::new(Metrics::default()),
+            last_update_metrics_mutex: Mutex::new(LastUpdateMetricsData {
+                block_height: 0,
+                metric_tx_amounts: 0.0_f64,
+                metric_tx_amounts_counter: 0,
+            }),
         }
     }
 
@@ -112,7 +133,13 @@ impl Sumeragi {
     ///
     /// # Panics
     /// - If either mutex is poisoned
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    #[allow(
+        clippy::expect_used,
+        clippy::unwrap_in_result,
+        clippy::cast_precision_loss,
+        clippy::float_arithmetic,
+        clippy::mutex_integer
+    )]
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .internal
@@ -127,28 +154,84 @@ impl Sumeragi {
             .internal
             .wsv
             .lock()
-            .expect("Failed to lock on `update_metrics`. Mutex poisoned");
+            .expect("Failed to lock on `wsv`. Mutex poisoned");
+
+        let metrics_guard = self
+            .metrics_mutex
+            .lock()
+            .expect("Failed to lock on `metrics`. Mutex poisoned");
+
+        let mut last_guard = self
+            .last_update_metrics_mutex
+            .lock()
+            .expect("Failed to lock on `last_update_metrics`. Mutex poisoned");
+
+        let start_index = last_guard.block_height;
+        {
+            let blocks_iter = wsv_guard.blocks();
+            let blocks_iter =
+                blocks_iter.skip(start_index.try_into().expect("Failed to cast to u32."));
+            for block in blocks_iter {
+                let block_txs_accepted = block.as_v1().transactions.len() as u64;
+                let block_txs_rejected = block.as_v1().rejected_transactions.len() as u64;
+
+                metrics_guard
+                    .txs
+                    .with_label_values(&["accepted"])
+                    .inc_by(block_txs_accepted);
+                metrics_guard
+                    .txs
+                    .with_label_values(&["rejected"])
+                    .inc_by(block_txs_rejected);
+                metrics_guard
+                    .txs
+                    .with_label_values(&["total"])
+                    .inc_by(block_txs_accepted + block_txs_rejected);
+                metrics_guard.block_height.inc();
+            }
+            last_guard.block_height = wsv_guard.height();
+        }
+
+        metrics_guard.domains.set(wsv_guard.domains().len() as u64);
+
+        let diff_count =
+            wsv_guard.metric_tx_amounts_counter.get() - last_guard.metric_tx_amounts_counter;
+        let diff_amount_per_count = (wsv_guard.metric_tx_amounts.get()
+            - last_guard.metric_tx_amounts)
+            / (diff_count as f64);
+        for _ in 0..diff_count {
+            last_guard.metric_tx_amounts_counter += 1;
+            last_guard.metric_tx_amounts += diff_amount_per_count;
+
+            metrics_guard.tx_amounts.observe(diff_amount_per_count);
+        }
 
         #[allow(clippy::cast_possible_truncation)]
         if let Some(timestamp) = wsv_guard.genesis_timestamp() {
             // this will overflow in 584942417years.
-            wsv_guard
-                .metrics
+            metrics_guard
                 .uptime_since_genesis_ms
                 .set((current_time().as_millis() - timestamp) as u64)
         };
         let domains = wsv_guard.domains();
-        wsv_guard.metrics.domains.set(domains.len() as u64);
-        wsv_guard.metrics.connected_peers.set(online_peers_count);
+        metrics_guard.domains.set(domains.len() as u64);
+        metrics_guard.connected_peers.set(online_peers_count);
         for domain in domains {
-            wsv_guard
-                .metrics
+            metrics_guard
                 .accounts
                 .get_metric_with_label_values(&[domain.id().name.as_ref()])
                 .wrap_err("Failed to compose domains")?
                 .set(domain.accounts().len() as u64);
         }
         Ok(())
+    }
+
+    /// Access node metrics.
+    #[allow(clippy::expect_used)]
+    pub fn metrics_mutex_access(&self) -> std::sync::MutexGuard<Metrics> {
+        self.metrics_mutex
+            .lock()
+            .expect("`Mutex` in `metrics_mutex_access` poisoned. This should not happen, given that panics should stop Iroha.")
     }
 
     /// Get latest block hash for use by the block synchronization subsystem.

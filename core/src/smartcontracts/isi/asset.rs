@@ -12,7 +12,6 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use std::sync::Arc;
 
     use super::*;
 
@@ -163,7 +162,6 @@ pub mod isi {
                 &asset_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
-            let metrics_arc = Arc::clone(&wsv.metrics);
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -172,7 +170,11 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(mint.object)
                     .ok_or(MathError::Overflow)?;
-                metrics_arc.tx_amounts.observe((*quantity).into_metric());
+                #[allow(clippy::float_arithmetic)]
+                wsv.metric_tx_amounts
+                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
+                wsv.metric_tx_amounts_counter
+                    .set(wsv.metric_tx_amounts_counter.get() + 1);
 
                 Ok(AssetEvent::Added(asset_id.clone()))
             })?;
@@ -201,7 +203,6 @@ pub mod isi {
                 wsv,
                 <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
             )?;
-            let metrics_arc = Arc::clone(&wsv.metrics);
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -210,7 +211,11 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(burn.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                metrics_arc.tx_amounts.observe((*quantity).into_metric());
+                #[allow(clippy::float_arithmetic)]
+                wsv.metric_tx_amounts
+                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
+                wsv.metric_tx_amounts_counter
+                    .set(wsv.metric_tx_amounts_counter.get() + 1);
 
                 Ok(AssetEvent::Removed(asset_id.clone()))
             })?;
@@ -262,7 +267,11 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(transfer.object)
                     .ok_or(MathError::Overflow)?;
-                wsv.metrics.tx_amounts.observe((*quantity).into_metric());
+                #[allow(clippy::float_arithmetic)]
+                wsv.metric_tx_amounts
+                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
+                wsv.metric_tx_amounts_counter
+                    .set(wsv.metric_tx_amounts_counter.get() + 1);
 
                 Ok(AssetEvent::Added(transfer.destination_id.clone()))
             })?;
