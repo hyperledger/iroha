@@ -66,6 +66,42 @@
         {
           "Register": {
             "Identifiable": {
+              "NewDomain": {
+                "id": "garden_of_live_flowers",
+                "logo": null,
+                "metadata": {}
+              }
+            }
+          }
+        },
+        {
+          "Register": {
+            "Identifiable": {
+              "NewAccount": {
+                "id": "carpenter@garden_of_live_flowers",
+                "signatories": [
+                  "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                ],
+                "metadata": {}
+              }
+            }
+          }
+        },
+        {
+          "Register": {
+            "Identifiable": {
+              "NewAssetDefinition": {
+                "id": "cabbage#garden_of_live_flowers",
+                "value_type": "Quantity",
+                "mintable": "Infinitely",
+                "metadata": {}
+              }
+            }
+          }
+        },
+        {
+          "Register": {
+            "Identifiable": {
               "PermissionTokenDefinition": {
                 "id": "can_unregister_asset_with_definition",
                 "params": {
@@ -215,7 +251,19 @@
             },
             "destination_id": {
               "Id": {
-                "AssetId": "rose#alice@wonderland"
+                "AssetId": "rose##alice@wonderland"
+              }
+            }
+          }
+        },
+        {
+          "Mint": {
+            "object": {
+              "U32": 44
+            },
+            "destination_id": {
+              "Id": {
+                "AssetId": "cabbage#garden_of_live_flowers#alice@wonderland"
               }
             }
           }

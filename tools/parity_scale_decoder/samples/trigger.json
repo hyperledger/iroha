@@ -10,7 +10,7 @@
                         },
                         "destination_id": {
                             "Id": {
-                                "AssetId": "rose#alice@wonderland"
+                                "AssetId": "rose##alice@wonderland"
                             }
                         }
                     }
