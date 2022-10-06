@@ -1,6 +1,6 @@
 [package]
 name = "iroha_version_derive"
-version = "2.0.0-pre-rc.8"
+version = "2.0.0-pre-rc.9"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -16,8 +16,8 @@ proc-macro2 = "1.0.43"
 proc-macro-error = "1.0.4"
 
 [dev-dependencies]
-iroha_version = { version = "=2.0.0-pre-rc.8", path = "..", features = ["scale", "json"]}
-iroha_macro = { version = "=2.0.0-pre-rc.8", path = "../../macro" }
+iroha_version = { version = "=2.0.0-pre-rc.9", path = "..", features = ["scale", "json"]}
+iroha_macro = { version = "=2.0.0-pre-rc.9", path = "../../macro" }
 
 parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.83", default-features = false, features = ["alloc"] }
