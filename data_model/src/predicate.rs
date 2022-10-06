@@ -320,9 +320,9 @@ pub mod string {
                     definition_id,
                     account_id,
                 });
-                assert!(Predicate::starts_with("rose#alice").applies(&id));
+                assert!(Predicate::starts_with("rose##").applies(&id));
                 assert!(Predicate::ends_with("#alice@wonderland").applies(&id));
-                assert!(Predicate::is("rose#alice@wonderland").applies(&id));
+                assert!(Predicate::is("rose##alice@wonderland").applies(&id));
                 assert!(Predicate::contains("#alice@").applies(&id));
             }
 
