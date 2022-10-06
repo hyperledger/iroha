@@ -85,7 +85,6 @@ pub mod isi {
                 Ok(DomainEvent::Created(domain_id).into())
             })?;
 
-            wsv.metrics.domains.inc();
             Ok(())
         }
     }
@@ -109,7 +108,6 @@ pub mod isi {
                 Ok(DomainEvent::Deleted(domain_id).into())
             })?;
 
-            wsv.metrics.domains.dec();
             Ok(())
         }
     }
