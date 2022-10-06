@@ -178,7 +178,11 @@ mod genesis {
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
         tx::{AssetValueType, MintBox, RegisterBox},
     };
-    use iroha_data_model::metadata::Limits;
+    use iroha_data_model::{
+        metadata::Limits,
+        prelude::{AssetId, Value},
+        IdBox,
+    };
     use iroha_permissions_validators::public_blockchain::{
         self,
         key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
@@ -243,15 +247,26 @@ mod genesis {
                 crate::DEFAULT_PUBLIC_KEY.parse()?,
                 meta.clone(),
             )
-            .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta)
+            .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta) // TODO: This should fail under SS58
             .asset("rose".parse()?, AssetValueType::Quantity)
+            .finish_domain()
+            .domain("garden_of_live_flowers".parse()?)
+            .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+            .asset("cabbage".parse()?, AssetValueType::Quantity)
             .finish_domain()
             .build();
 
         let mint = MintBox::new(
-            iroha_data_model::prelude::Value::U32(13_u32),
-            iroha_data_model::IdBox::AssetId(iroha_data_model::prelude::AssetId::new(
+            Value::U32(13_u32),
+            IdBox::AssetId(AssetId::new(
                 "rose#wonderland".parse()?,
+                "alice@wonderland".parse()?,
+            )),
+        );
+        let mint_cabbage = MintBox::new(
+            Value::U32(44),
+            IdBox::AssetId(AssetId::new(
+                "cabbage#garden_of_live_flowers".parse()?,
                 "alice@wonderland".parse()?,
             )),
         );
@@ -282,6 +297,7 @@ mod genesis {
                 .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
         );
         result.transactions[0].isi.push(mint.into());
+        result.transactions[0].isi.push(mint_cabbage.into());
         result.transactions[0].isi.push(register_permission.into());
         result.transactions[0]
             .isi
@@ -326,13 +342,11 @@ mod genesis {
                 for account in 0..accounts_per_domain {
                     for asset in 0..assets_per_domain {
                         let mint = MintBox::new(
-                            iroha_data_model::prelude::Value::U32(13_u32),
-                            iroha_data_model::IdBox::AssetId(
-                                iroha_data_model::prelude::AssetId::new(
-                                    format!("asset_{asset}#domain_{domain}").parse()?,
-                                    format!("account_{account}@domain_{domain}").parse()?,
-                                ),
-                            ),
+                            Value::U32(13_u32),
+                            IdBox::AssetId(AssetId::new(
+                                format!("asset_{asset}#domain_{domain}").parse()?,
+                                format!("account_{account}@domain_{domain}").parse()?,
+                            )),
                         );
                         acc.push(mint);
                     }

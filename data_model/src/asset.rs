@@ -4,7 +4,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_map, format, string::String, vec::Vec};
-use core::{cmp::Ordering, str::FromStr};
+use core::{cmp::Ordering, fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
@@ -399,7 +399,6 @@ impl FromStr for DefinitionId {
 /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
 #[derive(
     Debug,
-    Display,
     Clone,
     PartialEq,
     Eq,
@@ -413,7 +412,6 @@ impl FromStr for DefinitionId {
     FfiType,
     IntoSchema,
 )]
-#[display(fmt = "{}#{}", "self.definition_id.name", "self.account_id")]
 pub struct Id {
     /// Entity Identification.
     pub definition_id: <AssetDefinition as Identifiable>::Id,
@@ -421,29 +419,50 @@ pub struct Id {
     pub account_id: <Account as Identifiable>::Id,
 }
 
-/// Asset Identification is represented by `name#account@domain` string.
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.definition_id.domain_id == self.account_id.domain_id {
+            write!(f, "{}##{}", self.definition_id.name, self.account_id)
+        } else {
+            write!(f, "{}#{}", self.definition_id, self.account_id)
+        }
+    }
+}
+
+/// Asset Identification, represented by
+/// `name#asset_domain#account_name@account_domain`. If the domains of
+/// the asset and account match, the name can be shortened to
+/// `asset##account@domain`.
 impl FromStr for Id {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
-        let mut split = string.split('#');
-        match (split.next(), split.next(), split.next()) {
-            (Some(""), _, _) => Err(ParseError {
-                reason: "Asset ID cannot be empty",
-            }),
-            (Some(name), Some(account_id), None) if !account_id.is_empty() => {
-                let name = name.parse()?;
-                let account_id = <Account as Identifiable>::Id::from_str(account_id)?;
-                let definition_id =
-                    <AssetDefinition as Identifiable>::Id::new(name, account_id.domain_id.clone());
-                Ok(Self {
-                    definition_id,
-                    account_id,
-                })
-            }
-            _ => Err(ParseError {
-                reason: "Asset ID should have format `asset#account@domain`",
-            }),
+        if let Some((asset_definition_candidate, account_id_candidate)) = string.rsplit_once('#') {
+            let account_id: <Account as Identifiable>::Id = account_id_candidate.parse()
+                .map_err(|_err| ParseError {
+                    reason: "Failed to parse the `account_id` part of the `asset_id`. Please ensure that it has the form `account@domain`"
+                })?;
+            let definition_id = {
+                if let Ok(def_id) = asset_definition_candidate.parse() {
+                    def_id
+                } else if let Some((name, "")) = asset_definition_candidate.rsplit_once('#') {
+                    DefinitionId::new(name.parse()
+                                      .map_err(|_e| ParseError {
+                                          reason: "The `name` part of the `definition_id` part of the `asset_id` failed to parse as a valid `Name`. You might have forbidden characters like `#` or `@` in the first part."
+                                      })?,
+                                      account_id.domain_id.clone())
+                } else {
+                    return Err(ParseError { reason: "The `definition_id` part of the `asset_id` failed to parse. Ensure that you have it in the right format: `name#domain_of_asset#account_name@domain_of_account`." });
+                }
+            };
+            Ok(Self {
+                definition_id,
+                account_id,
+            })
+        } else {
+            Err(ParseError {
+                reason: "The `AssetId` did not contain the `#` character. ",
+            })
         }
     }
 }
