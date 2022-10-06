@@ -1,6 +1,6 @@
 [package]
 name = "iroha_version"
-version = "2.0.0-pre-rc.8"
+version = "2.0.0-pre-rc.9"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -19,9 +19,9 @@ scale = ["parity-scale-codec/full"]
 json = ["serde", "serde_json"]
 
 [dependencies]
-iroha_version_derive = { version = "=2.0.0-pre-rc.8", path = "derive", default-features = false, optional = true }
-iroha_macro = { version = "=2.0.0-pre-rc.8", path = "../macro", default-features = false }
-iroha_schema = { version = "=2.0.0-pre-rc.8", path = "../schema", default-features = false }
+iroha_version_derive = { version = "=2.0.0-pre-rc.9", path = "derive", default-features = false, optional = true }
+iroha_macro = { version = "=2.0.0-pre-rc.9", path = "../macro", default-features = false }
+iroha_schema = { version = "=2.0.0-pre-rc.9", path = "../schema", default-features = false }
 
 parity-scale-codec = { version = "3.1.5", default-features = false, optional = true, features = ["derive"] }
 serde_json = { version = "1.0.83", default-features = false, optional = true, features = ["alloc"] }
@@ -30,5 +30,5 @@ thiserror = { version = "1.0.32", default-features = false, optional = true }
 warp = { version = "0.3.2", default-features = false, optional = true }
 
 [dev-dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.8", path = "../data_model" }
-iroha_logger = { version = "=2.0.0-pre-rc.8", path = "../logger" }
+iroha_data_model = { version = "=2.0.0-pre-rc.9", path = "../data_model" }
+iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger" }
