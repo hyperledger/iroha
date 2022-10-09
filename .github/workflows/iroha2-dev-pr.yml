@@ -85,13 +85,13 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with ${{ matrix.feature_flag }}
+      - name: Run tests, with no-default-features, limit by 15 minutes
         run: |
-          mold --run cargo test --test mod --${{ matrix.feature_flag }} -- \
+          mold --run cargo test --test mod --no-default-features -- \
           integration:: --skip unstable_network
 
   unstable:
