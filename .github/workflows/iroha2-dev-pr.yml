@@ -89,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with no-default-features, limit by 15 minutes
+      - name: Run tests, with no-default-features
         run: |
           mold --run cargo test --test mod --no-default-features -- \
           integration:: --skip unstable_network

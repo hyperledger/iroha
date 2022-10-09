@@ -8,6 +8,7 @@ use test_network::*;
 
 use super::Configuration;
 
+#[allow(dead_code)]
 const PEER_COUNT: usize = 7;
 
 // #[test]
@@ -24,7 +25,7 @@ const PEER_COUNT: usize = 7;
 //     test_with_instruction_and_status(Some(fail.into()), PipelineStatusKind::Rejected)
 // }
 
-#[allow(clippy::needless_range_loop, clippy::needless_pass_by_value)]
+#[allow(dead_code, clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status(
     instruction: Option<Instruction>,
     should_be: PipelineStatusKind,
