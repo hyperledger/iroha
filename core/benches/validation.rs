@@ -57,20 +57,24 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
     .expect("Failed to sign.")
 }
 
-fn build_test_wsv(keys: KeyPair) -> WorldStateView {
+fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
+    let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let (public_key, _) = keys.into();
 
-    WorldStateView::new({
-        let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
-        let mut domain = Domain::new(domain_id).build();
-        let account_id = AccountId::new(
-            START_ACCOUNT.parse().expect("Valid"),
-            START_DOMAIN.parse().expect("Valid"),
-        );
-        let account = Account::new(account_id, [public_key]).build();
-        assert!(domain.add_account(account).is_none());
-        World::with([domain], BTreeSet::new())
-    })
+    WorldStateView::new(
+        {
+            let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
+            let mut domain = Domain::new(domain_id).build();
+            let account_id = AccountId::new(
+                START_ACCOUNT.parse().expect("Valid"),
+                START_DOMAIN.parse().expect("Valid"),
+            );
+            let account = Account::new(account_id, [public_key]).build();
+            assert!(domain.add_account(account).is_none());
+            World::with([domain], BTreeSet::new())
+        },
+        kura,
+    )
 }
 
 fn accept_transaction(criterion: &mut Criterion) {
@@ -129,7 +133,7 @@ fn validate_transaction(criterion: &mut Criterion) {
             match transaction_validator.validate(
                 transaction.clone(),
                 false,
-                &Arc::new(build_test_wsv(keys.clone())),
+                &Arc::new(build_test_and_transient_wsv(keys.clone())),
             ) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
@@ -176,7 +180,10 @@ fn sign_blocks(criterion: &mut Criterion) {
     );
     let block = PendingBlock::new(vec![transaction.into()], Vec::new())
         .chain_first()
-        .validate(&transaction_validator, &Arc::new(build_test_wsv(keys)));
+        .validate(
+            &transaction_validator,
+            &Arc::new(build_test_and_transient_wsv(keys)),
+        );
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -216,14 +223,15 @@ fn validate_blocks(criterion: &mut Criterion) {
         Arc::new(AllowAll::new()),
         Arc::new(AllowAll::new()),
     );
+    let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let _ = criterion.bench_function("validate_block", |b| {
         b.iter(|| {
             block.clone().validate(
                 &transaction_validator,
-                &Arc::new(WorldStateView::new(World::with(
-                    [domain.clone()],
-                    BTreeSet::new(),
-                ))),
+                &Arc::new(WorldStateView::new(
+                    World::with([domain.clone()], BTreeSet::new()),
+                    kura.clone(),
+                )),
             )
         });
     });

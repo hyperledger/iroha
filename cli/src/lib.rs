@@ -256,7 +256,7 @@ impl Iroha {
         );
 
         let kura = Kura::from_configuration(&config.kura)?;
-        let wsv = WorldStateView::from_configuration(config.wsv, world);
+        let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
         let query_judge = Arc::from(query_judge);
 
@@ -314,6 +314,7 @@ impl Iroha {
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
             Arc::clone(&sumeragi),
+            Arc::clone(&kura),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
             broker.clone(),
         )
@@ -329,6 +330,7 @@ impl Iroha {
             network_addr.clone(),
             Arc::clone(&notify_shutdown),
             Arc::clone(&sumeragi),
+            Arc::clone(&kura),
         );
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
