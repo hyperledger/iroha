@@ -275,6 +275,7 @@ mod tests {
 
     use super::{judge::DenyAll, prelude::*, *};
     use crate::wsv::World;
+    use crate::kura::Kura;
 
     #[derive(Debug, Clone, Serialize, Display)]
     #[display(fmt = "Deny all burn operations")]
@@ -399,7 +400,8 @@ mod tests {
         });
         let account_bob = <Account as Identifiable>::Id::from_str("bob@test").expect("Valid");
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert!(permissions_validator
             .judge(&account_bob, &instruction_burn, &wsv)
             .is_err());
@@ -427,7 +429,8 @@ mod tests {
         let nested_instruction_sequence =
             Instruction::If(If::new(true, instruction_burn.clone()).into());
         let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert!(permissions_validator
             .judge(&account_alice, &instruction_fail, &wsv)
             .is_ok());
@@ -451,7 +454,8 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()), kura.clone());
         let validator = HasTestToken.into_validator();
         assert!(wsv.add_account_permission(&bob_id, TestToken.into()));
         assert!(validator
@@ -492,7 +496,8 @@ mod tests {
             ),
         )
         .into();
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let judge = JudgeBuilder::with_validator(DenyAll::new().into_validator())
             .no_denies()

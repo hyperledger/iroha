@@ -16,12 +16,13 @@ use iroha_p2p::Post;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
+use crate::{sumeragi::Sumeragi, kura::Kura, NetworkMessage, VersionedCommittedBlock};
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
 pub struct BlockSynchronizer {
     sumeragi: Arc<Sumeragi>,
+    kura: Arc<Kura>,
     peer_id: PeerId,
     gossip_period: Duration,
     block_batch_size: u32,
@@ -75,12 +76,14 @@ impl BlockSynchronizer {
     pub fn from_configuration(
         config: &Configuration,
         sumeragi: Arc<Sumeragi>,
+        kura: Arc<Kura>,
         peer_id: PeerId,
         broker: Broker,
     ) -> Self {
         Self {
             peer_id,
             sumeragi,
+            kura,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             broker,
@@ -181,11 +184,34 @@ pub mod message {
                         return;
                     }
 
-                    let mut blocks = block_sync.sumeragi.blocks_after_hash(*hash);
-                    blocks.truncate(block_sync.block_batch_size as usize);
+                    let mut h = 1;
+                    loop {
+                        match block_sync.kura.get_block_hash(h) {
+                            None => break,
+                            Some(hash) => {
+                                println!("{} : {}", h, hash);
+                                if h == 3 {
+                                    println!("POTATO");
+                                }
+                                h += 1;
+                            }
+                        }
+                    }
+                    let start_height = match block_sync.kura.get_block_height_by_hash(hash) {
+                        None => { warn!(%hash, "Block hash not found"); return; }
+                        Some(height) => height + 1, // It's get blocks *after*, so we add 1.
+                    };
+
+                    let mut blocks = Vec::new();
+                    for i in 0..(block_sync.block_batch_size as u64) {
+                        match block_sync.kura.get_block_by_height(start_height + i) {
+                            Some(block) => blocks.push(VersionedCommittedBlock::clone(&block)), // TODO: avoid this clone.
+                            None => break,
+                        }
+                    }
 
                     if blocks.is_empty() {
-                        warn!(%hash, "Block hash not found");
+                        error!(%hash, "Blocks array is empty but shouldn't be.");
                     } else {
                         trace!("Sharing blocks after hash: {}", hash);
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))

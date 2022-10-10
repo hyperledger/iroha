@@ -619,6 +619,7 @@ mod tests {
     use core::str::FromStr;
 
     use iroha_crypto::KeyPair;
+    use crate::kura::Kura;
 
     use super::*;
     use crate::{wsv::World, PeersIds};
@@ -641,7 +642,8 @@ mod tests {
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains()?, kura.clone());
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
@@ -669,7 +671,8 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains()?, kura.clone());
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
@@ -696,7 +699,8 @@ mod tests {
 
     #[test]
     fn asset_definition_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains()?, kura.clone());
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -724,7 +728,8 @@ mod tests {
 
     #[test]
     fn domain_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains()?, kura.clone());
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -751,7 +756,8 @@ mod tests {
 
     #[test]
     fn executing_unregistered_trigger_should_return_error() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains()?, kura.clone());
         let account_id = AccountId::from_str("alice@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
 
@@ -767,7 +773,8 @@ mod tests {
 
     #[test]
     fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains()?, kura.clone());
         let account_id = AccountId::from_str("alice@wonderland")?;
         let fake_account_id = AccountId::from_str("fake@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;

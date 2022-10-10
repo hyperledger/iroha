@@ -291,7 +291,7 @@ where
 
     state
         .wsv
-        .apply(block.clone())
+        .apply(&block)
         .expect("Failed to apply block on WSV. This is absolutely not acceptable.");
 
     let events_buffer = state.wsv.events_buffer.replace(Vec::new());

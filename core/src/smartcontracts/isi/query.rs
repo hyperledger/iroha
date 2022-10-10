@@ -126,6 +126,8 @@ mod tests {
     use iroha_data_model::transaction::TransactionLimits;
     use once_cell::sync::Lazy;
 
+    use crate::kura::Kura;    
+
     use super::*;
     use crate::{
         block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, PeersIds,
@@ -200,14 +202,13 @@ mod tests {
         Ok(World::with([domain], PeersIds::new()))
     }
 
-    // TODO: This doesn't need to be `async`
-    #[allow(clippy::unused_async)]
-    async fn wsv_with_test_blocks_and_transactions(
+    fn wsv_with_test_blocks_and_transactions(
         blocks: u64,
         valid_tx_per_block: usize,
         invalid_tx_per_block: usize,
-    ) -> Result<WorldStateView> {
-        let wsv = WorldStateView::new(world_with_test_domains());
+    ) -> Result<(WorldStateView, crate::handler::ThreadHandler, tempfile::TempDir)> {
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
         let limits = TransactionLimits {
             max_instruction_number: 1,
@@ -249,7 +250,8 @@ mod tests {
 
         let mut curr_hash = first_block.hash();
 
-        wsv.apply(first_block)?;
+        wsv.apply(&first_block)?;
+        kura.store_block_blocking(first_block);
 
         for height in 1u64..blocks {
             let block = PendingBlock::new(transactions.clone(), vec![])
@@ -266,15 +268,17 @@ mod tests {
                 .expect("Failed to sign blocks.")
                 .commit();
             curr_hash = block.hash();
-            wsv.apply(block)?;
+            wsv.apply(&block)?;
+            kura.store_block_blocking(block);
         }
 
-        Ok(wsv)
+        Ok((wsv, _kth, _dir))
     }
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_asset_with_metadata());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_asset_with_metadata(), kura.clone());
 
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
@@ -289,7 +293,8 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?);
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?, kura.clone());
 
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&wsv)?;
@@ -300,11 +305,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn find_all_blocks() -> Result<()> {
+    #[test]
+    fn find_all_blocks() -> Result<()> {
         let num_blocks = 100;
 
-        let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1).await?;
+        let (wsv, _kth, _dir) = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
         let blocks = FindAllBlocks::new().execute(&wsv)?;
 
@@ -314,11 +319,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn find_all_block_headers() -> Result<()> {
+    #[test]
+    fn find_all_block_headers() -> Result<()> {
         let num_blocks = 100;
 
-        let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1).await?;
+        let (wsv, _kth, _dir) = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
         let block_headers = FindAllBlockHeaders::new().execute(&wsv)?;
 
@@ -328,11 +333,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn find_block_header_by_hash() -> Result<()> {
-        let wsv = wsv_with_test_blocks_and_transactions(1, 1, 1).await?;
+    #[test]
+    fn find_block_header_by_hash() -> Result<()> {
+        let (wsv, _kth, _dir) = wsv_with_test_blocks_and_transactions(1, 1, 1)?;
 
-        let block = wsv.blocks().last().expect("WSV is empty");
+        let block = wsv.all_blocks_by_value().into_iter().last().expect("WSV is empty");
 
         assert_eq!(
             FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
@@ -346,11 +351,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn find_all_transactions() -> Result<()> {
+    #[test]
+    fn find_all_transactions() -> Result<()> {
         let num_blocks = 100;
 
-        let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1).await?;
+        let (wsv, _kth, _dir) = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
         let txs = FindAllTransactions::new().execute(&wsv)?;
 
@@ -372,9 +377,10 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn find_transaction() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains());
+    #[test]
+    fn find_transaction() -> Result<()> {
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
@@ -401,7 +407,8 @@ mod tests {
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
-        wsv.apply(vcb)?;
+        wsv.apply(&vcb)?;
+        kura.store_block_blocking(vcb);
 
         let wrong_hash: Hash = HashOf::new(&2_u8).into();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
@@ -419,6 +426,7 @@ mod tests {
 
     #[test]
     fn domain_metadata() -> Result<()> {
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = {
             let mut metadata = Metadata::new();
             metadata.insert_with_limits(
@@ -438,7 +446,7 @@ mod tests {
                     ALICE_ID.clone(),
                 )
                 .is_none());
-            WorldStateView::new(World::with([domain], PeersIds::new()))
+            WorldStateView::new(World::with([domain], PeersIds::new()), kura.clone())
         };
 
         let domain_id = DomainId::from_str("wonderland")?;

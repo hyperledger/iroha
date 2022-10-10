@@ -1,5 +1,7 @@
 use super::*;
 
+use iroha_core::kura::Kura;
+
 #[test]
 fn add_register_domains_permission_denies_registering_domain() {
     let alice_id = AccountId::from_str("alice@test0").expect("Valid");
@@ -8,7 +10,8 @@ fn add_register_domains_permission_denies_registering_domain() {
         "new_domain".parse().expect("Valid"),
     )));
 
-    let wsv = WorldStateView::new(World::new());
+    let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+    let wsv = WorldStateView::new(World::new(), kura.clone());
 
     assert!(register::ProhibitRegisterDomains
         .check(&alice_id, &instruction, &wsv)
@@ -24,7 +27,8 @@ fn add_register_domains_permission_allows_registering_account() {
         [],
     )));
 
-    let wsv = WorldStateView::new(World::new());
+    let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+    let wsv = WorldStateView::new(World::new(), kura.clone());
 
     assert!(register::ProhibitRegisterDomains
         .check(&alice_id, &instruction, &wsv)
@@ -45,7 +49,8 @@ fn add_register_domains_permission_allows_registering_domain_with_right_token() 
     domain.add_account(alice);
     domain.add_account(bob);
 
-    let wsv = WorldStateView::new(World::with([domain], Vec::new()));
+    let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+    let wsv = WorldStateView::new(World::with([domain], Vec::new()), kura.clone());
 
     let validator = register::GrantedAllowedRegisterDomains.into_validator();
 
@@ -69,7 +74,8 @@ fn add_register_domains_permission_denies_registering_domain_with_wrong_token() 
     let mut domain = Domain::new(domain_id).build();
     domain.add_account(alice);
 
-    let wsv = WorldStateView::new(World::with([domain], Vec::new()));
+    let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+    let wsv = WorldStateView::new(World::with([domain], Vec::new()), kura.clone());
 
     let validator = register::GrantedAllowedRegisterDomains.into_validator();
 

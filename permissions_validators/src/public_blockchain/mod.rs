@@ -185,6 +185,7 @@ mod tests {
     };
 
     use iroha_core::wsv::World;
+    use iroha_core::kura::Kura;
 
     use super::*;
 
@@ -204,7 +205,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("bob@test").expect("Valid"),
         );
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
             object: Value::U32(10).into(),
@@ -233,7 +235,8 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()), kura.clone());
         assert!(wsv.add_account_permission(
             &bob_id,
             transfer::CanTransferUserAssets::new(alice_xor_id.clone()).into()
@@ -259,7 +262,8 @@ mod tests {
         );
         let permission_token_to_alice: PermissionToken =
             transfer::CanTransferUserAssets::new(alice_xor_id).into();
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
@@ -280,7 +284,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let unregister =
             Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
         assert!(unregister::OnlyAssetsCreatedByThisAccount
@@ -303,7 +308,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id.clone()));
         let validator = unregister::OnlyAssetsCreatedByThisAccount
             .or(unregister::GrantedByAssetCreator.into_validator());
@@ -328,7 +334,8 @@ mod tests {
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
 
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
@@ -353,7 +360,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let mint = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -382,7 +390,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         assert!(wsv.add_account_permission(
             &bob_id,
             mint::CanMintUserAssetDefinitions::new(xor_id).into()
@@ -409,7 +418,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], vec![]));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], vec![]), kura.clone());
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
@@ -434,7 +444,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -463,7 +474,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], vec![]));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], vec![]), kura.clone());
         assert!(wsv.add_account_permission(
             &bob_id,
             burn::CanBurnAssetWithDefinition::new(xor_id).into()
@@ -490,7 +502,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], vec![]));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], vec![]), kura.clone());
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
@@ -508,7 +521,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -530,7 +544,8 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::new(World::with([domain], vec![]));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], vec![]), kura.clone());
         assert!(wsv.add_account_permission(
             &bob_id,
             burn::CanBurnUserAssets::new(alice_xor_id.clone()).into()
@@ -554,7 +569,8 @@ mod tests {
         );
         let permission_token_to_alice: PermissionToken =
             burn::CanBurnUserAssets::new(alice_xor_id).into();
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
@@ -572,7 +588,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let key: Name = "key".parse().expect("Valid");
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetId(alice_xor_id),
@@ -595,7 +612,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let key: Name = "key".parse().expect("Valid");
         let set =
             Instruction::RemoveKeyValue(RemoveKeyValueBox::new(IdBox::AssetId(alice_xor_id), key));
@@ -611,7 +629,8 @@ mod tests {
     fn set_to_only_owned_account() {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let key: Name = "key".parse().expect("Valid");
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
@@ -630,7 +649,8 @@ mod tests {
     fn remove_to_only_owned_account() {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         let key: Name = "key".parse().expect("Valid");
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
@@ -655,7 +675,8 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let key: Name = "key".parse().expect("Valid");
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
@@ -680,8 +701,9 @@ mod tests {
         let mut domain = Domain::new(domain_id).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
-            .is_none());
-        let wsv = WorldStateView::new(World::with([domain], []));
+                .is_none());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::with([domain], []), kura.clone());
         let key: Name = "key".parse().expect("Valid");
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),

@@ -217,7 +217,8 @@ fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32> {
 fn count_executions(wsv: &WorldStateView, authority: &AccountId, period: Duration) -> usize {
     let period_start_ms = current_time().saturating_sub(period).as_millis();
 
-    wsv.blocks()
+    wsv.all_blocks_by_value()
+        .iter()                 // nocheckin, can be done better
         .rev()
         .take_while(|block| block.header().timestamp > period_start_ms)
         .map(|block| -> usize {

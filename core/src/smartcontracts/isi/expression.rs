@@ -380,6 +380,7 @@ mod tests {
 
     use super::*;
     use crate::wsv::World;
+    use crate::kura::Kura;
 
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
@@ -433,7 +434,8 @@ mod tests {
         )
         .with_value("signatories".to_owned(), teller_signatory_set)
         .build();
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
             Value::Bool(true)
@@ -475,6 +477,7 @@ mod tests {
 
     #[test]
     fn where_expression() -> Result<()> {
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         assert_eq!(
             WhereBuilder::evaluate(EvaluatesTo::new_unchecked(
                 ContextValue::new("test_value").into()
@@ -484,7 +487,7 @@ mod tests {
                 EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32).into())
             )
             .build()
-            .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
+            .evaluate(&WorldStateView::new(World::new(), kura.clone()), &Context::new())?,
             Value::U32(5)
         );
         Ok(())
@@ -507,8 +510,9 @@ mod tests {
             .with_value("b".to_owned(), 4_u32)
             .build()
             .into();
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         assert_eq!(
-            outer_expression.evaluate(&WorldStateView::new(World::new()), &Context::new())?,
+            outer_expression.evaluate(&WorldStateView::new(World::new(), kura.clone()), &Context::new())?,
             Value::U32(6)
         );
         Ok(())
@@ -533,7 +537,8 @@ mod tests {
 
     #[test]
     fn if_condition_branches_correctly() -> Result<()> {
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert_eq!(
             IfExpression::new(true, 1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(1)
@@ -554,7 +559,8 @@ mod tests {
             I::Value: Debug,
             E: StdError + Eq + Default + Send + Sync + 'static,
         {
-            let wsv = WorldStateView::new(World::default());
+            let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+            let wsv = WorldStateView::new(World::default(), kura.clone());
             let result: Result<_, _> = inst.evaluate(&wsv, &Context::new());
             let _err = result.expect_err(err_msg);
         }
@@ -604,7 +610,8 @@ mod tests {
 
     #[test]
     fn operations_are_correctly_calculated() -> Result<()> {
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert_eq!(
             Add::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             Value::U32(3)
@@ -667,7 +674,8 @@ mod tests {
             serde_json::to_string(&expression).expect("Failed to serialize.");
         let deserialized_expression: ExpressionBox =
             serde_json::from_str(&serialized_expression).expect("Failed to de-serialize.");
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert_eq!(
             expression
                 .evaluate(&wsv, &Context::new())
@@ -684,7 +692,8 @@ mod tests {
         let serialized_expression: Vec<u8> = expression.encode();
         let deserialized_expression = ExpressionBox::decode(&mut serialized_expression.as_slice())
             .expect("Failed to decode.");
-        let wsv = WorldStateView::new(World::new());
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(World::new(), kura.clone());
         assert_eq!(
             expression
                 .evaluate(&wsv, &Context::new())

@@ -15,6 +15,7 @@ use iroha_core::{
     prelude::*,
     queue::{self, Queue},
     sumeragi::Sumeragi,
+    kura::Kura,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -40,6 +41,7 @@ pub struct Torii {
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
     sumeragi: Arc<Sumeragi>,
+    kura: Arc<Kura>,
 }
 
 /// Torii errors.

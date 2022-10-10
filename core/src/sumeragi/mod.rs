@@ -168,10 +168,15 @@ impl Sumeragi {
 
         let start_index = last_guard.block_height;
         {
-            let blocks_iter = wsv_guard.blocks();
-            let blocks_iter =
-                blocks_iter.skip(start_index.try_into().expect("Failed to cast to u32."));
-            for block in blocks_iter {
+            let mut block_index = start_index;
+            while block_index < wsv_guard.height() {
+                let block =
+                    if let Some(block) = self.internal.kura.get_block_by_height(block_index + 1) {
+                        block
+                    } else {
+                        break;
+                    };
+                block_index += 1;
                 let block_txs_accepted = block.as_v1().transactions.len() as u64;
                 let block_txs_rejected = block.as_v1().rejected_transactions.len() as u64;
 
@@ -189,7 +194,7 @@ impl Sumeragi {
                     .inc_by(block_txs_accepted + block_txs_rejected);
                 metrics_guard.block_height.inc();
             }
-            last_guard.block_height = wsv_guard.height();
+            last_guard.block_height = block_index;
         }
 
         metrics_guard.domains.set(wsv_guard.domains().len() as u64);
@@ -242,20 +247,6 @@ impl Sumeragi {
             .latest_block_hash
             .lock()
             .expect("Mutex on internal WSV poisoned in `latest_block_hash`")
-    }
-
-    /// Get an array of blocks after the block identified by `block_hash`. Returns
-    /// an empty array if the specified block could not be found.
-    pub fn blocks_after_hash(
-        &self,
-        block_hash: HashOf<VersionedCommittedBlock>,
-    ) -> Vec<VersionedCommittedBlock> {
-        self.wsv_mutex_access().blocks_after_hash(block_hash)
-    }
-
-    /// Get an array of blocks from `block_height`. (`blocks[block_height]`, `blocks[block_height + 1]` etc.)
-    pub fn blocks_from_height(&self, block_height: usize) -> Vec<VersionedCommittedBlock> {
-        self.wsv_mutex_access().blocks_from_height(block_height)
     }
 
     /// Get a random online peer for use in block synchronization.

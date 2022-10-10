@@ -262,7 +262,7 @@ async fn handle_post_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) -> eyre::Result<()> {
+async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
     let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
     let mut from_height: u64 = subscription_request.into_v1().try_into()?;
 
@@ -273,37 +273,25 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
         .await?;
 
     loop {
-        let blocks = sumeragi.blocks_from_height(from_height.try_into().wrap_err("Failed to convert `from_height` into `usize`. You should consider upgrading to a 64-bit arch")?);
-        if blocks.is_empty() {
-            break;
+        match kura.get_block_by_height(from_height) {
+            None => break,
+            Some(block) => {
+                stream
+                    .send(VersionedBlockPublisherMessage::from(
+                        BlockPublisherMessage::from(VersionedCommittedBlock::clone(&block)), // TODO: Remove unnecessary clone.
+                    ))
+                    .await?;
+
+                let message: VersionedBlockSubscriberMessage = stream.recv().await?;
+                if let BlockSubscriberMessage::BlockReceived = message.into_v1() {
+                    from_height += 1;
+                } else {
+                    return Err(eyre!("Expected `BlockReceived` message"));
+                }
+            }
         }
-        stream_blocks(&mut from_height, blocks, &mut stream).await?;
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    Ok(())
-}
-
-async fn stream_blocks(
-    from_height: &mut u64,
-    blocks: Vec<VersionedCommittedBlock>,
-    stream: &mut WebSocket,
-) -> eyre::Result<()> {
-    #[allow(clippy::expect_used)]
-    for block in blocks {
-        stream
-            .send(VersionedBlockPublisherMessage::from(
-                BlockPublisherMessage::from(block),
-            ))
-            .await?;
-
-        let message: VersionedBlockSubscriberMessage = stream.recv().await?;
-        if let BlockSubscriberMessage::BlockReceived = message.into_v1() {
-            *from_height += 1;
-        } else {
-            return Err(eyre!("Expected `BlockReceived` message"));
-        }
-    }
-
     Ok(())
 }
 
@@ -396,10 +384,8 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     #[allow(clippy::expect_used)]
     let string = sumeragi
         .wsv_mutex_access()
-        .blocks()
-        .last()
+        .latest_block_ref()
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
-        .value()
         .version()
         .to_string();
     reply::json(&string)
@@ -439,6 +425,7 @@ impl Torii {
         network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,
         sumeragi: Arc<Sumeragi>,
+        kura: Arc<Kura>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -448,6 +435,7 @@ impl Torii {
             network,
             notify_shutdown,
             sumeragi,
+            kura,
         }
     }
 
@@ -545,7 +533,7 @@ impl Torii {
             });
 
         let blocks_ws_router = block_ws_router_path
-            .and(add_state!(self.sumeragi))
+            .and(add_state!(self.kura))
             .and(warp::ws())
             .map(|sumeragi: Arc<_>, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {

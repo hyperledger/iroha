@@ -41,6 +41,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     };
     let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
+    let (kura, _kth, _dir) = iroha_core::kura::Kura::blank_kura_for_testing();
     let mut block = PendingBlock::new(vec![tx], Vec::new())
         .chain_first()
         .validate(
@@ -49,7 +50,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
                 Arc::new(AllowAll::new()),
                 Arc::new(AllowAll::new()),
             ),
-            &Arc::new(WorldStateView::new(World::new())),
+            &Arc::new(WorldStateView::new(World::new(), kura)),
         );
     for _ in 0..n_validators {
         block = block

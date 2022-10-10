@@ -17,7 +17,7 @@ use std::{
 };
 
 use iroha_config::kura::{Configuration, Mode};
-use iroha_crypto::HashOf;
+use iroha_crypto::{Hash, HashOf};
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
@@ -25,6 +25,7 @@ use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 use crate::{block::VersionedCommittedBlock, handler::ThreadHandler};
 
 /// The interface of Kura subsystem
+#[derive(Debug)]
 pub struct Kura {
     // TODO: Kura doesn't have different initialisation modes!!!
     #[allow(dead_code)]
@@ -34,10 +35,11 @@ pub struct Kura {
     block_store: Mutex<Box<dyn BlockStoreTrait + Send>>,
     /// The array of block hashes. This is normally recovered from the index file.
     block_hash_array: Mutex<Vec<HashOf<VersionedCommittedBlock>>>,
+    block_arc_array: Mutex<Vec<Option<Arc<VersionedCommittedBlock>>>>,
     /// The receiving actor for the [`VersionedCommittedBlock`]
-    block_reciever: Mutex<Receiver<VersionedCommittedBlock>>,
+    block_reciever: Mutex<Receiver<(VersionedCommittedBlock, tokio::sync::oneshot::Sender<()>)>>,
     /// The sending actor for the [`VersionedCommittedBlock`]
-    block_sender: Sender<VersionedCommittedBlock>,
+    block_sender: Sender<(VersionedCommittedBlock, tokio::sync::oneshot::Sender<()>)>,
     /// Path to file for plain text blocks.
     block_plain_text_path: Option<PathBuf>,
 }
@@ -54,7 +56,6 @@ impl Kura {
     pub fn new(
         mode: Mode,
         block_store_path: &Path,
-        // broker: Broker,
         block_channel_size: u32,
         debug_output_new_blocks: bool,
     ) -> Result<Arc<Self>> {
@@ -77,13 +78,21 @@ impl Kura {
             mode,
             block_store: Mutex::new(Box::new(block_store)),
             block_hash_array: Mutex::new(Vec::new()),
-            // broker,
+            block_arc_array: Mutex::new(Vec::new()),
             block_reciever: Mutex::new(block_reciever),
             block_sender,
             block_plain_text_path,
         });
 
         Ok(kura)
+    }
+
+    #[allow(clippy::unwrap)]
+    pub fn blank_kura_for_testing() -> (Arc<Kura>, ThreadHandler, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let kura = Self::new(Mode::Strict, dir.path(), 100, false).unwrap();
+        let th = Self::start(kura.clone());
+        (kura, th, dir)
     }
 
     /// Start the Kura thread
@@ -112,7 +121,6 @@ impl Kura {
         Self::new(
             configuration.init_mode,
             Path::new(&configuration.block_store_path),
-            // broker,
             configuration.actor_channel_capacity,
             configuration.debug_output_new_blocks,
         )
@@ -166,13 +174,23 @@ impl Kura {
 
         info!("Loaded {} blocks at init.", blocks.len());
 
-        let hash_array = blocks.iter().map(VersionedCommittedBlock::hash).collect();
+        {
+            let hash_array = blocks.iter().map(VersionedCommittedBlock::hash).collect();
 
-        let mut guard = self
-            .block_hash_array
-            .lock()
-            .expect("lock on block hash array");
-        *guard = hash_array;
+            let mut guard = self
+                .block_hash_array
+                .lock()
+                .expect("lock on block hash array");
+            *guard = hash_array;
+        }
+        {
+            let mut guard = self
+                .block_arc_array
+                .lock()
+                .expect("lock on block arc array");
+
+            *guard = vec![None; blocks.len()];
+        }
 
         Ok(blocks)
     }
@@ -199,7 +217,7 @@ impl Kura {
                 // No new blocks would be received
                 Err(_) if is_closed => break,
                 Err(_) => std::thread::sleep(std::time::Duration::from_millis(1)),
-                Ok(new_block) => {
+                Ok((new_block, finish_signal)) => {
                     #[cfg(feature = "telemetry")]
                     if new_block.header().height == 1 {
                         iroha_logger::telemetry!(msg = iroha_telemetry::msg::SYSTEM_CONNECTED, genesis_hash = %new_block.hash());
@@ -230,6 +248,11 @@ impl Kura {
                                 .lock()
                                 .expect("lock on block hash array")
                                 .push(block_hash);
+                            kura.block_arc_array
+                                .lock()
+                                .expect("lock on block arc array")
+                                .push(Some(Arc::new(new_block)));
+                            finish_signal.send(()).expect("nocheckin");
                         }
                         Err(error) => {
                             error!("Failed to store block, ERROR = {}", error);
@@ -255,20 +278,77 @@ impl Kura {
         Some(hash_array_guard[index])
     }
 
+    pub fn get_block_height_by_hash(&self, hash: &HashOf<VersionedCommittedBlock>) -> Option<u64> {
+        let hash_array_guard = self.block_hash_array.lock().expect("access hash array");
+
+        if *hash == Hash::zeroed().typed() {
+            None
+        } else {
+            match hash_array_guard.iter().position(|&x| x == *hash) {
+                None => None,
+                Some(index) => {
+                    Some(index as u64 + 1)
+                }
+            }
+        }
+    }
+
+    pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<VersionedCommittedBlock>> {
+        let mut arc_array_guard = self.block_arc_array.lock().expect("lock on arc array");
+        if block_height == 0 || block_height > arc_array_guard.len() as u64 {
+            return None;
+        }
+        let block_number : usize = (block_height - 1).try_into().expect("Failed to cast to u32.");
+
+        if let Some(block_arc) = arc_array_guard[block_number].as_ref() {
+            Some(Arc::clone(block_arc))
+        } else {
+            let block_store = self.block_store.lock().expect("lock on block_store");
+            let (block_start, block_len) = block_store.read_block_index(block_number as u64).expect("Failed to read block index from disk.");
+
+            let mut block_buf =
+                vec![0_u8; usize::try_from(block_len).expect("index_len didn't fit in 32-bits")];
+            block_store
+                .read_block_data(block_start, &mut block_buf)
+                .expect("Failed to read block data.");
+            let block = VersionedCommittedBlock::decode_versioned(&block_buf)
+                .expect("Failed to decode block");
+
+            let block_arc = Arc::new(block);
+            arc_array_guard[block_number] = Some(Arc::clone(&block_arc));
+            Some(block_arc)
+        }
+    }
+
+    pub fn get_block_by_hash(&self, block_hash: &HashOf<VersionedCommittedBlock>) -> Option<Arc<VersionedCommittedBlock>> {
+        let index = {
+            let hash_array_guard = self.block_hash_array.lock().expect("access hash array");
+            hash_array_guard.iter().position(|&b| b == *block_hash)
+        };
+        match index {
+            None => None,
+            Some(index) => self.get_block_by_height(index as u64 + 1),
+        }
+    }
+
     /// Put a block in the queue to be stored by Kura. If the queue is
     /// full, wait until there is space.
     pub async fn store_block_async(&self, block: VersionedCommittedBlock) {
-        if let Err(SendError(block)) = self.block_sender.send(block).await {
+        let (finished_sender, finished_reciever) = tokio::sync::oneshot::channel();
+        if let Err(SendError(block)) = self.block_sender.send((block, finished_sender)).await {
             error!(?block, "unable to write block, kura thread was closed");
         }
+        finished_reciever.await.expect("nocheckin");
     }
 
     /// Put a block in the queue to be stored by Kura. If the queue is
     /// full, block the current thread until there is space.
     pub fn store_block_blocking(&self, block: VersionedCommittedBlock) {
-        if let Err(SendError(block)) = self.block_sender.blocking_send(block) {
+        let (finished_sender, finished_reciever) = tokio::sync::oneshot::channel();        
+        if let Err(SendError(block)) = self.block_sender.blocking_send((block, finished_sender)) {
             error!(?block, "unable to write block, kura thread was closed");
         }
+        finished_reciever.blocking_recv().expect("nocheckin");
     }
 }
 
@@ -278,7 +358,7 @@ impl Kura {
 /// The [`BlockStoreTrait`] defines and implements functionality used by Kura
 /// for every platform. The default implementation is `StdFileBlockStore`,
 /// which uses `std::fs`.
-pub trait BlockStoreTrait {
+pub trait BlockStoreTrait : Debug {
     /// Read a series of block indices from the block index file and
     /// attempt to fill all of `dest_buffer`.
     ///
@@ -398,6 +478,7 @@ pub trait BlockStoreTrait {
 
 /// An implementation of a block store for Kura
 /// that uses `std::fs`, the default IO file in Rust.
+#[derive(Debug)]
 pub struct StdFileBlockStore {
     path_to_blockchain: PathBuf,
 }

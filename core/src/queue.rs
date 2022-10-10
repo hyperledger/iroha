@@ -292,7 +292,7 @@ mod tests {
     use rand::Rng as _;
 
     use super::*;
-    use crate::{wsv::World, PeersIds};
+    use crate::{wsv::World, PeersIds, kura::Kura};
 
     fn accepted_tx(
         account_id: &str,
@@ -332,9 +332,10 @@ mod tests {
     #[test]
     fn push_tx() {
         let key_pair = KeyPair::generate().unwrap();
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([key_pair
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
 
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
@@ -355,9 +356,10 @@ mod tests {
         let max_txs_in_queue = 10;
 
         let key_pair = KeyPair::generate().unwrap();
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([key_pair
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
 
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
@@ -397,7 +399,8 @@ mod tests {
             account.set_signature_check_condition(SignatureCheckCondition(false.into()));
             assert!(domain.add_account(account).is_none());
 
-            Arc::new(WorldStateView::new(World::with([domain], PeersIds::new())))
+            let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+            Arc::new(WorldStateView::new(World::with([domain], PeersIds::new()), kura.clone()))
         };
 
         let queue = Queue::from_configuration(&Configuration {
@@ -418,12 +421,13 @@ mod tests {
     #[test]
     fn push_multisignature_tx() {
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
             key_pairs
                 .iter()
                 .map(|key_pair| key_pair.public_key())
                 .cloned(),
-        )));
+        ), kura.clone()));
 
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
@@ -469,9 +473,10 @@ mod tests {
     fn get_available_txs() {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
@@ -498,9 +503,10 @@ mod tests {
     fn push_tx_already_in_blockchain() {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         wsv.transactions.insert(tx.hash());
         let queue = Queue::from_configuration(&Configuration {
@@ -522,9 +528,10 @@ mod tests {
     fn get_tx_drop_if_in_blockchain() {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
@@ -544,9 +551,10 @@ mod tests {
     fn get_available_txs_with_timeout() {
         let max_block_tx = 6;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 200,
@@ -586,9 +594,10 @@ mod tests {
     #[test]
     fn transactions_available_after_pop() {
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
         let queue = Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
@@ -619,7 +628,10 @@ mod tests {
     fn concurrent_stress_test() {
         let max_block_tx = 10;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let wsv = WorldStateView::new(world_with_test_domains([alice_key.public_key().clone()]));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains([alice_key
+            .public_key()
+            .clone()]), kura.clone());
 
         let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
@@ -689,9 +701,10 @@ mod tests {
         let future_threshold_ms = 1000;
 
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains([alice_key
             .public_key()
-            .clone()])));
+            .clone()]), kura.clone()));
 
         let queue = Queue::from_configuration(&Configuration {
             future_threshold_ms,

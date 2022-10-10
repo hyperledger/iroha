@@ -775,6 +775,7 @@ mod tests {
     use crate::{
         smartcontracts::permissions::judge::{AllowAll, DenyAll},
         PeersIds, World,
+        kura::Kura,
     };
 
     fn world_with_test_account(account_id: AccountId) -> World {
@@ -829,7 +830,8 @@ mod tests {
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura.clone());
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
@@ -866,7 +868,8 @@ mod tests {
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura.clone());
 
         let query_hex = {
             let find_acc_query = FindAccountById::new(account_id.clone());
@@ -906,7 +909,9 @@ mod tests {
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura.clone());
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
@@ -959,7 +964,8 @@ mod tests {
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura.clone());
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
@@ -1012,7 +1018,8 @@ mod tests {
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let (kura, _kth, _dir) = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura.clone());
 
         let query_hex = {
             let find_acc_query = FindAccountById::new(account_id.clone());
