@@ -7,5 +7,6 @@ fn execute(wsv: &WorldStateView) -> Result<(), ()> {
 }
 
 fn main() {
-    let _world = WorldStateView::default();
+    let kura = iroha_core::kura::Kura::blank_kura_for_testing();
+    let _world = WorldStateView::new(iroha_core::prelude::World::default(), kura);
 }

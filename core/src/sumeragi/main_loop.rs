@@ -279,7 +279,7 @@ fn commit_block<F>(
 
     state
         .wsv
-        .apply(block.clone())
+        .apply(&block)
         .expect("Failed to apply block on WSV. This is absolutely not acceptable.");
 
     let events_buffer = state.wsv.events_buffer.replace(Vec::new());
@@ -620,7 +620,7 @@ pub fn run<F>(
     }
 
     // Assert initialization was done properly.
-    assert_eq!(state.latest_block_hash, state.wsv.nth_back_block_hash(0));
+    assert_eq!(state.latest_block_hash, state.wsv.latest_block_hash());
     trace!(
         "I, {}, finished sumeragi init. My role in the next round is {:?}",
         sumeragi.peer_id.public_key,
