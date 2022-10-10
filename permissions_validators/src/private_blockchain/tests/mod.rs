@@ -5,6 +5,8 @@ mod revoke_and_grant;
 
 use std::str::FromStr as _;
 
+use iroha_core::kura::Kura;
+
 use super::*;
 
 /// A test environment that contains test domains, accounts, and assets.
@@ -86,7 +88,8 @@ impl TestEnv {
 
         let world = World::with([wonderland.clone(), denoland.clone()], Vec::new());
 
-        let wsv = WorldStateView::new(world);
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world, kura);
 
         let mintbox_gold_trigger_id = TriggerId::from_str("mint_box_gold_asset").expect("Valid");
 

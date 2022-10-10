@@ -16,7 +16,6 @@ use iroha_version::scale::EncodeVersioned;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_validators(n_validators: u32) {
-    let dir = tempfile::tempdir().unwrap();
     let alice_id = AccountId::from_str("alice@test").expect("tested");
     let bob_id = AccountId::from_str("bob@test").expect("tested");
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
@@ -41,6 +40,11 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     };
     let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
+    let dir = tempfile::tempdir().expect("Could not create tempfile.");
+    let kura =
+        iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();
+    let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
+
     let block = PendingBlock::new(vec![tx], Vec::new())
         .chain_first()
         .validate(
@@ -49,7 +53,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
                 Arc::new(AllowAll::new()),
                 Arc::new(AllowAll::new()),
             ),
-            &Arc::new(WorldStateView::new(World::new())),
+            &Arc::new(WorldStateView::new(World::new(), kura)),
         );
     let mut block = block
         .sign(KeyPair::generate().expect("Failed to generate KeyPair"))

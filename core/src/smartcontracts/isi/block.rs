@@ -9,10 +9,9 @@ impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, query::Error> {
         let blocks = wsv
-            .blocks()
-            .map(|block| block.clone())
+            .all_blocks_by_value()
+            .rev()
             .map(VersionedCommittedBlock::into_value)
-            .rev() // Sorted by height desc.
             .collect();
         Ok(blocks)
     }
@@ -22,11 +21,10 @@ impl ValidQuery for FindAllBlockHeaders {
     #[metrics(+"find_all_block_headers")]
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, query::Error> {
         let block_headers = wsv
-            .blocks()
-            .map(|block| block.clone())
+            .all_blocks_by_value()
+            .rev()
             .map(VersionedCommittedBlock::into_value)
             .map(|block_value| block_value.header)
-            .rev() // Sorted by height desc.
             .collect();
         Ok(block_headers)
     }
@@ -43,10 +41,10 @@ impl ValidQuery for FindBlockHeaderByHash {
             .typed();
 
         let block = wsv
-            .blocks()
+            .all_blocks_by_value()
             .find(|block| block.hash() == hash)
             .ok_or_else(|| query::Error::Find(Box::new(FindError::Block(hash))))?;
 
-        Ok(block.clone().into_value().header)
+        Ok(block.into_value().header)
     }
 }
