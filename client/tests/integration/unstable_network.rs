@@ -30,6 +30,7 @@ fn unstable_network_4_peers_1_fault() {
     );
 }
 
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn unstable_network_7_peers_1_fault() {
     let n_peers = 7;
