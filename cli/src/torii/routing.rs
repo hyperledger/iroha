@@ -263,7 +263,7 @@ async fn handle_post_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) -> eyre::Result<()> {
+async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
     let subscription_request: VersionedBlockSubscriptionRequest = stream.recv().await?;
     let BlockSubscriptionRequest(mut from_height) = subscription_request.into_v1();
 
@@ -289,29 +289,19 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
             }
             // This branch sends blocks
             _ = interval.tick() => {
-                let blocks = sumeragi.blocks_from_height(from_height.try_into().wrap_err("Failed to convert `from_height` into `usize`. You should consider upgrading to a 64-bit arch")?);
-                stream_blocks(&mut from_height, blocks, &mut stream).await?;
+                if let Some(block) = kura.get_block_by_height(from_height) {
+                    stream
+                        .send(VersionedBlockMessage::from(
+                            BlockMessage(VersionedCommittedBlock::clone(&block)), // TODO: Remove unnecessary clone.
+                        ))
+                        .await?;
+                    from_height += 1;
+                }
             }
             // Else branch to prevent panic
             else => ()
         }
     }
-}
-
-async fn stream_blocks(
-    from_height: &mut u64,
-    blocks: Vec<VersionedCommittedBlock>,
-    stream: &mut WebSocket,
-) -> eyre::Result<()> {
-    #[allow(clippy::expect_used)]
-    for block in blocks {
-        stream
-            .send(VersionedBlockMessage::from(BlockMessage(block)))
-            .await?;
-        *from_height += 1;
-    }
-
-    Ok(())
 }
 
 mod subscription {
@@ -403,10 +393,8 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     #[allow(clippy::expect_used)]
     let string = sumeragi
         .wsv_mutex_access()
-        .blocks()
-        .last()
+        .latest_block_ref()
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
-        .value()
         .version()
         .to_string();
     reply::json(&string)
@@ -438,6 +426,7 @@ async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) ->
 
 impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_configuration(
         iroha_cfg: Configuration,
         queue: Arc<Queue>,
@@ -446,6 +435,7 @@ impl Torii {
         network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,
         sumeragi: Arc<Sumeragi>,
+        kura: Arc<Kura>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -455,6 +445,7 @@ impl Torii {
             network,
             notify_shutdown,
             sumeragi,
+            kura,
         }
     }
 
@@ -552,7 +543,7 @@ impl Torii {
             });
 
         let blocks_ws_router = block_ws_router_path
-            .and(add_state!(self.sumeragi))
+            .and(add_state!(self.kura))
             .and(warp::ws())
             .map(|sumeragi: Arc<_>, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {

@@ -11,6 +11,7 @@ use std::{
 
 use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
+    kura::Kura,
     prelude::*,
     queue::{self, Queue},
     sumeragi::Sumeragi,
@@ -39,6 +40,7 @@ pub struct Torii {
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
     sumeragi: Arc<Sumeragi>,
+    kura: Arc<Kura>,
 }
 
 /// Torii errors.

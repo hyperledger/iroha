@@ -16,12 +16,13 @@ use iroha_p2p::Post;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
+use crate::{kura::Kura, sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
 pub struct BlockSynchronizer {
     sumeragi: Arc<Sumeragi>,
+    kura: Arc<Kura>,
     peer_id: PeerId,
     gossip_period: Duration,
     block_batch_size: u32,
@@ -63,9 +64,13 @@ impl Handler<message::Message> for BlockSynchronizer {
 impl BlockSynchronizer {
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
+        let (latest_hash, previous_hash) = {
+            let wsv = self.sumeragi.wsv_mutex_access();
+            (wsv.latest_block_hash(), wsv.previous_block_hash())
+        };
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
-            self.sumeragi.latest_block_hash(),
-            self.sumeragi.previous_block_hash(),
+            latest_hash,
+            previous_hash,
             self.peer_id.clone(),
         ))
         .send_to(self.broker.clone(), peer_id)
@@ -76,12 +81,14 @@ impl BlockSynchronizer {
     pub fn from_configuration(
         config: &Configuration,
         sumeragi: Arc<Sumeragi>,
+        kura: Arc<Kura>,
         peer_id: PeerId,
         broker: Broker,
     ) -> Self {
         Self {
             peer_id,
             sumeragi,
+            kura,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             broker,
@@ -193,21 +200,38 @@ pub mod message {
                         warn!("Error: not sending any blocks as batch_size is equal to zero.");
                         return;
                     }
-                    if *latest_hash == block_sync.sumeragi.latest_block_hash() {
+                    let local_latest_block_hash =
+                        block_sync.sumeragi.wsv_mutex_access().latest_block_hash();
+                    if *latest_hash == local_latest_block_hash
+                        || *previous_hash == local_latest_block_hash
+                    {
                         return;
                     }
 
-                    let blocks = block_sync
-                        .sumeragi
-                        .blocks_after_hash(*previous_hash)
-                        .into_iter()
+                    let start_height = if *previous_hash == Hash::zeroed().typed() {
+                        1
+                    } else {
+                        match block_sync.kura.get_block_height_by_hash(previous_hash) {
+                            None => {
+                                error!(%previous_hash, "Block hash not found");
+                                return;
+                            }
+                            Some(height) => height + 1, // It's get blocks *after*, so we add 1.
+                        }
+                    };
+
+                    let blocks = (start_height..)
+                        .take(1 + block_sync.block_batch_size as usize)
+                        .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| block.hash() == *latest_hash)
-                        .map(VersionedCandidateCommittedBlock::from)
-                        .take(block_sync.block_batch_size as usize)
+                        .map(|block| VersionedCommittedBlock::clone(&block).into())
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {
-                        warn!(hash=%previous_hash, "Block hash not found");
+                        // The only case where the blocks array could be empty is if we got queried for blocks
+                        // after the latest hash. There is a check earlier in the function that returns early
+                        // so it should not be possible for us to get here.
+                        error!(%previous_hash, "Blocks array is empty but shouldn't be.");
                     } else {
                         trace!(hash=%previous_hash, "Sharing blocks after hash");
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
