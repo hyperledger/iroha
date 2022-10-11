@@ -45,36 +45,29 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 }
 
 #[allow(clippy::implicit_hasher)]
-/// Get a sample Iroha configuration. Trusted peers must either be
+/// Get a sample Iroha configuration proxy. Trusted peers must be
 /// specified in this function, including the current peer. Use [`get_trusted_peers`]
-/// to populate `trusted_peers` if in doubt.
+/// to populate `trusted_peers` if in doubt. Almost equivalent to the [`get_config`]
+/// function, except the proxy is left unbuilt.
 ///
 /// # Panics
-/// when [`KeyPair`] generation fails (rare).
-pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Configuration {
-    let (public_key, private_key) = match key_pair {
-        Some(key_pair) => key_pair.into(),
-        None => KeyPair::generate()
-            .expect("Key pair generation failed")
-            .into(),
-    };
-    iroha_logger::info!(?public_key);
+/// - when [`KeyPair`] generation fails (rare case).
+pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> ConfigurationProxy {
+    let (public_key, private_key) = key_pair
+        .unwrap_or_else(|| KeyPair::generate().expect("Key pair generation failed"))
+        .into();
+    iroha_logger::info!(%public_key);
     ConfigurationProxy {
         public_key: Some(public_key.clone()),
         private_key: Some(private_key.clone()),
         sumeragi: Some(iroha_config::sumeragi::ConfigurationProxy {
-            key_pair: None,
-            peer_id: None,
-            trusted_peers: Some(TrustedPeers {
-                peers: trusted_peers,
-            }),
+            trusted_peers: Some(TrustedPeers { peers }),
             ..iroha_config::sumeragi::ConfigurationProxy::default()
         }),
         torii: Some(iroha_config::torii::ConfigurationProxy {
             p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.to_owned()),
             api_url: Some(DEFAULT_API_URL.to_owned()),
             telemetry_url: Some(DEFAULT_TORII_TELEMETRY_URL.to_owned()),
-            max_transaction_size: Some(0x8000),
             ..iroha_config::torii::ConfigurationProxy::default()
         }),
         block_sync: Some(iroha_config::block_sync::ConfigurationProxy {
@@ -100,6 +93,17 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
         }),
         ..ConfigurationProxy::default()
     }
-    .build()
-    .expect("Iroha config should build as all required fields were provided")
+}
+
+#[allow(clippy::implicit_hasher)]
+/// Get a sample Iroha configuration. Trusted peers must either be
+/// specified in this function, including the current peer. Use [`get_trusted_peers`]
+/// to populate `trusted_peers` if in doubt.
+///
+/// # Panics
+/// - when [`KeyPair`] generation fails (rare case).
+pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Configuration {
+    get_config_proxy(trusted_peers, key_pair)
+        .build()
+        .expect("Iroha config should build as all required fields were provided")
 }

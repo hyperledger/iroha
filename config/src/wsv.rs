@@ -1,7 +1,7 @@
 //! Module for `WorldStateView`-related configuration and structs.
 #![allow(clippy::std_instead_of_core)]
 
-use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
+use iroha_config_base::derive::{Documented, Proxy};
 use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
 use serde::{Deserialize, Serialize};
 
@@ -11,9 +11,7 @@ const DEFAULT_METADATA_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20
 const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
 /// `WorldStateView` configuration.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Proxy, LoadFromEnv, Documented,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
 #[config(env_prefix = "WSV_")]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {

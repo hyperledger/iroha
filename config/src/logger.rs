@@ -5,7 +5,7 @@ use core::fmt::Debug;
 
 use derive_more::{Deref, DerefMut};
 use iroha_config_base::{
-    derive::{Documented, LoadFromEnv, Proxy},
+    derive::{Documented, Proxy},
     runtime_upgrades::{handle, ReloadError, ReloadMut},
 };
 use serde::{Deserialize, Serialize};
@@ -86,7 +86,7 @@ impl PartialEq for SyncLevel {
 impl Eq for SyncLevel {}
 
 /// 'Logger' configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Proxy, LoadFromEnv, Documented, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Proxy, Documented, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {
     /// Maximum log level

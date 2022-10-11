@@ -10,10 +10,10 @@ pub(crate) mod utils;
 pub(crate) mod view;
 
 /// Derive for config loading. More details in `iroha_config_base` reexport
-#[proc_macro_derive(Combine)]
-pub fn combine_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(Override)]
+pub fn override_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as utils::StructWithFields);
-    proxy::impl_combine(&ast)
+    proxy::impl_override(&ast)
 }
 
 /// Derive for config querying and setting. More details in `iroha_config_base` reexport
@@ -24,6 +24,7 @@ pub fn builder_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Derive for config querying and setting. More details in `iroha_config_base` reexport
+#[proc_macro_error::proc_macro_error]
 #[proc_macro_derive(LoadFromEnv, attributes(config))]
 pub fn load_from_env_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as utils::StructWithFields);
@@ -45,7 +46,7 @@ pub fn proxy_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Derive for config querying and setting. More details in `iroha_config_base` reexport
-#[proc_macro_derive(Documented)]
+#[proc_macro_derive(Documented, attributes(config))]
 pub fn documented_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as utils::StructWithFields);
     documented::impl_documented(&ast)

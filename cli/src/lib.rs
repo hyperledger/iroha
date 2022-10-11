@@ -14,7 +14,7 @@ use std::{panic, path::PathBuf, sync::Arc};
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
-    base::proxy::{LoadFromDisk, LoadFromEnv},
+    base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
 };
 use iroha_core::{
@@ -154,9 +154,9 @@ impl Iroha {
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
-        let mut proxy = ConfigurationProxy::from_path(&args.config_path)?;
-        proxy.load_environment()?;
-        let config = proxy.build()?;
+        let file_proxy = ConfigurationProxy::from_path(&args.config_path);
+        let env_proxy = ConfigurationProxy::from_env();
+        let config = file_proxy.override_with(env_proxy).build()?;
 
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");

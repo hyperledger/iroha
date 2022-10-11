@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
-    Attribute, GenericArgument, Ident, LitStr, PathArguments, Token, Type,
+    Attribute, GenericArgument, Ident, LitStr, Meta, NestedMeta, PathArguments, Token, Type,
 };
 
 /// Keywords used inside `#[view(...)]` and `#[config(...)]`
@@ -328,12 +328,58 @@ pub fn is_option_type(ty: &Type) -> bool {
 }
 
 /// Remove attributes with ident [`attr_ident`] from struct attributes and field attributes
-pub fn remove_attr_struct(ast: &mut StructWithFields, attr_ident: &str) {
+pub fn remove_attr_from_struct(ast: &mut StructWithFields, attr_ident: &str) {
     let StructWithFields { attrs, fields, .. } = ast;
     for field in fields {
         remove_attr(&mut field.attrs, attr_ident)
     }
     remove_attr(attrs, attr_ident);
+}
+
+/// Keep only derive attributes passed as a second argument in struct attributes and field attributes
+pub fn keep_derive_attr(ast: &mut StructWithFields, kept_attrs: &[&str]) {
+    #[allow(clippy::expect_used)]
+    ast.attrs
+        .iter_mut()
+        .filter(|attr| attr.path.is_ident("derive"))
+        .for_each(|attr| {
+            let meta = attr
+                .parse_meta()
+                .expect("derive macro must be in one of the meta forms");
+            if let Meta::List(list) = meta {
+                let items: Vec<NestedMeta> = list
+                    .nested
+                    .into_iter()
+                    .filter(|nested| {
+                        if let NestedMeta::Meta(Meta::Path(path)) = nested {
+                            return kept_attrs.iter().any(|kept_attr| path.is_ident(kept_attr));
+                        }
+                        // Non-nested all kept by default
+                        true
+                    })
+                    .collect();
+                *attr = syn::parse_quote!(
+                    #[derive(#(#items),*)]
+                )
+            }
+        });
+}
+
+/// Keep only attributes passed as a second argument in struct attributes and field attributes
+pub fn keep_attrs_in_struct(ast: &mut StructWithFields, kept_attrs: &[&str]) {
+    let StructWithFields { attrs, fields, .. } = ast;
+    for field in fields {
+        field.attrs.retain(|attr| {
+            kept_attrs
+                .iter()
+                .any(|kept_attr| attr.path.is_ident(kept_attr))
+        });
+    }
+    attrs.retain(|attr| {
+        kept_attrs
+            .iter()
+            .any(|kept_attr| attr.path.is_ident(kept_attr))
+    });
 }
 
 /// Generate lvalue forms for a struct field, taking [`Arc<RwLock<..>>`] types

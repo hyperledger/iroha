@@ -1971,6 +1971,7 @@ dependencies = [
 name = "iroha_config_derive"
 version = "2.0.0-pre-rc.9"
 dependencies = [
+ "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn",

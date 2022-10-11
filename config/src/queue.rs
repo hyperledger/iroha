@@ -1,6 +1,6 @@
 //! Module for `Queue`-related configuration and structs.
 #![allow(clippy::std_instead_of_core, clippy::arithmetic)]
-use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
+use iroha_config_base::derive::{Documented, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(9);
@@ -10,9 +10,7 @@ const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
 const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 
 /// `Queue` configuration.
-#[derive(
-    Copy, Clone, Deserialize, Serialize, Debug, Documented, Proxy, LoadFromEnv, PartialEq, Eq,
-)]
+#[derive(Copy, Clone, Deserialize, Serialize, Debug, Documented, Proxy, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "QUEUE_")]
 pub struct Configuration {
