@@ -20,6 +20,7 @@ macro_rules! const_assert {
 /// so it's impossible to create fully reproducible test scenario.
 ///
 /// But in general it works well and this test demonstrates it
+#[ignore = "ignore, more in #2851"]
 #[test]
 #[allow(clippy::cast_precision_loss)]
 fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result<()> {

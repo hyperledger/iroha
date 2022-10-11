@@ -2053,6 +2053,7 @@ name = "iroha_data_model_derive"
 version = "2.0.0-pre-rc.9"
 dependencies = [
  "iroha_data_model",
+ "iroha_ffi",
  "iroha_schema",
  "parity-scale-codec",
  "proc-macro-error",
