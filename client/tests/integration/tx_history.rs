@@ -8,6 +8,7 @@ use test_network::*;
 
 use super::Configuration;
 
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();

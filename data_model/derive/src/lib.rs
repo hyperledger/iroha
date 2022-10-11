@@ -116,12 +116,13 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use iroha_data_model_derive::{Filter, IdOrdEqHash};
 /// use iroha_data_model::prelude::{HasOrigin, Identifiable};
 /// use iroha_schema::IntoSchema;
 /// use parity_scale_codec::{Decode, Encode};
 /// use serde::{Deserialize, Serialize};
+///
 ///
 /// #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
 /// pub enum LayerEvent {
