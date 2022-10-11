@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Documented, Error as ConfigError, LoadFromEnv, Proxy};
+use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, Deserialize, Serialize, Proxy, Documented, LoadFromEnv, PartialEq, Eq)]
+    #[derive(Debug, Clone, Deserialize, Serialize, Proxy, Documented,  PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {
@@ -216,8 +216,7 @@ mod tests {
         #[test]
         fn iroha_proxy_build_fails_on_none(proxy in arb_proxy()) {
             let cfg = proxy.build();
-            let example_cfg = ConfigurationProxy::from_path(CONFIGURATION_PATH)
-                .expect("Failed to read example config file").build().expect("Failed to build example Iroha config");
+            let example_cfg = ConfigurationProxy::from_path(CONFIGURATION_PATH).build().expect("Failed to build example Iroha config");
             if cfg.is_ok() {
                 assert_eq!(cfg.unwrap(), example_cfg)
             }
@@ -225,9 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_example_json() -> Result<()> {
-        let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH)
-            .wrap_err("Failed to read configuration from example config")?;
+    fn parse_example_json() {
+        let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH);
         assert_eq!(
             "./storage",
             cfg_proxy.kura.unwrap().block_store_path.unwrap()
@@ -240,15 +238,13 @@ mod tests {
                 .gossip_period_ms
                 .expect("Gossip period was None")
         );
-        Ok(())
     }
 
     #[test]
-    fn example_json_proxy_builds() -> Result<()> {
-        let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH)
-            .wrap_err("Failed to read configuration from example config")?;
-        cfg_proxy.build()?;
-        Ok(())
+    fn example_json_proxy_builds() {
+        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|_| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
+                                                                                          failed to build. This probably means that some of the fields there were not updated \
+                                                                                          properly with new changes."));
     }
 
     #[test]

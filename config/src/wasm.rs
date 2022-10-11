@@ -1,15 +1,13 @@
 //! Module for wasm-related configuration and structs.
 #![allow(clippy::std_instead_of_core, clippy::arithmetic)]
-use iroha_config_base::derive::{Documented, LoadFromEnv, Proxy};
+use iroha_config_base::derive::{Documented, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
 const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
 
 /// `WebAssembly Runtime` configuration.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
 #[config(env_prefix = "WASM_")]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {

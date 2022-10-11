@@ -1,7 +1,7 @@
 //! Module with genesis configuration logic.
 #![allow(clippy::std_instead_of_core)]
 
-use iroha_config_base::derive::{view, Documented, LoadFromEnv, Proxy};
+use iroha_config_base::derive::{view, Documented, Proxy};
 use iroha_crypto::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration of the genesis block and the process of its submission.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy, LoadFromEnv)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_GENESIS_")]
     pub struct Configuration {

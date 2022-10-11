@@ -1,10 +1,9 @@
 use gen::*;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{Meta, NestedMeta};
 
 use super::utils::{
-    extract_field_idents, extract_field_types, remove_attr, remove_attr_struct, AttrParser,
+    extract_field_idents, extract_field_types, remove_attr, remove_attr_from_struct, AttrParser,
     StructField, StructWithFields, View, ViewFieldType, ViewIgnore,
 };
 
@@ -26,9 +25,10 @@ pub fn impl_view(ast: StructWithFields) -> TokenStream {
 
 mod gen {
     use super::*;
+    use crate::utils::{keep_attrs_in_struct, keep_derive_attr};
 
     pub fn original_struct(mut ast: StructWithFields) -> StructWithFields {
-        remove_attr_struct(&mut ast, "view");
+        remove_attr_from_struct(&mut ast, "view");
         ast
     }
 
@@ -44,41 +44,18 @@ mod gen {
         ast.attrs.push(syn::parse_quote!(
             #[doc = #view_doc]
         ));
-        ast.attrs
-            .iter_mut()
-            .filter(|attr| attr.path.is_ident("derive"))
-            .for_each(|attr| {
-                let meta = attr
-                    .parse_meta()
-                    .expect("derive macro must be in one of the meta forms");
-                if let Meta::List(list) = meta {
-                    let items: Vec<syn::NestedMeta> = list
-                        .nested
-                        .into_iter()
-                        .filter(|nested| {
-                            if let NestedMeta::Meta(Meta::Path(path)) = nested {
-                                // remove derives that are needed on the `Configuration`
-                                // or `ConfigurationProxy`, but not needed on `ConfigruationView`
-                                if path.is_ident("LoadFromEnv")
-                                    || path.is_ident("Builder")
-                                    || path.is_ident("Proxy")
-                                {
-                                    return false;
-                                }
-                            }
-                            true
-                        })
-                        .collect();
-                    *attr = syn::parse_quote!(
-                        #[derive(#(#items),*)]
-                    )
-                }
-            });
-        // TODO: Find a way to make this more ergonomic. As `View` struct
-        // are formed inside a proc macro, we have to remove unrelated attributes from `Configuration` here.
-        remove_attr_struct(&mut ast, "view");
-        remove_attr_struct(&mut ast, "config");
-        remove_attr_struct(&mut ast, "builder");
+        keep_derive_attr(
+            &mut ast,
+            &[
+                "Clone",
+                "Debug",
+                "Deserialize",
+                "Serialize",
+                "PartialEq",
+                "Eq",
+            ],
+        );
+        keep_attrs_in_struct(&mut ast, &["serde", "doc", "derive"]);
         ast.ident = format_ident!("{}View", ast.ident);
         ast
     }

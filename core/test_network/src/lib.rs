@@ -3,7 +3,11 @@
 #![allow(clippy::restriction, clippy::future_not_send)]
 
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
-use std::{collections::HashMap, sync::Arc, thread};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    thread,
+};
 
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -11,8 +15,11 @@ use iroha::Iroha;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::client::Client;
 use iroha_config::{
-    client::Configuration as ClientConfiguration, iroha::Configuration,
-    sumeragi::Configuration as SumeragiConfiguration, torii::Configuration as ToriiConfiguration,
+    base::proxy::{LoadFromEnv, Override},
+    client::Configuration as ClientConfiguration,
+    iroha::{Configuration, ConfigurationProxy},
+    sumeragi::Configuration as SumeragiConfiguration,
+    torii::Configuration as ToriiConfiguration,
 };
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
@@ -834,20 +841,17 @@ impl TestRuntime for Runtime {
     }
 }
 
-use std::collections::HashSet;
-
-use iroha_config::base::proxy::LoadFromEnv;
-
 impl TestConfiguration for Configuration {
     fn test() -> Self {
-        let mut configuration = iroha::samples::get_config(HashSet::new(), Some(get_key_pair()));
-        configuration
-            .load_environment()
-            .expect("Failed to load configuration from environment");
+        let mut sample_proxy =
+            iroha::samples::get_config_proxy(HashSet::new(), Some(get_key_pair()));
+        let env_proxy = ConfigurationProxy::from_env();
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
-        configuration.public_key = public_key;
-        configuration.private_key = private_key;
-        configuration
+        sample_proxy.public_key = Some(public_key);
+        sample_proxy.private_key = Some(private_key);
+        sample_proxy.override_with(env_proxy)
+                    .build()
+                    .expect("Test Iroha config failed to build. This is either a programmer error or a compiler bug.")
     }
 
     fn pipeline_time() -> Duration {

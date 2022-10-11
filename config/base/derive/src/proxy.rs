@@ -1,4 +1,5 @@
 use proc_macro::TokenStream;
+use proc_macro_error::abort;
 use quote::{format_ident, quote};
 use syn::{parse_quote, Type, TypePath};
 
@@ -6,23 +7,24 @@ use super::utils::{get_inner_type, StructWithFields};
 use crate::utils;
 
 pub fn impl_proxy(ast: StructWithFields) -> TokenStream {
-    // somewhat awkward conversion, could it be better?
     let parent_name = &ast.ident;
     let parent_ty: Type = parse_quote! { #parent_name };
     let proxy_struct = gen_proxy_struct(ast);
     let loadenv_derive = quote! { ::iroha_config_base::derive::LoadFromEnv };
     let disk_derive = quote! { ::iroha_config_base::derive::LoadFromDisk };
     let builder_derive = quote! { ::iroha_config_base::derive::Builder };
-    let combine_derive = quote! { ::iroha_config_base::derive::Combine };
+    let override_derive = quote! { ::iroha_config_base::derive::Override };
     let documented_derive = quote! { ::iroha_config_base::derive::Documented };
     quote! {
         /// Proxy configuration structure to be used as an intermediate
-        /// for config loading
+        /// for configuration loading. Both loading from disk and
+        /// from env should only be done via this struct, which then
+        /// builds into its parent [`struct@Configuration`].
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize,
                  #builder_derive,
                  #loadenv_derive,
                  #disk_derive,
-                 #combine_derive,
+                 #override_derive,
                  #documented_derive
         )]
         #[builder(parent = #parent_ty)]
@@ -32,17 +34,33 @@ pub fn impl_proxy(ast: StructWithFields) -> TokenStream {
     .into()
 }
 
-pub fn impl_combine(ast: &StructWithFields) -> TokenStream {
-    let combine_trait = quote! { ::iroha_config_base::proxy::Combine };
+pub fn impl_override(ast: &StructWithFields) -> TokenStream {
+    let override_trait = quote! { ::iroha_config_base::proxy::Override };
     let name = &ast.ident;
-    let fields = utils::extract_field_idents(&ast.fields);
+    let clauses = ast.fields.iter().map(|field| {
+        let field_name = &field.ident;
+        if field.has_inner {
+            let inner_ty = get_inner_type("Option", &field.ty);
+            quote! {
+                self.#field_name = match (self.#field_name, other.#field_name) {
+                    (Some(this_field), Some(other_field)) => Some(<#inner_ty as #override_trait>::override_with(this_field, other_field)),
+                    (this_field, None) => this_field,
+                    (None, other_field) => other_field,
+                };
+            }
+        } else {
+            quote! {
+                if let Some(other_field) = other.#field_name {
+                    self.#field_name = Some(other_field)
+                }
+            }
+        }
+    });
 
     quote! {
-        impl #combine_trait for #name {
-            fn combine(mut self, other: Self) -> Self {
-                #(if let Some(other_field) = other.#fields {
-                    self.#fields = Some(other_field)
-                })*
+        impl #override_trait for #name {
+            fn override_with(mut self, other: Self) -> Self {
+                #(#clauses)*
                 self
             }
         }
@@ -50,71 +68,77 @@ pub fn impl_combine(ast: &StructWithFields) -> TokenStream {
     .into()
 }
 
+#[allow(clippy::str_to_string)]
 pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
     let set_field = ast.fields
         .iter()
         .map(|field| {
             let ty = &field.ty;
-            let l_value = &field.lvalue_write;
             let as_str_attr = field.has_as_str;
             let ident = &field.ident;
             let field_env = &field.env_str;
 
-            let set_field = {
-                let inner_ty = field.has_option.then(|| get_inner_type("Option", ty)).unwrap_or(ty);
-                let is_string = if let Type::Path(TypePath { path, .. }) = inner_ty {
-                    path.is_ident("String")
-                } else {
-                    false
-                };
-                let inner = if is_string {
-                    quote! { Ok(var) }
-                } else if as_str_attr {
-                    quote! { serde_json::from_value(var.into()) }
-                } else {
-                    quote! { serde_json::from_str(&var) }
-                };
-                quote! {
-                    let inner: Result<#inner_ty, _> = #inner;
-                    #l_value = <#ty as From<#inner_ty>>::from(
-                        inner.map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
-                    );
-                }
+            let inner_ty = if field.has_option {
+                get_inner_type("Option", ty)
+            } else {
+                abort!(ast, "This macro should only be used on `ConfigurationProxy` types, \
+                                i.e. the types which represent a partially finalised configuration \
+                                (with some required fields omitted and to be read from other sources). \
+                                These types' fields have the `Option` type wrapped around each of them.")
             };
-
-            let inner_thing2 = if field.has_inner && field.has_option {
-                let inner_ty = get_inner_type("Option", ty);
-                let loadenv_trait = quote! { ::iroha_config_base::proxy::LoadFromEnv };
-                let err_variant = quote! { ::iroha_config_base::derive::Error::ProxyBuildError };
-                quote! {
-                    <#inner_ty as #loadenv_trait>::load_environment(#l_value.as_mut().ok_or(#err_variant(stringify!(#ident).to_owned()))?)?;
-                }
-            } else if field.has_inner {
-                quote! {
-                    #l_value.load_environment()?;
-                }
-            }
-            else {
-                quote! {}
+            let is_string = if let Type::Path(TypePath { path, .. }) = inner_ty {
+                path.is_ident("String")
+            } else {
+                false
             };
-
-            quote! {
-                if let Ok(var) = std::env::var(#field_env) {
-                    #set_field
-                }
-                #inner_thing2
+            let err_ty = quote! { ::iroha_config_base::derive::Error };
+            let err_variant = quote! { ::iroha_config_base::derive::Error::SerdeError };
+            let inner = if is_string {
+                quote! { Ok(var) }
+            } else if as_str_attr {
+                quote! { serde_json::from_value(var.into()).map_err(#err_variant) }
+            } else {
+                quote! { serde_json::from_str(&var).map_err(#err_variant) }
+            };
+            let mut set_field = quote! {
+                let #ident = std::env::var(#field_env)
+                    .ok()
+                    .and_then(|var| {
+                        let inner: Result<#inner_ty, #err_ty> = #inner;
+                        inner.ok()
+                    });
+            };
+            if field.has_inner {
+                set_field.extend(quote! {
+                    let inner_proxy = <#inner_ty as ::iroha_config_base::proxy::LoadFromEnv>::from_env();
+                    let #ident = if let Some(old_inner) = #ident {
+                        Some(<#inner_ty as ::iroha_config_base::proxy::Override>::override_with(old_inner, inner_proxy))
+                    } else {
+                        Some(inner_proxy)
+                    };
+                });
             }
+        set_field
         });
 
     let name = &ast.ident;
+    let fields = ast
+        .fields
+        .iter()
+        .map(|field| {
+            let ident = &field.ident;
+            quote! { #ident }
+        })
+        .collect::<Vec<_>>();
+    let env_trait = quote! { ::iroha_config_base::proxy::LoadFromEnv };
     quote! {
-        impl ::iroha_config_base::proxy::LoadFromEnv for #name {
-            type Error = ::iroha_config_base::derive::Error;
-            fn load_environment(
-                &'_ mut self
-            ) -> core::result::Result<(), ::iroha_config_base::derive::Error> {
+        impl #env_trait for #name {
+            type ReturnValue = Self;
+            fn from_env() -> Self::ReturnValue {
                 #(#set_field)*
-                Ok(())
+                #name {
+                    #(#fields),*
+                }
             }
         }
     }
@@ -125,16 +149,27 @@ pub fn impl_load_from_disk(ast: &StructWithFields) -> TokenStream {
     let proxy_name = &ast.ident;
     let disk_trait = quote! { ::iroha_config_base::proxy::LoadFromDisk };
     let error_ty = quote! { ::iroha_config_base::derive::Error };
+    let disk_err_variant = quote! { ::iroha_config_base::derive::Error::DiskError };
+    let serde_err_variant = quote! { ::iroha_config_base::derive::Error::SerdeError };
+    let none_proxy = gen_none_fields_proxy(ast);
     quote! {
         impl #disk_trait for #proxy_name {
-            type Error = #error_ty;
-            fn from_path<P: AsRef<std::path::Path> + std::fmt::Debug + Clone>(path: P) -> Result<Self, Self::Error> {
-                let mut file = std::fs::File::open(path)?;
+            type ReturnValue = Self;
+            fn from_path<P: AsRef<::std::path::Path> + ::std::fmt::Debug + Clone>(path: P) -> Self::ReturnValue {
+                let mut file = ::std::fs::File::open(path).map_err(#disk_err_variant);
                 // String has better parsing speed, see [issue](https://github.com/serde-rs/json/issues/160#issuecomment-253446892)
                 let mut s = String::new();
-                std::io::Read::read_to_string(&mut file, &mut s)?;
-                let res: Self = serde_json::from_str(&s)?;
-                Ok(res)
+                let res = file
+                    .and_then(|mut f| {
+                        ::std::io::Read::read_to_string(&mut f, &mut s).map(move |_| s).map_err(#disk_err_variant)
+                    })
+                    .and_then(
+                        |s| -> ::core::result::Result<Self, #error_ty> {
+                            serde_json::from_str(&s).map_err(#serde_err_variant)
+                        },
+                    )
+                    .map_or(#none_proxy, ::std::convert::identity);
+                res
             }
         }
     }.into()
@@ -158,6 +193,10 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
         field.ty = parse_quote! {
             Option<#ty>
         };
+        //
+        field
+            .attrs
+            .retain(|attr| attr.path.is_ident("doc") || attr.path.is_ident("config"));
         // Fields that already wrap an option should have a
         // custom deserializer so that json `null` becomes
         // `Some(None)` and not just `None`
@@ -170,9 +209,9 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
         field.has_option = true;
     });
     ast.ident = format_ident!("{}Proxy", ast.ident);
-    // Removing struct-level docs as `..Proxy` has its own doc,
-    // but not the field documentation as they stay the same
-    utils::remove_attr(&mut ast.attrs, "doc");
+    // The only needed struct-level attributes are these
+    ast.attrs
+        .retain(|attr| attr.path.is_ident("config") || attr.path.is_ident("serde"));
     ast
 }
 
@@ -203,7 +242,7 @@ fn gen_none_fields_check(ast: &StructWithFields) -> proc_macro2::TokenStream {
         let ident = &field.ident;
         let err_variant = quote! { ::iroha_config_base::derive::Error::ProxyBuildError };
         if field.has_inner {
-            let inner_ty = get_inner_type("Option", &field.ty).clone();
+            let inner_ty = get_inner_type("Option", &field.ty);
             let builder_trait = quote! { ::iroha_config_base::proxy::Builder };
             quote! {
                 #ident: <#inner_ty as #builder_trait>::build(
@@ -221,5 +260,22 @@ fn gen_none_fields_check(ast: &StructWithFields) -> proc_macro2::TokenStream {
     });
     quote! {
         #(#checked_fields),*
+    }
+}
+
+/// Helper function to be used as an empty fallback for [`impl LoadFromEnv`] or [`impl LoadFromDisk`].
+/// Only meant for proxy types usage.
+fn gen_none_fields_proxy(ast: &StructWithFields) -> proc_macro2::TokenStream {
+    let proxy_name = &ast.ident;
+    let none_fields = ast.fields.iter().map(|field| {
+        let ident = &field.ident;
+        quote! {
+            #ident: None
+        }
+    });
+    quote! {
+        #proxy_name {
+            #(#none_fields),*
+        }
     }
 }
