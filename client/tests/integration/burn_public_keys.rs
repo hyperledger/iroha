@@ -25,6 +25,7 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
     signatories.len()
 }
 
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
     prepare_test_for_nextest!();

@@ -8,14 +8,19 @@ use test_network::*;
 
 use super::Configuration;
 
+// Needed to re-enable ignored tests. 
+#[allow(dead_code)]
 const PEER_COUNT: usize = 7;
 
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
     prepare_test_for_nextest!();
     test_with_instruction_and_status(None, PipelineStatusKind::Committed)
 }
 
+#[ignore = "ignore, more in #2851"]
+// #[ignore = "Experiment"]
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
     prepare_test_for_nextest!();
@@ -23,7 +28,7 @@ fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
     test_with_instruction_and_status(Some(fail.into()), PipelineStatusKind::Rejected)
 }
 
-#[allow(clippy::needless_range_loop, clippy::needless_pass_by_value)]
+#[allow(dead_code, clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status(
     instruction: Option<Instruction>,
     should_be: PipelineStatusKind,

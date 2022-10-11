@@ -12,6 +12,7 @@ use iroha_permissions_validators::public_blockchain::{
 };
 use test_network::*;
 
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn add_role_to_limit_transfer_count() -> Result<()> {
     const PERIOD_MS: u64 = 5000;
