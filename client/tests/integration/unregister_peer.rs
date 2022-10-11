@@ -10,6 +10,7 @@ use test_network::*;
 use super::Configuration;
 
 // Note the test is marked as `unstable`,  not the network.
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network

@@ -8,6 +8,7 @@ use test_network::*;
 
 use super::Configuration;
 
+#[ignore = "ignore, more in #2851"]
 #[test]
 fn connected_peers_with_f_2_1_2() {
     prepare_test_for_nextest!();
