@@ -40,6 +40,7 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Decode,
     Encode,
     Deserialize,

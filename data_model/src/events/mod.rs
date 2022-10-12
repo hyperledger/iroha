@@ -89,7 +89,17 @@ pub enum EventSubscriberMessage {
 
 /// Event.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 pub enum Event {
     /// Pipeline event.
@@ -147,7 +157,19 @@ pub trait Filter {
 /// Event filter.
 #[allow(variant_size_differences)]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema, Serialize, Deserialize,
+    Debug,
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    FromVariant,
+    IntoSchema,
+    Hash,
+    Serialize,
+    Deserialize,
 )]
 pub enum FilterBox {
     /// Listen to pipeline events with filter.

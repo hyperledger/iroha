@@ -14,6 +14,7 @@ declare_item! {
         Eq,
         PartialOrd,
         Ord,
+        Hash,
         Getters,
         Decode,
         Encode,

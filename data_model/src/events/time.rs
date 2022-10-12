@@ -10,7 +10,9 @@ use super::*;
 /// Special event that is emitted when `WSV` is ready for handling time-triggers
 ///
 /// Contains time interval which is used to identify time-triggers to be executed
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema,
+)]
 pub struct Event {
     /// Previous block timestamp and consensus durations estimation.
     /// `None` if it's first block commit

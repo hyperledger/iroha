@@ -28,7 +28,7 @@ pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// Error which indicates max instruction count was reached
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 pub struct TransactionLimitError(String);
 
@@ -123,7 +123,7 @@ pub trait Txn {
 }
 
 /// Either ISI or Wasm binary
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum Executable {
     /// Ordered set of instructions.
     Instructions(Vec<Instruction>),
@@ -140,7 +140,9 @@ impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
 /// Wrapper for byte representation of [`Executable::Wasm`].
 ///
 /// Uses **base64** (de-)serialization format.
-#[derive(Clone, DebugCustom, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Clone, DebugCustom, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
 #[debug(fmt = "<WASM is truncated>")]
 pub struct WasmSmartContract {
     /// Raw wasm blob.
@@ -192,7 +194,7 @@ impl AsRef<[u8]> for WasmSmartContract {
 }
 
 /// Iroha [`Transaction`] payload.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Payload {
     /// Account ID of transaction creator.
     pub account_id: <Account as Identifiable>::Id,
@@ -233,6 +235,7 @@ declare_versioned!(
     Clone,
     PartialEq,
     Eq,
+    Hash,
     FromVariant,
     FfiType,
     IntoSchema,
@@ -403,6 +406,7 @@ impl Txn for Transaction {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Decode,
     Encode,
     Deserialize,
@@ -510,7 +514,7 @@ impl IntoIterator for PendingTransactions {
 
 /// Transaction Value used in Instructions and Queries
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
 )]
 #[ffi_type(local)]
 pub enum TransactionValue {
@@ -552,7 +556,7 @@ impl PartialOrd for TransactionValue {
 
 ffi::declare_item! {
     /// `TransactionQueryResult` is used in `FindAllTransactions` query
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema)]
     pub struct TransactionQueryResult {
         /// Transaction
         pub tx_value: TransactionValue,
@@ -589,7 +593,7 @@ impl PartialOrd for TransactionQueryResult {
     }
 }
 
-declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
+declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
     /// Converts from `&VersionedValidTransaction` to V1 reference
@@ -628,7 +632,7 @@ impl Txn for VersionedValidTransaction {
 
 /// `ValidTransaction` represents trustfull Transaction state.
 #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct ValidTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
@@ -645,7 +649,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, FfiType, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, FfiType, IntoSchema);
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
@@ -687,7 +691,7 @@ impl Txn for VersionedRejectedTransaction {
 /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
 #[version(n = 1, versioned = "VersionedRejectedTransaction")]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
 )]
 pub struct RejectedTransaction {
     /// The [`Transaction`]'s payload.
@@ -709,7 +713,7 @@ impl Txn for RejectedTransaction {
 
 /// Transaction was reject because it doesn't satisfy signature condition
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(
     fmt = "Failed to verify signature condition specified in the account: {}",
@@ -724,7 +728,7 @@ pub struct UnsatisfiedSignatureConditionFail {
 impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 
 /// Transaction was rejected because of one of its instructions failing.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
 pub struct InstructionExecutionFail {
     /// Instruction which execution failed
     pub instruction: Instruction,
@@ -763,7 +767,7 @@ impl std::error::Error for InstructionExecutionFail {}
 
 /// Transaction was rejected because execution of `WebAssembly` binary failed
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "Failed to execute wasm binary: {}", reason)]
 pub struct WasmExecutionFail {
@@ -776,7 +780,7 @@ impl std::error::Error for WasmExecutionFail {}
 
 /// Transaction was reject because of low authority
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "Action not permitted: {}", reason)]
 pub struct NotPermittedFail {
@@ -794,6 +798,7 @@ impl std::error::Error for NotPermittedFail {}
     Copy,
     PartialEq,
     Eq,
+    Hash,
     Display,
     Decode,
     Encode,
@@ -824,6 +829,7 @@ impl std::error::Error for BlockRejectionReason {}
     Serialize,
     FromVariant,
     IntoSchema,
+    Hash,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionRejectionReason {
@@ -855,6 +861,7 @@ pub enum TransactionRejectionReason {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Display,
     Decode,
     Encode,

@@ -38,6 +38,7 @@ use crate::{
     IntoSchema,
     PartialOrd,
     Ord,
+    Hash,
 )]
 pub enum QueryBox {
     /// [`FindAllAccounts`] variant.
@@ -260,6 +261,7 @@ pub mod role {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all roles")]
     pub struct FindAllRoles;
@@ -285,6 +287,7 @@ pub mod role {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all role ids")]
     pub struct FindAllRoleIds;
@@ -307,6 +310,7 @@ pub mod role {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find `{}` role", id)]
     pub struct FindRoleByRoleId {
@@ -332,6 +336,7 @@ pub mod role {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all roles for `{}` account", id)]
     pub struct FindRolesByAccountId {
@@ -408,6 +413,7 @@ pub mod permissions {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     pub struct FindAllPermissionTokenDefinitions;
 
@@ -430,6 +436,7 @@ pub mod permissions {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find permission tokens specified for `{}` account", id)]
     pub struct FindPermissionTokensByAccountId {
@@ -477,6 +484,7 @@ pub mod account {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all accounts")]
     pub struct FindAllAccounts;
@@ -499,6 +507,7 @@ pub mod account {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find `{}` account", id)]
     pub struct FindAccountById {
@@ -525,6 +534,7 @@ pub mod account {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find metadata value with `{}` key in `{}` account", key, id)]
     pub struct FindAccountKeyValueByIdAndKey {
@@ -553,6 +563,7 @@ pub mod account {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find accounts with `{}` name", name)]
     pub struct FindAccountsByName {
@@ -579,6 +590,7 @@ pub mod account {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find accounts under `{}` domain", domain_id)]
     pub struct FindAccountsByDomainId {
@@ -605,6 +617,7 @@ pub mod account {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find accounts with `{}` asset", asset_definition_id)]
     pub struct FindAccountsWithAsset {
@@ -709,6 +722,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all assets")]
     pub struct FindAllAssets;
@@ -734,6 +748,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all asset definitions")]
     pub struct FindAllAssetsDefinitions; // TODO: Should it be renamed to [`FindAllAssetDefinitions`?
@@ -756,6 +771,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find `{}` asset", id)]
     pub struct FindAssetById {
@@ -781,6 +797,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find `{}` asset definition", id)]
     pub struct FindAssetDefinitionById {
@@ -807,6 +824,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find asset with `{}` name", name)]
     pub struct FindAssetsByName {
@@ -833,6 +851,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find assets owned by the `{}` account", account_id)]
     pub struct FindAssetsByAccountId {
@@ -859,6 +878,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find assets with `{}` asset definition", asset_definition_id)]
     pub struct FindAssetsByAssetDefinitionId {
@@ -885,6 +905,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find assets under the `{}` domain", domain_id)]
     pub struct FindAssetsByDomainId {
@@ -912,6 +933,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "Find assets under the `{}` domain with `{}` asset definition",
@@ -944,6 +966,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find quantity of the `{}` asset", id)]
     pub struct FindAssetQuantityById {
@@ -970,6 +993,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find metadata value with `{}` key in `{}` asset", key, id)]
     pub struct FindAssetKeyValueByIdAndKey {
@@ -998,6 +1022,7 @@ pub mod asset {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "Find metadata value with `{}` key in `{}` asset definition",
@@ -1165,6 +1190,7 @@ pub mod domain {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all domains")]
     pub struct FindAllDomains;
@@ -1187,6 +1213,7 @@ pub mod domain {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find `{}` domain", id)]
     pub struct FindDomainById {
@@ -1228,6 +1255,7 @@ pub mod domain {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find metadata value with key `{}` in `{}` domain", key, id)]
     pub struct FindDomainKeyValueByIdAndKey {
@@ -1289,6 +1317,7 @@ pub mod peer {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all peers")]
     pub struct FindAllPeers;
@@ -1374,6 +1403,7 @@ pub mod trigger {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all trigger ids")]
     pub struct FindAllActiveTriggerIds;
@@ -1396,6 +1426,7 @@ pub mod trigger {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find `{}` trigger", id)]
     pub struct FindTriggerById {
@@ -1421,6 +1452,7 @@ pub mod trigger {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find metadata value with `{}` key in `{}` trigger", key, id)]
     pub struct FindTriggerKeyValueByIdAndKey {
@@ -1448,6 +1480,7 @@ pub mod trigger {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find trigger under `{}` domain", domain_id)]
     pub struct FindTriggersByDomainId {
@@ -1514,6 +1547,7 @@ pub mod transaction {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all transactions")]
     pub struct FindAllTransactions;
@@ -1544,6 +1578,7 @@ pub mod transaction {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all transactions for `{}` account", account_id)]
     pub struct FindTransactionsByAccountId {
@@ -1578,6 +1613,7 @@ pub mod transaction {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find transaction with `{}` hash", hash)]
     pub struct FindTransactionByHash {
@@ -1640,6 +1676,7 @@ pub mod block {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all blocks")]
     pub struct FindAllBlocks;
@@ -1672,6 +1709,7 @@ pub mod block {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find all block headers")]
     pub struct FindAllBlockHeaders;
@@ -1701,6 +1739,7 @@ pub mod block {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "Find block header with `{}` hash", hash)]
     pub struct FindBlockHeaderByHash {

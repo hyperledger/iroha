@@ -8,7 +8,18 @@ use super::*;
 /// Generic [`MetadataChanged`] struct.
 /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 #[allow(missing_docs)]
 pub struct MetadataChanged<ID> {
@@ -27,7 +38,19 @@ mod asset {
     type AssetDefinitionMetadataChanged = MetadataChanged<AssetDefinitionId>;
 
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -61,6 +84,7 @@ mod asset {
         Eq,
         PartialOrd,
         Ord,
+        Hash,
         Debug,
         Decode,
         Encode,
@@ -97,7 +121,20 @@ mod asset {
     }
 
     /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[allow(missing_docs)]
     pub struct AssetChanged {
         pub asset_id: AssetId,
@@ -290,7 +327,19 @@ mod account {
 
     /// Account event
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -381,7 +430,19 @@ mod domain {
 
     /// Domain Event
     #[derive(
-        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
@@ -501,7 +562,17 @@ pub enum WorldEvent {
 
 /// Event
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 pub enum Event {
     /// Peer event

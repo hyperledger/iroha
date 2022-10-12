@@ -89,6 +89,7 @@ impl From<GenesisAccount> for Account {
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Decode,
     Encode,
     Deserialize,

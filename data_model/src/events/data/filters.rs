@@ -12,7 +12,20 @@ pub type EventFilter = FilterOpt<EntityFilter>;
 /// It's better than `Optional<F>` because `Optional` already has its own `filter` method and it
 /// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
 /// Also `FilterOpt` variant names look better for filter needs
-#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
+    Hash,
+)]
 #[serde(untagged)]
 pub enum FilterOpt<F: Filter> {
     /// Accept all items that will be passed to `filter()` method
@@ -69,7 +82,19 @@ impl<F: Filter> Filter for FilterOpt<F> {
 }
 
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
 )]
 #[allow(clippy::enum_variant_names)]
 /// Filters event by entity

@@ -22,6 +22,7 @@ use crate::Registered;
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Decode,
     Encode,
     Deserialize,
@@ -86,7 +87,7 @@ impl Instruction {
 
 /// Sized structure for all possible key value set instructions.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
 pub struct SetKeyValueBox {
@@ -100,7 +101,7 @@ pub struct SetKeyValueBox {
 
 /// Sized structure for all possible key value pair remove instructions.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "REMOVE `{key}` from `{object_id}`")]
 pub struct RemoveKeyValueBox {
@@ -112,7 +113,7 @@ pub struct RemoveKeyValueBox {
 
 /// Sized structure for all possible Registers.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "REGISTER `{object}`")]
 #[serde(transparent)]
@@ -124,7 +125,7 @@ pub struct RegisterBox {
 
 /// Sized structure for all possible Unregisters.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "UNREGISTER `{object_id}`")]
 pub struct UnregisterBox {
@@ -134,7 +135,7 @@ pub struct UnregisterBox {
 
 /// Sized structure for all possible Mints.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "MINT `{object}` TO `{destination_id}`")]
 pub struct MintBox {
@@ -146,7 +147,7 @@ pub struct MintBox {
 
 /// Sized structure for all possible Burns.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
 pub struct BurnBox {
@@ -158,7 +159,7 @@ pub struct BurnBox {
 
 /// Sized structure for all possible Transfers.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "TRANSFER `{object}` FROM `{source_id}` TO `{destination_id}`")]
 pub struct TransferBox {
@@ -172,7 +173,7 @@ pub struct TransferBox {
 
 /// Composite instruction for a pair of instructions.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "(`{left_instruction}`, `{right_instruction}`)")]
 pub struct Pair {
@@ -183,7 +184,7 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
@@ -206,7 +207,7 @@ impl core::fmt::Display for SequenceBox {
 }
 
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -229,7 +230,7 @@ impl core::fmt::Display for If {
 
 /// Utilitary instruction to fail execution and submit an error `message`.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "FAIL `{message}`")]
 pub struct FailBox {
@@ -239,7 +240,7 @@ pub struct FailBox {
 
 /// Sized structure for all possible Grants.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
 pub struct GrantBox {
@@ -251,7 +252,7 @@ pub struct GrantBox {
 
 /// Sized structure for all possible Grants.
 #[derive(
-    Debug, Display, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema,
+    Debug, Display, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema, Hash,
 )]
 #[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
 pub struct RevokeBox {
@@ -392,7 +393,7 @@ where
 
 /// Instruction to execute specified trigger
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema, Hash,
 )]
 #[display(fmt = "EXECUTE `{trigger_id}`")]
 pub struct ExecuteTriggerBox {

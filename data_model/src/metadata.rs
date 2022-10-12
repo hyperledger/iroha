@@ -87,6 +87,7 @@ impl Limits {
     Serialize,
     FfiType,
     IntoSchema,
+    Hash,
 )]
 #[repr(transparent)]
 #[serde(transparent)]
