@@ -124,7 +124,7 @@ pub mod isi {
                     n.checked_add(self.object)
                         .ok_or(trigger::set::RepeatsOverflowError)
                 })?;
-                Ok(TriggerEvent::Extended(TriggerNumberOfExecutionsChangedBy {
+                Ok(TriggerEvent::Extended(TriggerNumberOfExecutionsChanged {
                     trigger_id: id,
                     by: self.object,
                 }))
@@ -149,12 +149,10 @@ pub mod isi {
                 })?;
                 // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
                 // when they will match some of the events?
-                Ok(TriggerEvent::Shortened(
-                    TriggerNumberOfExecutionsChangedBy {
-                        trigger_id: trigger,
-                        by: self.object,
-                    },
-                ))
+                Ok(TriggerEvent::Shortened(TriggerNumberOfExecutionsChanged {
+                    trigger_id: trigger,
+                    by: self.object,
+                }))
             })
         }
     }

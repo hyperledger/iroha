@@ -423,9 +423,9 @@ mod tests {
             "rose#wonderland".parse().expect("Valid");
         let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
         let event: Event =
-            DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(AssetChangedBy {
+            DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(AssetChanged {
                 asset_id: alice_rose_id,
-                by: 0u32.into(),
+                amount: 0u32.into(),
             })))
             .into();
 

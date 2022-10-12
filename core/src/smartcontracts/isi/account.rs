@@ -60,9 +60,9 @@ pub mod isi {
                 account
                     .remove_asset(&asset_id)
                     .map(|asset| {
-                        AccountEvent::Asset(AssetEvent::Removed(AssetChangedBy {
+                        AccountEvent::Asset(AssetEvent::Removed(AssetChanged {
                             asset_id: asset.id().clone(),
-                            by: asset.value().clone(),
+                            amount: asset.value().clone(),
                         }))
                     })
                     .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
@@ -164,7 +164,7 @@ pub mod isi {
                 )?;
 
                 Ok(AccountEvent::MetadataInserted(MetadataChanged {
-                    origin_id: account_id.clone(),
+                    target_id: account_id.clone(),
                     key: self.key.clone(),
                     value: Box::new(self.value),
                 }))
@@ -190,7 +190,7 @@ pub mod isi {
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
                 Ok(AccountEvent::MetadataRemoved(MetadataChanged {
-                    origin_id: account_id.clone(),
+                    target_id: account_id.clone(),
                     key: self.key,
                     value: Box::new(value),
                 }))

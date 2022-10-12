@@ -179,7 +179,7 @@ pub mod isi {
                     )?;
 
                     Ok(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
-                        origin_id: asset_definition_id,
+                        target_id: asset_definition_id,
                         key: self.key,
                         value: Box::new(self.value),
                     }))
@@ -210,7 +210,7 @@ pub mod isi {
                         .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
                     Ok(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
-                        origin_id: asset_definition_id,
+                        target_id: asset_definition_id,
                         key: self.key,
                         value: Box::new(value),
                     }))
@@ -240,7 +240,7 @@ pub mod isi {
                 )?;
 
                 Ok(DomainEvent::MetadataInserted(MetadataChanged {
-                    origin_id: domain_id,
+                    target_id: domain_id,
                     key: self.key,
                     value: Box::new(self.value),
                 }))
@@ -266,7 +266,7 @@ pub mod isi {
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
                 Ok(DomainEvent::MetadataRemoved(MetadataChanged {
-                    origin_id: domain_id,
+                    target_id: domain_id,
                     key: self.key,
                     value: Box::new(value),
                 }))

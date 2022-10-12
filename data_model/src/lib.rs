@@ -569,6 +569,7 @@ ffi::declare_item! {
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]
+    #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
     #[serde(transparent)]
     pub struct BlockValueWrapper(Box<BlockValue>);

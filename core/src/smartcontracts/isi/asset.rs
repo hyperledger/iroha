@@ -42,7 +42,7 @@ pub mod isi {
                 )?;
 
                 Ok(AssetEvent::MetadataInserted(MetadataChanged {
-                    origin_id: asset_id.clone(),
+                    target_id: asset_id.clone(),
                     key: self.key,
                     value: Box::new(self.value),
                 }))
@@ -72,7 +72,7 @@ pub mod isi {
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
                 Ok(AssetEvent::MetadataRemoved(MetadataChanged {
-                    origin_id: asset_id.clone(),
+                    target_id: asset_id.clone(),
                     key: self.key,
                     value: Box::new(value),
                 }))
@@ -188,9 +188,9 @@ pub mod isi {
                 wsv.metric_tx_amounts_counter
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
-                Ok(AssetEvent::Added(AssetChangedBy {
+                Ok(AssetEvent::Added(AssetChanged {
                     asset_id: asset_id.clone(),
-                    by: mint.object.into(),
+                    amount: mint.object.into(),
                 }))
             })?;
             Ok(())
@@ -232,9 +232,9 @@ pub mod isi {
                 wsv.metric_tx_amounts_counter
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
-                Ok(AssetEvent::Removed(AssetChangedBy {
+                Ok(AssetEvent::Removed(AssetChanged {
                     asset_id: asset_id.clone(),
-                    by: burn.object.into(),
+                    amount: burn.object.into(),
                 }))
             })?;
             Ok(())
@@ -275,9 +275,9 @@ pub mod isi {
                     .checked_sub(transfer.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
 
-                Ok(AssetEvent::Removed(AssetChangedBy {
+                Ok(AssetEvent::Removed(AssetChanged {
                     asset_id: transfer.source_id.clone(),
-                    by: transfer.object.into(),
+                    amount: transfer.object.into(),
                 }))
             })?;
             wsv.modify_asset(&transfer.destination_id, |asset| {
@@ -294,9 +294,9 @@ pub mod isi {
                 wsv.metric_tx_amounts_counter
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
-                Ok(AssetEvent::Added(AssetChangedBy {
+                Ok(AssetEvent::Added(AssetChanged {
                     asset_id: transfer.destination_id.clone(),
-                    by: transfer.object.into(),
+                    amount: transfer.object.into(),
                 }))
             })?;
             Ok(())

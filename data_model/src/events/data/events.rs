@@ -6,13 +6,13 @@ use iroha_primitives::small::SmallVec;
 use super::*;
 
 /// Generic [`MetadataChanged`] struct.
-/// Depending on wrapping event could mean inserted or removed metadata `(key, value)` pair.
+/// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[allow(missing_docs)]
 pub struct MetadataChanged<ID> {
-    pub origin_id: ID,
+    pub target_id: ID,
     pub key: Name,
     pub value: Box<Value>,
 }
@@ -22,6 +22,7 @@ mod asset {
 
     use super::*;
 
+    // type alias required by `Filter` macro
     type AssetMetadataChanged = MetadataChanged<AssetId>;
     type AssetDefinitionMetadataChanged = MetadataChanged<AssetDefinitionId>;
 
@@ -33,8 +34,8 @@ mod asset {
     pub enum AssetEvent {
         Created(AssetId),
         Deleted(AssetId),
-        Added(AssetChangedBy),
-        Removed(AssetChangedBy),
+        Added(AssetChanged),
+        Removed(AssetChanged),
         MetadataInserted(AssetMetadataChanged),
         MetadataRemoved(AssetMetadataChanged),
     }
@@ -46,10 +47,10 @@ mod asset {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Added(AssetChangedBy { asset_id: id, .. })
-                | Self::Removed(AssetChangedBy { asset_id: id, .. })
-                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
+                | Self::Added(AssetChanged { asset_id: id, .. })
+                | Self::Removed(AssetChanged { asset_id: id, .. })
+                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
             }
         }
     }
@@ -89,18 +90,18 @@ mod asset {
                 Self::Created(id)
                 | Self::Deleted(id)
                 | Self::MintabilityChanged(id)
-                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
+                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
             }
         }
     }
 
-    /// [`AssetChangedBy`] depending on wrapping event represents added/removed asset quantity
+    /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(missing_docs)]
-    pub struct AssetChangedBy {
+    pub struct AssetChanged {
         pub asset_id: AssetId,
-        pub by: AssetValue,
+        pub amount: AssetValue,
     }
 }
 
@@ -284,6 +285,7 @@ mod account {
 
     use super::*;
 
+    // type alias required by `Filter` macro
     type AccountMetadataChanged = MetadataChanged<AccountId>;
 
     /// Account event
@@ -320,13 +322,13 @@ mod account {
                 | Self::PermissionRemoved(AccountPermissionChanged { account_id: id, .. })
                 | Self::RoleRevoked(AccountRoleChanged { account_id: id, .. })
                 | Self::RoleGranted(AccountRoleChanged { account_id: id, .. })
-                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
+                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
             }
         }
     }
 
-    /// [`AccountPermissionChanged`] role depending on wrapping event represents added/removed account role
+    /// Depending on the wrapping event, [`AccountPermissionChanged`] role represents the added or removed account role
     #[derive(
         Clone,
         PartialEq,
@@ -347,7 +349,7 @@ mod account {
         pub permission_id: PermissionTokenId,
     }
 
-    /// [`AccountRoleChanged`] depending on wrapping event represent granted/revoked role
+    /// Depending on the wrapping event, [`AccountRoleChanged`] represents the granted or revoked role
     #[derive(
         Clone,
         PartialEq,
@@ -374,6 +376,7 @@ mod domain {
 
     use super::*;
 
+    // type alias required by `Filter` macro
     type DomainMetadataChanged = MetadataChanged<DomainId>;
 
     /// Domain Event
@@ -381,8 +384,7 @@ mod domain {
         Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Filter,
     )]
     #[non_exhaustive]
-    // TODO: fix variant size differences
-    #[allow(missing_docs, variant_size_differences)]
+    #[allow(missing_docs)]
     pub enum DomainEvent {
         Account(AccountEvent),
         AssetDefinition(AssetDefinitionEvent),
@@ -401,8 +403,8 @@ mod domain {
                 Self::AssetDefinition(asset_definition) => &asset_definition.origin_id().domain_id,
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::MetadataInserted(MetadataChanged { origin_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { origin_id: id, .. }) => id,
+                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
+                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
             }
         }
     }
@@ -434,8 +436,8 @@ mod trigger {
     pub enum TriggerEvent {
         Created(TriggerId),
         Deleted(TriggerId),
-        Extended(TriggerNumberOfExecutionsChangedBy),
-        Shortened(TriggerNumberOfExecutionsChangedBy),
+        Extended(TriggerNumberOfExecutionsChanged),
+        Shortened(TriggerNumberOfExecutionsChanged),
     }
 
     impl HasOrigin for TriggerEvent {
@@ -445,13 +447,13 @@ mod trigger {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Extended(TriggerNumberOfExecutionsChangedBy { trigger_id: id, .. })
-                | Self::Shortened(TriggerNumberOfExecutionsChangedBy { trigger_id: id, .. }) => id,
+                | Self::Extended(TriggerNumberOfExecutionsChanged { trigger_id: id, .. })
+                | Self::Shortened(TriggerNumberOfExecutionsChanged { trigger_id: id, .. }) => id,
             }
         }
     }
 
-    /// [`TriggerNumberOfExecutionsChangedBy`] depending on wrapping event represents increased/decreased number of event executions
+    /// Depending on the wrapping event, [`Self`] represents the increased or decreased number of event executions.
     #[derive(
         Clone,
         PartialEq,
@@ -467,7 +469,7 @@ mod trigger {
         IntoSchema,
     )]
     #[allow(missing_docs)]
-    pub struct TriggerNumberOfExecutionsChangedBy {
+    pub struct TriggerNumberOfExecutionsChanged {
         pub trigger_id: TriggerId,
         pub by: u32,
     }
@@ -587,15 +589,15 @@ pub mod prelude {
             AccountRoleChanged,
         },
         asset::{
-            AssetChangedBy, AssetDefinitionEvent, AssetDefinitionEventFilter,
-            AssetDefinitionFilter, AssetEvent, AssetEventFilter, AssetFilter,
+            AssetChanged, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
+            AssetEvent, AssetEventFilter, AssetFilter,
         },
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::{PermissionTokenEvent, PermissionValidatorEvent},
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{
-            TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChangedBy,
+            TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
         Event as DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
