@@ -134,9 +134,15 @@ impl DefaultWebSocketRequestBuilder {
 pub struct DefaultWebSocketStreamRequest(http::Request<()>);
 
 impl DefaultWebSocketStreamRequest {
-    /// Opens WS stream using [`tungstenite`] crate
+    /// Open [`WebSocketStream`] synchronously.
     pub fn connect(self) -> Result<WebSocketStream> {
-        let (stream, _) = tungstenite::connect(self.0)?;
+        let (stream, _) = tokio_tungstenite::tungstenite::connect(self.0)?;
+        Ok(stream)
+    }
+
+    /// Open [`AsyncWebSocketStream`].
+    pub async fn connect_async(self) -> Result<AsyncWebSocketStream> {
+        let (stream, _) = tokio_tungstenite::connect_async(self.0).await?;
         Ok(stream)
     }
 }
@@ -172,6 +178,8 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
 }
 
 pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
+pub type AsyncWebSocketStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 struct ClientResponse(AttoHttpResponse);
 
