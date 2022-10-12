@@ -9,7 +9,8 @@
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",
     "BLOCKS_PER_STORAGE_FILE": 1000,
-    "ACTOR_CHANNEL_CAPACITY": 100
+    "ACTOR_CHANNEL_CAPACITY": 100,
+    "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
     "BLOCK_TIME_MS": 1000,
