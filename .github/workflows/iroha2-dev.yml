@@ -55,17 +55,6 @@ jobs:
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
           workflow_file_name: update-dependencies.yaml
           ref: iroha2-dev
-      - name: Build and push docker image (load-rs:dev)
-        run: |
-          sleep 10s
-          echo "wait to other workflow"
-      - uses: convictional/trigger-workflow-and-wait@v1.6.2
-        with:
-          owner: soramitsu
-          repo: iroha2-longevity-load-rs
-          github_token: ${{ secrets.G_ACCESS_TOKEN }}
-          workflow_file_name: load-rs-push-from-dev.yaml
-          ref: iroha2-dev
 
   archive_binaries_and_schema:
     runs-on: ubuntu-latest
