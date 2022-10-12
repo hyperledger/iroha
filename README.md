@@ -35,7 +35,7 @@ Check it out and help us translate Iroha docs into your local language.
 
 ### How to explore Iroha really fast?
 
-Check [getting started](https://iroha.readthedocs.io/en/stable/getting_started/index.html) section in your version of localized docs to start exploring the system.
+Check [getting started](https://iroha.readthedocs.io/en/develop/getting_started/index.html) section in your version of localized docs to start exploring the system.
 There is also a great [sandbox](https://katacoda.com/hyperledger-iroha/scenarios/iroha-transfer-asset) to try sending assets using Python library.
 
 ### How to build Iroha?
