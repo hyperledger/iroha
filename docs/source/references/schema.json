@@ -1597,7 +1597,7 @@
     "Struct": {
       "declarations": [
         {
-          "name": "origin_id",
+          "name": "target_id",
           "ty": "iroha_data_model::account::Id"
         },
         {
@@ -1615,7 +1615,7 @@
     "Struct": {
       "declarations": [
         {
-          "name": "origin_id",
+          "name": "target_id",
           "ty": "iroha_data_model::asset::DefinitionId"
         },
         {
@@ -1633,7 +1633,7 @@
     "Struct": {
       "declarations": [
         {
-          "name": "origin_id",
+          "name": "target_id",
           "ty": "iroha_data_model::asset::Id"
         },
         {
@@ -1651,7 +1651,7 @@
     "Struct": {
       "declarations": [
         {
-          "name": "origin_id",
+          "name": "target_id",
           "ty": "iroha_data_model::domain::Id"
         },
         {
@@ -1829,7 +1829,7 @@
       ]
     }
   },
-  "iroha_data_model::events::data::events::asset::AssetChangedBy": {
+  "iroha_data_model::events::data::events::asset::AssetChanged": {
     "Struct": {
       "declarations": [
         {
@@ -1837,7 +1837,7 @@
           "ty": "iroha_data_model::asset::Id"
         },
         {
-          "name": "by",
+          "name": "amount",
           "ty": "iroha_data_model::asset::AssetValue"
         }
       ]
@@ -1935,12 +1935,12 @@
         {
           "name": "Added",
           "discriminant": 2,
-          "ty": "iroha_data_model::events::data::events::asset::AssetChangedBy"
+          "ty": "iroha_data_model::events::data::events::asset::AssetChanged"
         },
         {
           "name": "Removed",
           "discriminant": 3,
-          "ty": "iroha_data_model::events::data::events::asset::AssetChangedBy"
+          "ty": "iroha_data_model::events::data::events::asset::AssetChanged"
         },
         {
           "name": "MetadataInserted",
@@ -2255,12 +2255,12 @@
         {
           "name": "Extended",
           "discriminant": 2,
-          "ty": "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChangedBy"
+          "ty": "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChanged"
         },
         {
           "name": "Shortened",
           "discriminant": 3,
-          "ty": "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChangedBy"
+          "ty": "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChanged"
         }
       ]
     }
@@ -2305,7 +2305,7 @@
       ]
     }
   },
-  "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChangedBy": {
+  "iroha_data_model::events::data::events::trigger::TriggerNumberOfExecutionsChanged": {
     "Struct": {
       "declarations": [
         {
