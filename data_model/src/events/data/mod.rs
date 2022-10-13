@@ -1,7 +1,7 @@
 //! Data events.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 pub use events::Event;
 pub use filters::EventFilter;

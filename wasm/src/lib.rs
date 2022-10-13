@@ -423,7 +423,11 @@ mod tests {
             "rose#wonderland".parse().expect("Valid");
         let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
         let event: Event =
-            DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(alice_rose_id))).into();
+            DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(AssetChanged {
+                asset_id: alice_rose_id,
+                amount: 0u32.into(),
+            })))
+            .into();
 
         ManuallyDrop::new(encode_with_length_prefix(&event).into_boxed_slice()).as_ptr()
     }
