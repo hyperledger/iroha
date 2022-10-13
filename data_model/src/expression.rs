@@ -170,7 +170,18 @@ pub type ExpressionBox = Box<Expression>;
 
 /// Struct for type checking and converting expression results.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    PartialOrd,
+    Ord,
+    Hash,
 )]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -427,7 +438,7 @@ macro_rules! expression_serde_internal_repr {
 expression_serde_internal_repr! {
     /// Represents all possible expressions.
     #[derive(
-        Debug, Display, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema, PartialOrd, Ord,
+        Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, FromVariant, IntoSchema, PartialOrd, Ord,
     )]
     pub enum Expression {
         /// Add expression.
@@ -572,6 +583,7 @@ impl Serialize for Expression {
     IntoSchema,
     PartialOrd,
     Ord,
+    Hash,
 )]
 #[display(fmt = "CONTEXT `{}`", value_name)]
 #[serde(transparent)]
@@ -620,6 +632,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
     fmt = "{}*{}", // Keep without spaces
@@ -645,6 +658,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}/{}", // Keep without spaces
@@ -670,6 +684,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{} % {}",
@@ -695,6 +710,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}**{}",
@@ -720,6 +736,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}+{}",
@@ -745,6 +762,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}-{}",
@@ -770,6 +788,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{} > {}",
@@ -795,6 +814,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{} < {}",
@@ -820,6 +840,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(fmt = "!{}", "self.expression.parenthesise(Operation::Not)")]
     #[serde(transparent)]
@@ -842,6 +863,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{} && {}",
@@ -866,6 +888,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{} || {}",
@@ -947,6 +970,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "if {} {{ {} }} else {{ {} }}",
@@ -973,6 +997,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}.contains({})",
@@ -998,6 +1023,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}.contains_all({})",
@@ -1024,6 +1050,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{}.contains_any({})",
@@ -1048,6 +1075,7 @@ gen_expr_and_impls! {
         IntoSchema,
         PartialOrd,
         Ord,
+        Hash,
     )]
     #[display(
         fmt = "{} == {}",
@@ -1100,7 +1128,18 @@ impl WhereBuilder {
 //
 // Can't use `gen_expr_and_impls!` here because we need special type for `values`
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, PartialOrd, Ord,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    PartialOrd,
+    Ord,
+    Hash,
 )]
 pub struct Where {
     /// Expression to be evaluated.

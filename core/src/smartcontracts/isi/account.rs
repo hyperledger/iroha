@@ -59,7 +59,12 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account
                     .remove_asset(&asset_id)
-                    .map(|asset| AccountEvent::Asset(AssetEvent::Removed(asset.id().clone())))
+                    .map(|asset| {
+                        AccountEvent::Asset(AssetEvent::Removed(AssetChanged {
+                            asset_id: asset.id().clone(),
+                            amount: asset.value().clone(),
+                        }))
+                    })
                     .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
             })
         }
@@ -153,12 +158,16 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 account.metadata_mut().insert_with_limits(
-                    self.key,
-                    self.value,
+                    self.key.clone(),
+                    self.value.clone(),
                     account_metadata_limits,
                 )?;
 
-                Ok(AccountEvent::MetadataInserted(account_id.clone()))
+                Ok(AccountEvent::MetadataInserted(MetadataChanged {
+                    target_id: account_id.clone(),
+                    key: self.key.clone(),
+                    value: Box::new(self.value),
+                }))
             })
         }
     }
@@ -175,12 +184,16 @@ pub mod isi {
             let account_id = self.object_id;
 
             wsv.modify_account(&account_id, |account| {
-                account
+                let value = account
                     .metadata_mut()
                     .remove(&self.key)
-                    .ok_or(FindError::MetadataKey(self.key))?;
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                Ok(AccountEvent::MetadataRemoved(account_id.clone()))
+                Ok(AccountEvent::MetadataRemoved(MetadataChanged {
+                    target_id: account_id.clone(),
+                    key: self.key,
+                    value: Box::new(value),
+                }))
             })
         }
     }
@@ -212,8 +225,13 @@ pub mod isi {
                     return Err(ValidationError::new("Permission already exists").into());
                 }
 
+                let permission_id = permission.definition_id().clone();
+
                 wsv.add_account_permission(id, permission);
-                Ok(AccountEvent::PermissionAdded(id.clone()))
+                Ok(AccountEvent::PermissionAdded(AccountPermissionChanged {
+                    account_id: id.clone(),
+                    permission_id,
+                }))
             })
         }
     }
@@ -236,7 +254,10 @@ pub mod isi {
                 if !wsv.remove_account_permission(&account_id, &permission) {
                     return Err(ValidationError::new("Permission not found").into());
                 }
-                Ok(AccountEvent::PermissionRemoved(account_id.clone()))
+                Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
+                    account_id: account_id.clone(),
+                    permission_id: permission.definition_id().clone(),
+                }))
             })
         }
     }
@@ -266,7 +287,10 @@ pub mod isi {
                     ));
                 }
 
-                Ok(AccountEvent::RoleGranted(account_id))
+                Ok(AccountEvent::RoleGranted(AccountRoleChanged {
+                    account_id,
+                    role_id,
+                }))
             })
         }
     }
@@ -289,7 +313,10 @@ pub mod isi {
                     return Err(FindError::Account(account_id).into());
                 }
 
-                Ok(AccountEvent::RoleRevoked(account_id))
+                Ok(AccountEvent::RoleRevoked(AccountRoleChanged {
+                    account_id,
+                    role_id,
+                }))
             })
         }
     }

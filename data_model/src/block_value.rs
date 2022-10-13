@@ -22,7 +22,7 @@ use crate::{
 declare_item! {
     /// Block header
     #[derive(
-        Debug, Clone, Display, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
+        Debug, Clone, Display, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
     )]
     #[display(fmt = "Block №{height} (hash: {transactions_hash});")]
     pub struct BlockHeaderValue {
@@ -58,7 +58,7 @@ impl Ord for BlockHeaderValue {
 
 /// Representation of block on blockchain
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema,
 )]
 #[display(fmt = "({})", header)]
 pub struct BlockValue {

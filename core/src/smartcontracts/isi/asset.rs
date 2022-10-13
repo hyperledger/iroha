@@ -35,9 +35,17 @@ pub mod isi {
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                store.insert_with_limits(self.key, self.value, asset_metadata_limits)?;
+                store.insert_with_limits(
+                    self.key.clone(),
+                    self.value.clone(),
+                    asset_metadata_limits,
+                )?;
 
-                Ok(AssetEvent::MetadataInserted(asset_id.clone()))
+                Ok(AssetEvent::MetadataInserted(MetadataChanged {
+                    target_id: asset_id.clone(),
+                    key: self.key,
+                    value: Box::new(self.value),
+                }))
             })
         }
     }
@@ -59,11 +67,15 @@ pub mod isi {
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                store
+                let value = store
                     .remove(&self.key)
-                    .ok_or(FindError::MetadataKey(self.key))?;
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                Ok(AssetEvent::MetadataRemoved(asset_id.clone()))
+                Ok(AssetEvent::MetadataRemoved(MetadataChanged {
+                    target_id: asset_id.clone(),
+                    key: self.key,
+                    value: Box::new(value),
+                }))
             })
         }
     }
@@ -176,7 +188,10 @@ pub mod isi {
                 wsv.metric_tx_amounts_counter
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
-                Ok(AssetEvent::Added(asset_id.clone()))
+                Ok(AssetEvent::Added(AssetChanged {
+                    asset_id: asset_id.clone(),
+                    amount: mint.object.into(),
+                }))
             })?;
             Ok(())
         }
@@ -217,7 +232,10 @@ pub mod isi {
                 wsv.metric_tx_amounts_counter
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
-                Ok(AssetEvent::Removed(asset_id.clone()))
+                Ok(AssetEvent::Removed(AssetChanged {
+                    asset_id: asset_id.clone(),
+                    amount: burn.object.into(),
+                }))
             })?;
             Ok(())
         }
@@ -257,7 +275,10 @@ pub mod isi {
                     .checked_sub(transfer.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
 
-                Ok(AssetEvent::Removed(transfer.source_id.clone()))
+                Ok(AssetEvent::Removed(AssetChanged {
+                    asset_id: transfer.source_id.clone(),
+                    amount: transfer.object.into(),
+                }))
             })?;
             wsv.modify_asset(&transfer.destination_id, |asset| {
                 let quantity: &mut Self = asset
@@ -273,7 +294,10 @@ pub mod isi {
                 wsv.metric_tx_amounts_counter
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
-                Ok(AssetEvent::Added(transfer.destination_id.clone()))
+                Ok(AssetEvent::Added(AssetChanged {
+                    asset_id: transfer.destination_id.clone(),
+                    amount: transfer.object.into(),
+                }))
             })?;
             Ok(())
         }

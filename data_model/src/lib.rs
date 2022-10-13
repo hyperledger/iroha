@@ -263,6 +263,7 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Decode,
     Encode,
     Deserialize,
@@ -294,6 +295,7 @@ pub enum Parameter {
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Decode,
     Encode,
     Deserialize,
@@ -327,7 +329,17 @@ pub enum IdBox {
 
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
 )]
 pub enum RegistrableBox {
     /// [`Peer`](`peer::Peer`) variant.
@@ -358,6 +370,7 @@ pub enum RegistrableBox {
     PartialEq,
     Eq,
     PartialOrd,
+    Hash,
     Ord,
     Decode,
     Encode,
@@ -458,6 +471,7 @@ pub type ValueBox = Box<Value>;
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Decode,
     Encode,
     Deserialize,
@@ -537,6 +551,7 @@ ffi::declare_item! {
         Ord,
         PartialEq,
         PartialOrd,
+        Hash,
         Serialize,
         FfiType,
     )]
@@ -563,12 +578,14 @@ ffi::declare_item! {
         Ord,
         PartialEq,
         PartialOrd,
+        Hash,
         Serialize,
         FfiType,
     )]
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]
+    #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
     #[serde(transparent)]
     pub struct BlockValueWrapper(Box<BlockValue>);
