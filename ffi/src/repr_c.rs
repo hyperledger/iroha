@@ -8,10 +8,7 @@ use alloc::{boxed::Box, vec::Vec};
 use core::{hint::unreachable_unchecked, mem::ManuallyDrop};
 
 use crate::{
-    ir::{
-        Ir, IrArray, IrBox, IrSlice, IrSliceMut, IrTypeOf, IrVec, Opaque, Robust, Transmute,
-        Transparent,
-    },
+    ir::{Ir, Opaque, Robust, Transmute, Transparent},
     slice::{OutBoxedSlice, SliceMut, SliceRef},
     FfiConvert, FfiOutPtr, FfiReturn, FfiType, OutPtrOf, ReprC, Result,
 };
@@ -19,7 +16,7 @@ use crate::{
 /// A type that can be converted into some C type. When implemented on [`Ir::Type`] the blanket
 /// implementations ensures that [`FfiType`] is also implemented on the type implementing [`Ir`].
 /// This trait mainly exists to move types of internal representation into C type equivalents.
-pub trait CType: Sized {
+pub trait CType<S> {
     /// C type current type can be converted into
     type ReprC: ReprC;
 }
@@ -28,7 +25,7 @@ pub trait CType: Sized {
 /// ensures that [`FfiType`] is also implemented on the type implementing [`Ir`]. This trait
 /// mainly exists to move types of internal representation into C type equivalents. When
 /// implementing make sure that the implementation doesn't conflict with [`NonLocal`]
-pub trait CTypeConvert<'itm, T>: Sized {
+pub trait CTypeConvert<'itm, S, C>: Sized {
     /// Type into which state can be stored during conversion from [`Self`]. Useful for
     /// returning owning heap allocated types or non-owning types that are not transmutable.
     /// Serves similar purpose as does context in a closure
@@ -40,7 +37,7 @@ pub trait CTypeConvert<'itm, T>: Sized {
     type FfiStore: Default;
 
     /// Perform the conversion from [`Self`] into `[Self::ReprC]`
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> T;
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C;
 
     /// Perform the conversion from [`Self::ReprC`] into `[Self]`
     ///
@@ -51,12 +48,12 @@ pub trait CTypeConvert<'itm, T>: Sized {
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn try_from_repr_c(source: T, store: &'itm mut Self::FfiStore) -> Result<Self>;
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self>;
 }
 
 /// Provides the capability to use the type as an out-pointer.
 /// This trait mainly exists to be implemented on IR types.
-pub trait COutPtr: CType {
+pub trait COutPtr<S>: CType<S> {
     /// Out-pointer type
     type OutPtr: OutPtrOf<Self::ReprC>;
 }
@@ -82,98 +79,80 @@ pub trait COutPtr: CType {
 /// # Safety
 ///
 /// Type must not use the store during conversion into [`CType`], i.e. it must not reference local context.
-pub unsafe trait NonLocal: COutPtr {}
+pub unsafe trait NonLocal<S>: COutPtr<S> {}
 
 /// Type that cannot be transmuted into a [`ReprC`] type
-pub trait NonTransmute: CType {}
+pub trait NonTransmute {}
 
-impl<T: Ir> NonTransmute for &T where T::Type: NonTransmute {}
-impl<T: Ir> NonTransmute for IrBox<T, T::Type> where Self: CType {}
-impl<T: Ir> NonTransmute for IrSlice<'_, T, T::Type> where Self: CType {}
-impl<T: Ir> NonTransmute for IrSliceMut<'_, T, T::Type> where Self: CType {}
-impl<T: Ir> NonTransmute for IrVec<T, T::Type> where Self: CType {}
-impl<T: Ir, const N: usize> NonTransmute for IrArray<T, T::Type, N> where T::Type: NonTransmute {}
+impl<R: Ir> NonTransmute for &R where R::Type: NonTransmute {}
+impl<R> NonTransmute for Box<R> {}
+impl<R> NonTransmute for &[R] {}
+impl<R> NonTransmute for Vec<R> {}
+impl<R: Ir, const N: usize> NonTransmute for [R; N] where R::Type: NonTransmute {}
 
 // NOTE: `CType` cannot be implemented for `&mut T`
-impl<T: Ir> CType for &T
-where
-    T::Type: NonTransmute,
-{
-    type ReprC = *const <T::Type as CType>::ReprC;
+impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<&S> for &R {
+    type ReprC = *const <R as CType<R::Type>>::ReprC;
 }
-impl<'itm, T: Ir + Clone, K: ReprC> CTypeConvert<'itm, *const K> for &'itm T
-where
-    T::Type: NonTransmute + CTypeConvert<'itm, K> + Clone,
+impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, C: ReprC>
+    CTypeConvert<'itm, &S, *const C> for &'itm R
 {
-    type RustStore = (Option<K>, <T::Type as CTypeConvert<'itm, K>>::RustStore);
-    type FfiStore = (Option<T>, <T::Type as CTypeConvert<'itm, K>>::FfiStore);
+    type RustStore = (Option<C>, <R as CTypeConvert<'itm, R::Type, C>>::RustStore);
+    type FfiStore = (Option<R>, <R as CTypeConvert<'itm, R::Type, C>>::FfiStore);
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *const K {
-        let item: T::Type = IrTypeOf::into_ir(Clone::clone(self));
-        store.0.insert(item.into_repr_c(&mut store.1))
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *const C {
+        store.0.insert(self.clone().into_repr_c(&mut store.1))
     }
 
-    unsafe fn try_from_repr_c(source: *const K, store: &'itm mut Self::FfiStore) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *const C, store: &'itm mut Self::FfiStore) -> Result<Self> {
         if source.as_ref().is_none() {
             return Err(FfiReturn::ArgIsNull);
         }
 
         Ok(store.0.insert(
-            <T::Type as CTypeConvert<_>>::try_from_repr_c(source.read(), &mut store.1)
+            <R as CTypeConvert<_, _>>::try_from_repr_c(source.read(), &mut store.1)
                 .map(ManuallyDrop::new)
-                .map(|item| (*item).clone())
-                .map(IrTypeOf::into_rust)?,
+                .map(|item| (*item).clone())?,
         ))
     }
 }
 
-impl<T: Ir<Type = U>, U: NonTransmute> CType for IrBox<T, U> {
-    type ReprC = *mut U::ReprC;
+impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<Box<S>> for Box<R> {
+    type ReprC = *mut R::ReprC;
 }
-impl<
-        'itm,
-        T: Ir<Type = U> + 'itm,
-        U: NonTransmute + IrTypeOf<T> + CTypeConvert<'itm, K> + Clone,
-        K: ReprC,
-    > CTypeConvert<'itm, *mut K> for IrBox<T, U>
+impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, C: ReprC>
+    CTypeConvert<'itm, Box<S>, *mut C> for Box<R>
 {
-    type RustStore = (Option<K>, U::RustStore);
-    type FfiStore = U::FfiStore;
+    type RustStore = (Option<C>, R::RustStore);
+    type FfiStore = R::FfiStore;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *mut K {
-        let unboxed: U = IrTypeOf::into_ir(*self.0);
-        store.0.insert(unboxed.into_repr_c(&mut store.1))
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *mut C {
+        store.0.insert((*self).into_repr_c(&mut store.1))
     }
-    unsafe fn try_from_repr_c(source: *mut K, store: &'itm mut Self::FfiStore) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut C, store: &'itm mut Self::FfiStore) -> Result<Self> {
         if source.as_mut().is_none() {
             return Err(FfiReturn::ArgIsNull);
         }
 
-        U::try_from_repr_c(source.read(), store)
+        R::try_from_repr_c(source.read(), store)
             .map(ManuallyDrop::new)
             .map(|item| (*item).clone())
-            .map(IrTypeOf::into_rust)
             .map(Box::new)
-            .map(IrBox)
     }
 }
 
 // NOTE: `CType` cannot be implemented for `&mut [T]`
-impl<T: Ir<Type = U>, U: NonTransmute> CType for IrSlice<'_, T, U> {
-    type ReprC = SliceRef<U::ReprC>;
+impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<&[S]> for &[R] {
+    type ReprC = SliceRef<R::ReprC>;
 }
-impl<
-        'itm,
-        T: Ir<Type = U> + Clone,
-        U: NonTransmute + IrTypeOf<T> + CTypeConvert<'itm, K> + Clone,
-        K: ReprC,
-    > CTypeConvert<'itm, SliceRef<K>> for IrSlice<'itm, T, U>
+impl<'slice, R: Ir<Type = S> + CTypeConvert<'slice, S, C> + Clone, S: NonTransmute, C: ReprC>
+    CTypeConvert<'slice, &[S], SliceRef<C>> for &'slice [R]
 {
-    type RustStore = (Vec<K>, Vec<U::RustStore>);
-    type FfiStore = (Vec<T>, Vec<U::FfiStore>);
+    type RustStore = (Vec<C>, Vec<R::RustStore>);
+    type FfiStore = (Vec<R>, Vec<R::FfiStore>);
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> SliceRef<K> {
-        let slice: Vec<U> = self.0.iter().cloned().map(IrTypeOf::into_ir).collect();
+    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> SliceRef<C> {
+        let slice = self.to_vec();
 
         store.1 = core::iter::repeat_with(Default::default)
             .take(slice.len())
@@ -189,14 +168,14 @@ impl<
     }
 
     unsafe fn try_from_repr_c(
-        source: SliceRef<K>,
-        store: &'itm mut Self::FfiStore,
+        source: SliceRef<C>,
+        store: &'slice mut Self::FfiStore,
     ) -> Result<Self> {
         store.1 = core::iter::repeat_with(Default::default)
             .take(source.len())
             .collect();
 
-        let source: Vec<ManuallyDrop<U>> = source
+        let source: Vec<ManuallyDrop<R>> = source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
             .iter()
@@ -210,28 +189,23 @@ impl<
             .iter()
             .cloned()
             .map(ManuallyDrop::into_inner)
-            .map(IrTypeOf::into_rust)
             .collect();
 
-        Ok(IrSlice(&store.0))
+        Ok(&store.0)
     }
 }
 
-impl<T: Ir<Type = U>, U: NonTransmute> CType for IrVec<T, U> {
-    type ReprC = SliceMut<U::ReprC>;
+impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<Vec<S>> for Vec<R> {
+    type ReprC = SliceMut<R::ReprC>;
 }
-impl<
-        'itm,
-        T: Ir<Type = U> + 'itm,
-        U: NonTransmute + IrTypeOf<T> + CTypeConvert<'itm, K> + Clone,
-        K: ReprC,
-    > CTypeConvert<'itm, SliceMut<K>> for IrVec<T, U>
+impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, C: ReprC>
+    CTypeConvert<'itm, Vec<S>, SliceMut<C>> for Vec<R>
 {
-    type RustStore = (Vec<K>, Vec<U::RustStore>);
-    type FfiStore = Vec<U::FfiStore>;
+    type RustStore = (Vec<C>, Vec<R::RustStore>);
+    type FfiStore = Vec<R::FfiStore>;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> SliceMut<K> {
-        let vec: Vec<U> = self.0.into_iter().map(IrTypeOf::into_ir).collect();
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> SliceMut<C> {
+        let vec = self;
 
         store.1 = core::iter::repeat_with(Default::default)
             .take(vec.len())
@@ -246,7 +220,7 @@ impl<
         SliceMut::from_slice(&mut store.0)
     }
     unsafe fn try_from_repr_c(
-        source: SliceMut<K>,
+        source: SliceMut<C>,
         store: &'itm mut Self::FfiStore,
     ) -> Result<Self> {
         let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
@@ -255,7 +229,7 @@ impl<
             .take(slice.len())
             .collect();
 
-        let vec: Vec<ManuallyDrop<U>> = slice
+        let vec: Vec<ManuallyDrop<R>> = slice
             .iter()
             .copied()
             .zip(store)
@@ -264,41 +238,33 @@ impl<
             })
             .collect::<core::result::Result<_, _>>()?;
 
-        Ok(IrVec(
-            vec.iter()
-                .cloned()
-                .map(ManuallyDrop::into_inner)
-                .map(IrTypeOf::into_rust)
-                .collect::<Vec<_>>(),
-        ))
+        Ok(vec
+            .iter()
+            .cloned()
+            .map(ManuallyDrop::into_inner)
+            .collect::<Vec<_>>())
     }
 }
 
-impl<T: Ir<Type = U>, U: NonTransmute, const N: usize> CType for IrArray<T, U, N> {
-    type ReprC = [U::ReprC; N];
+impl<R: Ir<Type = S> + CType<S>, S: NonTransmute, const N: usize> CType<[S; N]> for [R; N] {
+    type ReprC = [R::ReprC; N];
 }
 impl<
         'itm,
-        T: Ir<Type = U> + 'itm,
-        U: NonTransmute + IrTypeOf<T> + CTypeConvert<'itm, K> + Clone,
-        K: ReprC,
+        R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone,
+        S: NonTransmute,
+        C: ReprC,
         const N: usize,
-    > CTypeConvert<'itm, [K; N]> for IrArray<T, U, N>
+    > CTypeConvert<'itm, [S; N], [C; N]> for [R; N]
 where
-    [U::RustStore; N]: Default,
-    [U::FfiStore; N]: Default,
+    [R::RustStore; N]: Default,
+    [R::FfiStore; N]: Default,
 {
-    type RustStore = [U::RustStore; N];
-    type FfiStore = [U::FfiStore; N];
+    type RustStore = [R::RustStore; N];
+    type FfiStore = [R::FfiStore; N];
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> [K; N] {
-        let array: [U; N] = if let Ok(arr) = self
-            .0
-            .into_iter()
-            .map(IrTypeOf::into_ir)
-            .collect::<Vec<_>>()
-            .try_into()
-        {
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> [C; N] {
+        let array: [R; N] = if let Ok(arr) = self.into_iter().collect::<Vec<_>>().try_into() {
             arr
         } else {
             // SAFETY: Vec<T> length is N
@@ -307,7 +273,7 @@ where
         *store = if let Ok(arr) = TryFrom::try_from(
             core::iter::repeat_with(Default::default)
                 .take(array.len())
-                .collect::<Vec<U::RustStore>>(),
+                .collect::<Vec<R::RustStore>>(),
         ) {
             arr
         } else {
@@ -328,8 +294,8 @@ where
             unsafe { unreachable_unchecked() }
         }
     }
-    unsafe fn try_from_repr_c(source: [K; N], store: &'itm mut Self::FfiStore) -> Result<Self> {
-        let array: [ManuallyDrop<U>; N] = if let Ok(arr) = source
+    unsafe fn try_from_repr_c(source: [C; N], store: &'itm mut Self::FfiStore) -> Result<Self> {
+        let array: [ManuallyDrop<R>; N] = if let Ok(arr) = source
             .into_iter()
             .zip(store.iter_mut())
             .map(|(item, substore)| {
@@ -343,12 +309,11 @@ where
             unreachable_unchecked()
         };
 
-        Ok(IrArray(
+        Ok(
             if let Ok(arr) = array
                 .iter()
                 .cloned()
                 .map(ManuallyDrop::into_inner)
-                .map(IrTypeOf::into_rust)
                 .collect::<Vec<_>>()
                 .try_into()
             {
@@ -356,272 +321,259 @@ where
             } else {
                 unreachable_unchecked()
             },
-        ))
+        )
     }
 }
 impl<
         'itm,
-        T: Ir<Type = U> + 'itm,
-        U: NonTransmute + CTypeConvert<'itm, K> + IrTypeOf<T> + Clone,
-        K: ReprC,
+        R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone,
+        S: NonTransmute,
+        C: ReprC,
         const N: usize,
-    > CTypeConvert<'itm, *mut K> for IrArray<T, U, N>
+    > CTypeConvert<'itm, [S; N], *mut C> for [R; N]
 where
-    [U::RustStore; N]: Default,
-    [U::FfiStore; N]: Default,
-    [K; N]: Default,
+    [R::RustStore; N]: Default,
+    [R::FfiStore; N]: Default,
+    [C; N]: Default,
 {
-    type RustStore = ([K; N], [U::RustStore; N]);
-    type FfiStore = [U::FfiStore; N];
+    type RustStore = ([C; N], [R::RustStore; N]);
+    type FfiStore = [R::FfiStore; N];
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *mut K {
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *mut C {
         store.0 = self.into_repr_c(&mut store.1);
         store.0.as_mut_ptr()
     }
-    unsafe fn try_from_repr_c(source: *mut K, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        CTypeConvert::try_from_repr_c(source.cast::<[K; N]>().read(), store)
+    unsafe fn try_from_repr_c(source: *mut C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        CTypeConvert::try_from_repr_c(source.cast::<[C; N]>().read(), store)
     }
 }
 
-impl<T: Ir> COutPtr for &T
-where
-    T::Type: NonTransmute + NonLocal,
-{
-    type OutPtr = *mut <T::Type as CType>::ReprC;
+impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<&S> for &R {
+    type OutPtr = *mut Self::ReprC;
 }
-impl<T: Ir<Type = U>, U: NonTransmute + NonLocal> COutPtr for IrSlice<'_, T, U> {
-    type OutPtr = OutBoxedSlice<U::ReprC>;
+impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<&[S]> for &[R] {
+    type OutPtr = OutBoxedSlice<R::ReprC>;
 }
-impl<T: Ir<Type = U>, U: NonTransmute + NonLocal> COutPtr for IrBox<T, U> {
-    type OutPtr = *mut U::ReprC;
+impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<Box<S>> for Box<R> {
+    type OutPtr = *mut R::ReprC;
 }
-impl<T: Ir<Type = U>, U: NonTransmute + NonLocal> COutPtr for IrVec<T, U> {
-    type OutPtr = OutBoxedSlice<U::ReprC>;
+impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<Vec<S>> for Vec<R> {
+    type OutPtr = OutBoxedSlice<R::ReprC>;
 }
-impl<T: Ir<Type = U>, U: NonTransmute + NonLocal, const N: usize> COutPtr for IrArray<T, U, N> {
-    type OutPtr = *mut U::ReprC;
+impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute, const N: usize> COutPtr<[S; N]> for [R; N] {
+    type OutPtr = *mut R::ReprC;
 }
 
 /* ---------------------------------------Robust-------------------------------------- */
 
-impl<T: ReprC> CType for Robust<T> {
-    type ReprC = T;
+impl<R: ReprC + Ir<Type = Robust>> CType<Robust> for R {
+    type ReprC = R;
 }
-impl<'itm, T: ReprC + 'itm> CTypeConvert<'itm, T> for Robust<T> {
+impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Robust, R> for R {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> T {
-        self.0
+    fn into_repr_c(self, _: &mut ()) -> R {
+        self
     }
 
-    unsafe fn try_from_repr_c(source: T, _: &mut ()) -> Result<Self> {
-        Ok(Self(source))
+    unsafe fn try_from_repr_c(source: R, _: &mut ()) -> Result<Self> {
+        Ok(source)
     }
 }
 
-impl<T: ReprC + Ir<Type = Robust<T>>> CType for IrBox<T, Robust<T>> {
-    type ReprC = *mut T;
+impl<R: ReprC + Ir<Type = Robust>> CType<Box<Robust>> for Box<R> {
+    type ReprC = *mut R;
 }
-impl<'itm, T: ReprC + Ir<Type = Robust<T>> + Default + 'itm> CTypeConvert<'itm, *mut T>
-    for IrBox<T, Robust<T>>
-{
-    type RustStore = Box<T>;
+impl<R: ReprC + Ir<Type = Robust> + Default> CTypeConvert<'_, Box<Robust>, *mut R> for Box<R> {
+    type RustStore = Box<R>;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> *mut T {
-        *store = self.0;
+    fn into_repr_c(self, store: &mut Self::RustStore) -> *mut R {
+        *store = self;
         &mut **store
     }
 
-    unsafe fn try_from_repr_c(source: *mut T, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
 
-        Ok(Self(Box::new(source.read())))
+        Ok(Box::new(source.read()))
     }
 }
 
-impl<T: ReprC + Ir<Type = Robust<T>>> CType for IrSlice<'_, T, Robust<T>> {
-    type ReprC = SliceRef<T>;
+impl<R: ReprC + Ir<Type = Robust>> CType<&[Robust]> for &[R] {
+    type ReprC = SliceRef<R>;
 }
-impl<'itm, T: ReprC + Ir<Type = Robust<T>>> CTypeConvert<'itm, SliceRef<T>>
-    for IrSlice<'itm, T, Robust<T>>
-{
+impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, &[Robust], SliceRef<R>> for &[R] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> SliceRef<T> {
-        SliceRef::from_slice(self.0)
+    fn into_repr_c(self, _: &mut ()) -> SliceRef<R> {
+        SliceRef::from_slice(self)
     }
 
-    unsafe fn try_from_repr_c(source: SliceRef<T>, _: &mut ()) -> Result<Self> {
-        source.into_rust().ok_or(FfiReturn::ArgIsNull).map(Self)
+    unsafe fn try_from_repr_c(source: SliceRef<R>, _: &mut ()) -> Result<Self> {
+        source.into_rust().ok_or(FfiReturn::ArgIsNull)
     }
 }
 
-impl<T: ReprC + Ir<Type = Robust<T>>> CType for IrSliceMut<'_, T, Robust<T>> {
-    type ReprC = SliceMut<T>;
+impl<R: ReprC + Ir<Type = Robust>> CType<&mut [Robust]> for &mut [R] {
+    type ReprC = SliceMut<R>;
 }
-impl<'itm, T: ReprC + Ir<Type = Robust<T>>> CTypeConvert<'itm, SliceMut<T>>
-    for IrSliceMut<'itm, T, Robust<T>>
-{
+impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, &mut [Robust], SliceMut<R>> for &mut [R] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> SliceMut<T> {
-        SliceMut::from_slice(self.0)
+    fn into_repr_c(self, _: &mut ()) -> SliceMut<R> {
+        SliceMut::from_slice(self)
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<T>, _: &mut ()) -> Result<Self> {
-        source.into_rust().ok_or(FfiReturn::ArgIsNull).map(Self)
+    unsafe fn try_from_repr_c(source: SliceMut<R>, _: &mut ()) -> Result<Self> {
+        source.into_rust().ok_or(FfiReturn::ArgIsNull)
     }
 }
 
-impl<T: ReprC + Ir<Type = Robust<T>>> CType for IrVec<T, Robust<T>> {
-    type ReprC = SliceMut<T>;
+impl<R: ReprC + Ir<Type = Robust>> CType<Vec<Robust>> for Vec<R> {
+    type ReprC = SliceMut<R>;
 }
-impl<'itm, T: ReprC + Ir<Type = Robust<T>> + 'itm> CTypeConvert<'itm, SliceMut<T>>
-    for IrVec<T, Robust<T>>
-{
-    type RustStore = Vec<T>;
+impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> for Vec<R> {
+    type RustStore = Vec<R>;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<T> {
-        *store = self.0;
+    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<R> {
+        *store = self;
         SliceMut::from_slice(store)
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<T>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<R>, _: &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)
             .map(|slice| slice.to_vec())
-            .map(Self)
     }
 }
 
-impl<T: ReprC + Ir<Type = Robust<T>>, const N: usize> CType for IrArray<T, Robust<T>, N> {
-    type ReprC = [T; N];
+impl<R: ReprC + Ir<Type = Robust>, const N: usize> CType<[Robust; N]> for [R; N] {
+    type ReprC = [R; N];
 }
-impl<'itm, T: ReprC + Ir<Type = Robust<T>> + 'itm, const N: usize> CTypeConvert<'itm, [T; N]>
-    for IrArray<T, Robust<T>, N>
+impl<R: ReprC + Ir<Type = Robust>, const N: usize> CTypeConvert<'_, [Robust; N], [R; N]>
+    for [R; N]
 {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> [T; N] {
-        self.0
+    fn into_repr_c(self, _: &mut ()) -> [R; N] {
+        self
     }
 
-    unsafe fn try_from_repr_c(source: [T; N], _: &mut ()) -> Result<Self> {
-        Ok(Self(source))
+    unsafe fn try_from_repr_c(source: [R; N], _: &mut ()) -> Result<Self> {
+        Ok(source)
     }
 }
-impl<'itm, T: ReprC + Ir<Type = Robust<T>> + 'itm, const N: usize> CTypeConvert<'itm, *mut T>
-    for IrArray<T, Robust<T>, N>
+impl<R: ReprC + Ir<Type = Robust>, const N: usize> CTypeConvert<'_, [Robust; N], *mut R> for [R; N]
 where
-    [T; N]: Default,
+    [R; N]: Default,
 {
-    type RustStore = [T; N];
+    type RustStore = [R; N];
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> *mut T {
-        *store = self.0;
+    fn into_repr_c(self, store: &mut Self::RustStore) -> *mut R {
+        *store = self;
         store.as_mut_ptr()
     }
 
-    unsafe fn try_from_repr_c(source: *mut T, _: &mut ()) -> Result<Self> {
-        Ok(Self(source.cast::<[T; N]>().read()))
+    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
+        Ok(source.cast::<[R; N]>().read())
     }
 }
 
-impl<T: ReprC> COutPtr for Robust<T> {
-    type OutPtr = *mut T;
+impl<R: ReprC + Ir<Type = Robust>> COutPtr<Robust> for R {
+    type OutPtr = *mut R;
 }
-impl<T: ReprC + Ir<Type = Robust<T>>> COutPtr for IrBox<T, Robust<T>> {
-    type OutPtr = *mut T;
+impl<R: ReprC + Ir<Type = Robust>> COutPtr<Box<Robust>> for Box<R> {
+    type OutPtr = *mut R;
 }
-impl<T: ReprC + Ir<Type = Robust<T>>> COutPtr for IrSlice<'_, T, Robust<T>> {
-    type OutPtr = *mut SliceRef<T>;
+impl<R: ReprC + Ir<Type = Robust>> COutPtr<&[Robust]> for &[R] {
+    type OutPtr = *mut SliceRef<R>;
 }
-impl<T: ReprC + Ir<Type = Robust<T>>> COutPtr for IrSliceMut<'_, T, Robust<T>> {
-    type OutPtr = *mut SliceMut<T>;
+impl<R: ReprC + Ir<Type = Robust>> COutPtr<&mut [Robust]> for &mut [R] {
+    type OutPtr = *mut SliceMut<R>;
 }
-impl<T: ReprC + Ir<Type = Robust<T>>> COutPtr for IrVec<T, Robust<T>> {
-    type OutPtr = OutBoxedSlice<T>;
+impl<R: ReprC + Ir<Type = Robust>> COutPtr<Vec<Robust>> for Vec<R> {
+    type OutPtr = OutBoxedSlice<R>;
 }
-impl<T: ReprC + Ir<Type = Robust<T>>, const N: usize> COutPtr for IrArray<T, Robust<T>, N> {
-    type OutPtr = *mut [T; N];
+impl<R: ReprC + Ir<Type = Robust>, const N: usize> COutPtr<[Robust; N]> for [R; N] {
+    type OutPtr = *mut [R; N];
 }
 
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T: ReprC> NonLocal for Robust<T> {}
+unsafe impl<R: ReprC + Ir<Type = Robust>> NonLocal<Robust> for R {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T: ReprC + Ir<Type = Robust<T>>> NonLocal for IrSlice<'_, T, Robust<T>> {}
+unsafe impl<R: ReprC + Ir<Type = Robust>> NonLocal<&[Robust]> for &[R] {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T: ReprC + Ir<Type = Robust<T>>> NonLocal for IrSliceMut<'_, T, Robust<T>> {}
+unsafe impl<R: ReprC + Ir<Type = Robust>> NonLocal<&mut [Robust]> for &mut [R] {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T: ReprC + Ir<Type = Robust<T>>, const N: usize> NonLocal for IrArray<T, Robust<T>, N> {}
+unsafe impl<R: ReprC + Ir<Type = Robust>, const N: usize> NonLocal<[Robust; N]> for [R; N] {}
 
 /* ---------------------------------------Opaque-------------------------------------- */
 
-impl<T> CType for Opaque<T> {
-    type ReprC = *mut T;
+impl<R: Ir<Type = Opaque>> CType<Opaque> for R {
+    type ReprC = *mut R;
 }
-impl<'itm, T: 'itm> CTypeConvert<'itm, *mut T> for Opaque<T> {
+impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Opaque, *mut R> for R {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> *mut T {
-        Box::into_raw(Box::new(self.0))
+    fn into_repr_c(self, _: &mut ()) -> *mut R {
+        Box::into_raw(Box::new(self))
     }
-    unsafe fn try_from_repr_c(source: *mut T, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
 
-        Ok(Self(*Box::from_raw(source)))
+        Ok(*Box::from_raw(source))
     }
 }
 
-impl<T: Ir<Type = Opaque<T>>> CType for IrBox<T, Opaque<T>> {
-    type ReprC = *mut T;
+impl<R: Ir<Type = Opaque>> CType<Box<Opaque>> for Box<R> {
+    type ReprC = *mut R;
 }
-impl<'itm, T: Ir<Type = Opaque<T>> + 'itm> CTypeConvert<'itm, *mut T> for IrBox<T, Opaque<T>> {
+impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Box<Opaque>, *mut R> for Box<R> {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> *mut T {
-        Box::into_raw(self.0)
+    fn into_repr_c(self, _: &mut ()) -> *mut R {
+        Box::into_raw(self)
     }
 
-    unsafe fn try_from_repr_c(source: *mut T, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
 
-        Ok(Self(Box::from_raw(source)))
+        Ok(Box::from_raw(source))
     }
 }
 
-impl<T: Ir<Type = Opaque<T>> + Clone> CType for IrSlice<'_, T, Opaque<T>> {
-    type ReprC = SliceRef<*const T>;
+impl<R: Ir<Type = Opaque>> CType<&[Opaque]> for &[R] {
+    type ReprC = SliceRef<*const R>;
 }
-impl<'slice, T: Ir<Type = Opaque<T>> + Clone> CTypeConvert<'slice, SliceRef<*const T>>
-    for IrSlice<'slice, T, Opaque<T>>
+impl<'slice, R: Ir<Type = Opaque> + Clone> CTypeConvert<'slice, &[Opaque], SliceRef<*const R>>
+    for &'slice [R]
 {
-    type RustStore = Vec<*const T>;
-    type FfiStore = Vec<T>;
+    type RustStore = Vec<*const R>;
+    type FfiStore = Vec<R>;
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceRef<*const T> {
-        *store = self.0.iter().map(|item| item as *const T).collect();
+    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceRef<*const R> {
+        *store = self.iter().map(|item| item as *const R).collect();
         SliceRef::from_slice(store)
     }
 
     unsafe fn try_from_repr_c(
-        source: SliceRef<*const T>,
+        source: SliceRef<*const R>,
         store: &'slice mut Self::FfiStore,
     ) -> Result<Self> {
         let source = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
@@ -638,27 +590,27 @@ impl<'slice, T: Ir<Type = Opaque<T>> + Clone> CTypeConvert<'slice, SliceRef<*con
             })
             .collect::<core::result::Result<_, _>>()?;
 
-        Ok(Self(store))
+        Ok(store)
     }
 }
 
-impl<T: Ir<Type = Opaque<T>>> CType for IrSliceMut<'_, T, Opaque<T>> {
-    type ReprC = SliceMut<*mut T>;
+impl<R: Ir<Type = Opaque>> CType<&mut [Opaque]> for &mut [R] {
+    type ReprC = SliceMut<*mut R>;
 }
-impl<'slice, T: Ir<Type = Opaque<T>> + Clone> CTypeConvert<'slice, SliceMut<*mut T>>
-    for IrSliceMut<'slice, T, Opaque<T>>
+impl<'slice, R: Ir<Type = Opaque> + Clone> CTypeConvert<'slice, &mut [Opaque], SliceMut<*mut R>>
+    for &'slice mut [R]
 {
-    type RustStore = Vec<*mut T>;
-    type FfiStore = Vec<T>;
+    type RustStore = Vec<*mut R>;
+    type FfiStore = Vec<R>;
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut T> {
-        *store = self.0.iter_mut().map(|item| item as *mut T).collect();
+    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut R> {
+        *store = self.iter_mut().map(|item| item as *mut R).collect();
 
         SliceMut::from_slice(store)
     }
 
     unsafe fn try_from_repr_c(
-        source: SliceMut<*mut T>,
+        source: SliceMut<*mut R>,
         store: &'slice mut Self::FfiStore,
     ) -> Result<Self> {
         let source = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
@@ -675,31 +627,24 @@ impl<'slice, T: Ir<Type = Opaque<T>> + Clone> CTypeConvert<'slice, SliceMut<*mut
             })
             .collect::<core::result::Result<_, _>>()?;
 
-        Ok(Self(store))
+        Ok(store)
     }
 }
 
-impl<T: Ir<Type = Opaque<T>>> CType for IrVec<T, Opaque<T>> {
-    type ReprC = SliceMut<*mut T>;
+impl<R: Ir<Type = Opaque>> CType<Vec<Opaque>> for Vec<R> {
+    type ReprC = SliceMut<*mut R>;
 }
-impl<'itm, T: Ir<Type = Opaque<T>> + 'itm> CTypeConvert<'itm, SliceMut<*mut T>>
-    for IrVec<T, Opaque<T>>
-{
-    type RustStore = Vec<*mut T>;
+impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Vec<Opaque>, SliceMut<*mut R>> for Vec<R> {
+    type RustStore = Vec<*mut R>;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut T> {
-        *store = self
-            .0
-            .into_iter()
-            .map(Box::new)
-            .map(Box::into_raw)
-            .collect();
+    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut R> {
+        *store = self.into_iter().map(Box::new).map(Box::into_raw).collect();
 
         SliceMut::from_slice(store)
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<*mut T>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, _: &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
@@ -712,22 +657,18 @@ impl<'itm, T: Ir<Type = Opaque<T>> + 'itm> CTypeConvert<'itm, SliceMut<*mut T>>
                 Err(FfiReturn::ArgIsNull)
             })
             .collect::<core::result::Result<_, _>>()
-            .map(Self)
     }
 }
 
-impl<T: Ir<Type = Opaque<T>>, const N: usize> CType for IrArray<T, Opaque<T>, N> {
-    type ReprC = [*mut T; N];
+impl<R: Ir<Type = Opaque>, const N: usize> CType<[Opaque; N]> for [R; N] {
+    type ReprC = [*mut R; N];
 }
-impl<'itm, T: Ir<Type = Opaque<T>> + 'itm, const N: usize> CTypeConvert<'itm, [*mut T; N]>
-    for IrArray<T, Opaque<T>, N>
-{
+impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R; N]> for [R; N] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut Self::RustStore) -> [*mut T; N] {
+    fn into_repr_c(self, _: &mut Self::RustStore) -> [*mut R; N] {
         if let Ok(arr) = self
-            .0
             .into_iter()
             .map(Box::new)
             .map(Box::into_raw)
@@ -741,8 +682,8 @@ impl<'itm, T: Ir<Type = Opaque<T>> + 'itm, const N: usize> CTypeConvert<'itm, [*
         }
     }
 
-    unsafe fn try_from_repr_c(source: [*mut T; N], _: &mut ()) -> Result<Self> {
-        Ok(Self(
+    unsafe fn try_from_repr_c(source: [*mut R; N], _: &mut ()) -> Result<Self> {
+        Ok(
             if let Ok(arr) = source
                 .into_iter()
                 .map(|item| {
@@ -752,355 +693,348 @@ impl<'itm, T: Ir<Type = Opaque<T>> + 'itm, const N: usize> CTypeConvert<'itm, [*
 
                     Err(FfiReturn::ArgIsNull)
                 })
-                .collect::<core::result::Result<Vec<T>, _>>()?
+                .collect::<core::result::Result<Vec<R>, _>>()?
                 .try_into()
             {
                 arr
             } else {
                 unreachable_unchecked()
             },
-        ))
+        )
     }
 }
-impl<'itm, T: Ir<Type = Opaque<T>> + 'itm, const N: usize> CTypeConvert<'itm, *mut *mut T>
-    for IrArray<T, Opaque<T>, N>
+impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], *mut *mut R> for [R; N]
 where
-    [*mut T; N]: Default,
+    [*mut R; N]: Default,
 {
-    type RustStore = [*mut T; N];
+    type RustStore = [*mut R; N];
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> *mut *mut T {
+    fn into_repr_c(self, store: &mut Self::RustStore) -> *mut *mut R {
         *store = self.into_repr_c(&mut ());
         store.as_mut_ptr()
     }
 
-    unsafe fn try_from_repr_c(source: *mut *mut T, _: &mut ()) -> Result<Self> {
-        CTypeConvert::try_from_repr_c(source.cast::<[*mut T; N]>().read(), &mut ())
+    unsafe fn try_from_repr_c(source: *mut *mut R, _: &mut ()) -> Result<Self> {
+        CTypeConvert::try_from_repr_c(source.cast::<[*mut R; N]>().read(), &mut ())
     }
 }
 
-impl<T> COutPtr for Opaque<T> {
-    type OutPtr = *mut *mut T;
+impl<R: Ir<Type = Opaque>> COutPtr<Opaque> for R {
+    type OutPtr = *mut *mut R;
 }
-impl<T: Ir<Type = Opaque<T>>> COutPtr for IrBox<T, Opaque<T>> {
-    type OutPtr = *mut *mut T;
+impl<R: Ir<Type = Opaque>> COutPtr<Box<Opaque>> for Box<R> {
+    type OutPtr = *mut *mut R;
 }
-impl<T: Ir<Type = Opaque<T>>> COutPtr for IrSlice<'_, T, Opaque<T>>
-where
-    Self: CType<ReprC = SliceRef<*const T>>,
-{
-    type OutPtr = OutBoxedSlice<*const T>;
+impl<R: Ir<Type = Opaque>> COutPtr<&[Opaque]> for &[R] {
+    type OutPtr = OutBoxedSlice<*const R>;
 }
-impl<T: Ir<Type = Opaque<T>>> COutPtr for IrSliceMut<'_, T, Opaque<T>> {
-    type OutPtr = OutBoxedSlice<*mut T>;
+impl<R: Ir<Type = Opaque>> COutPtr<&mut [Opaque]> for &mut [R] {
+    type OutPtr = OutBoxedSlice<*mut R>;
 }
-impl<T: Ir<Type = Opaque<T>>> COutPtr for IrVec<T, Opaque<T>> {
-    type OutPtr = OutBoxedSlice<*mut T>;
+impl<R: Ir<Type = Opaque>> COutPtr<Vec<Opaque>> for Vec<R> {
+    type OutPtr = OutBoxedSlice<*mut R>;
 }
-impl<T: Ir<Type = Opaque<T>>, const N: usize> COutPtr for IrArray<T, Opaque<T>, N> {
-    type OutPtr = *mut [*mut T; N];
+impl<R: Ir<Type = Opaque>, const N: usize> COutPtr<[Opaque; N]> for [R; N] {
+    type OutPtr = *mut [*mut R; N];
 }
 
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T> NonLocal for Opaque<T> {}
+unsafe impl<R: Ir<Type = Opaque>> NonLocal<Opaque> for R {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T: Ir<Type = Opaque<T>>> NonLocal for IrBox<T, Opaque<T>> {}
+unsafe impl<R: Ir<Type = Opaque>> NonLocal<Box<Opaque>> for Box<R> {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<T: Ir<Type = Opaque<T>>, const N: usize> NonLocal for IrArray<T, Opaque<T>, N> {}
+unsafe impl<R: Ir<Type = Opaque>, const N: usize> NonLocal<[Opaque; N]> for [R; N] {}
 
 /* ------------------------------------Transparent------------------------------------ */
 
-impl<T: Transmute> CType for Transparent<T>
+impl<R: Transmute> CType<Transparent> for R
 where
-    T::Target: FfiType,
+    R::Target: FfiType,
 {
-    type ReprC = <T::Target as FfiType>::ReprC;
+    type ReprC = <R::Target as FfiType>::ReprC;
 }
-impl<'itm, T: Transmute + 'itm, U: ReprC> CTypeConvert<'itm, U> for Transparent<T>
+impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC> CTypeConvert<'itm, Transparent, C> for R
 where
-    T::Target: FfiConvert<'itm, U>,
+    R::Target: FfiConvert<'itm, C>,
 {
-    type RustStore = <T::Target as FfiConvert<'itm, U>>::RustStore;
-    type FfiStore = <T::Target as FfiConvert<'itm, U>>::FfiStore;
+    type RustStore = <R::Target as FfiConvert<'itm, C>>::RustStore;
+    type FfiStore = <R::Target as FfiConvert<'itm, C>>::FfiStore;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> U {
-        self.into_inner().into_ffi(store)
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C {
+        let transmute_helper = TransmuteHelper {
+            source: ManuallyDrop::new(self),
+        };
+
+        // SAFETY: Transmute is always valid because R::Target is a superset of R
+        ManuallyDrop::into_inner(unsafe { transmute_helper.target }).into_ffi(store)
     }
 
-    unsafe fn try_from_repr_c(source: U, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        Self::try_from_inner(FfiConvert::try_from_ffi(source, store)?)
-            .ok_or(FfiReturn::TrapRepresentation)
-    }
-}
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        let source = FfiConvert::try_from_ffi(source, store)?;
 
-impl<T: Transmute + Ir<Type = Transparent<T>>> CType for IrBox<T, Transparent<T>>
-where
-    Box<T::Target>: FfiType,
-{
-    type ReprC = <Box<T::Target> as FfiType>::ReprC;
-}
-impl<'itm, T: Transmute + Ir<Type = Transparent<T>> + 'itm, K: ReprC> CTypeConvert<'itm, K>
-    for IrBox<T, Transparent<T>>
-where
-    Box<T::Target>: FfiConvert<'itm, K>,
-{
-    type RustStore = <Box<T::Target> as FfiConvert<'itm, K>>::RustStore;
-    type FfiStore = <Box<T::Target> as FfiConvert<'itm, K>>::FfiStore;
-
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> K {
-        // SAFETY: `Transparent` is guaranteed to be transmutable into `T::Target`
-        unsafe { Box::from_raw(Box::into_raw(self.0).cast::<T::Target>()).into_ffi(store) }
-    }
-
-    unsafe fn try_from_repr_c(source: K, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        let item: Box<T::Target> = FfiConvert::try_from_ffi(source, store)?;
-
-        if !T::is_valid(&item) {
+        if !R::is_valid(&source) {
             return Err(FfiReturn::TrapRepresentation);
         }
 
-        Ok(Self(Box::from_raw(Box::into_raw(item).cast::<T>())))
+        let transmute_helper = TransmuteHelper {
+            target: ManuallyDrop::new(source),
+        };
+        Ok(ManuallyDrop::into_inner(transmute_helper.source))
     }
 }
 
-impl<'slice, T: Transmute + Ir<Type = Transparent<T>>> CType for IrSlice<'slice, T, Transparent<T>>
+impl<R: Transmute + Ir<Type = Transparent>> CType<Box<Transparent>> for Box<R>
 where
-    &'slice [T::Target]: FfiType,
+    Box<R::Target>: FfiType,
 {
-    type ReprC = <&'slice [T::Target] as FfiType>::ReprC;
+    type ReprC = <Box<R::Target> as FfiType>::ReprC;
 }
-impl<'slice, T: Transmute + Ir<Type = Transparent<T>>, U: ReprC> CTypeConvert<'slice, U>
-    for IrSlice<'slice, T, Transparent<T>>
+impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC> CTypeConvert<'itm, Box<Transparent>, C>
+    for Box<R>
 where
-    &'slice [T::Target]: FfiConvert<'slice, U>,
+    Box<R::Target>: FfiConvert<'itm, C>,
 {
-    type RustStore = <&'slice [T::Target] as FfiConvert<'slice, U>>::RustStore;
-    type FfiStore = <&'slice [T::Target] as FfiConvert<'slice, U>>::FfiStore;
+    type RustStore = <Box<R::Target> as FfiConvert<'itm, C>>::RustStore;
+    type FfiStore = <Box<R::Target> as FfiConvert<'itm, C>>::FfiStore;
 
-    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> U {
-        let slice = self.0;
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C {
+        // SAFETY: `R` is guaranteed to be transmutable into `R::Target`
+        unsafe { Box::from_raw(Box::into_raw(self).cast::<R::Target>()).into_ffi(store) }
+    }
 
-        let (ptr, len) = (slice.as_ptr().cast::<T::Target>(), slice.len());
-        // SAFETY: `T` is guaranteed to be transmutable into `T::Target`
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        let item: Box<R::Target> = FfiConvert::try_from_ffi(source, store)?;
+
+        if !R::is_valid(&item) {
+            return Err(FfiReturn::TrapRepresentation);
+        }
+
+        Ok(Box::from_raw(Box::into_raw(item).cast::<R>()))
+    }
+}
+
+impl<'slice, R: Transmute + Ir<Type = Transparent>> CType<&[Transparent]> for &'slice [R]
+where
+    &'slice [R::Target]: FfiType,
+{
+    type ReprC = <&'slice [R::Target] as FfiType>::ReprC;
+}
+impl<'slice, R: Transmute + Ir<Type = Transparent>, C: ReprC>
+    CTypeConvert<'slice, &[Transparent], C> for &'slice [R]
+where
+    &'slice [R::Target]: FfiConvert<'slice, C>,
+{
+    type RustStore = <&'slice [R::Target] as FfiConvert<'slice, C>>::RustStore;
+    type FfiStore = <&'slice [R::Target] as FfiConvert<'slice, C>>::FfiStore;
+
+    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> C {
+        let slice = self;
+
+        let (ptr, len) = (slice.as_ptr().cast::<R::Target>(), slice.len());
+        // SAFETY: `R` is guaranteed to be transmutable into `R::Target`
         unsafe { core::slice::from_raw_parts(ptr, len).into_ffi(store) }
     }
 
-    unsafe fn try_from_repr_c(source: U, store: &'slice mut Self::FfiStore) -> Result<Self> {
-        let slice = <&[T::Target]>::try_from_ffi(source, store)?;
+    unsafe fn try_from_repr_c(source: C, store: &'slice mut Self::FfiStore) -> Result<Self> {
+        let slice = <&[R::Target]>::try_from_ffi(source, store)?;
 
-        if !slice.iter().all(|item| T::is_valid(item)) {
+        if !slice.iter().all(|item| R::is_valid(item)) {
             return Err(FfiReturn::TrapRepresentation);
         }
 
-        Ok(Self(core::slice::from_raw_parts(
+        Ok(core::slice::from_raw_parts(
             slice.as_ptr().cast(),
             slice.len(),
-        )))
+        ))
     }
 }
 
-impl<'slice, T: Transmute + Ir<Type = Transparent<T>>> CType
-    for IrSliceMut<'slice, T, Transparent<T>>
+impl<'slice, R: Transmute + Ir<Type = Transparent>> CType<&mut [Transparent]> for &'slice mut [R]
 where
-    &'slice mut [T::Target]: FfiType,
+    &'slice mut [R::Target]: FfiType,
 {
-    type ReprC = <&'slice mut [T::Target] as FfiType>::ReprC;
+    type ReprC = <&'slice mut [R::Target] as FfiType>::ReprC;
 }
-impl<'slice, T: Transmute + Ir<Type = Transparent<T>>, U: ReprC> CTypeConvert<'slice, U>
-    for IrSliceMut<'slice, T, Transparent<T>>
+impl<'slice, R: Transmute + Ir<Type = Transparent>, C: ReprC>
+    CTypeConvert<'slice, &mut [Transparent], C> for &'slice mut [R]
 where
-    &'slice mut [T::Target]: FfiConvert<'slice, U>,
+    &'slice mut [R::Target]: FfiConvert<'slice, C>,
 {
-    type RustStore = <&'slice mut [T::Target] as FfiConvert<'slice, U>>::RustStore;
-    type FfiStore = <&'slice mut [T::Target] as FfiConvert<'slice, U>>::FfiStore;
+    type RustStore = <&'slice mut [R::Target] as FfiConvert<'slice, C>>::RustStore;
+    type FfiStore = <&'slice mut [R::Target] as FfiConvert<'slice, C>>::FfiStore;
 
-    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> U {
-        let slice = self.0;
+    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> C {
+        let slice = self;
 
-        let (ptr, len) = (slice.as_mut_ptr().cast::<T::Target>(), slice.len());
-        // SAFETY: `T` is guaranteed to be transmutable into `T::Target`
+        let (ptr, len) = (slice.as_mut_ptr().cast::<R::Target>(), slice.len());
+        // SAFETY: `R` is guaranteed to be transmutable into `R::Target`
         unsafe { core::slice::from_raw_parts_mut(ptr, len).into_ffi(store) }
     }
 
-    unsafe fn try_from_repr_c(source: U, store: &'slice mut Self::FfiStore) -> Result<Self> {
-        let slice = <&mut [T::Target]>::try_from_ffi(source, store)?;
+    unsafe fn try_from_repr_c(source: C, store: &'slice mut Self::FfiStore) -> Result<Self> {
+        let slice = <&mut [R::Target]>::try_from_ffi(source, store)?;
 
-        if !slice.iter().all(|item| T::is_valid(item)) {
+        if !slice.iter().all(|item| R::is_valid(item)) {
             return Err(FfiReturn::TrapRepresentation);
         }
 
-        Ok(Self(core::slice::from_raw_parts_mut(
+        Ok(core::slice::from_raw_parts_mut(
             slice.as_mut_ptr().cast(),
             slice.len(),
-        )))
+        ))
     }
 }
 
-impl<T: Transmute + Ir<Type = Transparent<T>>> CType for IrVec<T, Transparent<T>>
+impl<R: Transmute + Ir<Type = Transparent>> CType<Vec<Transparent>> for Vec<R>
 where
-    Vec<T::Target>: FfiType,
+    Vec<R::Target>: FfiType,
 {
-    type ReprC = <Vec<T::Target> as FfiType>::ReprC;
+    type ReprC = <Vec<R::Target> as FfiType>::ReprC;
 }
-impl<'itm, T: Transmute + Ir<Type = Transparent<T>> + 'itm, U: ReprC> CTypeConvert<'itm, U>
-    for IrVec<T, Transparent<T>>
+impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC> CTypeConvert<'itm, Vec<Transparent>, C>
+    for Vec<R>
 where
-    Vec<T::Target>: FfiConvert<'itm, U>,
+    Vec<R::Target>: FfiConvert<'itm, C>,
 {
-    type RustStore = <Vec<T::Target> as FfiConvert<'itm, U>>::RustStore;
-    type FfiStore = <Vec<T::Target> as FfiConvert<'itm, U>>::FfiStore;
+    type RustStore = <Vec<R::Target> as FfiConvert<'itm, C>>::RustStore;
+    type FfiStore = <Vec<R::Target> as FfiConvert<'itm, C>>::FfiStore;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> U {
-        let mut vec = ManuallyDrop::new(self.0);
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C {
+        let mut vec = ManuallyDrop::new(self);
 
-        let vec: Vec<T::Target> =
-            // SAFETY: `Transparency` guarantees `T` can be transmuted into `U`
+        let vec: Vec<R::Target> =
+            // SAFETY: `Transparency` guarantees `T` can be transmuted into `C`
             unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) };
 
         vec.into_ffi(store)
     }
 
-    unsafe fn try_from_repr_c(source: U, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        let vec = <Vec<T::Target>>::try_from_ffi(source, store)?;
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        let vec = <Vec<R::Target>>::try_from_ffi(source, store)?;
 
-        if !vec.iter().all(|item| T::is_valid(item)) {
+        if !vec.iter().all(|item| R::is_valid(item)) {
             return Err(FfiReturn::TrapRepresentation);
         }
 
         let mut vec = ManuallyDrop::new(vec);
-        Ok(Self(Vec::from_raw_parts(
+        Ok(Vec::from_raw_parts(
             vec.as_mut_ptr().cast(),
             vec.len(),
             vec.capacity(),
-        )))
+        ))
     }
 }
 
-impl<T: Transmute + Ir<Type = Transparent<T>>, const N: usize> CType
-    for IrArray<T, Transparent<T>, N>
+impl<R: Transmute + Ir<Type = Transparent>, const N: usize> CType<[Transparent; N]> for [R; N]
 where
-    [T::Target; N]: FfiType,
+    [R::Target; N]: FfiType,
 {
-    type ReprC = <[T::Target; N] as FfiType>::ReprC;
+    type ReprC = <[R::Target; N] as FfiType>::ReprC;
 }
-impl<'itm, T: Transmute + Ir<Type = Transparent<T>>, U: ReprC, const N: usize> CTypeConvert<'itm, U>
-    for IrArray<T, Transparent<T>, N>
+impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC, const N: usize>
+    CTypeConvert<'itm, [Transparent; N], C> for [R; N]
 where
-    [T::Target; N]: FfiConvert<'itm, U>,
+    [R::Target; N]: FfiConvert<'itm, C>,
 {
-    type RustStore = <[T::Target; N] as FfiConvert<'itm, U>>::RustStore;
-    type FfiStore = <[T::Target; N] as FfiConvert<'itm, U>>::FfiStore;
+    type RustStore = <[R::Target; N] as FfiConvert<'itm, C>>::RustStore;
+    type FfiStore = <[R::Target; N] as FfiConvert<'itm, C>>::FfiStore;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> U {
-        #[repr(C)]
-        union TransmuteHelper<T: Transmute, const N: usize> {
-            source: ManuallyDrop<[T; N]>,
-            target: ManuallyDrop<[T::Target; N]>,
-        }
-
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C {
         let transmute_helper = TransmuteHelper {
-            source: ManuallyDrop::new(self.0),
+            source: ManuallyDrop::new(self),
         };
 
-        // SAFETY: [T; N] is transmutable into [U; N] if T is transmutable into U
+        // SAFETY: Transmute is always valid because R::Target is a superset of R
         ManuallyDrop::into_inner(unsafe { transmute_helper.target }).into_ffi(store)
     }
 
-    unsafe fn try_from_repr_c(source: U, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        #[repr(C)]
-        union TransmuteHelper<T: Transmute, const N: usize> {
-            source: ManuallyDrop<[T::Target; N]>,
-            target: ManuallyDrop<[T; N]>,
-        }
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        let source = <[R::Target; N]>::try_from_ffi(source, store)?;
 
-        let array = <[T::Target; N]>::try_from_ffi(source, store)?;
-        if !array.iter().all(|item| T::is_valid(item)) {
+        if !<[R; N]>::is_valid(&source) {
             return Err(FfiReturn::TrapRepresentation);
         }
 
         let transmute_helper = TransmuteHelper {
-            source: ManuallyDrop::new(array),
+            target: ManuallyDrop::new(source),
         };
-
-        Ok(Self(ManuallyDrop::into_inner(transmute_helper.target)))
+        Ok(ManuallyDrop::into_inner(transmute_helper.source))
     }
 }
 
-impl<T: Transmute> COutPtr for Transparent<T>
+impl<R: Transmute + Ir<Type = Transparent>> COutPtr<Transparent> for R
 where
-    T::Target: FfiOutPtr,
+    R::Target: FfiOutPtr,
 {
-    type OutPtr = <T::Target as FfiOutPtr>::OutPtr;
+    type OutPtr = <R::Target as FfiOutPtr>::OutPtr;
 }
-impl<T: Transmute + Ir<Type = Transparent<T>>> COutPtr for IrBox<T, Transparent<T>>
+impl<R: Transmute + Ir<Type = Transparent>> COutPtr<Box<Transparent>> for Box<R>
 where
-    Box<T::Target>: FfiOutPtr,
+    Box<R::Target>: FfiOutPtr,
 {
-    type OutPtr = <Box<T::Target> as FfiOutPtr>::OutPtr;
+    type OutPtr = <Box<R::Target> as FfiOutPtr>::OutPtr;
 }
-impl<'itm, T: Transmute + Ir<Type = Transparent<T>>> COutPtr for IrSlice<'itm, T, Transparent<T>>
+impl<'slice, R: Transmute + Ir<Type = Transparent>> COutPtr<&[Transparent]> for &'slice [R]
 where
-    &'itm [T::Target]: FfiOutPtr,
+    &'slice [R::Target]: FfiOutPtr,
 {
-    type OutPtr = <&'itm [T::Target] as FfiOutPtr>::OutPtr;
+    type OutPtr = <&'slice [R::Target] as FfiOutPtr>::OutPtr;
 }
-impl<'itm, T: Transmute + Ir<Type = Transparent<T>>> COutPtr for IrSliceMut<'itm, T, Transparent<T>>
+impl<'slice, R: Transmute + Ir<Type = Transparent>> COutPtr<&mut [Transparent]>
+    for &'slice mut [R]
 where
-    &'itm mut [T::Target]: FfiOutPtr,
+    &'slice mut [R::Target]: FfiOutPtr,
 {
-    type OutPtr = <&'itm mut [T::Target] as FfiOutPtr>::OutPtr;
+    type OutPtr = <&'slice mut [R::Target] as FfiOutPtr>::OutPtr;
 }
-impl<T: Transmute + Ir<Type = Transparent<T>>> COutPtr for IrVec<T, Transparent<T>>
+impl<R: Transmute + Ir<Type = Transparent>> COutPtr<Vec<Transparent>> for Vec<R>
 where
-    Vec<T::Target>: FfiOutPtr,
+    Vec<R::Target>: FfiOutPtr,
 {
-    type OutPtr = <Vec<T::Target> as FfiOutPtr>::OutPtr;
+    type OutPtr = <Vec<R::Target> as FfiOutPtr>::OutPtr;
 }
-impl<T: Transmute + Ir<Type = Transparent<T>>, const N: usize> COutPtr
-    for IrArray<T, Transparent<T>, N>
+impl<R: Transmute + Ir<Type = Transparent>, const N: usize> COutPtr<[Transparent; N]> for [R; N]
 where
-    [T::Target; N]: FfiOutPtr,
+    [R::Target; N]: FfiOutPtr,
 {
-    type OutPtr = <[T::Target; N] as FfiOutPtr>::OutPtr;
+    type OutPtr = <[R::Target; N] as FfiOutPtr>::OutPtr;
 }
 
-unsafe impl<T: Transmute + Ir> NonLocal for Transparent<T>
-where
-    T::Target: Ir,
-    <T::Target as Ir>::Type: NonLocal,
+unsafe impl<R: Transmute + Ir<Type = Transparent>> NonLocal<Transparent> for R where
+    R::Target: Ir + NonLocal<<R::Target as Ir>::Type>
 {
 }
-unsafe impl<T: Transmute + Ir<Type = Transparent<T>>> NonLocal for IrBox<T, Transparent<T>>
-where
-    Box<T::Target>: Ir,
-    <Box<T::Target> as Ir>::Type: NonLocal,
+unsafe impl<R: Transmute + Ir<Type = Transparent>> NonLocal<Box<Transparent>> for Box<R> where
+    Box<R::Target>: Ir + FfiOutPtr + NonLocal<<Box<R::Target> as Ir>::Type>
 {
 }
-unsafe impl<'itm, T: Transmute + Ir<Type = Transparent<T>>> NonLocal
-    for IrSlice<'itm, T, Transparent<T>>
+unsafe impl<'slice, R: Transmute + Ir<Type = Transparent>> NonLocal<&[Transparent]>
+    for &'slice [R]
 where
-    &'itm [T::Target]: Ir,
-    <&'itm [T::Target] as Ir>::Type: NonLocal,
+    &'slice [R::Target]: Ir + FfiOutPtr + NonLocal<<&'slice [R::Target] as Ir>::Type>,
 {
 }
-unsafe impl<'itm, T: Transmute + Ir<Type = Transparent<T>>> NonLocal
-    for IrSliceMut<'itm, T, Transparent<T>>
+unsafe impl<'slice, R: Transmute + Ir<Type = Transparent>> NonLocal<&mut [Transparent]>
+    for &'slice mut [R]
 where
-    &'itm mut [T::Target]: Ir,
-    <&'itm mut [T::Target] as Ir>::Type: NonLocal,
+    &'slice mut [R::Target]: Ir + FfiOutPtr + NonLocal<<&'slice mut [R::Target] as Ir>::Type>,
 {
 }
-unsafe impl<T: Transmute + Ir<Type = Transparent<T>>> NonLocal for IrVec<T, Transparent<T>>
-where
-    Vec<T::Target>: Ir,
-    <Vec<T::Target> as Ir>::Type: NonLocal,
+unsafe impl<R: Transmute + Ir<Type = Transparent>> NonLocal<Vec<Transparent>> for Vec<R> where
+    Vec<R::Target>: Ir + FfiOutPtr + NonLocal<<Vec<R::Target> as Ir>::Type>
 {
 }
-unsafe impl<T: Transmute + Ir<Type = Transparent<T>>, const N: usize> NonLocal
-    for IrArray<T, Transparent<T>, N>
+unsafe impl<R: Transmute + Ir<Type = Transparent>, const N: usize> NonLocal<[Transparent; N]>
+    for [R; N]
 where
-    [T::Target; N]: Ir,
-    <[T::Target; N] as Ir>::Type: NonLocal,
+    [R::Target; N]: Ir + FfiOutPtr + NonLocal<<[R::Target; N] as Ir>::Type>,
 {
+}
+
+#[repr(C)]
+// NOTE: Use this struct carefully
+union TransmuteHelper<R: Transmute> {
+    source: ManuallyDrop<R>,
+    target: ManuallyDrop<R::Target>,
 }

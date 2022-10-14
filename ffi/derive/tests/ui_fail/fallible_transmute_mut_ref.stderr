@@ -1,11 +1,9 @@
-error[E0271]: type mismatch resolving `<Wrapper as Ir>::Type == Robust<Wrapper>`
+error[E0271]: type mismatch resolving `<Wrapper as Ir>::Type == Robust`
   --> tests/ui_fail/fallible_transmute_mut_ref.rs:18:1
    |
 18 | #[ffi_export]
-   | ^^^^^^^^^^^^^ expected struct `Transparent`, found struct `Robust`
+   | ^^^^^^^^^^^^^ expected enum `Transparent`, found enum `Robust`
    |
-   = note: expected struct `Transparent<Wrapper>`
-              found struct `Robust<Wrapper>`
    = note: required because of the requirements on the impl of `InfallibleTransmute` for `Wrapper`
    = note: required because of the requirements on the impl of `Ir` for `&mut Wrapper`
    = note: required because of the requirements on the impl of `FfiType` for `&mut Wrapper`
@@ -18,8 +16,8 @@ error[E0277]: the trait bound `Wrapper: ReprC` is not satisfied
    | ^^^^^^^^^^^^^ the trait `ReprC` is not implemented for `Wrapper`
    |
    = help: the following other types implement trait `ReprC`:
-             *const T
-             *mut T
+             *const R
+             *mut R
              FfiTuple10<A, B, C, D, E, F, G, H, I, J>
              FfiTuple11<A, B, C, D, E, F, G, H, I, J, K>
              FfiTuple12<A, B, C, D, E, F, G, H, I, J, K, L>

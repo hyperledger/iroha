@@ -1,7 +1,7 @@
 //! Logic related to the conversion of [`Option<T>`] to and from FFI-compatible representation
 
 use crate::{
-    ir::{Ir, IrTypeOf},
+    ir::Ir,
     repr_c::{COutPtr, CType, CTypeConvert, NonLocal},
     FfiConvert, FfiOutPtr, FfiType, ReprC, Result,
 };
@@ -14,77 +14,57 @@ pub trait Niche: FfiType {
     const NICHE_VALUE: Self::ReprC;
 }
 
-/// Marker struct for [`Option<T>`]
-pub struct IrOption<T: Niche<ReprC = N>, N>(pub Option<T>);
-
-impl<T: Niche> IrTypeOf<Option<T>> for IrOption<T, T::ReprC> {
-    #[inline]
-    fn into_ir(source: Option<T>) -> Self {
-        Self(source)
-    }
-    #[inline]
-    fn into_rust(self) -> Option<T> {
-        self.0
-    }
-}
-
-impl<T: Niche> From<Option<T>> for IrOption<T, T::ReprC> {
-    fn from(source: Option<T>) -> Self {
-        Self(source)
-    }
-}
-
-impl<'itm, T, U> Niche for &'itm T
+impl<'itm, R, C> Niche for &'itm R
 where
-    Self: FfiType<ReprC = *const U>,
+    Self: FfiType<ReprC = *const C>,
 {
     const NICHE_VALUE: Self::ReprC = core::ptr::null();
 }
 
-impl<'itm, T, U> Niche for &'itm mut T
+impl<'itm, R, C> Niche for &'itm mut R
 where
-    Self: FfiType<ReprC = *mut U>,
+    Self: FfiType<ReprC = *mut C>,
 {
     const NICHE_VALUE: Self::ReprC = core::ptr::null_mut();
 }
 
-impl<T: Niche> Ir for Option<T> {
-    type Type = IrOption<T, T::ReprC>;
+impl<R: Niche> Ir for Option<R> {
+    type Type = Option<R>;
 }
 
-impl<T: Niche> CType for IrOption<T, T::ReprC> {
-    type ReprC = T::ReprC;
+impl<R: Niche> CType<Option<R>> for Option<R> {
+    type ReprC = R::ReprC;
 }
 // TODO: Hopefully, compiler will elide checks for Option<&T>, Option<&mut T>, Option<*const T>
 // if not U parameter can be used to distinguish set them apart from other type conversions
-impl<'itm, T: FfiConvert<'itm, U> + Niche<ReprC = U>, U: ReprC> CTypeConvert<'itm, U>
-    for IrOption<T, U>
+impl<'itm, R: FfiConvert<'itm, C> + Niche<ReprC = C>, C: ReprC> CTypeConvert<'itm, Option<R>, C>
+    for Option<R>
 where
-    T::ReprC: PartialEq,
+    R::ReprC: PartialEq,
 {
-    type RustStore = T::RustStore;
-    type FfiStore = T::FfiStore;
+    type RustStore = R::RustStore;
+    type FfiStore = R::FfiStore;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> U {
-        if let Some(value) = self.0 {
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C {
+        if let Some(value) = self {
             return value.into_ffi(store);
         }
 
-        T::NICHE_VALUE
+        R::NICHE_VALUE
     }
 
-    unsafe fn try_from_repr_c(source: U, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        if source == T::NICHE_VALUE {
-            return Ok(Self(None));
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        if source == R::NICHE_VALUE {
+            return Ok(None);
         }
 
-        Ok(Self(Some(T::try_from_ffi(source, store)?)))
+        Ok(Some(R::try_from_ffi(source, store)?))
     }
 }
 
-impl<T: FfiOutPtr + Niche> COutPtr for IrOption<T, T::ReprC> {
-    type OutPtr = T::OutPtr;
+impl<R: FfiOutPtr + Niche> COutPtr<Option<R>> for Option<R> {
+    type OutPtr = R::OutPtr;
 }
 
 // SAFETY: Option<T> with a niche doesn't use store if it's inner types don't use it
-unsafe impl<T: Niche + Ir> NonLocal for IrOption<T, T::ReprC> where T::Type: NonLocal {}
+unsafe impl<R: Niche + Ir + NonLocal<R::Type>> NonLocal<Option<R>> for Option<R> {}
