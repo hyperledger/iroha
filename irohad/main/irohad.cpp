@@ -313,12 +313,6 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    if (config.max_past_created_time)
-    {
-        shared_model::validation::FieldValidator::kMaxDelay =
-                std::chrono::milliseconds(std::chrono::hours(config.max_past_created_time.value()) / std::chrono::milliseconds(1));
-    }
-
     // Configuring iroha daemon
     auto irohad = std::make_unique<Irohad>(
         config,

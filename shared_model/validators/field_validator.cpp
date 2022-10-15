@@ -121,14 +121,14 @@ namespace {
 
 namespace shared_model {
   namespace validation {
-
-    std::chrono::milliseconds FieldValidator::kMaxDelay =
-      std::chrono::milliseconds(std::chrono::hours(24) / std::chrono::milliseconds(1));
-
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
-        : future_gap_(future_gap), time_provider_(time_provider) {}
+        : future_gap_(future_gap), time_provider_(time_provider),
+          max_delay_(config->max_past_created_hours ?
+                         std::chrono::hours(config->max_past_created_hours.value()) / std::chrono::milliseconds(1)
+                                                    : kDefaultMaxDelay)
+    {}
 
     std::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
@@ -288,7 +288,7 @@ namespace shared_model {
             "CreatedTime",
             {fmt::format(
                 "sent from future, timestamp: {}, now: {}", timestamp, now)});
-      } else if (now > kMaxDelay.count() + timestamp) {
+      } else if (now > max_delay_ + timestamp) {
         return ValidationError(
             "CreatedTime",
             {fmt::format("too old, timestamp: {}, now: {}", timestamp, now)});

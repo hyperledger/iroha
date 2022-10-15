@@ -302,9 +302,7 @@ IntegrationTestFramework::IntegrationTestFramework(
       cleanup_on_exit_(cleanup_on_exit),
       db_wsv_path_(std::move(db_wsv_path)),
       db_store_path_(std::move(db_store_path)) {
-  // 1 h proposal_timeout results in non-deterministic behavior due to thread
-  // scheduling and network
-  config_.proposal_delay = 3600'000;
+  config_.proposal_creation_timeout = 500;
   // 100 ms is small delay to avoid unnecessary messages due to eternal voting
   // and to allow scheduler to switch threads
   config_.vote_delay = 100;
@@ -316,7 +314,7 @@ IntegrationTestFramework::IntegrationTestFramework(
   config_.max_proposal_size = 10;
   config_.mst_support = mst_support;
   config_.syncing_mode = false;
-  config_.max_past_created_time = 24;
+  config_.max_past_created_hours = 24;
 
   switch (db_type) {
     case iroha::StorageType::kPostgres: {

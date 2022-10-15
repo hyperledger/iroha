@@ -13,10 +13,13 @@ namespace shared_model {
 
     ValidatorsConfig::ValidatorsConfig(uint64_t max_batch_size,
                                        bool partial_ordered_batches_are_valid,
-                                       bool txs_duplicates_allowed)
+                                       bool txs_duplicates_allowed,
+                                       std::optional<uint32_t> max_past_created_hours)
         : max_batch_size(max_batch_size),
           partial_ordered_batches_are_valid(partial_ordered_batches_are_valid),
-          txs_duplicates_allowed(txs_duplicates_allowed) {}
+          txs_duplicates_allowed(txs_duplicates_allowed),
+          max_past_created_hours(max_past_created_hours)
+    {}
 
     bool validateHexString(const std::string &str) {
       static const std::regex hex_regex{R"([0-9a-fA-F]*)"};

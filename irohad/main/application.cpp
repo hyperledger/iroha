@@ -279,13 +279,13 @@ Irohad::RunResult Irohad::initSettings() {
 Irohad::RunResult Irohad::initValidatorsConfigs() {
   validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
-          config_.max_proposal_size);
+          config_.max_proposal_size, false, false, config_.max_past_created_hours);
   block_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
-          config_.max_proposal_size, true);
+          config_.max_proposal_size, true, false, config_.max_past_created_hours);
   proposal_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
-          config_.max_proposal_size, false, true);
+          config_.max_proposal_size, false, true, config_.max_past_created_hours);
   log_->info("[Init] => validators configs");
   return {};
 }
