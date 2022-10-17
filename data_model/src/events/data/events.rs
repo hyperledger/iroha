@@ -560,6 +560,49 @@ pub enum WorldEvent {
     PermissionValidator(permission::PermissionValidatorEvent),
 }
 
+impl WorldEvent {
+    /// Unfold [`Self`] and return vector of [`Event`]s in the expanding scope order: from specific to general.
+    /// E.g [`AssetEvent`] -> [`AccountEvent`] -> [`DomainEvent`]
+    pub fn flatten(self) -> SmallVec<[Event; 3]> {
+        let mut events = SmallVec::new();
+
+        match self {
+            WorldEvent::Domain(domain_event) => {
+                match &domain_event {
+                    DomainEvent::Account(account_event) => {
+                        if let AccountEvent::Asset(asset_event) = account_event {
+                            events.push(DataEvent::Asset(asset_event.clone()));
+                        }
+                        events.push(DataEvent::Account(account_event.clone()));
+                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => {
+                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()));
+                    }
+                    _ => (),
+                }
+                events.push(DataEvent::Domain(domain_event));
+            }
+            WorldEvent::Peer(peer_event) => {
+                events.push(DataEvent::Peer(peer_event));
+            }
+            WorldEvent::Role(role_event) => {
+                events.push(DataEvent::Role(role_event));
+            }
+            WorldEvent::Trigger(trigger_event) => {
+                events.push(DataEvent::Trigger(trigger_event));
+            }
+            WorldEvent::PermissionToken(token_event) => {
+                events.push(DataEvent::PermissionToken(token_event));
+            }
+            WorldEvent::PermissionValidator(validator_event) => {
+                events.push(DataEvent::PermissionValidator(validator_event));
+            }
+        }
+
+        events
+    }
+}
+
 /// Event
 #[derive(
     Clone,
@@ -609,47 +652,6 @@ impl Event {
             | Self::PermissionToken(_)
             | Self::PermissionValidator(_) => None,
         }
-    }
-}
-
-impl From<WorldEvent> for SmallVec<[Event; 3]> {
-    fn from(world_event: WorldEvent) -> Self {
-        let mut events = SmallVec::new();
-
-        match world_event {
-            WorldEvent::Domain(domain_event) => {
-                match &domain_event {
-                    DomainEvent::Account(account_event) => {
-                        if let AccountEvent::Asset(asset_event) = account_event {
-                            events.push(DataEvent::Asset(asset_event.clone()));
-                        }
-                        events.push(DataEvent::Account(account_event.clone()));
-                    }
-                    DomainEvent::AssetDefinition(asset_definition_event) => {
-                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()));
-                    }
-                    _ => (),
-                }
-                events.push(DataEvent::Domain(domain_event));
-            }
-            WorldEvent::Peer(peer_event) => {
-                events.push(DataEvent::Peer(peer_event));
-            }
-            WorldEvent::Role(role_event) => {
-                events.push(DataEvent::Role(role_event));
-            }
-            WorldEvent::Trigger(trigger_event) => {
-                events.push(DataEvent::Trigger(trigger_event));
-            }
-            WorldEvent::PermissionToken(token_event) => {
-                events.push(DataEvent::PermissionToken(token_event));
-            }
-            WorldEvent::PermissionValidator(validator_event) => {
-                events.push(DataEvent::PermissionValidator(validator_event));
-            }
-        }
-
-        events
     }
 }
 
