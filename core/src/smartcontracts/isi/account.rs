@@ -279,18 +279,34 @@ pub mod isi {
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
-            wsv.modify_account(&account_id.clone(), |account| {
+            wsv.modify_account_multiple_events(&account_id, |account| {
                 if !account.add_role(role_id.clone()) {
                     return Err(Error::Repetition(
                         InstructionType::Grant,
                         IdBox::RoleId(role_id),
                     ));
                 }
+                let events: Vec<_> = wsv
+                    .roles()
+                    .get(&role_id)
+                    .iter()
+                    .flat_map(|role| role.permissions())
+                    .map(PermissionToken::definition_id)
+                    .cloned()
+                    .map(|permission_id| AccountPermissionChanged {
+                        account_id: account_id.clone(),
+                        permission_id,
+                    })
+                    .map(AccountEvent::PermissionAdded)
+                    .chain(std::iter::once(AccountEvent::RoleGranted(
+                        AccountRoleChanged {
+                            account_id: account_id.clone(),
+                            role_id,
+                        },
+                    )))
+                    .collect();
 
-                Ok(AccountEvent::RoleGranted(AccountRoleChanged {
-                    account_id,
-                    role_id,
-                }))
+                Ok(events)
             })
         }
     }
@@ -308,15 +324,31 @@ pub mod isi {
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
-            wsv.modify_account(&account_id.clone(), |account| {
+            wsv.modify_account_multiple_events(&account_id, |account| {
                 if !account.remove_role(&role_id) {
-                    return Err(FindError::Account(account_id).into());
+                    return Err(FindError::Role(role_id).into());
                 }
+                let events: Vec<_> = wsv
+                    .roles()
+                    .get(&role_id)
+                    .iter()
+                    .flat_map(|role| role.permissions())
+                    .map(PermissionToken::definition_id)
+                    .cloned()
+                    .map(|permission_id| AccountPermissionChanged {
+                        account_id: account_id.clone(),
+                        permission_id,
+                    })
+                    .map(AccountEvent::PermissionRemoved)
+                    .chain(std::iter::once(AccountEvent::RoleRevoked(
+                        AccountRoleChanged {
+                            account_id: account_id.clone(),
+                            role_id,
+                        },
+                    )))
+                    .collect();
 
-                Ok(AccountEvent::RoleRevoked(AccountRoleChanged {
-                    account_id,
-                    role_id,
-                }))
+                Ok(events)
             })
         }
     }
