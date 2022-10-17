@@ -155,7 +155,7 @@ pub mod isi {
         #[metrics("unregister_role")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
@@ -174,16 +174,11 @@ pub mod isi {
             }
 
             for account_id in accounts_with_role {
-                wsv.modify_account(&account_id.clone(), |account| {
-                    if !account.remove_role(&role_id) {
-                        error!(%role_id, "role not found - this is a bug");
-                    }
-
-                    Ok(AccountEvent::RoleRevoked(AccountRoleChanged {
-                        account_id,
-                        role_id: role_id.clone(),
-                    }))
-                })?;
+                let revoke: Revoke<Account, RoleId> = Revoke {
+                    object: role_id.clone(),
+                    destination_id: account_id,
+                };
+                revoke.execute(authority.clone(), wsv)?
             }
 
             wsv.modify_world(|world| {
