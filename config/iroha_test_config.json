@@ -38,7 +38,7 @@
       "max_instruction_number": 4096,
       "max_wasm_size_bytes": 4194304
     },
-    "ACTOR_CHANNEL_CAPACITY": 100,
+    "CONNECT_PEERS_PERIOD_SECONDS": 1,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
   },

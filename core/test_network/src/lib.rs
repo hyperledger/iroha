@@ -207,7 +207,7 @@ impl Network {
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = max_txs_in_block;
-        configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
+        configuration.logger.max_log_level = iroha_logger::Level::TRACE.into();
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -852,6 +852,7 @@ impl TestConfiguration for Configuration {
 
     fn pipeline_time() -> Duration {
         Duration::from_millis(Self::test().sumeragi.pipeline_time_ms())
+            + Duration::from_secs(Self::test().sumeragi.connect_peers_period_seconds.into())
     }
 
     fn block_sync_gossip_time() -> Duration {

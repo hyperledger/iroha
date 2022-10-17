@@ -101,6 +101,9 @@ impl Sumeragi {
                 wsv: std::sync::Mutex::new(wsv),
                 commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
                 block_time: Duration::from_millis(configuration.block_time_ms),
+                connect_peers_time: Duration::from_secs(
+                    configuration.connect_peers_period_seconds.into(),
+                ),
                 transaction_limits: configuration.transaction_limits,
                 transaction_validator,
                 queue,
@@ -258,16 +261,14 @@ impl Sumeragi {
         self.wsv_mutex_access().blocks_from_height(block_height)
     }
 
-    /// Get a random online peer for use in block synchronization.
+    /// Get list of peer id's for use in block synchronization.
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
-        use rand::{seq::SliceRandom, SeedableRng};
-
-        let rng = &mut rand::rngs::StdRng::from_entropy();
-        let peers = self.internal.current_online_peers.lock().expect(
-            "Mutex for `current_online_peers` poisoned in `get_random_peer_for_block_sync`",
-        );
-        peers.choose(rng).map(|id| Peer::new(id.clone()))
+    pub fn get_block_sync_peer_ids(&self) -> Vec<PeerId> {
+        self.internal
+            .current_online_peers
+            .lock()
+            .expect("Mutex for `current_online_peers` poisoned in `get_random_peer_for_block_sync`")
+            .clone()
     }
 
     /// Access the world state view object in a locking fashion.
