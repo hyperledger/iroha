@@ -224,9 +224,9 @@ We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.
 * [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/)
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
 * [Minting your first asset (tutorial)](./docs/source/tutorials/mint-your-first-asset.md)
-* [Glossary](./docs/source/references/glossary.md)
+* [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary.html)
 * [Configuration](./docs/source/references/config.md)
-* [Iroha Special Instructions](./docs/source/references/isi.md)
+* [Iroha Special Instructions]([./docs/source/references/isi.md)](https://hyperledger.github.io/iroha-2-docs/guide/advanced/isi.html)
 * [API specification](./docs/source/references/api_spec.md)
 
 Iroha SDKs:
