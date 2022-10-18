@@ -59,6 +59,8 @@ where
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,
     /// Current [`Peer`]s in [`Peer::Ready`] state.
     pub peers: HashMap<PublicKey, RefPeer<T, K, E>>,
+    /// Connecting to peer id's.
+    connecting_peer_keys: Vec<PublicKey>,
     /// [`HashSet`] of [`String`] which should represent the [`std::net::IpAddr`] of the untrusted remote [`Peer`]:
     /// inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi.
     /// In case the [`String`] represents an unresolved hostname, the first reconnection is not refused
@@ -98,6 +100,7 @@ where
             listen_addr,
             new_peers: HashMap::new(),
             peers: HashMap::new(),
+            connecting_peer_keys: Vec::new(),
             untrusted_peers: HashSet::new(),
             listener: Some(listener),
             public_key,
@@ -212,8 +215,22 @@ where
     async fn handle(&mut self, msg: ConnectPeer) {
         if self.peers.contains_key(&msg.peer.public_key) {
             debug!(peer = %msg.peer, "Peer already connected");
+
+            if let Some(key) = self
+                .connecting_peer_keys
+                .iter()
+                .position(|x| *x == msg.peer.public_key)
+            {
+                self.connecting_peer_keys.remove(key);
+            }
             return;
         }
+
+        if self.connecting_peer_keys.contains(&msg.peer.public_key) {
+            debug!(peer = %msg.peer, "Already connecting to peer");
+            return;
+        }
+        self.connecting_peer_keys.push(msg.peer.public_key);
 
         debug!(
             listen_addr = %self.listen_addr, peer.id.address = %msg.peer.address,
