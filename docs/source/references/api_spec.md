@@ -305,7 +305,7 @@ uptime_since_genesis_ms 54572974
 view_changes 0
 ```
 
-Learn [how to use metrics](../guides/metrics.md).
+Learn [how to use metrics](https://hyperledger.github.io/iroha-2-docs/guide/advanced/metrics.html).
 
 ### API version
 
