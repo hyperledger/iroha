@@ -157,7 +157,7 @@ where
         }
     }
 
-    /// Creates a shared key from two public keys - local and external,
+    /// Creates a shared key from two public keys (local and external),
     /// then instantiates an encryptor from that key.
     ///
     /// # Errors

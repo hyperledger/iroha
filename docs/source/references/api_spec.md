@@ -15,9 +15,9 @@
 **Expects**: Body: [`VersionedSignedTransaction`](#iroha-structures)
 
 **Responses**:
-- 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
-- 400 Bad Request - Transaction Rejected (Malformed)
-- 401 Unauthorized - Transaction Rejected (Improperly signed)
+- 200 OK: Transaction Accepted (But not guaranteed to have passed consensus yet)
+- 400 Bad Request: Transaction Rejected (Malformed)
+- 401 Unauthorized: Transaction Rejected (Improperly signed)
 
 ### Query
 
@@ -32,8 +32,8 @@
 **Expects**:
 - Body: [`VersionedSignedQueryRequest`](#iroha-structures)
 - Query parameters:
-  + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
-  + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
+  + `start`: Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
+  + `limit`: Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
 
@@ -163,8 +163,8 @@ curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configurat
 ```
 
 **Responses**:
-- 200 OK - Field was found and either doc or value is returned in json body.
-- 404 Not Found - Field wasn't found
+- 200 OK: Field was found and either doc or value is returned in json body.
+- 404 Not Found: Field wasn't found
 
 ### Configuration
 
@@ -186,9 +186,9 @@ One configuration option is currently supported: `LogLevel`. It is set to the lo
 Acceptable values are `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, corresponding to the [respective configuration options](./config.md#logger.max_log_level).
 
 **Responses**:
-- 200 OK - Log level has changed successfully. The confirmed new log level is returned in the body.
-- 400 Bad Request - request body malformed.
-- 500 Internal Server Error - Request body valid, but changing the log level failed (lock contention).
+- 200 OK: Log level has changed successfully. The confirmed new log level is returned in the body.
+- 400 Bad Request: request body malformed.
+- 500 Internal Server Error: Request body valid, but changing the log level failed (lock contention).
 
 ### Health
 
@@ -203,7 +203,7 @@ Acceptable values are `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, corresponding t
 **Expects**: -
 
 **Responses**:
-- 200 OK - The peer is up.
+- 200 OK: The peer is up.
 Also returns current status of peer in json string:
 ```
 "Healthy"
@@ -224,7 +224,7 @@ Also returns current status of peer in json string:
 **Expects**: -
 
 **Responses**:
-- 200 OK - reports status:
+- 200 OK reports status:
   + Number of connected peers, except for the reporting peer itself
   + Number of committed blocks (block height)
   + Total number of accepted transactions
@@ -260,7 +260,7 @@ __CAUTION__: Almost all fields are 64-bit integers and should be handled with ca
 **Expects**: -
 
 **Responses**:
-- 200 OK - reports 8 of 10 metrics:
+- 200 OK reports 8 of 10 metrics:
 
 ```bash
 # HELP accounts User accounts registered at this time
@@ -320,7 +320,7 @@ Learn [how to use metrics](../guides/metrics.md).
 **Expects**: -
 
 **Responses**:
-- 200 OK - The current version of API used by Iroha returned as a json string.
+- 200 OK: The current version of API used by Iroha returned as a json string.
 Grabbed from the genesis block's version, so at least a minimal subnet of 4 peers
 should be running and the genesis be submitted at the time of request.
 ```
@@ -338,19 +338,19 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 ## Iroha Structures
 
-- `VersionedSignedTransaction` - `iroha_data_model::transaction::VersionedSignedTransaction`
-- `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
+- `VersionedSignedTransaction`: `iroha_data_model::transaction::VersionedSignedTransaction`
+- `VersionedSignedQueryRequest`: `iroha_data_model::query::VersionedSignedQueryRequest`
 
-- `VersionedPaginatedQueryResult` - `iroha_data_model::query::VersionedPaginatedQueryResult`
-- `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
-- `FindError` - `iroha_core::smartcontracts::isi::error::FindError`
+- `VersionedPaginatedQueryResult`: `iroha_data_model::query::VersionedPaginatedQueryResult`
+- `QueryError`: `iroha_core::smartcontracts::isi::query::Error`
+- `FindError`: `iroha_core::smartcontracts::isi::error::FindError`
 
-- `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
-- `EventStreamSubscriptionAccepted` - `iroha_data_model::events::EventPublisherMessage::SubscriptionAccepted`
-- `Event` - `iroha_data_model::events::EventPublisherMessage::Event`
-- `EventReceived` - `iroha_data_model::events::EventSubscriberMessage::EventReceived`
+- `EventStreamSubscriptionRequest`: `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
+- `EventStreamSubscriptionAccepted`: `iroha_data_model::events::EventPublisherMessage::SubscriptionAccepted`
+- `Event`: `iroha_data_model::events::EventPublisherMessage::Event`
+- `EventReceived`: `iroha_data_model::events::EventSubscriberMessage::EventReceived`
 
-- `BlockStreamSubscriptionAccepted` - `iroha_core::block::stream::BlockPublisherMessage::SubscriptionAccepted`
-- `BlockStreamSubscriptionRequest` - `iroha_core::block::stream::BlockSubscriberMessage::SubscriptionRequest`
-- `Block` - `iroha_core::block::stream::BlockPublisherMessage::Block`
-- `BlockReceived` - `iroha_core::block::stream::BlockSubscriberMessage::BlockReceived`
+- `BlockStreamSubscriptionAccepted`: `iroha_core::block::stream::BlockPublisherMessage::SubscriptionAccepted`
+- `BlockStreamSubscriptionRequest`: `iroha_core::block::stream::BlockSubscriberMessage::SubscriptionRequest`
+- `Block`: `iroha_core::block::stream::BlockPublisherMessage::Block`
+- `BlockReceived`: `iroha_core::block::stream::BlockSubscriberMessage::BlockReceived`

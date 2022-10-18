@@ -11,7 +11,7 @@ pub use http::{Method, Response, StatusCode};
 /// The order of builder methods invocation is not strict. There is no guarantee that builder user calls
 /// all methods. Only [`RequestBuilder::new`] is the required one.
 pub trait RequestBuilder {
-    /// Entrypoint - create a new builder with specified method and URL.
+    /// Create a new builder with specified method and URL. Entrypoint for most client operations.
     #[must_use]
     fn new(method: Method, url: impl AsRef<str>) -> Self;
 
@@ -76,11 +76,11 @@ pub mod ws {
     ///
     /// Flow consists of the following:
     ///
-    /// 1. **Init stage** - establish `WebSocket` connection with Iroha
-    /// 2. **Handshake stage** - send a "subscription" message to Iroha and ensure that the next message from Iroha
+    /// 1. **Init stage**: establish `WebSocket` connection with Iroha
+    /// 2. **Handshake stage**: send a "subscription" message to Iroha and ensure that the next message from Iroha
     ///     is a "subscription accepted" message
-    /// 3. **Events stage** - wait for messages from Iroha. For each message, decode *some event* from it
-    ///     and send back *some "received"* mesage
+    /// 3. **Events stage**: wait for messages from Iroha. For each message, decode *some event* from it
+    ///     and send back *some "received"* message
     ///
     ///
     ///

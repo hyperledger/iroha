@@ -25,12 +25,11 @@ use crate::{
     Identifiable, Name, ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
-/// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
-/// ([`Asset`]) pairs.
+/// API to work with collections of [`Id`] : [`Asset`] mappings.
 pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
 
-/// [`AssetDefinitionsMap`] provides an API to work with collection of key ([`DefinitionId`]) - value
-/// (`AssetDefinition`) pairs.
+/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`DefinitionId`])-value(`AssetDefinition`)
+/// pairs.
 pub type AssetDefinitionsMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
 

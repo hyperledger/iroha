@@ -39,7 +39,7 @@ pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
     DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
 
 /// The chain of the previous block hash. If there is no previous
-/// block - the blockchain is empty.
+/// block, the blockchain is empty.
 #[derive(Debug, Clone, Copy)]
 pub struct EmptyChainHash<T>(PhantomData<T>);
 

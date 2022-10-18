@@ -40,7 +40,7 @@ All public entites of your module should be documented as well. But first, let's
 
 ### 3. Write your logic
 
-The development of a new Iroha Module has a goal - to bring new functionality to Iroha.
+The development of a new Iroha Module has a goal of bringing new functionality to Iroha.
 So based on the goal and requirements, you have you will introduce new entities and place them inside newly created module.
 
 Let's specify particular categories of such entities and look how they can be implemented according to Iroha best practices.
@@ -125,9 +125,9 @@ And see what it does to register a new Bridge:
 
 We will not discuss Bridge-related terminology here – the thing we want to look at is how we can compose these steps into one new Iroha Special Instruction.
 
-As you can see, we have `Instruction::If(...)` here - it's [the utility Iroha Special Instruction](references/glossary#utility-iroha-special-instruction).
-It takes three arguments - `condition`, `instruction_to_do_if_true`, `instruction_to_do_if_false_or_nothing`.
-By this instruction we've made the first step of our algorithm - run a check and terminated execution if there is no Owner's Account.
+As you can see, we have `Instruction::If(...)` here. It's [the utility Iroha Special Instruction](references/glossary#utility-iroha-special-instruction).
+It takes three arguments: `condition`, `instruction_to_do_if_true`, `instruction_to_do_if_false_or_nothing`.
+By this instruction we've made the first step of our algorithm: run a check and terminate execution if there is no Owner's Account.
 Inside `condition` we placed `Instruction::ExecuteQuery(...)` which fails if [Iroha Query](references/glossary#iroha-query) fails.
 
 If the first step succeeds, we should move forward and execute sequence of the following steps.

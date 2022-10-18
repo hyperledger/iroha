@@ -88,7 +88,7 @@ pub trait OutPtrOf<T: ReprC>: ReprC {
     ///
     /// # Errors
     ///
-    /// * [`FfiReturn::ArgIsNull`] - if any of the out-pointers in [`Self`] is set to null
+    /// * [`FfiReturn::ArgIsNull`]: if any of the out-pointers in [`Self`] is set to null
     ///
     /// # Safety
     ///
