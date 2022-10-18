@@ -851,7 +851,7 @@ impl TestConfiguration for Configuration {
     }
 
     fn pipeline_time() -> Duration {
-        Duration::from_millis(Self::test().sumeragi.pipeline_time_ms())
+        Duration::from_millis(Self::test().sumeragi.pipeline_time_ms()) + Duration::from_secs(1)
     }
 
     fn block_sync_gossip_time() -> Duration {
