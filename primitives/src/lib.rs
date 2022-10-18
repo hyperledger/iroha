@@ -18,6 +18,7 @@ pub mod conststr;
 pub mod fixed;
 pub mod must_use;
 pub mod small;
+pub mod sync;
 
 use fixed::prelude::*;
 
