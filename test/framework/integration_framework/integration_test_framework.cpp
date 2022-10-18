@@ -653,8 +653,8 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
     const shared_model::proto::Transaction &tx) {
   sendTx(tx, [this](const auto &status) {
     if (!status.statelessErrorOrCommandName().empty()) {
-      log_->debug("Got error while sending transaction: "
-                  + status.statelessErrorOrCommandName());
+      log_->debug("Got error while sending transaction: {}",
+                  status.statelessErrorOrCommandName());
     }
   });
   return *this;
