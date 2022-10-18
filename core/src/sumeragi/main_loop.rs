@@ -564,6 +564,8 @@ pub fn run<F>(
         state.current_topology.role(&sumeragi.peer_id),
     );
 
+    let mut last_connect_peers_instant = Instant::now();
+
     // do normal rounds
     let mut voting_block_option = None;
     let mut block_signature_acc = Vec::new();
@@ -592,7 +594,10 @@ pub fn run<F>(
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
 
-        sumeragi.connect_peers(&state.current_topology);
+        if last_connect_peers_instant.elapsed().as_secs() > 30 {
+            sumeragi.connect_peers(&state.current_topology);
+            last_connect_peers_instant = Instant::now();
+        }
 
         {
             let state = &mut state;
@@ -1177,7 +1182,8 @@ fn sumeragi_init_commit_genesis<F>(
 ) where
     F: FaultInjection,
 {
-    std::thread::sleep(Duration::from_millis(250));
+    sumeragi.connect_peers(&state.current_topology);
+    std::thread::sleep(Duration::from_millis(500));
 
     iroha_logger::info!("Initializing iroha using the genesis block.");
 
@@ -1265,7 +1271,7 @@ where
     sumeragi.zeroize();
     loop {
         sumeragi.connect_peers(&state.current_topology);
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_secs(5));
         early_return(shutdown_receiver)?;
         // we must connect to peers so that our block_sync can find us
         // the genesis block.
