@@ -27,6 +27,7 @@ pub struct BlockSynchronizer {
     block_batch_size: u32,
     broker: Broker,
     actor_channel_capacity: u32,
+    block_request_peer_index: usize,
 }
 
 #[async_trait::async_trait]
@@ -45,9 +46,11 @@ impl Actor for BlockSynchronizer {
 impl Handler<message::ReceiveUpdates> for BlockSynchronizer {
     type Result = ();
     async fn handle(&mut self, _: message::ReceiveUpdates) {
-        if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
-            self.request_latest_blocks_from_peer(random_peer.id.clone())
-                .await;
+        let peer_ids = self.sumeragi.get_block_sync_peer_ids();
+        if !peer_ids.is_empty() {
+            let peer_id = peer_ids[self.block_request_peer_index % peer_ids.len()].clone();
+            self.request_latest_blocks_from_peer(peer_id).await;
+            self.block_request_peer_index = self.block_request_peer_index.wrapping_add(1);
         }
     }
 }
@@ -85,6 +88,7 @@ impl BlockSynchronizer {
             block_batch_size: config.block_batch_size,
             broker,
             actor_channel_capacity: config.actor_channel_capacity,
+            block_request_peer_index: 0,
         }
     }
 }
