@@ -194,7 +194,9 @@ pub fn submit(
     let err_msg = format!("Failed to submit transaction {:?}", tx);
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
-    iroha_client.submit_transaction(tx).wrap_err(err_msg)?;
+    iroha_client
+        .submit_transaction_blocking(tx)
+        .wrap_err(err_msg)?;
     Ok(())
 }
 
