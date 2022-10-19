@@ -1,4 +1,4 @@
-//! Structs related to topology of the network - order and predefined roles of peers.
+//! Structures formalising the peer topology (e.g. which peers have which predefined roles).
 #![allow(
     clippy::new_without_default,
     clippy::std_instead_of_core,
@@ -92,13 +92,13 @@ impl GenesisBuilder {
         self
     }
 
-    /// Set a - validators and leader and proxy tail.
+    /// Set a — validators and leader and proxy tail.
     pub fn with_set_a(mut self, peers: HashSet<PeerId>) -> Self {
         self.set_a = Some(peers);
         self
     }
 
-    /// Set b - observing peers
+    /// Set b — observing peers
     pub fn with_set_b(mut self, peers: HashSet<PeerId>) -> Self {
         self.set_b = Some(peers);
         self
@@ -197,7 +197,7 @@ impl Builder {
     }
 }
 
-/// Network topology - order of peers that defines their roles in this round.
+/// The ordering of the peers which defines their roles in the current round of consensus.
 #[derive(Clone, Debug, Encode, Decode, IntoSchema, Serialize)]
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
@@ -231,7 +231,7 @@ impl Topology {
             .expect("Topology was invalid.");
     }
 
-    /// Apply a view change - change topology in case there were faults in the consensus round.
+    /// Apply a `view change`, i.e. change the topology in case there were faults in the consensus round.
     #[allow(clippy::expect_used)]
     pub fn rebuild_with_new_view_change_count(&mut self, view_change_count: u64) {
         *self = self.clone().into_builder().build(view_change_count).expect(

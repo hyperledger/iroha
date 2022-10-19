@@ -278,7 +278,7 @@ pub mod isi {
                     })
                     .into())
                 } else {
-                    error!(%role_id, "role not found - this is a bug");
+                    error!(%role_id, "role not found. This is a bug");
                     Err(FindError::Role(role_id.clone()).into())
                 }
             })?;
@@ -312,7 +312,7 @@ pub mod isi {
                 wsv.modify_account(&account_id, |account| {
                     let id = account.id();
                     if !wsv.remove_account_permission(id, &token) {
-                        error!(%token, "token not found - this is a bug");
+                        error!(%token, "token not found. This is a bug");
                     }
 
                     Ok(AccountEvent::PermissionRemoved(id.clone()))

@@ -129,7 +129,7 @@ pub mod isi {
                     for key_id in keys {
                         wsv.modify_account(account.id(), |account_mut| {
                             if account_mut.remove_asset(&key_id).is_none() {
-                                error!(%key_id, "asset not found - this is a bug");
+                                error!(%key_id, "asset not found. This is a bug");
                             }
 
                             Ok(AccountEvent::Asset(AssetEvent::Deleted(key_id)))
