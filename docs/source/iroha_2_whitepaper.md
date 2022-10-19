@@ -367,4 +367,4 @@ Versioning support will have the following benefits:
 
 # Glossary
 
-The glossary of commonly used terms can be found [here](./references/glossary.md)
+The glossary of commonly used terms can be found [here](https://hyperledger.github.io/iroha-2-docs/guide/glossary.html)

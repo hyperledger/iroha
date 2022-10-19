@@ -109,7 +109,6 @@ impl Default for WorldStateView {
 }
 
 impl Clone for WorldStateView {
-    #[allow(clippy::expect_used)]
     fn clone(&self) -> Self {
         Self {
             world: Clone::clone(&self.world),
@@ -146,9 +145,7 @@ impl WorldStateView {
     }
 
     /// Return a set of all permission tokens granted to this account.
-    #[allow(clippy::unused_self)]
     pub fn account_permission_tokens(&self, account: &Account) -> Vec<PermissionToken> {
-        #[allow(unused_mut)]
         let mut tokens: Vec<PermissionToken> =
             self.account_inherent_permission_tokens(account).collect();
         for role_id in account.roles() {
@@ -279,7 +276,6 @@ impl WorldStateView {
     /// you likely have data corruption.
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
-    #[allow(clippy::too_many_lines)]
     pub fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         let time_event = self.create_time_event(block.as_v1())?;
         self.events_buffer
@@ -423,24 +419,34 @@ impl WorldStateView {
             .collect()
     }
 
-    /// Get `World` and pass it to closure to modify it
-    ///
-    /// Produces events in the `WSV` that are produced by `f` during execution.
-    /// Events are produced in the order of expanding scope: from specific to general.
-    /// Example: account events before domain events.
+    /// The same as [`Self::modify_world_multiple_events`] except closure `f` returns a single [`WorldEvent`].
     ///
     /// # Errors
-    /// Fails if `f` fails
-    ///
-    /// # Panics
-    /// (Rare) Panics if can't lock `self.events` for writing
-    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+    /// Forward errors from [`Self::modify_world_multiple_events`]
     pub fn modify_world(
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let world_event = f(&self.world)?;
-        let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
+        self.modify_world_multiple_events(move |world| f(world).map(std::iter::once))
+    }
+
+    /// Get [`World`] and pass it to `closure` to modify it.
+    ///
+    /// The function puts events produced by `f` into `events_buffer`.
+    /// Events should be produced in the order of expanding scope: from specific to general.
+    /// Example: account events before domain events.
+    ///
+    /// # Errors
+    /// Forward errors from `f`
+    pub fn modify_world_multiple_events<I: IntoIterator<Item = WorldEvent>>(
+        &self,
+        f: impl FnOnce(&World) -> Result<I, Error>,
+    ) -> Result<(), Error> {
+        let world_events = f(&self.world)?;
+        let data_events: SmallVec<[DataEvent; 3]> = world_events
+            .into_iter()
+            .flat_map(WorldEvent::flatten)
+            .collect();
 
         for event in data_events.iter() {
             self.world.triggers.handle_data_event(event.clone());
@@ -523,21 +529,34 @@ impl WorldStateView {
         Ok(value)
     }
 
-    /// Get `Domain` and pass it to closure to modify it
+    /// The same as [`Self::modify_domain_multiple_events`] except closure `f` returns a single [`DomainEvent`].
     ///
     /// # Errors
-    /// Fails if there is no domain
+    /// Forward errors from [`Self::modify_domain_multiple_events`]
     pub fn modify_domain(
         &self,
         id: &<Domain as Identifiable>::Id,
         f: impl FnOnce(&mut Domain) -> Result<DomainEvent, Error>,
     ) -> Result<(), Error> {
-        self.modify_world(|world| {
+        self.modify_domain_multiple_events(id, move |domain| f(domain).map(std::iter::once))
+    }
+
+    /// Get [`Domain`] and pass it to `closure` to modify it
+    ///
+    /// # Errors
+    /// - If there is no domain
+    /// - Forward errors from `f`
+    pub fn modify_domain_multiple_events<I: IntoIterator<Item = DomainEvent>>(
+        &self,
+        id: &<Domain as Identifiable>::Id,
+        f: impl FnOnce(&mut Domain) -> Result<I, Error>,
+    ) -> Result<(), Error> {
+        self.modify_world_multiple_events(|world| {
             let mut domain = world
                 .domains
                 .get_mut(id)
                 .ok_or_else(|| FindError::Domain(id.clone()))?;
-            f(domain.value_mut()).map(Into::into)
+            f(domain.value_mut()).map(|events| events.into_iter().map(Into::into))
         })
     }
 
@@ -622,61 +641,108 @@ impl WorldStateView {
         Ok(f(account))
     }
 
-    /// Get `Account` and pass it to closure to modify it
+    /// The same as [`Self::modify_account_multiple_events`] except closure `f` returns a single [`AccountEvent`].
     ///
     /// # Errors
-    /// Fails if there is no domain or account
+    /// Forward errors from [`Self::modify_account_multiple_events`]
     pub fn modify_account(
         &self,
         id: &AccountId,
         f: impl FnOnce(&mut Account) -> Result<AccountEvent, Error>,
     ) -> Result<(), Error> {
-        self.modify_domain(&id.domain_id, |domain| {
+        self.modify_account_multiple_events(id, move |account| f(account).map(std::iter::once))
+    }
+
+    /// Get [`Account`] and pass it to `closure` to modify it
+    ///
+    /// # Errors
+    /// - If there is no domain or account
+    /// - Forward errors from `f`
+    pub fn modify_account_multiple_events<I: IntoIterator<Item = AccountEvent>>(
+        &self,
+        id: &AccountId,
+        f: impl FnOnce(&mut Account) -> Result<I, Error>,
+    ) -> Result<(), Error> {
+        self.modify_domain_multiple_events(&id.domain_id, |domain| {
             let account = domain
                 .account_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
-            f(account).map(DomainEvent::Account)
+            f(account).map(|events| events.into_iter().map(DomainEvent::Account))
         })
     }
 
-    /// Get `Asset` by its id
+    /// The same as [`Self::modify_asset_multiple_events`] except closure `f` returns a single [`AssetEvent`].
     ///
     /// # Errors
-    /// Fails if there are no such asset or account
-    #[allow(clippy::missing_panics_doc)]
+    /// Forward errors from [`Self::modify_asset_multiple_events`]
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
         f: impl FnOnce(&mut Asset) -> Result<AssetEvent, Error>,
     ) -> Result<(), Error> {
-        self.modify_account(&id.account_id, |account| {
+        self.modify_asset_multiple_events(id, move |asset| f(asset).map(std::iter::once))
+    }
+
+    /// Get [`Asset`] and pass it to `closure` to modify it.
+    /// If asset value hits 0 after modification, asset is removed from the [`Account`].
+    ///
+    /// # Errors
+    /// - If there are no such asset or account
+    /// - Forward errors from `f`
+    ///
+    /// # Panics
+    /// If removing asset from account failed
+    pub fn modify_asset_multiple_events<I: IntoIterator<Item = AssetEvent>>(
+        &self,
+        id: &<Asset as Identifiable>::Id,
+        f: impl FnOnce(&mut Asset) -> Result<I, Error>,
+    ) -> Result<(), Error> {
+        self.modify_account_multiple_events(&id.account_id, |account| {
             let asset = account
                 .asset_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
 
-            let event_result = f(asset);
+            let events_result = f(asset);
             if asset.value().is_zero_value() {
                 assert!(account.remove_asset(id).is_some());
             }
 
-            event_result.map(AccountEvent::Asset)
+            events_result.map(|events| events.into_iter().map(AccountEvent::Asset))
         })
     }
 
-    /// Get `AssetDefinitionEntry` with an ability to modify it.
+    /// The same as [`Self::modify_asset_definition_multiple_events`] except closure `f` returns a single [`AssetDefinitionEvent`].
     ///
     /// # Errors
-    /// Fails if asset definition entry does not exist
+    /// Forward errors from [`Self::modify_asset_definition_entry_multiple_events`]
     pub fn modify_asset_definition_entry(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
         f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
-        self.modify_domain(&id.domain_id, |domain| {
+        self.modify_asset_definition_entry_multiple_events(id, move |asset_definition| {
+            f(asset_definition).map(std::iter::once)
+        })
+    }
+
+    /// Get [`AssetDefinitionEntry`] and pass it to `closure` to modify it
+    ///
+    /// # Errors
+    /// - If asset definition entry does not exist
+    /// - Forward errors from `f`
+    pub fn modify_asset_definition_entry_multiple_events<
+        I: IntoIterator<Item = AssetDefinitionEvent>,
+    >(
+        &self,
+        id: &<AssetDefinition as Identifiable>::Id,
+        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<I, Error>,
+    ) -> Result<(), Error> {
+        self.modify_domain_multiple_events(&id.domain_id, |domain| {
             let asset_definition_entry = domain
                 .asset_definition_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-            f(asset_definition_entry).map(DomainEvent::AssetDefinition)
+            f(asset_definition_entry)
+                .map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
         })
     }
 
@@ -821,17 +887,29 @@ impl WorldStateView {
         &self.world.triggers
     }
 
-    /// Get trigger set and modify it with `f`
-    ///
-    /// Produces [`TriggerEvent`] event from `f`
+    /// The same as [`Self::modify_triggers_multiple_events`] except closure `f` returns a single `TriggerEvent`.
     ///
     /// # Errors
-    /// Throws `f` errors
+    /// Forward errors from [`Self::modify_triggers_multiple_events`]
     pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
-        self.modify_world(|world| f(&world.triggers).map(WorldEvent::Trigger))
+        self.modify_triggers_multiple_events(move |triggers| f(triggers).map(std::iter::once))
+    }
+
+    /// Get [`TriggerSet`] and pass it to `closure` to modify it
+    ///
+    /// # Errors
+    /// Forward errors from `f`
+    pub fn modify_triggers_multiple_events<I, F>(&self, f: F) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = TriggerEvent>,
+        F: FnOnce(&TriggerSet) -> Result<I, Error>,
+    {
+        self.modify_world_multiple_events(|world| {
+            f(&world.triggers).map(|events| events.into_iter().map(WorldEvent::Trigger))
+        })
     }
 
     /// Execute trigger with `trigger_id` as id and `authority` as owner
@@ -851,17 +929,30 @@ impl WorldStateView {
         self.events_buffer.borrow_mut().push(event.into());
     }
 
-    /// Get chain of validators and modify it with `f`
-    ///
-    /// Produces [`PermissionValidatorEvent`] from `f`
+    /// The same as [`Self::modify_validator_multiple_events`] except closure `f` returns a single [`PermissionValidatorEvent`].
     ///
     /// # Errors
-    /// Throws `f` errors
+    /// Forward errors from [`Self::modify_validators_multiple_events`]
     pub fn modify_validators<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&crate::validator::Chain) -> Result<PermissionValidatorEvent, Error>,
     {
-        self.modify_world(|world| f(&world.validators).map(WorldEvent::PermissionValidator))
+        self.modify_validators_multiple_events(move |chain| f(chain).map(std::iter::once))
+    }
+
+    /// Get [`crate::validator::Chain`] and pass it to `closure` to modify it
+    ///
+    /// # Errors
+    /// Forward errors from `f`
+    pub fn modify_validators_multiple_events<I, F>(&self, f: F) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = PermissionValidatorEvent>,
+        F: FnOnce(&crate::validator::Chain) -> Result<I, Error>,
+    {
+        self.modify_world_multiple_events(|world| {
+            f(&world.validators)
+                .map(|events| events.into_iter().map(WorldEvent::PermissionValidator))
+        })
     }
 
     /// Get constant view to the chain of validators.

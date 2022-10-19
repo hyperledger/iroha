@@ -1,5 +1,5 @@
 #![allow(clippy::restriction)]
-use std::{fmt::Write as _, sync::mpsc, thread};
+use std::{fmt::Write as _, str::FromStr, sync::mpsc, thread};
 
 use eyre::Result;
 use iroha_core::smartcontracts::wasm;
@@ -123,6 +123,115 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
         let expected_event = DomainEvent::Created(domain_id).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);
+    }
+
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn produce_multiple_events() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    // Spawn event reporter
+    let listener = client.clone();
+    let (init_sender, init_receiver) = mpsc::channel();
+    let (event_sender, event_receiver) = mpsc::channel();
+    let event_filter = DataEventFilter::AcceptAll.into();
+    thread::spawn(move || -> Result<()> {
+        let event_iterator = listener.listen_for_events(event_filter)?;
+        init_sender.send(())?;
+        for event in event_iterator {
+            event_sender.send(event)?
+        }
+        Ok(())
+    });
+
+    // Wait for event listener
+    init_receiver.recv()?;
+
+    // Registering role
+    let role_id = <Role as Identifiable>::Id::from_str("TEST_ROLE")?;
+    let token_1 = PermissionToken::new("test_permission_token_1".parse().expect("valid"));
+    let token_2 = PermissionToken::new("test_permission_token_2".parse().expect("valid"));
+    let permission_token_definition_1 =
+        PermissionTokenDefinition::new(token_1.definition_id().clone());
+    let permission_token_definition_2 =
+        PermissionTokenDefinition::new(token_2.definition_id().clone());
+    let role = iroha_data_model::role::Role::new(role_id.clone())
+        .add_permission(token_1.clone())
+        .add_permission(token_2.clone());
+    let instructions = [
+        RegisterBox::new(permission_token_definition_1.clone()).into(),
+        RegisterBox::new(permission_token_definition_2.clone()).into(),
+        RegisterBox::new(role).into(),
+    ];
+    client.submit_all_blocking(instructions)?;
+
+    // Grants role to Alice
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    client.submit_blocking(grant_role)?;
+
+    // Unregister role
+    let unregister_role = UnregisterBox::new(role_id.clone());
+    client.submit_blocking(unregister_role)?;
+
+    // Inspect produced events
+    let expected_events: Vec<DataEvent> = [
+        WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
+            permission_token_definition_1,
+        )),
+        WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
+            permission_token_definition_2,
+        )),
+        WorldEvent::Role(RoleEvent::Created(role_id.clone())),
+        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
+            AccountPermissionChanged {
+                account_id: alice_id.clone(),
+                permission_id: token_1.definition_id().clone(),
+            },
+        ))),
+        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
+            AccountPermissionChanged {
+                account_id: alice_id.clone(),
+                permission_id: token_2.definition_id().clone(),
+            },
+        ))),
+        WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
+            AccountRoleChanged {
+                account_id: alice_id.clone(),
+                role_id: role_id.clone(),
+            },
+        ))),
+        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
+            AccountPermissionChanged {
+                account_id: alice_id.clone(),
+                permission_id: token_1.definition_id().clone(),
+            },
+        ))),
+        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
+            AccountPermissionChanged {
+                account_id: alice_id.clone(),
+                permission_id: token_2.definition_id().clone(),
+            },
+        ))),
+        WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
+            AccountRoleChanged {
+                account_id: alice_id,
+                role_id: role_id.clone(),
+            },
+        ))),
+        WorldEvent::Role(RoleEvent::Deleted(role_id)),
+    ]
+    .into_iter()
+    .flat_map(WorldEvent::flatten)
+    .collect();
+
+    for expected_event in expected_events {
+        let event = event_receiver.recv()??.try_into()?;
+        assert_eq!(expected_event, event);
     }
 
     Ok(())
