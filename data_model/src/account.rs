@@ -37,8 +37,7 @@ use crate::{
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
 };
 
-/// `AccountsMap` provides an API to work with collection of key (`Id`) - value
-/// (`Account`) pairs.
+/// API to work with collections of [`Id`] : [`Account`] mappings.
 pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Account>;
 
 // The size of the array must be fixed. If we use more than `1` we

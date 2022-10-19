@@ -1,4 +1,4 @@
-//! This module provides the [`WorldStateView`] - in-memory representations of the current blockchain
+//! This module provides the [`WorldStateView`] — an in-memory representation of the current blockchain
 //! state.
 #![allow(
     clippy::new_without_default,
@@ -85,7 +85,7 @@ impl World {
 /// Current state of the blockchain aligned with `Iroha` module.
 #[derive(Debug)]
 pub struct WorldStateView {
-    /// The world - contains `domains`, `triggers`, etc..
+    /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
     /// Configuration of World State View.
     pub config: Configuration,
