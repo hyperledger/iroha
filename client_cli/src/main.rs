@@ -104,6 +104,8 @@ pub enum Subcommand {
     Events(events::Args),
     /// The subcommand related to Wasm
     Wasm(wasm::Args),
+    /// The subcommand related to block streaming
+    Blocks(blocks::Args),
 }
 
 /// Runs subcommand
@@ -126,7 +128,7 @@ macro_rules! match_run_all {
 impl RunArgs for Subcommand {
     fn run(self, cfg: &ClientConfiguration) -> Result<()> {
         use Subcommand::*;
-        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm })
+        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm, Blocks })
     }
 }
 
@@ -242,6 +244,42 @@ mod events {
         {
             match event {
                 Ok(event) => println!("{:#?}", event),
+                Err(err) => println!("{:#?}", err),
+            };
+        }
+        Ok(())
+    }
+}
+
+mod blocks {
+    use iroha_client::client::Client;
+    use iroha_config::client::Configuration;
+
+    use super::*;
+
+    /// Get event stream from iroha peer
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args {
+        /// Block height from which to start streaming blocks
+        height: u64,
+    }
+
+    impl RunArgs for Args {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let Args { height } = self;
+            listen(height, cfg)
+        }
+    }
+
+    pub fn listen(height: u64, cfg: &Configuration) -> Result<()> {
+        let iroha_client = Client::new(cfg)?;
+        println!("Listening to blocks from height: {}", height);
+        for block in iroha_client
+            .listen_for_blocks(height)
+            .wrap_err("Failed to listen for blocks.")?
+        {
+            match block {
+                Ok(block) => println!("{:#?}", block),
                 Err(err) => println!("{:#?}", err),
             };
         }
