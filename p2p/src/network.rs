@@ -476,7 +476,7 @@ pub struct ConnectedPeers {
 /// An identification for [`Peer`] connections.
 pub type ConnectionId = u64;
 
-/// Variants of messages from [`Peer`] - connection state changes and data messages
+/// Variants of messages from [`Peer`]: connection state changes and data messages
 #[derive(Clone, Debug, iroha_actor::Message, Decode)]
 pub enum PeerMessage<T: Encode + Decode + Debug> {
     /// [`Peer`] finished handshake and `Ready`

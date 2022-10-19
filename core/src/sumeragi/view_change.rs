@@ -38,7 +38,7 @@ impl Proof {
     }
 
     /// Sign this message with the peer's public and private key.
-    /// This way peers vote for changing the view - changing the roles of peers.
+    /// This way peers vote for changing the view (changing the roles of peers).
     ///
     /// # Errors
     /// Can fail during creation of signature

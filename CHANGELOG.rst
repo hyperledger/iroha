@@ -33,7 +33,7 @@ Features
 - hyperledger#1998 Add filters to queries.
 - hyperledger#2276 Include current Block hash into BlockHeaderValue.
 - hyperledger#2161 Handle id and shared FFI fns.
-  * add handle id and implement FFI equivalents of shared traits - Clone,Eq,Ord
+  * add handle id and implement FFI equivalents of shared traits (Clone, Eq, Ord)
 - hyperledger#1638 `configuration` return doc subtree.
 - hyperledger#2132 Add `endpointN` proc macro.
 - hyperledger#2257 Revoke<Role> emits RoleRevoked event.
@@ -101,13 +101,13 @@ Features
 - hyperledger#1172 Implement instruction events.
 - hyperledger#1734 Validate `Name` to exclude whitespaces.
 - hyperledger#1144 Add metadata nesting.
-- #1210 Block streaming - server side.
+- #1210 Block streaming (server side).
 - hyperledger#1331 Implement more `Prometheus` metrics.
 - hyperledger#1689 Fix feature dependencies. #1261: Add cargo bloat.
 - hyperledger#1675 use type instead of wrapper struct for versioned items.
 - hyperledger#1643 Wait for peers to commit genesis in tests.
 - hyperledger#1678 `try_allocate`
-- hyperledger#1216 Add Prometheus endpoint. #1216 - initial implementation of metrics endpoint.
+- hyperledger#1216 Add Prometheus endpoint. #1216: initial implementation of metrics endpoint.
 - hyperledger#1238 Run-time log-level updates. Created basic `connection` entrypoint-based reloading.
 - hyperledger#1652 PR Title Formatting.
 - Add the number of connected peers to `Status`
@@ -411,7 +411,7 @@ Tests
 - hyperledger#2272 Add tests for 'FindAssetDefinitionById' query.
 - Add `roles` integration tests.
 - Standardise ui tests format, move derive ui tests to derive crates.
-- Fix mock tests - futures unordered bug.
+- Fix mock tests (futures unordered bug).
 - Removed the DSL crate & moved tests to `data_model`
 - Ensure that unstable network tests pass for valid code.
 - Added tests to iroha_p2p.
@@ -520,7 +520,7 @@ Other
   1. Unsubscribe from broker on actor stop
   2. Support multiple subscriptions from the same actor type (previously a TODO)
   3. Fix a bug where broker always put self as an actor id.
-- Broker bug - test showcase.
+- Broker bug (test showcase).
 - Add derives for data model.
 - Remove rwlock from torii.
 - OOB Query Permission Checks.
@@ -800,7 +800,7 @@ Other
 - Prepare crates for publishing.
 - Minimum votes logic inside NetworkTopology.
 - TransactionReceipt validation refactoring.
-- OnWorldStateViewChange trigger change - IrohaQuery instead of
+- OnWorldStateViewChange trigger change: IrohaQuery instead of
   Instruction.
 - Separate construction from initialization in NetworkTopology.
 - Add Iroha Special Instructions related to Iroha events.
@@ -866,7 +866,7 @@ Other
 - Fix bug in Request deserialization.
 - Implementation of Iroha signature.
 - Blockchain entity was removed to clean up codebase.
-- Changes in Transactions API - better creation and work with requests.
+- Changes in Transactions API: better creation and work with requests.
 - Fix the bug that would create blocks with empty vector of transaction
 - Forward pending transactions.
 - Fix bug with missing byte in u128 scale encoded TCP packet.
