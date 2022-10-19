@@ -274,13 +274,9 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
 
     loop {
         let blocks = sumeragi.blocks_from_height(from_height.try_into().wrap_err("Failed to convert `from_height` into `usize`. You should consider upgrading to a 64-bit arch")?);
-        if blocks.is_empty() {
-            break;
-        }
         stream_blocks(&mut from_height, blocks, &mut stream).await?;
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    Ok(())
 }
 
 async fn stream_blocks(
