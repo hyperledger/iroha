@@ -12,7 +12,9 @@ use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
-use iroha_core::smartcontracts::isi::query::Error as QueryError;
+use iroha_core::{
+    prelude::VersionedCommittedBlock, smartcontracts::isi::query::Error as QueryError,
+};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRequest};
 use iroha_logger::prelude::*;
@@ -23,7 +25,7 @@ use parity_scale_codec::DecodeAll;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 
-use self::events_api::AsyncEventStream;
+use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
@@ -841,7 +843,7 @@ impl Client {
         events_api::EventIterator::new(self.events_handler(event_filter)?)
     }
 
-    /// Connect (through `WebSocket`) to `async` listen for `Iroha` `pipeline` and `data` events.
+    /// Connect asynchronously (through `WebSocket`) to listen for `Iroha` `pipeline` and `data` events.
     ///
     /// # Errors
     /// - Forwards from [`Self::events_handler`]
@@ -864,6 +866,40 @@ impl Client {
             event_filter,
             self.headers.clone(),
             &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
+        )
+    }
+
+    /// Connect (through `WebSocket`) to listen for `Iroha` blocks
+    ///
+    /// # Errors
+    /// - Forwards from [`Self::events_handler`]
+    /// - Forwards from [`blocks_api::BlockIterator::new`]
+    pub fn listen_for_blocks(
+        &self,
+        height: u64,
+    ) -> Result<impl Iterator<Item = Result<VersionedCommittedBlock>>> {
+        blocks_api::BlockIterator::new(self.blocks_handler(height)?)
+    }
+
+    /// Connect asynchronously (through `WebSocket`) to listen for `Iroha` blocks
+    ///
+    /// # Errors
+    /// - Forwards from [`Self::events_handler`]
+    /// - Forwards from [`blocks_api::BlockIterator::new`]
+    pub async fn listen_for_blocks_async(&self, height: u64) -> Result<AsyncBlockStream> {
+        blocks_api::AsyncBlockStream::new(self.blocks_handler(height)?).await
+    }
+
+    /// Construct a handler for Blocks API. With this handler you can use any WS client you want.
+    ///
+    /// # Errors
+    /// Fails if handler construction fails
+    #[inline]
+    pub fn blocks_handler(&self, height: u64) -> Result<blocks_api::flow::Init> {
+        blocks_api::flow::Init::new(
+            height,
+            self.headers.clone(),
+            &format!("{}/{}", &self.torii_url, uri::BLOCKS_STREAM),
         )
     }
 
@@ -1031,9 +1067,206 @@ impl Client {
     }
 }
 
+/// Logic for `sync` and `async` Iroha websocket streams
+pub mod stream_api {
+    use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
+
+    use super::*;
+    use crate::{
+        http::ws::conn_flow::{EventData, Events, Handshake, Init, InitData},
+        http_default::DefaultWebSocketRequestBuilder,
+    };
+
+    /// Iterator for getting messages from the `WebSocket` stream.
+    pub(super) struct SyncIterator<E> {
+        stream: WebSocketStream,
+        handler: E,
+    }
+
+    impl<E> SyncIterator<E> {
+        /// Construct `SyncIterator` and send the subscription request.
+        ///
+        /// # Errors
+        /// - Request failed to build
+        /// - `connect` failed
+        /// - Sending failed
+        /// - Message not received in stream during connection or subscription
+        /// - Message is an error   
+        pub fn new<I: Init<DefaultWebSocketRequestBuilder>>(
+            handler: I,
+        ) -> Result<SyncIterator<<I::Next as Handshake>::Next>> {
+            trace!("Creating `SyncIterator`");
+            let InitData {
+                first_message,
+                req,
+                next: handler,
+            } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+
+            let mut stream = req.build()?.connect()?;
+            stream.write_message(WebSocketMessage::Binary(first_message))?;
+
+            let handler = loop {
+                let mes = stream.read_message();
+                trace!(?mes, "Received message");
+                match mes {
+                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
+                    Ok(_) => continue,
+                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
+                        return Err(eyre!("WebSocket connection closed."))
+                    }
+                    Err(err) => return Err(err.into()),
+                }
+            };
+            trace!("`SyncIterator` created successfully");
+            Ok(SyncIterator { stream, handler })
+        }
+    }
+
+    impl<E: Events> Iterator for SyncIterator<E> {
+        type Item = Result<E::Event>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                match self.stream.read_message() {
+                    Ok(WebSocketMessage::Binary(message)) => {
+                        return Some(self.handler.message(message).and_then(
+                            |EventData { reply, event }| {
+                                self.stream
+                                    .write_message(WebSocketMessage::Binary(reply))
+                                    .map(|_| event)
+                                    .wrap_err("Failed to reply")
+                            },
+                        ));
+                    }
+                    Ok(_) => continue,
+                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
+                        return None
+                    }
+                    Err(err) => return Some(Err(err.into())),
+                }
+            }
+        }
+    }
+
+    impl<E> Drop for SyncIterator<E> {
+        fn drop(&mut self) {
+            let mut close = || -> eyre::Result<()> {
+                self.stream.close(None)?;
+                let mes = self.stream.read_message()?;
+                if !mes.is_close() {
+                    return Err(eyre!(
+                        "Server hasn't sent `Close` message for websocket handshake"
+                    ));
+                }
+                Ok(())
+            };
+
+            trace!("Closing WebSocket connection");
+            let _ = close().map_err(|e| error!(%e));
+            trace!("WebSocket connection closed");
+        }
+    }
+
+    /// Async stream for getting messages from the `WebSocket` stream.
+    pub struct AsyncStream<E> {
+        stream: AsyncWebSocketStream,
+        handler: E,
+    }
+
+    impl<E> AsyncStream<E> {
+        /// Construct [`AsyncStream`] and send the subscription request.
+        ///
+        /// # Errors
+        /// - Request failed to build
+        /// - `connect_async` failed
+        /// - Sending failed
+        /// - Message not received in stream during connection or subscription
+        /// - Message is an error   
+        pub async fn new<I>(handler: I) -> Result<AsyncStream<<I::Next as Handshake>::Next>>
+        where
+            I: Init<DefaultWebSocketRequestBuilder> + Send,
+            I::Next: Send,
+            <I::Next as Handshake>::Next: Send,
+        {
+            trace!("Creating `AsyncStream`");
+            let InitData {
+                first_message,
+                req,
+                next: handler,
+            } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+
+            let mut stream = req.build()?.connect_async().await?;
+            stream.send(WebSocketMessage::Binary(first_message)).await?;
+
+            let handler = loop {
+                let mes = stream
+                    .next()
+                    .await
+                    .ok_or(eyre!("Expect to receive message"))?;
+                trace!(?mes, "Received message");
+                match mes {
+                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
+                    Ok(_) => continue,
+                    Err(err) => return Err(err.into()),
+                }
+            };
+            trace!("`AsyncStream` created successfully");
+            Ok(AsyncStream { stream, handler })
+        }
+    }
+
+    impl<E: Send> AsyncStream<E> {
+        /// Close websocket
+        /// # Errors
+        /// - Server fails to send `Close` message
+        /// - Closing the websocket connection itself fails.
+        pub async fn close(mut self) {
+            let close = async {
+                self.stream.close(None).await?;
+                if let Some(mes) = self.stream.next().await {
+                    if !mes?.is_close() {
+                        eyre::bail!("Server hasn't sent `Close` message for websocket handshake");
+                    }
+                }
+                Ok(())
+            };
+
+            trace!("Closing WebSocket connection");
+            let _ = close.await.map_err(|e| error!(%e));
+            trace!("WebSocket connection closed");
+        }
+    }
+
+    impl<E: Events + Unpin> Stream for AsyncStream<E> {
+        type Item = Result<E::Event>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            match futures_util::ready!(self.stream.poll_next_unpin(cx)) {
+                Some(Ok(WebSocketMessage::Binary(message))) => {
+                    match self.handler.message(message) {
+                        Ok(EventData { event, reply }) => {
+                            let mut send = self.stream.send(WebSocketMessage::Binary(reply));
+                            let result = futures_util::ready!(send.poll_unpin(cx))
+                                .map(|_| event)
+                                .wrap_err("Failed to reply");
+                            std::task::Poll::Ready(Some(result))
+                        }
+                        Err(err) => std::task::Poll::Ready(Some(Err(err))),
+                    }
+                }
+                Some(Ok(_)) => std::task::Poll::Pending,
+                Some(Err(err)) => std::task::Poll::Ready(Some(Err(err.into()))),
+                None => std::task::Poll::Ready(None),
+            }
+        }
+    }
+}
+
 /// Logic related to Events API client implementation.
 pub mod events_api {
-    use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
 
     use super::*;
     use crate::http::ws::{
@@ -1043,7 +1276,7 @@ pub mod events_api {
         transform_ws_url,
     };
 
-    /// Events API flow. For documentation and example usage please follow to [`crate::http::ws::conn_flow`].
+    /// Events API flow. For documentation and usage examples, refer to [`crate::http::ws::conn_flow`].
     pub mod flow {
         use super::*;
 
@@ -1098,7 +1331,7 @@ pub mod events_api {
             }
         }
 
-        /// Events API flow handshake handler
+        /// Handshake handler for Events API flow
         #[derive(Copy, Clone)]
         pub struct Handshake;
 
@@ -1120,7 +1353,7 @@ pub mod events_api {
             }
         }
 
-        /// Events API flow events handler
+        /// Events handler for Events API flow
         #[derive(Debug, Copy, Clone)]
         pub struct Events;
 
@@ -1145,184 +1378,132 @@ pub mod events_api {
     }
 
     /// Iterator for getting events from the `WebSocket` stream.
-    #[derive(Debug)]
-    pub struct AsyncEventStream {
-        stream: AsyncWebSocketStream,
-        handler: flow::Events,
-    }
+    pub(super) type EventIterator = stream_api::SyncIterator<flow::Events>;
 
-    impl AsyncEventStream {
-        /// Construct [`AsyncEventStream`] and send the subscription request.
-        ///
-        /// # Errors
-        /// - Request failed to build
-        /// - `connect_async` failed
-        /// - Sending failed
-        /// - Message not received in stream during connection or subscription
-        /// - Message is an error   
-        pub async fn new(handler: flow::Init) -> Result<Self> {
-            trace!("Creating `AsyncEventStream`");
-            let InitData {
-                first_message,
-                req,
-                next: handler,
-            } = FlowInit::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+    /// Async stream for getting events from the `WebSocket` stream.
+    pub type AsyncEventStream = stream_api::AsyncStream<flow::Events>;
+}
 
-            let mut stream = req.build()?.connect_async().await?;
-            stream.send(WebSocketMessage::Binary(first_message)).await?;
+mod blocks_api {
+    use super::*;
+    use crate::http::ws::{
+        conn_flow::{
+            EventData, Events as FlowEvents, Handshake as FlowHandshake, Init as FlowInit, InitData,
+        },
+        transform_ws_url,
+    };
 
-            let handler = loop {
-                let mes = stream
-                    .next()
-                    .await
-                    .ok_or(eyre!("Expect to receive message"))?;
-                trace!(?mes, "Received message");
-                match mes {
-                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
-                    Ok(_) => continue,
-                    Err(err) => return Err(err.into()),
-                }
-            };
-            trace!("`AsyncEventStream` created successfully");
-            Ok(Self { stream, handler })
+    /// Blocks API flow. For documentation and usage examples, refer to [`crate::http::ws::conn_flow`].
+    pub mod flow {
+        use iroha_core::block::stream::{
+            BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
+            VersionedBlockSubscriberMessage,
+        };
+
+        use super::*;
+
+        /// Initialization struct for Blocks API flow.
+        pub struct Init {
+            /// Block height from which to start streaming blocks
+            height: u64,
+            /// HTTP request headers
+            headers: HashMap<String, String>,
+            /// TORII URL
+            url: String,
         }
 
-        /// Close websocket
-        /// # Errors
-        /// - Server fails to send `Close` message
-        /// - Closing the websocket connection itself fails.
-        pub async fn close(mut self) {
-            let close = async {
-                self.stream.close(None).await?;
-                if let Some(mes) = self.stream.next().await {
-                    if !mes?.is_close() {
-                        eyre::bail!("Server hasn't sent `Close` message for websocket handshake");
-                    }
-                }
-                Ok(())
-            };
-
-            trace!("Closing WebSocket connection");
-            let _ = close.await.map_err(|e| error!(%e));
-            trace!("WebSocket connection closed");
+        impl Init {
+            /// Construct new item with provided headers and url.
+            ///
+            /// # Errors
+            /// If [`transform_ws_url`] fails.
+            #[inline]
+            pub(in super::super) fn new(
+                height: u64,
+                headers: HashMap<String, String>,
+                url: impl AsRef<str>,
+            ) -> Result<Self> {
+                Ok(Self {
+                    height,
+                    headers,
+                    url: transform_ws_url(url.as_ref())?,
+                })
+            }
         }
-    }
 
-    impl Stream for AsyncEventStream {
-        type Item = Result<Event>;
+        impl<R: RequestBuilder> FlowInit<R> for Init {
+            type Next = Handshake;
 
-        fn poll_next(
-            mut self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Option<Self::Item>> {
-            match futures_util::ready!(self.stream.poll_next_unpin(cx)) {
-                Some(Ok(WebSocketMessage::Binary(message))) => {
-                    match self.handler.message(message) {
-                        Ok(EventData { event, reply }) => {
-                            let mut send = self.stream.send(WebSocketMessage::Binary(reply));
-                            let result = futures_util::ready!(send.poll_unpin(cx))
-                                .map(|_| event)
-                                .wrap_err("Failed to reply");
-                            std::task::Poll::Ready(Some(result))
-                        }
-                        Err(err) => std::task::Poll::Ready(Some(Err(err))),
-                    }
+            fn init(self) -> InitData<R, Self::Next> {
+                let Self {
+                    height,
+                    headers,
+                    url,
+                } = self;
+
+                let msg =
+                    VersionedBlockSubscriberMessage::from(BlockSubscriberMessage::from(height))
+                        .encode_versioned();
+
+                InitData::new(
+                    R::new(HttpMethod::GET, url).headers(headers),
+                    msg,
+                    Handshake,
+                )
+            }
+        }
+
+        //// Handshake handler for Blocks API flow
+        #[derive(Copy, Clone)]
+        pub struct Handshake;
+
+        impl FlowHandshake for Handshake {
+            type Next = Events;
+
+            fn message(self, message: Vec<u8>) -> Result<Self::Next>
+            where
+                Self::Next: FlowEvents,
+            {
+                if let BlockPublisherMessage::SubscriptionAccepted =
+                    try_decode_all_or_just_decode!(VersionedBlockPublisherMessage, &message)?
+                        .into_v1()
+                {
+                    Ok(Events)
+                } else {
+                    Err(eyre!("Expected `SubscriptionAccepted`."))
                 }
-                Some(Ok(_)) => std::task::Poll::Pending,
-                Some(Err(err)) => std::task::Poll::Ready(Some(Err(err.into()))),
-                None => std::task::Poll::Ready(None),
+            }
+        }
+
+        /// Events handler for Blocks API flow
+        #[derive(Debug, Copy, Clone)]
+        pub struct Events;
+
+        impl FlowEvents for Events {
+            type Event = iroha_core::prelude::VersionedCommittedBlock;
+
+            fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
+                let block_socket_message =
+                    try_decode_all_or_just_decode!(VersionedBlockPublisherMessage, &message)?
+                        .into_v1();
+                let block = match block_socket_message {
+                    BlockPublisherMessage::Block(block) => block,
+                    msg => return Err(eyre!("Expected Event but got {:?}", msg)),
+                };
+                let versioned_message =
+                    VersionedBlockSubscriberMessage::from(BlockSubscriberMessage::BlockReceived)
+                        .encode_versioned();
+
+                Ok(EventData::new(block, versioned_message))
             }
         }
     }
 
-    /// Iterator for getting events from the `WebSocket` stream.
-    #[derive(Debug)]
-    pub(super) struct EventIterator {
-        stream: WebSocketStream,
-        handler: flow::Events,
-    }
+    /// Iterator for getting blocks from the `WebSocket` stream.
+    pub(super) type BlockIterator = stream_api::SyncIterator<flow::Events>;
 
-    impl EventIterator {
-        /// Construct `EventIterator` and send the subscription request.
-        ///
-        /// # Errors
-        /// - Request failed to build
-        /// - `connect` failed
-        /// - Sending failed
-        /// - Message not received in stream during connection or subscription
-        /// - Message is an error   
-        pub fn new(handler: flow::Init) -> Result<Self> {
-            trace!("Creating `EventIterator`");
-            let InitData {
-                first_message,
-                req,
-                next: handler,
-            } = FlowInit::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
-
-            let mut stream = req.build()?.connect()?;
-            stream.write_message(WebSocketMessage::Binary(first_message))?;
-
-            let handler = loop {
-                let mes = stream.read_message();
-                trace!(?mes, "Received message");
-                match mes {
-                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
-                    Ok(_) => continue,
-                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
-                        return Err(eyre!("WebSocket connection closed."))
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            };
-            trace!("`EventIterator` created successfully");
-            Ok(Self { stream, handler })
-        }
-    }
-
-    impl Iterator for EventIterator {
-        type Item = Result<Event>;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            loop {
-                match self.stream.read_message() {
-                    Ok(WebSocketMessage::Binary(message)) => {
-                        return Some(self.handler.message(message).and_then(
-                            |EventData { reply, event }| {
-                                self.stream
-                                    .write_message(WebSocketMessage::Binary(reply))
-                                    .map(|_| event)
-                                    .wrap_err("Failed to reply")
-                            },
-                        ));
-                    }
-                    Ok(_) => continue,
-                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
-                        return None
-                    }
-                    Err(err) => return Some(Err(err.into())),
-                }
-            }
-        }
-    }
-
-    impl Drop for EventIterator {
-        fn drop(&mut self) {
-            let mut close = || -> eyre::Result<()> {
-                self.stream.close(None)?;
-                let mes = self.stream.read_message()?;
-                if !mes.is_close() {
-                    return Err(eyre!(
-                        "Server hasn't sent `Close` message for websocket handshake"
-                    ));
-                }
-                Ok(())
-            };
-
-            trace!("Closing WebSocket connection");
-            let _ = close().map_err(|e| error!(%e));
-            trace!("WebSocket connection closed");
-        }
-    }
+    /// Async stream for getting blocks from the `WebSocket` stream.
+    pub type AsyncBlockStream = stream_api::AsyncStream<flow::Events>;
 }
 
 pub mod account {
