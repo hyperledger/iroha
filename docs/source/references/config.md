@@ -50,7 +50,7 @@ The following is the default configuration used by Iroha.
       "max_instruction_number": 4096,
       "max_wasm_size_bytes": 4194304
     },
-    "ACTOR_CHANNEL_CAPACITY": 100,
+    "CONNECT_PEERS_PERIOD_SECONDS": 1,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
   },
@@ -62,7 +62,7 @@ The following is the default configuration used by Iroha.
     "MAX_CONTENT_LEN": 16384000
   },
   "BLOCK_SYNC": {
-    "GOSSIP_PERIOD_MS": 10000,
+    "GOSSIP_PERIOD_MS": 2000,
     "BLOCK_BATCH_SIZE": 4,
     "ACTOR_CHANNEL_CAPACITY": 100
   },
@@ -135,7 +135,7 @@ Has type `Option<block_sync::ConfigurationProxy>`[^1]. Can be configured via env
 {
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCK_BATCH_SIZE": 4,
-  "GOSSIP_PERIOD_MS": 10000
+  "GOSSIP_PERIOD_MS": 2000
 }
 ```
 
@@ -166,7 +166,7 @@ The period of time to wait between sending requests for the latest block.
 Has type `Option<u64>`[^1]. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
 
 ```json
-10000
+2000
 ```
 
 ## `disable_panic_terminal_colors`
@@ -482,9 +482,9 @@ Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via envir
 
 ```json
 {
-  "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCK_TIME_MS": 1000,
   "COMMIT_TIME_LIMIT_MS": 2000,
+  "CONNECT_PEERS_PERIOD_SECONDS": 1,
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "KEY_PAIR": null,
@@ -495,16 +495,6 @@ Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via envir
   },
   "TRUSTED_PEERS": null
 }
-```
-
-### `sumeragi.actor_channel_capacity`
-
-Buffer capacity of actor's MPSC channel
-
-Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI_ACTOR_CHANNEL_CAPACITY`
-
-```json
-100
 ```
 
 ### `sumeragi.block_time_ms`
@@ -525,6 +515,16 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI
 
 ```json
 2000
+```
+
+### `sumeragi.connect_peers_period_seconds`
+
+Period in seconds for attempting to connect to other peers.
+
+Has type `Option<u16>`[^1]. Can be configured via environment variable `SUMERAGI_CONNECT_PEERS_PERIOD_SECONDS`
+
+```json
+1
 ```
 
 ### `sumeragi.gossip_batch_size`

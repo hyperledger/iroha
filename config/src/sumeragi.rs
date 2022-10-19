@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 /// Default amount of time allocated for voting on a block before a peer can ask for a view change.
 pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 2000;
-const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
+const DEFAULT_CONNECT_PEERS_PERIOD_SECONDS: u16 = 1;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
@@ -39,8 +39,8 @@ view! {
         pub commit_time_limit_ms: u64,
         /// The limits to which transactions must adhere
         pub transaction_limits: TransactionLimits,
-        /// Buffer capacity of actor's MPSC channel
-        pub actor_channel_capacity: u32,
+        /// Period in seconds for attempting to connect to other peers.
+        pub connect_peers_period_seconds: u16,
         /// Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
         pub gossip_batch_size: u32,
         /// Period in milliseconds for pending transaction gossiping between peers.
@@ -60,7 +60,7 @@ impl Default for ConfigurationProxy {
                 max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
             }),
-            actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
+            connect_peers_period_seconds: Some(DEFAULT_CONNECT_PEERS_PERIOD_SECONDS),
             gossip_batch_size: Some(DEFAULT_GOSSIP_BATCH_SIZE),
             gossip_period_ms: Some(DEFAULT_GOSSIP_PERIOD_MS),
         }

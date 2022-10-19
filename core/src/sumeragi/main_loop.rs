@@ -71,6 +71,8 @@ where
     pub commit_time: Duration,
     /// TODO: good description here too.
     pub block_time: Duration,
+    /// Period between connecting/disconnecting from other peers.
+    pub connect_peers_time: Duration,
     /// Limits that all transactions need to obey, in terms of size
     /// of WASM blob and number of instructions.
     pub transaction_limits: TransactionLimits,
@@ -594,7 +596,7 @@ pub fn run<F>(
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
 
-        if last_connect_peers_instant.elapsed().as_secs() > 30 {
+        if last_connect_peers_instant.elapsed() > sumeragi.connect_peers_time {
             sumeragi.connect_peers(&state.current_topology);
             last_connect_peers_instant = Instant::now();
         }

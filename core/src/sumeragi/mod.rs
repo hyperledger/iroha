@@ -86,6 +86,9 @@ impl Sumeragi {
                 wsv: std::sync::Mutex::new(wsv),
                 commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
                 block_time: Duration::from_millis(configuration.block_time_ms),
+                connect_peers_time: Duration::from_secs(
+                    configuration.connect_peers_period_seconds.into(),
+                ),
                 transaction_limits: configuration.transaction_limits,
                 transaction_validator,
                 queue,
@@ -181,7 +184,7 @@ impl Sumeragi {
         self.internal
             .current_online_peers
             .lock()
-            .expect("Mutex for `current_online_peers` poisoned in `get_block_sync_peer_ids`")
+            .expect("Mutex for `current_online_peers` poisoned in `get_random_peer_for_block_sync`")
             .clone()
     }
 
