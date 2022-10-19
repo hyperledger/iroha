@@ -43,7 +43,8 @@ pub mod samples;
 mod stream;
 pub mod torii;
 
-/// Arguments for Iroha2 - usually parsed from cli.
+/// Arguments for Iroha2.
+/// Configuration for arguments is parsed from environment variables and then the appropriate object is constructed.
 #[derive(Debug)]
 pub struct Arguments {
     /// Set this flag on the peer that should submit genesis on the network initial start.
@@ -75,7 +76,7 @@ pub struct Iroha {
     pub queue: Arc<Queue>,
     /// Sumeragi consensus
     pub sumeragi: Arc<Sumeragi>,
-    /// Kura - block storage
+    /// Kura — block storage
     pub kura: Arc<Kura>,
     /// Block synchronization actor
     pub block_sync: AlwaysAddr<BlockSynchronizer>,

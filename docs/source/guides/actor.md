@@ -6,7 +6,7 @@ If you want to get a feel of the actor model a good way to start will be to read
 
 ## Properties
 
-- Everything is an actor (no main function in erlang or elixir - just start an actor)
+- Everything is an actor (no main function in erlang or elixir, just start an actor)
 - An actor receives and reacts in certain ways to messages:
   + Send messages to other actors
   + Create new actors
@@ -172,9 +172,9 @@ Actor1(broker).start().await;
 
 Via `notify_*` family functions for actors:
 
-- `notify` - send message once in some time
-- `notify_every` - sends message every duration time. Basically timer, from which you can't unsubscribe :)
-- `notify_with` - sinks stream into an actor
+- `notify` sends message once in some time
+- `notify_every` sends message every duration time. Basically timer, from which you can't unsubscribe :)
+- `notify_with` sinks stream into an actor
 
 ## Read more
 

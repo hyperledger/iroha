@@ -32,12 +32,12 @@ and may be easily modified if needed in future.
 
 ### 3. Use Iroha CLI Client to prepare Iroha Peer
 
-Iroha Special Instructions executed on behalf of an authority - Account.
+Iroha Special Instructions executed on behalf of an authority — Account.
 
-If you already has an account to store assets on - feel free to skip these step.
-If not - you will need to receive Account's Key Pair with permissions to Register an Account.
+If you already has an account to store assets on, feel free to skip these step.
+If not, you will need to receive Account's Key Pair with permissions to Register an Account.
 
-TL;DR - after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md)
+TL;DR: after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md)
 run this command:
 
 ```bash
@@ -61,7 +61,7 @@ let mint_asset = isi::Mint {
 And let's see what it consist of:
 
 * `isi` module contains basic Iroha special instructions functionality
-* `Mint` structure is a declaration - "Iroha - Mint this object to the following destination"
+* `Mint` structure is a declaration "Iroha, Mint this object to the following destination"
 * `object` in our case is an amount of "xor" to mint. In other cases it can be bytes of digital document or other data.
 * `destination_id` in our case is an asset's identification which consist of a asset's definition identification and 
 account's identification cross product.
@@ -79,9 +79,9 @@ iroha_client
 
 `iroha_client` provides functionality to submit iroha special instructions and it will be automatically 
 "pack" them into transaction signed on behalf of the client. As a result of this operation
-you will receive transaction acceptance status - if transaction was accepted by the peer
+you will receive transaction acceptance status: if transaction was accepted by the peer
 (signature was valid and payload is legal set of iroha special instructions) then
-it will be `Result::Ok(())`, if some problems arrive - it will be `Result::Err(String)` 
+it will be `Result::Ok(())`, if some problems arrive, it will be `Result::Err(String)` 
 with textual error message.
 
 ## Conclusion

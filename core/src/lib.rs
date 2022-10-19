@@ -1,4 +1,4 @@
-//! Iroha - A simple, enterprise-grade decentralized ledger.
+//! Iroha — A simple, enterprise-grade decentralized ledger.
 
 pub mod block;
 pub mod block_sync;
@@ -33,16 +33,16 @@ pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 /// Ids of peers.
 pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
 
-/// Provides an API to work with collection of key([`DomainId`]) - value([`Domain`]) pairs.
+/// API to work with collections of [`DomainId`] : [`Domain`] mappings.
 pub type DomainsMap = DashMap<<Domain as Identifiable>::Id, Domain>;
 
-/// `RolesMap` provides an API to work with a collection of key(`RoleId`) - value(`Role`) pairs.
+/// API to work with a collections of [`RoleId`]: [`Role`] mappings.
 pub type RolesMap = DashMap<<Role as Identifiable>::Id, Role>;
 
-/// `PermissionTokensMap` provides an API to work with a collection of key(`AccountId`) - value(`Set<PermissionToken>`) pairs.
+/// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
 pub type PermissionTokensMap = DashMap<<Account as Identifiable>::Id, Permissions>;
 
-/// `PermissionTokenDefinitionsMap` provides an API to work with a collection of key(`PermissionTokenDefinitionId`) - value(`PermissionTokenDefinition`) pairs.
+/// API to work with a collections of [`PermissionTokenDefinitionId`] : [`PermissionTokenDefinition`] mappings.
 pub type PermissionTokenDefinitionsMap =
     DashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
 

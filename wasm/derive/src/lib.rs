@@ -13,8 +13,8 @@ mod validator;
 ///
 /// The syntax is:
 /// `#[iroha_wasm::entrypoint(params = "[<type>,*]")]`, where `<type>` is one of:
-/// - `authority` - an account id of the smart contract authority
-/// - `triggering_event` - an event that triggers the execution of the smart contract
+/// - `authority` is an account id of the smart contract authority
+/// - `triggering_event` is an event that triggers the execution of the smart contract
 ///
 /// None, one or both parameters in any order can be specified.
 /// Parameters will be passed to the entrypoint function in the order they are specified.
