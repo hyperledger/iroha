@@ -9,7 +9,6 @@ use std::{
     sync::Arc,
 };
 
-use eyre::eyre;
 use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     prelude::*,
