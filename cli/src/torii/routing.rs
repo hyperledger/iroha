@@ -5,6 +5,7 @@
 use std::num::TryFromIntError;
 
 use eyre::WrapErr;
+use futures::TryStreamExt;
 use iroha_actor::Addr;
 use iroha_config::{
     base::proxy::Documented,
@@ -272,10 +273,34 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
         ))
         .await?;
 
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
     loop {
-        let blocks = sumeragi.blocks_from_height(from_height.try_into().wrap_err("Failed to convert `from_height` into `usize`. You should consider upgrading to a 64-bit arch")?);
-        stream_blocks(&mut from_height, blocks, &mut stream).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tokio::select! {
+            // This branch catches `Close` and unexpected messages
+            closed = async {
+                while let Some(message) = stream.try_next().await? {
+                    if message.is_close() {
+                        return Ok(());
+                    }
+                    iroha_logger::warn!("Unexpected message received: {:?}", message);
+                }
+                eyre::bail!("Can't receive close message")
+            } => {
+                match closed {
+                    Ok(()) =>  {
+                        return stream.close().await.map_err(Into::into);
+                    }
+                    Err(err) => return Err(err)
+                }
+            }
+            // This branch sends blocks
+            _ = interval.tick() => {
+                let blocks = sumeragi.blocks_from_height(from_height.try_into().wrap_err("Failed to convert `from_height` into `usize`. You should consider upgrading to a 64-bit arch")?);
+                stream_blocks(&mut from_height, blocks, &mut stream).await?;
+            }
+            // Else branch to prevent panic
+            else => ()
+        }
     }
 }
 
@@ -293,10 +318,9 @@ async fn stream_blocks(
             .await?;
 
         let message: VersionedBlockSubscriberMessage = stream.recv().await?;
-        if let BlockSubscriberMessage::BlockReceived = message.into_v1() {
-            *from_height += 1;
-        } else {
-            return Err(eyre!("Expected `BlockReceived` message"));
+        match message.into_v1() {
+            BlockSubscriberMessage::BlockReceived => *from_height += 1,
+            message => eyre::bail!("Expected `BlockReceived` message, received: {message:?}"),
         }
     }
 

@@ -106,7 +106,7 @@ impl Consumer {
             if message.is_close() {
                 return Ok(());
             }
-            iroha_logger::trace!("Unexpected message received: {:?}", message);
+            iroha_logger::warn!("Unexpected message received: {:?}", message);
         }
         Err(Error::CantReceiveMessage)
     }
