@@ -152,7 +152,7 @@ impl ConfigurationProxy {
             // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
             if split_api_url[0] != "http" {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_API_URL` string: `{api_url`} only supports the `HTTP` protocol currently".to_owned()
+                    "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
                 ));
             }
         }
