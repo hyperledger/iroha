@@ -131,13 +131,13 @@ impl ConfigurationProxy {
             // Timeouts bigger than transaction TTL don't make sense as then transaction would be discarded before this timeout
             if let Some(timeout) = self.transaction_status_timeout_ms {
                 if timeout > tx_ttl {
-                    eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_STATUS_TIMEOUT_MS`: {timeout} bigger than `TRANSACTION_TIME_TO_LIVE_MS`: {self.transaction_status_timeout_ms}, consider making it smaller".to_owned()));
+                    eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_STATUS_TIMEOUT_MS`: {timeout} bigger than `TRANSACTION_TIME_TO_LIVE_MS`: {self.transaction_status_timeout_ms}. Consider making it smaller".to_owned()));
                 }
             }
         }
         if let Some(tx_limits) = self.transaction_limits {
             if tx_limits.max_wasm_size_bytes < WASM_SIZE_TOO_SMALL_THRESHOLD {
-                eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_LIMITS` parameter's `max_wasm_size` field too small at {tx_limits.max_wasm_size_bytes}, consider making it bigger than {WASM_SIZE_TOO_SMALL_THRESHOLD}".to_owned()));
+                eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_LIMITS` parameter's `max_wasm_size` field too small at {tx_limits.max_wasm_size_bytes}. Consider making it bigger than {WASM_SIZE_TOO_SMALL_THRESHOLD}".to_owned()));
             }
         }
         if let Some(api_url) = &self.torii_api_url {
