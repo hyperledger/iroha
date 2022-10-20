@@ -3,7 +3,7 @@
 use core::str::FromStr;
 
 use derive_more::Display;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{Documented, Error as ConfigError, LoadFromEnv, Proxy};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
@@ -19,10 +19,10 @@ const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 pub struct WebLogin(SmallStr);
 
 impl WebLogin {
-    /// Construct new `WebLogin`
+    /// Construct new [`Self`]
     ///
     /// # Errors
-    /// Fails if `login` contains `:` character
+    /// Fails if `login` contains `:` character, which is the binary representation of the '\0'.
     pub fn new(login: &str) -> Result<Self> {
         Self::from_str(login)
     }
@@ -32,7 +32,7 @@ impl FromStr for WebLogin {
     type Err = eyre::ErrReport;
     fn from_str(login: &str) -> Result<Self> {
         if login.contains(':') {
-            return Err(eyre!("WebLogin cannot contain the `:` character"));
+            eyre::bail!("The `:` character, in `{login}` is not allowed");
         }
 
         Ok(Self(SmallStr::from_str(login)))
@@ -107,6 +107,10 @@ impl Default for ConfigurationProxy {
     }
 }
 
+// TODO: explain why these values were chosen.
+pub const TTL_TOO_SMALL_THRESHOLD: u64 = 500;
+pub const WASM_SIZE_TOO_SMALL_THRESHOLD: u64 = 2_u64.pow(10); // 1 KiB
+
 impl ConfigurationProxy {
     /// Finalise Iroha client config proxy by checking that certain fields identify reasonable limits or
     /// are well formatted.
@@ -119,22 +123,21 @@ impl ConfigurationProxy {
     pub fn finish(&mut self) -> Result<()> {
         if let Some(tx_ttl) = self.transaction_time_to_live_ms {
             // Really small TTL would be detrimental to performance
-            if tx_ttl < 500 {
+            if tx_ttl < TTL_TOO_SMALL_THRESHOLD {
                 eyre::bail!(
-                    ConfigError::ProxyBuildError("Really small `TRANSACTION_TIME_TO_LIVE_MS`, network throughput may be compromised".to_owned())
+                    ConfigError::ProxyBuildError("`TRANSACTION_TIME_TO_LIVE_MS`, network throughput may be compromised for values less than {TTL_TOO_SMALL_THRESHOLD}".to_owned())
                 );
             }
             // Timeouts bigger than transaction TTL don't make sense as then transaction would be discarded before this timeout
             if let Some(timeout) = self.transaction_status_timeout_ms {
                 if timeout > tx_ttl {
-                    eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_STATUS_TIMEOUT_MS` bigger than `TRANSACTION_TIME_TO_LIVE_MS`, consider making it smaller".to_owned()));
+                    eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_STATUS_TIMEOUT_MS`: {timeout} bigger than `TRANSACTION_TIME_TO_LIVE_MS`: {self.transaction_status_timeout_ms}. Consider making it smaller".to_owned()));
                 }
             }
         }
         if let Some(tx_limits) = self.transaction_limits {
-            // 1 KiB
-            if tx_limits.max_wasm_size_bytes < 2_u64.pow(10) {
-                eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_LIMITS` parameter's `max_wasm_size` field really small, consider making it bigger".to_owned()));
+            if tx_limits.max_wasm_size_bytes < WASM_SIZE_TOO_SMALL_THRESHOLD {
+                eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_LIMITS` parameter's `max_wasm_size` field too small at {tx_limits.max_wasm_size_bytes}. Consider making it bigger than {WASM_SIZE_TOO_SMALL_THRESHOLD}".to_owned()));
             }
         }
         if let Some(api_url) = &self.torii_api_url {
@@ -142,12 +145,14 @@ impl ConfigurationProxy {
             let split_api_url = api_url.split("://").collect::<Vec<_>>();
             if split_api_url.len() != 2 {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_API_URL` string should provide a connection protocol".to_owned()
+                    "`TORII_API_URL` string: `{api_url}` should provide a connection protocol"
+                        .to_owned()
                 ));
             }
+            // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
             if split_api_url[0] != "http" {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_API_URL` string only supports HTTP".to_owned()
+                    "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
                 ));
             }
         }
@@ -156,17 +161,17 @@ impl ConfigurationProxy {
             let split_telemetry_url = telemetry_url.split("://").collect::<Vec<_>>();
             if split_telemetry_url.len() != 2 {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_TELEMETRY_URL` string should provide a connection protocol".to_owned()
+                    "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection protocol".to_owned()
                 ));
             }
             if split_telemetry_url[0] != "http" {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_TELEMETRY_URL` string only supports HTTP".to_owned()
+                    "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP".to_owned()
                 ));
             }
             if split_telemetry_url[1].split(':').count() != 2 {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_TELEMETRY_URL` should provide a connection port".to_owned()
+                    "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection port, e.g. `http://127.0.0.1:8180`".to_owned()
                 ));
             }
         }
@@ -206,7 +211,7 @@ mod tests {
         #[allow(clippy::expect_used)]
         fn arb_keys_from_seed()
             (seed in prop::collection::vec(any::<u8>(), 33..64)) -> (PublicKey, PrivateKey) {
-                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::default().use_seed(seed)).expect("Seed should be valid").into();
+                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::default().use_seed(seed)).expect("Seed was invalid").into();
                 (public_key, private_key)
             }
     }
@@ -223,7 +228,7 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn placeholder_account() -> <Account as Identifiable>::Id {
-        AccountId::from_str("alice@wonderland").expect("Account ID not valid")
+        AccountId::from_str("alice@wonderland").expect("Invalid account Id ")
     }
 
     prop_compose! {
