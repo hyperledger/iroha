@@ -95,7 +95,7 @@ impl ConfigurationProxy {
             // bailing out if key_pair provided in sumeragi no matter its value
             if sumeragi_proxy.key_pair.is_some() {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "Sumeragi should not be provided with `key_pair` directly as it is instantiated via Iroha config"
+                    "Sumeragi should not be provided with `key_pair` directly as it is instantiated via Iroha config. Please set the `KEY_PAIR` to `null` or omit them entirely."
                         .to_owned()))
             }
             if let (Some(public_key), Some(private_key)) = (&self.public_key, &self.private_key) {
@@ -103,7 +103,7 @@ impl ConfigurationProxy {
                     Some(KeyPair::new(public_key.clone(), private_key.clone())?);
             } else {
                 eyre::bail!(ConfigError::ProxyBuildError(
-                    "Iroha public and private key not supplied, instantiating sumeragi keypair is impossible"
+                    "Iroha public and private key not supplied, instantiating `sumeragi` keypair is impossible. Please provide `PRIVATE_KEY` and `PUBLIC_KEY` variables."
                         .to_owned()
                 ))
             }
@@ -120,8 +120,9 @@ impl ConfigurationProxy {
                         ),
                     ));
                 } else {
+                    // TODO: should we just warn the user that this value will be ignored?
                     eyre::bail!(ConfigError::ProxyBuildError(
-                        "Sumeragi should not be provided with `peer_id` directly".to_owned()
+                        "Sumeragi should not be provided with `peer_id` directly. It is computed from the other provided values.".to_owned()
                     ))
                 }
             } else {
