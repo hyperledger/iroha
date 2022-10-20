@@ -1,8 +1,0 @@
-# General information about the project.
-project: "Hyperledger Iroha"
-documentation: "Iroha handbook: installation, getting started, API, guides, and troubleshooting"
-description: "Distributed ledger technology platform, written in Rust"
-copyright: "Soramitsu Co., Ltd."
-author: "Hyperledger Iroha community"
-version: "2.0.0"
-release: "2.0.0"
