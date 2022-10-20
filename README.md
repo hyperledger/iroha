@@ -123,8 +123,6 @@ cd target/debug
 ./iroha_client_cli --help
 ```
 
-Learn how to [mint your first asset with Iroha](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/tutorials/mint-your-first-asset.md).
-
 # Integration
 
 Iroha project mainly consists of the following crates:
@@ -223,10 +221,9 @@ We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.
 
 * [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/)
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
-* [Minting your first asset (tutorial)](./docs/source/tutorials/mint-your-first-asset.md)
 * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary.html)
 * [Configuration](./docs/source/references/config.md)
-* [Iroha Special Instructions]([./docs/source/references/isi.md)](https://hyperledger.github.io/iroha-2-docs/guide/advanced/isi.html)
+* [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/advanced/isi.html)
 * [API specification](./docs/source/references/api_spec.md)
 
 Iroha SDKs:
