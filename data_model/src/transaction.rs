@@ -881,6 +881,6 @@ pub mod prelude {
         Transaction, TransactionLimits, TransactionQueryResult, TransactionRejectionReason,
         TransactionValue, Txn, UnsatisfiedSignatureConditionFail, ValidTransaction,
         VersionedPendingTransactions, VersionedRejectedTransaction, VersionedSignedTransaction,
-        VersionedValidTransaction, WasmExecutionFail,
+        VersionedValidTransaction, WasmExecutionFail, WasmSmartContract,
     };
 }

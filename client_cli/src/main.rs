@@ -11,7 +11,13 @@
     clippy::print_stderr
 )]
 
-use std::{fmt, fs::File, str::FromStr, time::Duration};
+use std::{
+    fmt,
+    fs::{read as read_file, File},
+    io::stdin,
+    str::FromStr,
+    time::Duration,
+};
 
 use clap::StructOpt;
 use color_eyre::{
@@ -96,6 +102,8 @@ pub enum Subcommand {
     /// The subcommand related to event streaming
     #[clap(subcommand)]
     Events(events::Args),
+    /// The subcommand related to Wasm
+    Wasm(wasm::Args),
 }
 
 /// Runs subcommand
@@ -118,7 +126,7 @@ macro_rules! match_run_all {
 impl RunArgs for Subcommand {
     fn run(self, cfg: &ClientConfiguration) -> Result<()> {
         use Subcommand::*;
-        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events })
+        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm })
     }
 }
 
@@ -159,21 +167,21 @@ fn main() -> Result<()> {
 /// Fails if submitting over network fails
 #[allow(clippy::shadow_unrelated)]
 pub fn submit(
-    instruction: impl Into<Instruction>,
+    instructions: impl Into<Executable>,
     cfg: &ClientConfiguration,
     metadata: UnlimitedMetadata,
 ) -> Result<()> {
-    let instruction = instruction.into();
     let iroha_client = Client::new(cfg)?;
+    let instructions = instructions.into();
     #[cfg(debug_assertions)]
     let err_msg = format!(
         "Failed to build transaction from instruction {:?}",
-        instruction
+        instructions
     );
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to build transaction.";
     let tx = iroha_client
-        .build_transaction(vec![instruction].into(), metadata)
+        .build_transaction(instructions, metadata)
         .wrap_err(err_msg)?;
     let tx = match iroha_client.get_original_transaction(
         &tx,
@@ -278,8 +286,8 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterBox::new(Domain::new(id));
-            submit(create_domain, cfg, metadata).wrap_err("Failed to create domain")
+            let create_domain = RegisterBox::new(Domain::new(id)).into();
+            submit([create_domain], cfg, metadata).wrap_err("Failed to create domain")
         }
     }
 
@@ -363,8 +371,8 @@ mod account {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let create_account = RegisterBox::new(Account::new(id, [key]));
-            submit(create_account, cfg, metadata).wrap_err("Failed to register account")
+            let create_account = RegisterBox::new(Account::new(id, [key])).into();
+            submit([create_account], cfg, metadata).wrap_err("Failed to register account")
         }
     }
 
@@ -416,12 +424,9 @@ mod account {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
             } = self;
-            submit(
-                MintBox::new(account, EvaluatesTo::new_unchecked(condition.into())),
-                cfg,
-                metadata,
-            )
-            .wrap_err("Failed to set signature condition")
+            let mint_box =
+                MintBox::new(account, EvaluatesTo::new_unchecked(condition.into())).into();
+            submit([mint_box], cfg, metadata).wrap_err("Failed to set signature condition")
         }
     }
 
@@ -485,8 +490,8 @@ mod account {
                 permission,
                 metadata: Metadata(metadata),
             } = self;
-            let grant = GrantBox::new(permission.0, id);
-            submit(grant, cfg, metadata).wrap_err("Failed to grant the permission to the account")
+            let grant = GrantBox::new(permission.0, id).into();
+            submit([grant], cfg, metadata).wrap_err("Failed to grant the permission to the account")
         }
     }
 
@@ -575,8 +580,8 @@ mod asset {
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
             }
-            submit(RegisterBox::new(asset_definition), cfg, metadata)
-                .wrap_err("Failed to register asset")
+            let create_asset_definition = RegisterBox::new(asset_definition).into();
+            submit([create_asset_definition], cfg, metadata).wrap_err("Failed to register asset")
         }
     }
 
@@ -608,8 +613,10 @@ mod asset {
             let mint_asset = MintBox::new(
                 Value::U32(quantity),
                 IdBox::AssetId(AssetId::new(asset, account)),
-            );
-            submit(mint_asset, cfg, metadata).wrap_err("Failed to mint asset of type `Value::U32`")
+            )
+            .into();
+            submit([mint_asset], cfg, metadata)
+                .wrap_err("Failed to mint asset of type `Value::U32`")
         }
     }
 
@@ -646,8 +653,9 @@ mod asset {
                 IdBox::AssetId(AssetId::new(asset_id.clone(), from)),
                 Value::U32(quantity),
                 IdBox::AssetId(AssetId::new(asset_id, to)),
-            );
-            submit(transfer_asset, cfg, metadata).wrap_err("Failed to transfer asset")
+            )
+            .into();
+            submit([transfer_asset], cfg, metadata).wrap_err("Failed to transfer asset")
         }
     }
 
@@ -739,12 +747,8 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            submit(
-                RegisterBox::new(Peer::new(PeerId::new(&address, &key))),
-                cfg,
-                metadata,
-            )
-            .wrap_err("Failed to register peer")
+            let register_peer = RegisterBox::new(Peer::new(PeerId::new(&address, &key))).into();
+            submit([register_peer], cfg, metadata).wrap_err("Failed to register peer")
         }
     }
 
@@ -769,12 +773,44 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
+            let unregister_peer =
+                UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key))).into();
+            submit([unregister_peer], cfg, metadata).wrap_err("Failed to unregister peer")
+        }
+    }
+}
+
+mod wasm {
+    use std::{io::Read, path::PathBuf};
+
+    use super::*;
+
+    /// Subcommand for dealing with Wasm
+    #[derive(Debug, StructOpt)]
+    pub struct Args {
+        /// Specify a path to the Wasm file or skip this flag to read from stdin
+        #[structopt(short, long)]
+        path: Option<PathBuf>,
+    }
+
+    impl RunArgs for Args {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let raw_data = if let Some(path) = self.path {
+                read_file(path).wrap_err("Failed to read a Wasm from the file into the buffer")?
+            } else {
+                let mut buf = Vec::<u8>::new();
+                stdin()
+                    .read_to_end(&mut buf)
+                    .wrap_err("Failed to read a Wasm from stdin into the buffer")?;
+                buf
+            };
+
             submit(
-                UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key))),
+                Executable::Wasm(WasmSmartContract { raw_data }),
                 cfg,
-                metadata,
+                UnlimitedMetadata::new(),
             )
-            .wrap_err("Failed to unregister peer")
+            .wrap_err("Failed to submit a Wasm smart contract")
         }
     }
 }
