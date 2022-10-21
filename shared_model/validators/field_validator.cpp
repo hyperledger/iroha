@@ -25,7 +25,6 @@
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
-#include "multihash/multihash.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
 
@@ -288,7 +287,7 @@ namespace shared_model {
             "CreatedTime",
             {fmt::format(
                 "sent from future, timestamp: {}, now: {}", timestamp, now)});
-      } else if (now > max_delay_ + timestamp) {
+      } else if (now > max_delay_.count() + timestamp) {
         return ValidationError(
             "CreatedTime",
             {fmt::format("too old, timestamp: {}, now: {}", timestamp, now)});
