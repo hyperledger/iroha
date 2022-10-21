@@ -102,3 +102,19 @@ To know how many units of a particular asset an account has, use `asset get` wit
 ```
 
 This query returns the quantity of `XOR#Soramitsu` asset for the `White Rabbit@Soramitsu` account.
+
+### Execute WASM transaction
+
+Use `--file` to specify a path to the WASM file:
+
+```bash
+./iroha_client_cli wasm --file=/path/to/file.wasm
+```
+
+Or skip `--file` to read WASM from standard input:
+
+```bash
+cat /path/to/file.wasm | ./iroha_client_cli wasm
+```
+
+These subcommands submit the provided wasm binary as an `Executable` to be executed outside a trigger context.
