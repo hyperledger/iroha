@@ -108,8 +108,8 @@ impl Default for ConfigurationProxy {
 }
 
 // TODO: explain why these values were chosen.
-pub const TTL_TOO_SMALL_THRESHOLD: u64 = 500;
-pub const WASM_SIZE_TOO_SMALL_THRESHOLD: u64 = 2_u64.pow(10); // 1 KiB
+const TTL_TOO_SMALL_THRESHOLD: u64 = 500;
+const WASM_SIZE_TOO_SMALL_THRESHOLD: u64 = 2_u64.pow(10); // 1 KiB
 
 impl ConfigurationProxy {
     /// Finalise Iroha client config proxy by checking that certain fields identify reasonable limits or
