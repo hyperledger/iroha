@@ -86,7 +86,7 @@ pub const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 
-pub const P2P_TCP_TIMEOUT: Duration = Duration::from_millis(100);
+pub const P2P_TCP_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct P2PSystem {
     listen_addr: String,
@@ -118,13 +118,41 @@ impl P2PSystem {
     }
 
     pub fn post_to_network(&self, message: NetworkMessage, recipients: Vec<PeerId>) {
-        println!("p2p: Post to network");
+        let encoded = message.encode();
+
+        // For protocol violators.
+        let mut to_disconnect_keys = Vec::new();
+
+        let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
+        for public_key in recipients.iter().map(|peer_id| &peer_id.public_key) {
+            let (stream, crypto) = match connected_to_peers.get_mut(&public_key) {
+                Some(stuff) => stuff,
+                None => {
+                    continue;
+                },
+            };
+            let encrypted = crypto.encrypt(encoded.clone()).expect("We should always be able to encrypt.");
+            let write1 = stream.write_all(&(encrypted.len() as u32).to_le_bytes());
+            let write2 = stream.write_all(&encrypted);
+
+            if write1.is_err() || write2.is_err() {
+                to_disconnect_keys.push(public_key);
+            }
+        }
+
+        for key in to_disconnect_keys {
+            println!("Disconnected during post from {}.", key);
+            connected_to_peers.remove(&key).expect("Peer to disconnect must have been in the hashmap.");
+        }
     }
 
     pub fn update_peer_target(&self, new_target: &[PeerId]) {
         let mut target = self.connect_peer_target.lock().unwrap();
         target.clear();
         target.extend_from_slice(new_target);
+        if let Some(index) = target.iter().position(|peer_id| peer_id.public_key == self.public_key) {
+            target.remove(index);
+        }
     }
 }
 
@@ -155,17 +183,27 @@ fn p2p_read_loop(
             return;
         }
 
+        std::thread::sleep(Duration::from_millis(10));
+
         // For protocol violators.
-        let mut to_disconnect_keys = Vec::new();
+        let mut to_disconnect_keys = Vec::<PublicKey>::new();
 
         let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
         for (public_key, (stream, crypto)) in connected_to_peers.iter_mut() {
+            if stream.write_all(&0_u32.to_le_bytes()).is_err() { // This has to be done in order to detect broken pipes.
+                to_disconnect_keys.push(public_key.clone());
+                continue;
+            }
+
             let mut _byte = 0_u8;
-            if stream.peek(std::slice::from_mut(&mut _byte)).is_ok() { // Packet incomming
+            if let Ok(byte_count) = stream.peek(std::slice::from_mut(&mut _byte)) { // Packet incomming
+                if byte_count == 0 {
+                    continue;
+                }
                 let mut packet_size = [0_u8; 4];
                 if stream.read_exact(&mut packet_size).is_err()
                 {
-                    to_disconnect_keys.push(public_key);
+                    to_disconnect_keys.push(public_key.clone());
                     continue;
                 }
                 let packet_size = u32::from_le_bytes(packet_size);
@@ -173,7 +211,7 @@ fn p2p_read_loop(
 
                 let mut buf = vec![0_u8; packet_size as usize];
                 if stream.read_exact(&mut buf).is_err() {
-                    to_disconnect_keys.push(public_key);
+                    to_disconnect_keys.push(public_key.clone());
                     continue;
                 }
 
@@ -188,17 +226,23 @@ fn p2p_read_loop(
                             Health => {}
                         }
                     } else {
-                        to_disconnect_keys.push(public_key);
+                        to_disconnect_keys.push(public_key.clone());
                         continue;
                     }
                 } else {
-                    to_disconnect_keys.push(public_key);
+                    to_disconnect_keys.push(public_key.clone());
                     continue;
                 }
+            } else {
+                to_disconnect_keys.push(public_key.clone());
+                continue;
             }
         }
 
-        std::thread::sleep(Duration::from_millis(1));
+        for key in to_disconnect_keys {
+            println!("Disconnected during read from {}.", key);
+            connected_to_peers.remove(&key).expect("Peer to disconnect must have been in the hashmap.");
+        }
     }
 }
 
@@ -223,7 +267,7 @@ fn p2p_listen_loop(
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
     std::thread::sleep(Duration::from_millis((rand::random::<u64>() % 10) + 10));
-    
+
     let mut waiting_for_server_hello = Vec::new();
     let mut send_public_key = Vec::new();
 
@@ -396,18 +440,20 @@ fn p2p_listen_loop(
             }
         }
 
+        // nocheckin
+        // explain why this has to be stocastic
+
         // Section 5, handle new connections.
         {
             let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
             for (public_key, stream, crypto) in new_connections {
                 if connected_to_peers.contains_key(&public_key) {
-                    println!(
-                        "Already connected to {}. Dropping new connection.",
-                        public_key
-                    );
-                    continue;
+                    if rand::random::<bool>() {
+                        connected_to_peers.insert(public_key, (stream, crypto));
+                    }
+                } else {
+                    connected_to_peers.insert(public_key, (stream, crypto));
                 }
-                connected_to_peers.insert(public_key, (stream, crypto));
             }
         }
     }
