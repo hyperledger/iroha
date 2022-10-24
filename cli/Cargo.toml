@@ -41,13 +41,11 @@ iroha_macro = { version = "=2.0.0-pre-rc.9", path = "../macro" }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.9", path = "../permissions_validators" }
 iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre-rc.9", path = "../futures" }
-iroha_actor = { version = "=2.0.0-pre-rc.9", path = "../actor" }
 iroha_data_model = { version = "=2.0.0-pre-rc.9", path = "../data_model" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.9", path = "../telemetry", optional = true }
 iroha_version = { version = "=2.0.0-pre-rc.9", path = "../version", features = ["warp"] }
 iroha_config = { version = "=2.0.0-pre-rc.9", path = "../config" }
 iroha_crypto = { version = "=2.0.0-pre-rc.9", path = "../crypto" }
-iroha_p2p = { version = "=2.0.0-pre-rc.9", path = "../p2p" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.9", path = "../schema/gen", optional = true }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 

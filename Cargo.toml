@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-  "actor",
-  "actor/derive",
   "cli",
   "cli/derive",
   "client",
@@ -22,7 +20,6 @@ members = [
   "logger",
   "macro",
   "macro/derive",
-  "p2p",
   "permissions_validators",
   "schema",
   "schema/derive",
