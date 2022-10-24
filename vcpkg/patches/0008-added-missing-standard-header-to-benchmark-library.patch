@@ -1,10 +1,10 @@
 commit 2bf68c00af259a86c6407bdf9fbfb481a220b2e0
-Author: Your Name <you@example.com>
+Author: Grzegorz Bazior <bazior@agh.edu.pl>
 Date:   Mon Oct 24 23:24:40 2022 +0200
 
     Added patch which adds missing header to std::numeric_limits to benchmark library
     
-    Signed-off-by: Your Name <you@example.com>
+    Signed-off-by: Grzegorz Bazior <bazior@agh.edu.pl>
 
 diff --git a/ports/benchmark/added-missing-standard-header.patch b/ports/benchmark/added-missing-standard-header.patch
 new file mode 100644
