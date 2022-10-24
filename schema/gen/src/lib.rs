@@ -33,10 +33,10 @@ pub fn build_schemas() -> MetaMap {
     schemas! {
         RawGenesisBlock,
 
-        VersionedBlockPublisherMessage,
-        VersionedBlockSubscriberMessage,
-        VersionedEventPublisherMessage,
-        VersionedEventSubscriberMessage,
+        VersionedBlockMessage,
+        VersionedBlockSubscriptionRequest,
+        VersionedEventMessage,
+        VersionedEventSubscriptionRequest,
         VersionedPaginatedQueryResult,
         VersionedSignedQueryRequest,
         VersionedSignedTransaction,

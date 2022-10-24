@@ -15,8 +15,8 @@ use iroha_config::{
 };
 use iroha_core::{
     block::stream::{
-        BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
-        VersionedBlockSubscriberMessage,
+        BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+        VersionedBlockSubscriptionRequest,
     },
     smartcontracts::{
         isi::query::{Error as QueryError, ValidQueryRequest},
@@ -264,14 +264,8 @@ async fn handle_post_configuration(
 
 #[iroha_futures::telemetry_future]
 async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) -> eyre::Result<()> {
-    let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
-    let mut from_height: u64 = subscription_request.into_v1().try_into()?;
-
-    stream
-        .send(VersionedBlockPublisherMessage::from(
-            BlockPublisherMessage::SubscriptionAccepted,
-        ))
-        .await?;
+    let subscription_request: VersionedBlockSubscriptionRequest = stream.recv().await?;
+    let BlockSubscriptionRequest(mut from_height) = subscription_request.into_v1();
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
     loop {
@@ -312,16 +306,9 @@ async fn stream_blocks(
     #[allow(clippy::expect_used)]
     for block in blocks {
         stream
-            .send(VersionedBlockPublisherMessage::from(
-                BlockPublisherMessage::from(block),
-            ))
+            .send(VersionedBlockMessage::from(BlockMessage(block)))
             .await?;
-
-        let message: VersionedBlockSubscriberMessage = stream.recv().await?;
-        match message.into_v1() {
-            BlockSubscriberMessage::BlockReceived => *from_height += 1,
-            message => eyre::bail!("Expected `BlockReceived` message, received: {message:?}"),
-        }
+        *from_height += 1;
     }
 
     Ok(())
