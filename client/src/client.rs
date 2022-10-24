@@ -1069,11 +1069,11 @@ impl Client {
 
 /// Logic for `sync` and `async` Iroha websocket streams
 pub mod stream_api {
-    use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
+    use futures_util::{SinkExt, Stream, StreamExt};
 
     use super::*;
     use crate::{
-        http::ws::conn_flow::{EventData, Events, Handshake, Init, InitData},
+        http::ws::conn_flow::{Events, Init, InitData},
         http_default::DefaultWebSocketRequestBuilder,
     };
 
@@ -1094,7 +1094,7 @@ pub mod stream_api {
         /// - Message is an error   
         pub fn new<I: Init<DefaultWebSocketRequestBuilder>>(
             handler: I,
-        ) -> Result<SyncIterator<<I::Next as Handshake>::Next>> {
+        ) -> Result<SyncIterator<I::Next>> {
             trace!("Creating `SyncIterator`");
             let InitData {
                 first_message,
@@ -1105,18 +1105,6 @@ pub mod stream_api {
             let mut stream = req.build()?.connect()?;
             stream.write_message(WebSocketMessage::Binary(first_message))?;
 
-            let handler = loop {
-                let mes = stream.read_message();
-                trace!(?mes, "Received message");
-                match mes {
-                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
-                    Ok(_) => continue,
-                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
-                        return Err(eyre!("WebSocket connection closed."))
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            };
             trace!("`SyncIterator` created successfully");
             Ok(SyncIterator { stream, handler })
         }
@@ -1129,14 +1117,7 @@ pub mod stream_api {
             loop {
                 match self.stream.read_message() {
                     Ok(WebSocketMessage::Binary(message)) => {
-                        return Some(self.handler.message(message).and_then(
-                            |EventData { reply, event }| {
-                                self.stream
-                                    .write_message(WebSocketMessage::Binary(reply))
-                                    .map(|_| event)
-                                    .wrap_err("Failed to reply")
-                            },
-                        ));
+                        return Some(self.handler.message(message))
                     }
                     Ok(_) => continue,
                     Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
@@ -1182,11 +1163,10 @@ pub mod stream_api {
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
         /// - Message is an error   
-        pub async fn new<I>(handler: I) -> Result<AsyncStream<<I::Next as Handshake>::Next>>
+        pub async fn new<I>(handler: I) -> Result<AsyncStream<I::Next>>
         where
             I: Init<DefaultWebSocketRequestBuilder> + Send,
             I::Next: Send,
-            <I::Next as Handshake>::Next: Send,
         {
             trace!("Creating `AsyncStream`");
             let InitData {
@@ -1198,18 +1178,6 @@ pub mod stream_api {
             let mut stream = req.build()?.connect_async().await?;
             stream.send(WebSocketMessage::Binary(first_message)).await?;
 
-            let handler = loop {
-                let mes = stream
-                    .next()
-                    .await
-                    .ok_or(eyre!("Expect to receive message"))?;
-                trace!(?mes, "Received message");
-                match mes {
-                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
-                    Ok(_) => continue,
-                    Err(err) => return Err(err.into()),
-                }
-            };
             trace!("`AsyncStream` created successfully");
             Ok(AsyncStream { stream, handler })
         }
@@ -1246,16 +1214,7 @@ pub mod stream_api {
         ) -> std::task::Poll<Option<Self::Item>> {
             match futures_util::ready!(self.stream.poll_next_unpin(cx)) {
                 Some(Ok(WebSocketMessage::Binary(message))) => {
-                    match self.handler.message(message) {
-                        Ok(EventData { event, reply }) => {
-                            let mut send = self.stream.send(WebSocketMessage::Binary(reply));
-                            let result = futures_util::ready!(send.poll_unpin(cx))
-                                .map(|_| event)
-                                .wrap_err("Failed to reply");
-                            std::task::Poll::Ready(Some(result))
-                        }
-                        Err(err) => std::task::Poll::Ready(Some(Err(err))),
-                    }
+                    std::task::Poll::Ready(Some(self.handler.message(message)))
                 }
                 Some(Ok(_)) => std::task::Poll::Pending,
                 Some(Err(err)) => std::task::Poll::Ready(Some(Err(err.into()))),
@@ -1270,9 +1229,7 @@ pub mod events_api {
 
     use super::*;
     use crate::http::ws::{
-        conn_flow::{
-            EventData, Events as FlowEvents, Handshake as FlowHandshake, Init as FlowInit, InitData,
-        },
+        conn_flow::{Events as FlowEvents, Init as FlowInit, InitData},
         transform_ws_url,
     };
 
@@ -1310,7 +1267,7 @@ pub mod events_api {
         }
 
         impl<R: RequestBuilder> FlowInit<R> for Init {
-            type Next = Handshake;
+            type Next = Events;
 
             fn init(self) -> InitData<R, Self::Next> {
                 let Self {
@@ -1319,37 +1276,10 @@ pub mod events_api {
                     url,
                 } = self;
 
-                let msg =
-                    VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(filter))
-                        .encode_versioned();
+                let msg = VersionedEventSubscriptionRequest::from(EventSubscriptionRequest(filter))
+                    .encode_versioned();
 
-                InitData::new(
-                    R::new(HttpMethod::GET, url).headers(headers),
-                    msg,
-                    Handshake,
-                )
-            }
-        }
-
-        /// Handshake handler for Events API flow
-        #[derive(Copy, Clone)]
-        pub struct Handshake;
-
-        impl FlowHandshake for Handshake {
-            type Next = Events;
-
-            fn message(self, message: Vec<u8>) -> Result<Self::Next>
-            where
-                Self::Next: FlowEvents,
-            {
-                if let EventPublisherMessage::SubscriptionAccepted =
-                    try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
-                        .into_v1()
-                {
-                    Ok(Events)
-                } else {
-                    Err(eyre!("Expected `SubscriptionAccepted`."))
-                }
+                InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
         }
 
@@ -1360,19 +1290,11 @@ pub mod events_api {
         impl FlowEvents for Events {
             type Event = iroha_data_model::prelude::Event;
 
-            fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
+            fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message =
-                    try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
-                        .into_v1();
-                let event = match event_socket_message {
-                    EventPublisherMessage::Event(event) => event,
-                    msg => return Err(eyre!("Expected Event but got {:?}", msg)),
-                };
-                let versioned_message =
-                    VersionedEventSubscriberMessage::from(EventSubscriberMessage::EventReceived)
-                        .encode_versioned();
-
-                Ok(EventData::new(event, versioned_message))
+                    try_decode_all_or_just_decode!(VersionedEventMessage, &message)?.into_v1();
+                let EventMessage(event) = event_socket_message;
+                Ok(event)
             }
         }
     }
@@ -1387,17 +1309,15 @@ pub mod events_api {
 mod blocks_api {
     use super::*;
     use crate::http::ws::{
-        conn_flow::{
-            EventData, Events as FlowEvents, Handshake as FlowHandshake, Init as FlowInit, InitData,
-        },
+        conn_flow::{Events as FlowEvents, Init as FlowInit, InitData},
         transform_ws_url,
     };
 
     /// Blocks API flow. For documentation and usage examples, refer to [`crate::http::ws::conn_flow`].
     pub mod flow {
         use iroha_core::block::stream::{
-            BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
-            VersionedBlockSubscriberMessage,
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
         };
 
         use super::*;
@@ -1432,7 +1352,7 @@ mod blocks_api {
         }
 
         impl<R: RequestBuilder> FlowInit<R> for Init {
-            type Next = Handshake;
+            type Next = Events;
 
             fn init(self) -> InitData<R, Self::Next> {
                 let Self {
@@ -1441,37 +1361,10 @@ mod blocks_api {
                     url,
                 } = self;
 
-                let msg =
-                    VersionedBlockSubscriberMessage::from(BlockSubscriberMessage::from(height))
-                        .encode_versioned();
+                let msg = VersionedBlockSubscriptionRequest::from(BlockSubscriptionRequest(height))
+                    .encode_versioned();
 
-                InitData::new(
-                    R::new(HttpMethod::GET, url).headers(headers),
-                    msg,
-                    Handshake,
-                )
-            }
-        }
-
-        //// Handshake handler for Blocks API flow
-        #[derive(Copy, Clone)]
-        pub struct Handshake;
-
-        impl FlowHandshake for Handshake {
-            type Next = Events;
-
-            fn message(self, message: Vec<u8>) -> Result<Self::Next>
-            where
-                Self::Next: FlowEvents,
-            {
-                if let BlockPublisherMessage::SubscriptionAccepted =
-                    try_decode_all_or_just_decode!(VersionedBlockPublisherMessage, &message)?
-                        .into_v1()
-                {
-                    Ok(Events)
-                } else {
-                    Err(eyre!("Expected `SubscriptionAccepted`."))
-                }
+                InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
         }
 
@@ -1482,19 +1375,13 @@ mod blocks_api {
         impl FlowEvents for Events {
             type Event = iroha_core::prelude::VersionedCommittedBlock;
 
-            fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
+            fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let block_socket_message =
-                    try_decode_all_or_just_decode!(VersionedBlockPublisherMessage, &message)?
-                        .into_v1();
-                let block = match block_socket_message {
-                    BlockPublisherMessage::Block(block) => block,
-                    msg => return Err(eyre!("Expected Event but got {:?}", msg)),
-                };
-                let versioned_message =
-                    VersionedBlockSubscriberMessage::from(BlockSubscriberMessage::BlockReceived)
-                        .encode_versioned();
+                    try_decode_all_or_just_decode!(VersionedBlockMessage, &message)?.into_v1();
 
-                Ok(EventData::new(block, versioned_message))
+                let BlockMessage(block) = block_socket_message;
+
+                Ok(block)
             }
         }
     }

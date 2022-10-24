@@ -248,16 +248,16 @@ pub mod scale {
     /// use iroha_version::scale::DecodeVersioned;
     /// use iroha_version::try_decode_all_or_just_decode;
     ///
-    /// # let msg: VersionedEventPublisherMessage = EventPublisherMessage::SubscriptionAccepted.into();
+    /// # let msg: VersionedEventSubscriptionRequest = EventSubscriptionRequest(FilterBox::Data(DataEventFilter::AcceptAll)).into();
     /// # let mut bytes = msg.encode_versioned();
     /// # bytes.append(&mut bytes.clone());
     /// # let excessive_bytes = bytes;
     ///
-    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `VersionedEventPublisherMessage`"
-    /// let msg = try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &excessive_bytes)?;
+    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `VersionedEventMessage`"
+    /// let msg = try_decode_all_or_just_decode!(VersionedEventMessage, &excessive_bytes)?;
     ///
     /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `Message`"
-    /// let msg = try_decode_all_or_just_decode!(VersionedEventPublisherMessage as "Message", &excessive_bytes)?;
+    /// let msg = try_decode_all_or_just_decode!(VersionedEventMessage as "Message", &excessive_bytes)?;
     ///
     /// # Ok::<(), iroha_version::error::Error>(())
     /// ```

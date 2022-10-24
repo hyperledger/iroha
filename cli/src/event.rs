@@ -14,7 +14,7 @@ use warp::ws::WebSocket;
 use crate::stream::{self, Sink, Stream};
 
 /// Type of Stream error
-pub type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
+pub type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriptionRequest>>::Err>;
 
 /// Type of error for `Consumer`
 #[derive(thiserror::Error, Debug)]
@@ -24,14 +24,10 @@ pub enum Error {
     Stream(Box<StreamError>),
     /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
-    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, FilterBox>),
-    /// Error, that occurs when client answered not with `EventReceived` message
-    #[error("Got unexpected response. Expected `EventReceived`")]
-    ExpectedEventReceived,
+    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriptionRequest, FilterBox>),
     /// Error from provided websocket
     #[error("WebSocket error: {0}")]
     WebSocket(#[from] warp::Error),
-
     /// Error that occurs than `WebSocket::next()` call returns `None`
     #[error("Can't receive message from stream")]
     CantReceiveMessage,
@@ -61,14 +57,8 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
-        let subscription_request: VersionedEventSubscriberMessage = stream.recv().await?;
-        let filter = subscription_request.into_v1().try_into()?;
-
-        stream
-            .send(VersionedEventPublisherMessage::from(
-                EventPublisherMessage::SubscriptionAccepted,
-            ))
-            .await?;
+        let subscription_request: VersionedEventSubscriptionRequest = stream.recv().await?;
+        let EventSubscriptionRequest(filter) = subscription_request.into_v1();
 
         Ok(Consumer { stream, filter })
     }
@@ -84,17 +74,9 @@ impl Consumer {
         }
 
         self.stream
-            .send(VersionedEventPublisherMessage::from(
-                EventPublisherMessage::from(event),
-            ))
-            .await?;
-
-        let message: VersionedEventSubscriberMessage = self.stream.recv().await?;
-        if let EventSubscriberMessage::EventReceived = message.into_v1() {
-            Ok(())
-        } else {
-            Err(Error::ExpectedEventReceived)
-        }
+            .send(VersionedEventMessage::from(EventMessage(event)))
+            .await
+            .map_err(Into::into)
     }
 
     /// Listen for `Close` message in loop

@@ -77,9 +77,7 @@ pub mod ws {
     /// Flow consists of the following:
     ///
     /// 1. **Init stage**: establish `WebSocket` connection with Iroha
-    /// 2. **Handshake stage**: send a "subscription" message to Iroha and ensure that the next message from Iroha
-    ///     is a "subscription accepted" message
-    /// 3. **Events stage**: wait for messages from Iroha. For each message, decode *some event* from it
+    /// 2. **Events stage**: wait for messages from Iroha. For each message, decode *some event* from it
     ///     and send back *some "received"* message
     ///
     ///
@@ -92,13 +90,11 @@ pub mod ws {
     ///
     /// From data side, you should implement a state machine built on top of these traits:
     ///
-    /// - [Init][conn_flow::Init] - it is designed to consume its impl struct and produce a tuple, that has 2 items:
-    ///   **initial data** to establish WS connection, and the **handler** of the next flow stage - **handshake**.
+    /// - [Init][conn_flow::Init] it is designed to consume its impl struct and produce a tuple, that has 2 items:
+    ///   **initial data** to establish WS connection, and the **handler** of the next flow stage — **events**.
     ///   Then, transportation side should open a connection, send first message into it, receive message from Iroha
     ///   and pass it into the next handler.
-    /// - [Handshake][conn_flow::Handshake] - handles incoming message and ensures that it is OK. Which message is OK -
-    ///   implementation dependent. If it is OK, returns the handler for the next, final flow stage - **events**.
-    /// - [Events][conn_flow::Events] - handles incoming messages and returns a **binary reply** back Iroha and **some decoded event**.
+    /// - [Events][conn_flow::Events] handles incoming messages and returns a **binary reply** back Iroha and **some decoded event**.
     ///
     /// Here is an example of how to implement flow in a transport-agnostic manner:
     ///
@@ -106,7 +102,7 @@ pub mod ws {
     /// use eyre::{eyre, Result};
     /// use iroha_client::http::{
     ///     ws::conn_flow::{
-    ///         EventData, Events as FlowEvents, Handshake as FlowHandshake, Init as FlowInit,
+    ///         Events as FlowEvents, Init as FlowInit,
     ///         InitData,
     ///     },
     ///     Method, RequestBuilder,
@@ -115,28 +111,14 @@ pub mod ws {
     /// struct Init;
     ///
     /// impl<R: RequestBuilder> FlowInit<R> for Init {
-    ///     type Next = Handshake;
+    ///     type Next = Events;
     ///
     ///     fn init(self) -> InitData<R, Self::Next> {
     ///         InitData::new(
     ///             R::new(Method::GET, "http://localhost:3000"),
     ///             vec![1, 2, 3],
-    ///             Handshake,
+    ///             Events,
     ///         )
-    ///     }
-    /// }
-    ///
-    /// struct Handshake;
-    ///
-    /// impl FlowHandshake for Handshake {
-    ///     type Next = Events;
-    ///
-    ///     fn message(self, message: Vec<u8>) -> Result<Self::Next> {
-    ///         if message[0] == 42 {
-    ///             Ok(Events)
-    ///         } else {
-    ///             Err(eyre!("Wrong"))
-    ///         }
     ///     }
     /// }
     ///
@@ -145,8 +127,8 @@ pub mod ws {
     /// impl FlowEvents for Events {
     ///     type Event = u8;
     ///
-    ///     fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
-    ///         Ok(EventData::new(message[0], vec![3, 2, 1]))
+    ///     fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
+    ///         Ok(message[0])
     ///     }
     /// }
     /// ```
@@ -167,7 +149,7 @@ pub mod ws {
     /// use iroha_client::{
     ///     client::events_api::flow as events_api_flow,
     ///     http::{
-    ///         ws::conn_flow::{EventData, Events, Handshake, Init, InitData},
+    ///         ws::conn_flow::{Events, Init, InitData},
     ///         RequestBuilder, Method
     ///     },
     /// };
@@ -229,17 +211,11 @@ pub mod ws {
     ///     let stream = req.connect();
     ///     stream.send(first_message);
     ///
-    ///     // Then handling Iroha response on it
-    ///     let response = stream.get_next();
-    ///     let flow = flow.message(response)?;
-    ///
     ///     // And now we are able to collect events
     ///     let mut events: Vec<Event> = Vec::with_capacity(5);
     ///     while events.len() < 5 {
     ///         let msg = stream.get_next();
-    ///         let EventData { reply, event } = flow.message(msg)?;
-    ///         // Do not forget to send reply back to Iroha!
-    ///         stream.send(reply);
+    ///         let event = flow.message(msg)?;
     ///         events.push(event);
     ///     }
     ///
@@ -250,26 +226,26 @@ pub mod ws {
         use super::*;
 
         /// Initial data to initialize connection and acquire handshake. Produced by implementor of [`Init`].
-        pub struct InitData<R, H>
+        pub struct InitData<R, E>
         where
             R: RequestBuilder,
-            H: Handshake,
+            E: Events,
         {
             /// Built HTTP request to init WS connection
             pub req: R,
             /// Should be sent immediately after WS connection establishment
             pub first_message: Vec<u8>,
             /// Handler for the next flow stage - handshake
-            pub next: H,
+            pub next: E,
         }
 
-        impl<R, H> InitData<R, H>
+        impl<R, E> InitData<R, E>
         where
             R: RequestBuilder,
-            H: Handshake,
+            E: Events,
         {
             /// Construct new item.
-            pub fn new(req: R, first_message: Vec<u8>, next: H) -> Self {
+            pub fn new(req: R, first_message: Vec<u8>, next: E) -> Self {
                 Self {
                     req,
                     first_message,
@@ -278,25 +254,10 @@ pub mod ws {
             }
         }
 
-        /// Struct that is emitted from [`Events`] handler when message is handled.
-        pub struct EventData<T> {
-            /// Decoded event
-            pub event: T,
-            /// Reply that should be sent back to Iroha
-            pub reply: Vec<u8>,
-        }
-
-        impl<T> EventData<T> {
-            /// Construct new item.
-            pub fn new(event: T, reply: Vec<u8>) -> Self {
-                Self { event, reply }
-            }
-        }
-
         /// Initial flow stage.
         pub trait Init<R: RequestBuilder> {
             /// The next handler
-            type Next: Handshake;
+            type Next: Events;
 
             /// Consumes itself to produce initial data to:
             ///
@@ -306,18 +267,6 @@ pub mod ws {
             ///
             /// It doesn't return a `Result` because it doesn't accept any parameters except of itself.
             fn init(self) -> InitData<R, Self::Next>;
-        }
-
-        /// Handshake flow stage.
-        pub trait Handshake {
-            /// The next handler
-            type Next: Events;
-
-            /// Handles first messages. If it is OK, returns the next handler.
-            ///
-            /// # Errors
-            /// Implementation dependent.
-            fn message(self, message: Vec<u8>) -> Result<Self::Next>;
         }
 
         /// Events flow stage.
@@ -332,7 +281,7 @@ pub mod ws {
             ///
             /// # Errors
             /// Implementation dependent.
-            fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>>;
+            fn message(&self, message: Vec<u8>) -> Result<Self::Event>;
         }
     }
 

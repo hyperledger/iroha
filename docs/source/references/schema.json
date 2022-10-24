@@ -346,56 +346,38 @@
       ]
     }
   },
-  "iroha_core::block::stream::BlockPublisherMessage": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "SubscriptionAccepted",
-          "discriminant": 0,
-          "ty": null
-        },
-        {
-          "name": "Block",
-          "discriminant": 1,
-          "ty": "iroha_core::block::VersionedCommittedBlock"
-        }
+  "iroha_core::block::stream::BlockMessage": {
+    "Tuple": {
+      "types": [
+        "iroha_core::block::VersionedCommittedBlock"
       ]
     }
   },
-  "iroha_core::block::stream::BlockSubscriberMessage": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "SubscriptionRequest",
-          "discriminant": 0,
-          "ty": "u64"
-        },
-        {
-          "name": "BlockReceived",
-          "discriminant": 1,
-          "ty": null
-        }
+  "iroha_core::block::stream::BlockSubscriptionRequest": {
+    "Tuple": {
+      "types": [
+        "u64"
       ]
     }
   },
-  "iroha_core::block::stream::VersionedBlockPublisherMessage": {
+  "iroha_core::block::stream::VersionedBlockMessage": {
     "Enum": {
       "variants": [
         {
           "name": "V1",
           "discriminant": 1,
-          "ty": "iroha_core::block::stream::BlockPublisherMessage"
+          "ty": "iroha_core::block::stream::BlockMessage"
         }
       ]
     }
   },
-  "iroha_core::block::stream::VersionedBlockSubscriberMessage": {
+  "iroha_core::block::stream::VersionedBlockSubscriptionRequest": {
     "Enum": {
       "variants": [
         {
           "name": "V1",
           "discriminant": 1,
-          "ty": "iroha_core::block::stream::BlockSubscriberMessage"
+          "ty": "iroha_core::block::stream::BlockSubscriptionRequest"
         }
       ]
     }
@@ -1462,35 +1444,17 @@
       ]
     }
   },
-  "iroha_data_model::events::EventPublisherMessage": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "SubscriptionAccepted",
-          "discriminant": 0,
-          "ty": null
-        },
-        {
-          "name": "Event",
-          "discriminant": 1,
-          "ty": "iroha_data_model::events::Event"
-        }
+  "iroha_data_model::events::EventMessage": {
+    "Tuple": {
+      "types": [
+        "iroha_data_model::events::Event"
       ]
     }
   },
-  "iroha_data_model::events::EventSubscriberMessage": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "SubscriptionRequest",
-          "discriminant": 0,
-          "ty": "iroha_data_model::events::FilterBox"
-        },
-        {
-          "name": "EventReceived",
-          "discriminant": 1,
-          "ty": null
-        }
+  "iroha_data_model::events::EventSubscriptionRequest": {
+    "Tuple": {
+      "types": [
+        "iroha_data_model::events::FilterBox"
       ]
     }
   },
@@ -1520,24 +1484,24 @@
       ]
     }
   },
-  "iroha_data_model::events::VersionedEventPublisherMessage": {
+  "iroha_data_model::events::VersionedEventMessage": {
     "Enum": {
       "variants": [
         {
           "name": "V1",
           "discriminant": 1,
-          "ty": "iroha_data_model::events::EventPublisherMessage"
+          "ty": "iroha_data_model::events::EventMessage"
         }
       ]
     }
   },
-  "iroha_data_model::events::VersionedEventSubscriberMessage": {
+  "iroha_data_model::events::VersionedEventSubscriptionRequest": {
     "Enum": {
       "variants": [
         {
           "name": "V1",
           "discriminant": 1,
-          "ty": "iroha_data_model::events::EventSubscriberMessage"
+          "ty": "iroha_data_model::events::EventSubscriptionRequest"
         }
       ]
     }

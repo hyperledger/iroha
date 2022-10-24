@@ -14,78 +14,67 @@ pub mod execute_trigger;
 pub mod pipeline;
 pub mod time;
 
-declare_versioned_with_scale!(VersionedEventPublisherMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedEventMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-impl VersionedEventPublisherMessage {
+impl VersionedEventMessage {
     /// Converts from `&VersionedEventPublisherMessage` to V1 reference
-    pub const fn as_v1(&self) -> &EventPublisherMessage {
+    pub const fn as_v1(&self) -> &EventMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
     /// Converts from `&mut VersionedEventPublisherMessage` to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut EventPublisherMessage {
+    pub fn as_mut_v1(&mut self) -> &mut EventMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
     /// Performs the conversion from `VersionedEventPublisherMessage` to V1
-    pub fn into_v1(self) -> EventPublisherMessage {
+    pub fn into_v1(self) -> EventMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-/// Message sent by the stream producer
-#[version_with_scale(n = 1, versioned = "VersionedEventPublisherMessage")]
-#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
-pub enum EventPublisherMessage {
-    /// Reply sent by the peer.
-    /// The message means that event stream connection is initialized and will be supplying
-    /// events starting with the next message.
-    SubscriptionAccepted,
-    /// Event sent by the peer.
-    Event(Event),
-}
+/// Message sent by the stream producer.
+/// Event sent by the peer.
+#[version_with_scale(n = 1, versioned = "VersionedEventMessage")]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+pub struct EventMessage(pub Event);
 
-declare_versioned_with_scale!(VersionedEventSubscriberMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedEventSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-impl VersionedEventSubscriberMessage {
+impl VersionedEventSubscriptionRequest {
     /// Converts from `&VersionedEventSubscriberMessage` to V1 reference
-    pub const fn as_v1(&self) -> &EventSubscriberMessage {
+    pub const fn as_v1(&self) -> &EventSubscriptionRequest {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
     /// Converts from `&mut VersionedEventSubscriberMessage` to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut EventSubscriberMessage {
+    pub fn as_mut_v1(&mut self) -> &mut EventSubscriptionRequest {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
     /// Performs the conversion from `VersionedEventSubscriberMessage` to V1
-    pub fn into_v1(self) -> EventSubscriberMessage {
+    pub fn into_v1(self) -> EventSubscriptionRequest {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-/// Message sent by the stream consumer
-#[version_with_scale(n = 1, versioned = "VersionedEventSubscriberMessage")]
-#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
-pub enum EventSubscriberMessage {
-    /// Request sent by the client to subscribe to events.
-    //TODO: Sign request?
-    SubscriptionRequest(FilterBox),
-    /// Acknowledgment of receiving event sent from the peer.
-    EventReceived,
-}
+/// Message sent by the stream consumer.
+/// Request sent by the client to subscribe to events.
+#[version_with_scale(n = 1, versioned = "VersionedEventSubscriptionRequest")]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+pub struct EventSubscriptionRequest(pub FilterBox);
 
 /// Event.
 #[derive(
@@ -203,7 +192,7 @@ impl Filter for FilterBox {
 pub mod prelude {
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        Event, EventPublisherMessage, EventSubscriberMessage, EventType, Filter, FilterBox,
-        VersionedEventPublisherMessage, VersionedEventSubscriberMessage,
+        Event, EventMessage, EventSubscriptionRequest, EventType, Filter, FilterBox,
+        VersionedEventMessage, VersionedEventSubscriptionRequest,
     };
 }

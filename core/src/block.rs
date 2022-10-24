@@ -850,25 +850,25 @@ pub mod stream {
 
     use crate::block::VersionedCommittedBlock;
 
-    declare_versioned_with_scale!(VersionedBlockPublisherMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+    declare_versioned_with_scale!(VersionedBlockMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-    impl VersionedBlockPublisherMessage {
+    impl VersionedBlockMessage {
         /// Converts from `&VersionedBlockPublisherMessage` to V1 reference
-        pub const fn as_v1(&self) -> &BlockPublisherMessage {
+        pub const fn as_v1(&self) -> &BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
         /// Converts from `&mut VersionedBlockPublisherMessage` to V1 mutable reference
-        pub fn as_mut_v1(&mut self) -> &mut BlockPublisherMessage {
+        pub fn as_mut_v1(&mut self) -> &mut BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
         /// Performs the conversion from `VersionedBlockPublisherMessage` to V1
-        pub fn into_v1(self) -> BlockPublisherMessage {
+        pub fn into_v1(self) -> BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
@@ -876,58 +876,47 @@ pub mod stream {
     }
 
     /// Message sent by the stream producer
-    #[version_with_scale(n = 1, versioned = "VersionedBlockPublisherMessage")]
-    #[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
-    #[allow(clippy::large_enum_variant)]
-    pub enum BlockPublisherMessage {
-        /// Answer sent by the peer.
-        /// The message means that block stream connection is initialized and will be supplying
-        /// events starting with the next message.
-        SubscriptionAccepted,
-        /// Block sent by the peer.
-        Block(VersionedCommittedBlock),
-    }
+    /// Block sent by the peer.
+    #[version_with_scale(n = 1, versioned = "VersionedBlockMessage")]
+    #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+    pub struct BlockMessage(pub VersionedCommittedBlock);
 
-    declare_versioned_with_scale!(VersionedBlockSubscriberMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+    declare_versioned_with_scale!(VersionedBlockSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-    impl VersionedBlockSubscriberMessage {
+    impl VersionedBlockSubscriptionRequest {
         /// Converts from `&VersionedBlockSubscriberMessage` to V1 reference
-        pub const fn as_v1(&self) -> &BlockSubscriberMessage {
+        pub const fn as_v1(&self) -> &BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
         /// Converts from `&mut VersionedBlockSubscriberMessage` to V1 mutable reference
-        pub fn as_mut_v1(&mut self) -> &mut BlockSubscriberMessage {
+        pub fn as_mut_v1(&mut self) -> &mut BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
         /// Performs the conversion from `VersionedBlockSubscriberMessage` to V1
-        pub fn into_v1(self) -> BlockSubscriberMessage {
+        pub fn into_v1(self) -> BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
     }
 
-    /// Message sent by the stream consumer
-    #[version_with_scale(n = 1, versioned = "VersionedBlockSubscriberMessage")]
-    #[derive(Debug, Clone, Copy, Decode, Encode, FromVariant, IntoSchema)]
-    pub enum BlockSubscriberMessage {
-        /// Request sent to subscribe to blocks stream starting from the given height.
-        SubscriptionRequest(u64),
-        /// Acknowledgment of receiving block sent from the peer.
-        BlockReceived,
-    }
+    /// Message sent by the stream consumer.
+    /// Request sent to subscribe to blocks stream starting from the given height.
+    #[version_with_scale(n = 1, versioned = "VersionedBlockSubscriptionRequest")]
+    #[derive(Debug, Clone, Copy, Decode, Encode, IntoSchema)]
+    pub struct BlockSubscriptionRequest(pub u64);
 
     /// Exports common structs and enums from this module.
     pub mod prelude {
         pub use super::{
-            BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
-            VersionedBlockSubscriberMessage,
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
         };
     }
 }
