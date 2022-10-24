@@ -168,7 +168,7 @@ jobs:
       matrix_windows: ${{steps.matrixes.outputs.matrix_windows}}
       matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
       matrix_dockerimage_debug: ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
-  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
+  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependencies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge for development branch, and :latest for git-tags.
   Docker-iroha-builder:
@@ -441,7 +441,7 @@ jobs:
             ${{env.HOME}}/.cache/vcpkg/archives
           key: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
           restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
-      - name: Build iroha vcpkg dependancies
+      - name: Build iroha vcpkg dependencies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -720,7 +720,7 @@ jobs:
             ${{env.HOME}}/.cache/vcpkg/archives
           key: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
           restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
-      - name: Build iroha vcpkg dependancies
+      - name: Build iroha vcpkg dependencies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -1023,7 +1023,7 @@ jobs:
             ${{env.HOME}}/.cache/vcpkg/archives
           key: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
           restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
-      - name: Build iroha vcpkg dependancies
+      - name: Build iroha vcpkg dependencies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -1249,7 +1249,7 @@ jobs:
         working-directory:
       #- *step_restore_ccache
       #- *step_vcpkg_cache
-      - name: Build iroha vcpkg dependancies
+      - name: Build iroha vcpkg dependencies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
