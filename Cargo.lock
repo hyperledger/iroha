@@ -153,27 +153,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
 
 [[package]]
-name = "async-stream"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dad5c83079eae9969be7fadefe640a1c566901f05ff91ab221de4b6f68d9507e"
-dependencies = [
- "async-stream-impl",
- "futures-core",
-]
-
-[[package]]
-name = "async-stream-impl"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10f203db73a71dfa2fb6dd22763990fa26f3d2625a6da2da900d23b87d26be27"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1828,7 +1807,6 @@ dependencies = [
  "iroha_futures",
  "iroha_logger",
  "iroha_macro",
- "iroha_p2p",
  "iroha_permissions_validators",
  "iroha_schema_gen",
  "iroha_telemetry",
@@ -1980,6 +1958,7 @@ dependencies = [
 name = "iroha_core"
 version = "2.0.0-pre-rc.9"
 dependencies = [
+ "aead",
  "anyhow",
  "async-trait",
  "byte-unit",
@@ -1998,7 +1977,6 @@ dependencies = [
  "iroha_futures",
  "iroha_logger",
  "iroha_macro",
- "iroha_p2p",
  "iroha_primitives",
  "iroha_schema",
  "iroha_telemetry",
@@ -2159,28 +2137,6 @@ name = "iroha_macro"
 version = "2.0.0-pre-rc.9"
 dependencies = [
  "iroha_derive",
-]
-
-[[package]]
-name = "iroha_p2p"
-version = "2.0.0-pre-rc.9"
-dependencies = [
- "aead",
- "async-stream",
- "async-trait",
- "derive_more",
- "futures",
- "iroha_actor",
- "iroha_config_base",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_data_model_derive",
- "iroha_logger",
- "parity-scale-codec",
- "rand 0.8.5",
- "test_network",
- "thiserror",
- "tokio",
 ]
 
 [[package]]

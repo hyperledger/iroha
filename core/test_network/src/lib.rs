@@ -207,7 +207,7 @@ impl Network {
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = max_txs_in_block;
-        configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
+        configuration.logger.max_log_level = iroha_logger::Level::TRACE.into();
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -341,10 +341,11 @@ impl Network {
 /// # Panics
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
-    const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 10;
+    const POLL_PERIOD: Duration = Duration::from_millis(5000);
+    const MAX_RETRIES: u32 = 6;
 
     for _ in 0..MAX_RETRIES {
+        thread::sleep(POLL_PERIOD);
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
             if let Ok(status) = client.get_status() {
                 if status.blocks < 1 {
@@ -359,7 +360,6 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
         if without_genesis_peers <= offline_peers {
             return;
         }
-        thread::sleep(POLL_PERIOD);
     }
     panic!(
         "Failed to wait for online peers to commit genesis block. Total wait time: {:?}",
@@ -827,6 +827,7 @@ pub mod query {
 impl TestRuntime for Runtime {
     fn test() -> Self {
         runtime::Builder::new_multi_thread()
+            .thread_name("TestNet Thread")
             .thread_stack_size(32 * 1024 * 1024)
             .enable_all()
             .build()
