@@ -246,7 +246,8 @@ impl Iroha {
         let sumeragi_thread_handler =
             Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis);
 
-        let p2p_thread_handler = iroha_core::p2p::start(Arc::clone(&p2p), Arc::clone(&sumeragi));
+        let p2p_thread_handler1 = iroha_core::p2p::start_listen_loop(Arc::clone(&p2p));
+        let p2p_thread_handler2 = iroha_core::p2p::start_read_loop(Arc::clone(&p2p), Arc::clone(&sumeragi));
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
@@ -278,7 +279,8 @@ impl Iroha {
             thread_handlers: vec![
                 sumeragi_thread_handler,
                 kura_thread_handler,
-                p2p_thread_handler,
+                p2p_thread_handler1,
+                p2p_thread_handler2,
             ],
         })
     }

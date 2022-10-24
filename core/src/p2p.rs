@@ -22,7 +22,7 @@ use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use thiserror::Error;
 
-use crate::{handler::ThreadHandler, sumeragi::Sumeragi, NetworkMessage, PeerId};
+use crate::{handler::ThreadHandler, sumeragi::Sumeragi, NetworkMessage, NetworkMessage::*, PeerId};
 
 /// Errors used in [`crate`].
 #[derive(Debug, Error)]
@@ -128,12 +128,12 @@ impl P2PSystem {
     }
 }
 
-pub fn start(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>) -> ThreadHandler {
+pub fn start_read_loop(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>) -> ThreadHandler {
     // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let thread_handle = std::thread::spawn(move || {
-        p2p_main_loop(&p2p, shutdown_receiver, &sumeragi);
+        p2p_read_loop(&p2p, shutdown_receiver, &sumeragi);
     });
 
     let shutdown = move || {
@@ -142,12 +142,88 @@ pub fn start(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>) -> ThreadHandler {
 
     ThreadHandler::new(Box::new(shutdown), thread_handle)
 }
-// nocheckin replace println's with trace's.
-fn p2p_main_loop(
+
+fn p2p_read_loop(
     p2p: &P2PSystem,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     sumeragi: &Sumeragi,
 ) {
+    loop {
+        // We have no obligations to network delivery so we simply exit on shutdown signal.
+        if shutdown_receiver.try_recv().is_ok() {
+            info!("P2P thread is being shut down");
+            return;
+        }
+
+        // For protocol violators.
+        let mut to_disconnect_keys = Vec::new();
+
+        let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
+        for (public_key, (stream, crypto)) in connected_to_peers.iter_mut() {
+            let mut _byte = 0_u8;
+            if stream.peek(std::slice::from_mut(&mut _byte)).is_ok() { // Packet incomming
+                let mut packet_size = [0_u8; 4];
+                if stream.read_exact(&mut packet_size).is_err()
+                {
+                    to_disconnect_keys.push(public_key);
+                    continue;
+                }
+                let packet_size = u32::from_le_bytes(packet_size);
+                if packet_size == 0 { continue; }
+
+                let mut buf = vec![0_u8; packet_size as usize];
+                if stream.read_exact(&mut buf).is_err() {
+                    to_disconnect_keys.push(public_key);
+                    continue;
+                }
+
+                if let Ok(data) = crypto.decrypt(buf) {
+                    let network_message_maybe = Decode::decode(&mut data.as_slice());
+                    if let Ok(network_message) = network_message_maybe {
+                        match network_message {
+                            SumeragiPacket(data) => {
+                                sumeragi.incoming_message(data.into_v1());
+                            }
+                            BlockSync(data) => /* nocheckin self.broker.issue_send(data.into_v1()).await*/ {},
+                            Health => {}
+                        }
+                    } else {
+                        to_disconnect_keys.push(public_key);
+                        continue;
+                    }
+                } else {
+                    to_disconnect_keys.push(public_key);
+                    continue;
+                }
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+pub fn start_listen_loop(p2p: Arc<P2PSystem>) -> ThreadHandler {
+    // Oneshot channel to allow forcefully stopping the thread.
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+
+    let thread_handle = std::thread::spawn(move || {
+        p2p_listen_loop(&p2p, shutdown_receiver);
+    });
+
+    let shutdown = move || {
+        let _result = shutdown_sender.send(());
+    };
+
+    ThreadHandler::new(Box::new(shutdown), thread_handle)
+}
+
+// nocheckin replace println's with trace's.
+fn p2p_listen_loop(
+    p2p: &P2PSystem,
+    mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
+) {
+    std::thread::sleep(Duration::from_millis((rand::random::<u64>() % 10) + 10));
+    
     let mut waiting_for_server_hello = Vec::new();
     let mut send_public_key = Vec::new();
 
@@ -253,6 +329,8 @@ fn p2p_main_loop(
                             }
                         }
                     }
+                } else {
+                    std::thread::sleep(Duration::from_millis(10));
                 }
             }
         }
@@ -332,8 +410,6 @@ fn p2p_main_loop(
                 connected_to_peers.insert(public_key, (stream, crypto));
             }
         }
-
-        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
