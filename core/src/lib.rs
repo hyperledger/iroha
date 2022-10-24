@@ -5,6 +5,7 @@ pub mod block_sync;
 pub mod genesis;
 pub mod kura;
 pub mod modules;
+pub mod p2p;
 pub mod queue;
 pub mod smartcontracts;
 pub mod sumeragi;
@@ -26,9 +27,6 @@ use crate::{
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
-
-/// Specialized type of Iroha Network
-pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 
 /// Ids of peers.
 pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
@@ -58,6 +56,11 @@ pub enum NetworkMessage {
     BlockSync(Box<BlockSyncMessage>),
     /// Health check message
     Health,
+
+    // For some reason messages don't go through unless they have a size.
+    // That's why this otherwise purposeless u64 is required.
+    ConnectionCheck(u64),
+    ConnectionCheckAck(u64),
 }
 
 /// Check to see if the given item was included in the blockchain.

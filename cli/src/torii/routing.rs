@@ -427,7 +427,7 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)] // TODO: remove?
-async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<String> {
+async fn handle_metrics(sumeragi: Arc<Sumeragi>, _: usize) -> Result<String> {
     // TODO: Remove network.
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
@@ -440,7 +440,7 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)] // TODO: remove?
-async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<Json> {
+async fn handle_status(sumeragi: Arc<Sumeragi>, _: usize) -> Result<Json> {
     // TODO: remove network
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
@@ -456,7 +456,6 @@ impl Torii {
         queue: Arc<Queue>,
         query_judge: QueryJudgeArc,
         events: EventsSender,
-        network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,
         sumeragi: Arc<Sumeragi>,
     ) -> Self {
@@ -465,7 +464,6 @@ impl Torii {
             events,
             query_judge,
             queue,
-            network,
             notify_shutdown,
             sumeragi,
         }
@@ -478,11 +476,11 @@ impl Torii {
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router_status = endpoint2(
             handle_status,
-            warp::path(uri::STATUS).and(add_state!(self.sumeragi, self.network)),
+            warp::path(uri::STATUS).and(add_state!(self.sumeragi, 0)),
         );
         let get_router_metrics = endpoint2(
             handle_metrics,
-            warp::path(uri::METRICS).and(add_state!(self.sumeragi, self.network)),
+            warp::path(uri::METRICS).and(add_state!(self.sumeragi, 0)),
         );
         let get_api_version = warp::path(uri::API_VERSION)
             .and(add_state!(self.sumeragi))

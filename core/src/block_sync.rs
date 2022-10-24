@@ -4,19 +4,24 @@
     clippy::std_instead_of_alloc,
     clippy::arithmetic
 )]
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    fmt::Debug,
+    sync::{mpsc, Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_macro::*;
-use iroha_p2p::Post;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
+use crate::{
+    handler::ThreadHandler, p2p::P2PSystem, sumeragi::Sumeragi, NetworkMessage,
+    VersionedCommittedBlock,
+};
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
@@ -25,70 +30,94 @@ pub struct BlockSynchronizer {
     peer_id: PeerId,
     gossip_period: Duration,
     block_batch_size: u32,
-    broker: Broker,
-    actor_channel_capacity: u32,
-    block_request_peer_index: usize,
-}
-
-#[async_trait::async_trait]
-impl Actor for BlockSynchronizer {
-    fn actor_channel_capacity(&self) -> u32 {
-        self.actor_channel_capacity
-    }
-
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.broker.subscribe::<message::Message, _>(ctx);
-        ctx.notify_every::<message::ReceiveUpdates>(self.gossip_period);
-    }
-}
-
-#[async_trait::async_trait]
-impl Handler<message::ReceiveUpdates> for BlockSynchronizer {
-    type Result = ();
-    async fn handle(&mut self, _: message::ReceiveUpdates) {
-        let peer_ids = self.sumeragi.get_block_sync_peer_ids();
-        if !peer_ids.is_empty() {
-            let peer_id = peer_ids[self.block_request_peer_index % peer_ids.len()].clone();
-            self.request_latest_blocks_from_peer(peer_id).await;
-            self.block_request_peer_index = self.block_request_peer_index.wrapping_add(1);
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Handler<message::Message> for BlockSynchronizer {
-    type Result = ();
-    async fn handle(&mut self, message: message::Message) {
-        message.handle_message(self).await;
-    }
+    p2p: Arc<P2PSystem>,
+    /// Sender channel
+    pub message_sender: mpsc::SyncSender<message::VersionedMessage>,
+    /// Receiver channel.
+    pub message_receiver: Mutex<mpsc::Receiver<message::VersionedMessage>>,
 }
 
 impl BlockSynchronizer {
-    /// Sends request for latest blocks to a chosen peer
-    async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
-        message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
-            self.sumeragi.latest_block_hash(),
-            self.peer_id.clone(),
-        ))
-        .send_to(self.broker.clone(), peer_id)
-        .await;
-    }
-
     /// Create [`Self`] from [`Configuration`]
     pub fn from_configuration(
         config: &Configuration,
         sumeragi: Arc<Sumeragi>,
+        p2p: Arc<P2PSystem>,
         peer_id: PeerId,
-        broker: Broker,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        let (incoming_message_sender, incoming_message_receiver) = mpsc::sync_channel(250);
+
+        Arc::new(Self {
             peer_id,
             sumeragi,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
-            broker,
-            actor_channel_capacity: config.actor_channel_capacity,
-            block_request_peer_index: 0,
+            p2p,
+            message_sender: incoming_message_sender,
+            message_receiver: Mutex::new(incoming_message_receiver),
+        })
+    }
+
+    /// Deposit a block_sync network message.
+    #[allow(clippy::expect_used)]
+    pub fn incoming_message(&self, msg: message::VersionedMessage) {
+        println!("got msg");
+        if self.message_sender.send(msg).is_err() {
+            error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+        }
+    }
+}
+
+pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
+    // Oneshot channel to allow forcefully stopping the thread.
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+
+    let thread_handle = std::thread::Builder::new()
+        .name("Block Synchronizer Thread".to_owned())
+        .spawn(move || {
+            block_sync_read_loop(&block_sync, shutdown_receiver);
+        })
+        .unwrap();
+
+    let shutdown = move || {
+        let _result = shutdown_sender.send(());
+    };
+
+    ThreadHandler::new(Box::new(shutdown), thread_handle)
+}
+
+fn block_sync_read_loop(
+    block_sync: &BlockSynchronizer,
+    mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
+) {
+    let mut last_requested_blocks = Instant::now();
+    let mut request_blocks_peer_index = 0_usize;
+    loop {
+        // We have no obligations to network delivery so we simply exit on shutdown signal.
+        if shutdown_receiver.try_recv().is_ok() {
+            info!("P2P thread is being shut down");
+            return;
+        }
+        if let Some(message) = block_sync.p2p.poll_network_for_block_sync_message() {
+            message.into_v1().handle_message(&block_sync);
+        } else {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        
+        if last_requested_blocks.elapsed() > block_sync.gossip_period {
+            last_requested_blocks = Instant::now();
+            let peers = block_sync.p2p.get_connected_to_peer_keys();
+            if !peers.is_empty() {
+                let peer_key = &peers[request_blocks_peer_index % peers.len()];
+                request_blocks_peer_index = request_blocks_peer_index.wrapping_add(1);
+
+                message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
+                    block_sync.sumeragi.latest_block_hash(),
+                    block_sync.peer_id.clone(),
+                ))
+                .send_to(&block_sync.p2p, peer_key);
+                println!("call out");
+            }
         }
     }
 }
@@ -173,8 +202,7 @@ pub mod message {
 
     impl Message {
         /// Handles the incoming message.
-        #[iroha_futures::telemetry_future]
-        pub async fn handle_message(&self, block_sync: &mut BlockSynchronizer) {
+        pub fn handle_message(&self, block_sync: &BlockSynchronizer) {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.block_batch_size == 0 {
@@ -193,34 +221,28 @@ pub mod message {
                     } else {
                         trace!("Sharing blocks after hash: {}", hash);
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
-                            .send_to(block_sync.broker.clone(), peer_id.clone())
-                            .await;
+                            .send_to(&block_sync.p2p, &peer_id.public_key);
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
                     use crate::sumeragi::message::{BlockCommitted, Message, MessagePacket};
                     for block in blocks {
-                        block_sync.sumeragi.incoming_message(MessagePacket::new(
+                        block_sync.p2p.post_to_own_sumeragi_buffer(Box::new(MessagePacket::new(
                             Vec::new(),
                             Message::BlockCommitted(BlockCommitted {
                                 block: block.clone().into(),
                             }),
-                        ));
+                        ).into()));
                     }
                 }
             }
         }
 
         /// Send this message over the network to the specified `peer`.
-        #[iroha_futures::telemetry_future]
         #[log("TRACE")]
-        pub async fn send_to(self, broker: Broker, peer: PeerId) {
+        pub fn send_to(self, p2p: &P2PSystem, peer: &PublicKey) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
-            let message = Post {
-                data,
-                peer: peer.clone(),
-            };
-            broker.issue_send(message).await;
+            p2p.post_to_network(data, vec![peer.clone()]);
         }
     }
 }
