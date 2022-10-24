@@ -115,12 +115,12 @@ jobs:
           commit_was_merged_build_spec(){
             git_is_merge_commit $1 &&
               git log -n1 $1 --format=%s | grep -q '^Merge branch' &&
-              echo "/build before-merge"
+              echo "/build ubuntu debug release normal gcc-10"
           }
           case ${{github.event_name}} in
             pull_request_target)       if   commit_message_body_build_spec FETCH_HEAD >/tmp/comment_body ;then
                                   if git_is_merge_commit FETCH_HEAD ;then
-                                    echo ::warning::'/build directive in merge commit overrides default "/build before-merge"'
+                                    echo ::warning::'/build directive in merge commit overrides default "/build ubuntu debug release normal gcc-10"'
                                   fi
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
                                   true
