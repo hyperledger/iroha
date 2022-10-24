@@ -5,6 +5,7 @@ pub mod block_sync;
 pub mod genesis;
 pub mod kura;
 pub mod modules;
+pub mod p2p;
 pub mod queue;
 pub mod smartcontracts;
 pub mod sumeragi;
@@ -26,9 +27,6 @@ use crate::{
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
-
-/// Specialized type of Iroha Network
-pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 
 /// Ids of peers.
 pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;

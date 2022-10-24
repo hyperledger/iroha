@@ -6,17 +6,15 @@
 )]
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
-use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_macro::*;
-use iroha_p2p::Post;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
+use crate::{p2p::P2PSystem, sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
@@ -25,67 +23,42 @@ pub struct BlockSynchronizer {
     peer_id: PeerId,
     gossip_period: Duration,
     block_batch_size: u32,
-    broker: Broker,
+    p2p: Arc<P2PSystem>,
     actor_channel_capacity: u32,
 }
-
-#[async_trait::async_trait]
-impl Actor for BlockSynchronizer {
-    fn actor_channel_capacity(&self) -> u32 {
-        self.actor_channel_capacity
-    }
-
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.broker.subscribe::<message::Message, _>(ctx);
-        ctx.notify_every::<message::ReceiveUpdates>(self.gossip_period);
-    }
-}
-
-#[async_trait::async_trait]
-impl Handler<message::ReceiveUpdates> for BlockSynchronizer {
-    type Result = ();
-    async fn handle(&mut self, _: message::ReceiveUpdates) {
-        if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
+/*
+    if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
             self.request_latest_blocks_from_peer(random_peer.id.clone())
                 .await;
         }
     }
-}
-
-#[async_trait::async_trait]
-impl Handler<message::Message> for BlockSynchronizer {
-    type Result = ();
-    async fn handle(&mut self, message: message::Message) {
-        message.handle_message(self).await;
-    }
-}
+*/
 
 impl BlockSynchronizer {
     /// Sends request for latest blocks to a chosen peer
-    async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
+    fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
             self.sumeragi.latest_block_hash(),
             self.peer_id.clone(),
         ))
-        .send_to(self.broker.clone(), peer_id)
-        .await;
+        .send_to(&self.p2p, peer_id);
     }
 
     /// Create [`Self`] from [`Configuration`]
     pub fn from_configuration(
         config: &Configuration,
         sumeragi: Arc<Sumeragi>,
+        p2p: Arc<P2PSystem>,
         peer_id: PeerId,
-        broker: Broker,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        Arc::new(Self {
             peer_id,
             sumeragi,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
-            broker,
+            p2p,
             actor_channel_capacity: config.actor_channel_capacity,
-        }
+        })
     }
 }
 
@@ -169,8 +142,7 @@ pub mod message {
 
     impl Message {
         /// Handles the incoming message.
-        #[iroha_futures::telemetry_future]
-        pub async fn handle_message(&self, block_sync: &mut BlockSynchronizer) {
+        pub fn handle_message(&self, block_sync: &mut BlockSynchronizer) {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.block_batch_size == 0 {
@@ -189,8 +161,7 @@ pub mod message {
                     } else {
                         trace!("Sharing blocks after hash: {}", hash);
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
-                            .send_to(block_sync.broker.clone(), peer_id.clone())
-                            .await;
+                            .send_to(&block_sync.p2p, peer_id.clone());
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
@@ -208,15 +179,10 @@ pub mod message {
         }
 
         /// Send this message over the network to the specified `peer`.
-        #[iroha_futures::telemetry_future]
         #[log("TRACE")]
-        pub async fn send_to(self, broker: Broker, peer: PeerId) {
+        pub fn send_to(self, p2p: &P2PSystem, peer: PeerId) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
-            let message = Post {
-                data,
-                peer: peer.clone(),
-            };
-            broker.issue_send(message).await;
+            p2p.post_to_network(data, vec![peer.clone()]);
         }
     }
 }

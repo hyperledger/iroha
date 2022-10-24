@@ -76,12 +76,10 @@ where
     pub transaction_limits: TransactionLimits,
     /// [`TransactionValidator`] instance that we use
     pub transaction_validator: TransactionValidator,
-    /// Broker
-    pub broker: Broker,
+    /// Handle to the p2p system used to interface to other peers.
+    pub p2p: Arc<P2PSystem>,
     /// Kura instance used for IO
     pub kura: Arc<Kura>,
-    /// [`iroha_p2p::Network`] actor address
-    pub network: Addr<IrohaNetwork>,
     /// [`PhantomData`] used to generify over [`FaultInjection`] implementations
     pub fault_injection: PhantomData<F>, // TODO: remove
     /// The size of batch that is being gossiped. Smaller size leads
@@ -162,6 +160,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             .iter()
             .map(|id_ref| id_ref.clone())
             .collect();
+
         let topology_peers: HashSet<_> = topology.sorted_peers().iter().cloned().collect();
         if topology_peers != wsv_peers {
             *topology = topology
@@ -173,69 +172,21 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         }
     }
 
-    /// Send a sumeragi packet over the network to the specified `peer`.
-    /// # Errors
-    /// Fails if network sending fails
-    #[instrument(skip(self, packet))]
-    #[allow(clippy::needless_pass_by_value)] // TODO: Fix.
-    fn post_packet_to(&self, packet: MessagePacket, peer: &PeerId) {
-        let post = iroha_p2p::Post {
-            data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
-            peer: peer.clone(),
-        };
-        self.broker.issue_send_sync(&post);
-    }
-
     #[allow(clippy::needless_pass_by_value)]
     fn broadcast_packet_to<'peer_id>(
         &self,
         msg: MessagePacket,
         ids: impl Iterator<Item = &'peer_id PeerId> + Send,
     ) {
-        for peer_id in ids {
-            self.post_packet_to(msg.clone(), peer_id);
-        }
+        self.p2p.post_to_network(
+            NetworkMessage::SumeragiPacket(Box::new(msg.into())),
+            ids.cloned().collect(),
+        );
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn broadcast_packet(&self, msg: MessagePacket, topology: &Topology) {
         self.broadcast_packet_to(msg, topology.sorted_peers().iter());
-    }
-
-    /// Connect or disconnect peers according to the current network topology.
-    #[allow(clippy::expect_used)]
-    pub fn connect_peers(&self, topology: &Topology) {
-        let peers_expected = {
-            let mut res = topology.sorted_peers().to_owned();
-            res.retain(|id| id.address != self.peer_id.address);
-            res.shuffle(&mut rand::thread_rng());
-            res
-        };
-
-        let mut connected_to_peers_by_key = self.get_online_peer_keys();
-
-        for peer_to_be_connected in &peers_expected {
-            if connected_to_peers_by_key.contains(&peer_to_be_connected.public_key) {
-                let index = connected_to_peers_by_key
-                    .iter()
-                    .position(|x| x == &peer_to_be_connected.public_key)
-                    .expect("I just checked that it contains the value in the statement above.");
-                connected_to_peers_by_key.remove(index);
-                // By removing the connected to peers that we should be connected to,
-                // all that remain are the unwelcome and to-be disconnected peers.
-            } else {
-                self.broker.issue_send_sync(&ConnectPeer {
-                    peer: peer_to_be_connected.clone(),
-                });
-            }
-        }
-
-        let to_disconnect_peers = connected_to_peers_by_key;
-
-        for peer in to_disconnect_peers {
-            info!(%peer, "Disconnecting peer");
-            self.broker.issue_send_sync(&DisconnectPeer(peer));
-        }
     }
 
     /// The maximum time a sumeragi round can take to produce a block when
@@ -335,6 +286,11 @@ where
     );
     sumeragi.kura.store_block_blocking(block);
     state.current_topology.update_network_topology(&state.wsv);
+
+    // Update p2p peer target
+    sumeragi
+        .p2p
+        .update_peer_target(state.current_topology.sorted_peers());
 
     // Transaction Cache
     cache_transaction(state, sumeragi)
@@ -594,8 +550,6 @@ pub fn run<F>(
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
-
-        sumeragi.connect_peers(&state.current_topology);
 
         {
             let state = &mut state;
@@ -1180,6 +1134,11 @@ fn sumeragi_init_commit_genesis<F>(
 ) where
     F: FaultInjection,
 {
+    // Tell p2p what peers to connect to.
+    sumeragi
+        .p2p
+        .update_peer_target(state.current_topology.sorted_peers());
+
     std::thread::sleep(Duration::from_millis(250));
 
     iroha_logger::info!("Initializing iroha using the genesis block.");
@@ -1266,8 +1225,11 @@ where
         "Only peer in network, yet required to receive genesis topology. This is a configuration error."
     );
     sumeragi.zeroize();
+
+    sumeragi
+        .p2p
+        .update_peer_target(state.current_topology.sorted_peers());
     loop {
-        sumeragi.connect_peers(&state.current_topology);
         std::thread::sleep(Duration::from_millis(50));
         early_return(shutdown_receiver)?;
         // we must connect to peers so that our block_sync can find us

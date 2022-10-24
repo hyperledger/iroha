@@ -15,16 +15,14 @@ use std::{
 };
 
 use eyre::{Result, WrapErr as _};
-use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
-use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
-use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
+use crate::{genesis::GenesisNetwork, handler::ThreadHandler, p2p::P2PSystem};
 
 pub mod main_loop;
 pub mod message;
@@ -46,7 +44,7 @@ use crate::{
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
-    EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
+    EventsSender, NetworkMessage, VersionedValidBlock,
 };
 
 trait Consensus {
@@ -86,9 +84,8 @@ impl Sumeragi {
         wsv: WorldStateView,
         transaction_validator: TransactionValidator,
         queue: Arc<Queue>,
-        broker: Broker,
+        p2p: Arc<P2PSystem>,
         kura: Arc<Kura>,
-        network: Addr<IrohaNetwork>,
     ) -> Self {
         let (incoming_message_sender, incoming_message_receiver) =
             std::sync::mpsc::sync_channel(250);
@@ -104,9 +101,8 @@ impl Sumeragi {
                 transaction_limits: configuration.transaction_limits,
                 transaction_validator,
                 queue,
-                broker,
+                p2p,
                 kura,
-                network,
                 fault_injection: PhantomData,
                 gossip_batch_size: configuration.gossip_batch_size,
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),

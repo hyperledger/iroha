@@ -47,7 +47,6 @@ iroha_telemetry = { version = "=2.0.0-pre-rc.9", path = "../telemetry", optional
 iroha_version = { version = "=2.0.0-pre-rc.9", path = "../version", features = ["warp"] }
 iroha_config = { version = "=2.0.0-pre-rc.9", path = "../config" }
 iroha_crypto = { version = "=2.0.0-pre-rc.9", path = "../crypto" }
-iroha_p2p = { version = "=2.0.0-pre-rc.9", path = "../p2p" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.9", path = "../schema/gen", optional = true }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 

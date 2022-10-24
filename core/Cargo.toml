@@ -36,7 +36,6 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.9", path = "../data_model", features = ["mutable_api", "warp"] }
 iroha_macro = { version = "=2.0.0-pre-rc.9", path = "../macro" }
-iroha_p2p = { version = "=2.0.0-pre-rc.9", path = "../p2p" }
 iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger"}
 iroha_crypto = { version = "=2.0.0-pre-rc.9", path = "../crypto" }
 iroha_version = { version = "=2.0.0-pre-rc.9", path = "../version", features = ["warp"] }
@@ -59,6 +58,8 @@ tokio = { version = "1.20.1", features = ["sync", "time", "rt", "io-util", "rt-m
 crossbeam-queue = "0.3.6"
 thiserror = "1.0.32"
 wasmtime = "0.39.1"
+aead = "0.3.2"
+
 
 # transitive dependencies
 anyhow = "1.0.60"
