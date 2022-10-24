@@ -409,7 +409,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]
+    runs-on: [ self-hosted, Linux, iroha ]
     container: ## Container is taken from previous job
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -824,7 +824,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [ self-hosted, Linux, iroha ] #ubuntu-latest
     # strategy: *strategy_ubuntu_release
     # if: *if_ubuntu_release
     strategy:
