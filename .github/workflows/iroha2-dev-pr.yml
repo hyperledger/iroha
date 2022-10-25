@@ -66,7 +66,7 @@ jobs:
         run: |
           mold --run cargo llvm-cov clean --workspace
           mold --run cargo +$NIGHTLY llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
-          mold --run cargo llvm-cov --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
+          mold --run cargo llvm-cov --no-report --ignore-filename-regex main.rs --${{ matrix.feature_flag }} --workspace --no-fail-fast
       - name: Generate lcov report
         if: matrix.feature_flag == 'all-features'
         run: |
