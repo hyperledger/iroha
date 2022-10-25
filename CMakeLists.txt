@@ -202,6 +202,7 @@ endif()
 add_subdirectory(libs)
 add_subdirectory(irohad)
 add_subdirectory(iroha-cli)
+add_subdirectory(iroha-lib)
 add_subdirectory(shared_model)
 
 if(TESTING)
