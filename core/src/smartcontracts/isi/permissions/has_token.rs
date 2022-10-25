@@ -64,11 +64,7 @@ impl<H: HasToken> IsAllowed for HasTokenAsValidator<H> {
     ) -> ValidatorVerdict {
         let permission_token = match self.has_token.token(authority, instruction, wsv) {
             Ok(concrete_token) => concrete_token.into(),
-            Err(err) => {
-                return ValidatorVerdict::Deny(format!(
-                    "Unable to identify the corresponding permission token: {err}",
-                ));
-            }
+            Err(_) => return ValidatorVerdict::Skip,
         };
 
         let contain = match wsv.map_account(authority, |account| {

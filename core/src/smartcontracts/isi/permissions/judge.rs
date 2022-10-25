@@ -467,7 +467,7 @@ pub mod builder {
         #[inline]
         fn new<V: IsAllowed<Operation = O> + Send + Sync + 'static>(validator: V) -> Self {
             Self {
-                validators: vec![Box::new(validator)],
+                validators: vec![validator.boxed()],
             }
         }
 
@@ -477,7 +477,7 @@ pub mod builder {
             mut self,
             validator: V,
         ) -> Self {
-            self.validators.push(Box::new(validator));
+            self.validators.push(validator.boxed());
             self
         }
 

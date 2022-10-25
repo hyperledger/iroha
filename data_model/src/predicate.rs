@@ -2,40 +2,123 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use core::{fmt::Display, ops::Not};
 
 use super::*;
 use crate::{IdBox, Name, Value};
 
-/// Predicate combinator enum.
+/// Struct representing sequence of non-zero length
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
-pub enum PredicateBox {
-    /// Logically `&&` the results of applying the two predicates.
-    And(Vec<PredicateBox>),
-    /// Logically `||` the results of applying the two predicates.
-    Or(Vec<PredicateBox>),
-    /// Negate the result of applying the predicate.
-    Not(Box<PredicateBox>),
-    /// The raw predicate that must be applied.
-    Raw(value::Predicate),
+pub struct NonEmpty<T> {
+    head: Box<T>,
+    tail: Vec<T>,
 }
 
-impl PredicateBox {
+impl<T> NonEmpty<T> {
+    /// Extend sequence with elements of another non-empty sequence
+    #[inline]
+    fn extend(&mut self, other: Self) {
+        self.tail.push(*other.head);
+        self.tail.extend(other.tail);
+    }
+}
+
+macro_rules! nonempty {
+    ($h:expr, $( $t:expr ),*) => {{
+        NonEmpty {
+            head: Box::new($h),
+            tail: vec![$($t),*],
+        }
+    }};
+}
+
+/// Predicate combinator enum.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+// Ideally we would enforce `P: PredicateTrait<Input>` here, but I
+// couldn't find a way to do it without polluting everything
+// downstream with explicit lifetimes, since we would need to
+// store PhantomData<Input> here, and `Input`s are most often
+// references (e.g. &Value).
+pub enum GenericPredicateBox<P> {
+    /// Logically `&&` the results of applying the predicates.
+    And(NonEmpty<Self>),
+    /// Logically `||` the results of applying the predicates.
+    Or(NonEmpty<Self>),
+    /// Negate the result of applying the predicate.
+    Not(Box<Self>),
+    /// The raw predicate that must be applied.
+    Raw(P),
+}
+
+impl<P> Display for GenericPredicateBox<P>
+where
+    P: Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GenericPredicateBox::And(predicates) => {
+                write!(f, "AND(")?;
+                predicates.head.fmt(f)?;
+                for predicate in &predicates.tail {
+                    predicate.fmt(f)?;
+                }
+                write!(f, ")")
+            }
+            GenericPredicateBox::Or(predicates) => {
+                write!(f, "OR(")?;
+                predicates.head.fmt(f)?;
+                for predicate in &predicates.tail {
+                    predicate.fmt(f)?;
+                }
+                write!(f, ")")
+            }
+            GenericPredicateBox::Not(predicate) => write!(f, "NOT({})", predicate),
+            GenericPredicateBox::Raw(predicate) => predicate.fmt(f),
+        }
+    }
+}
+
+impl<P> GenericPredicateBox<P> {
     /// Construct [`PredicateBox::Raw`] variant.
     #[inline]
-    pub fn new(pred: impl Into<value::Predicate>) -> Self {
+    pub fn new<Input>(pred: impl Into<P>) -> Self
+    where
+        P: PredicateTrait<Input>,
+        Input: Copy,
+    {
         Self::Raw(pred.into())
     }
 
     /// Construct [`PredicateBox::And`] variant.
     #[inline]
-    pub fn and(left: impl Into<PredicateBox>, right: impl Into<PredicateBox>) -> Self {
-        Self::And(vec![left.into(), right.into()])
+    pub fn and(left: impl Into<Self>, right: impl Into<Self>) -> Self {
+        match (left.into(), right.into()) {
+            (Self::And(mut left), Self::And(right)) => {
+                left.extend(right);
+                Self::And(left)
+            }
+            (Self::And(mut and), other) => {
+                and.tail.push(other);
+                Self::And(and)
+            }
+            (left, right) => Self::And(nonempty![left, right]),
+        }
     }
 
     /// Construct [`PredicateBox::Or`] variant.
     #[inline]
-    pub fn or(left: impl Into<PredicateBox>, right: impl Into<PredicateBox>) -> Self {
-        Self::Or(vec![left.into(), right.into()])
+    pub fn or(left: impl Into<Self>, right: impl Into<Self>) -> Self {
+        match (left.into(), right.into()) {
+            (Self::Or(mut left), Self::Or(right)) => {
+                left.extend(right);
+                Self::Or(left)
+            }
+            (Self::Or(mut and), other) => {
+                and.tail.push(other);
+                Self::Or(and)
+            }
+            (left, right) => Self::Or(nonempty![left, right]),
+        }
     }
 
     /// Convert instance into its negation.
@@ -43,13 +126,60 @@ impl PredicateBox {
     #[inline]
     pub fn negate(self) -> Self {
         match self {
-            Self::And(preds) => Self::Or(preds.into_iter().map(Self::negate).collect()),
-            Self::Or(preds) => Self::And(preds.into_iter().map(Self::negate).collect()),
+            Self::And(preds) => Self::Or(NonEmpty {
+                head: Box::new(preds.head.negate()),
+                tail: preds.tail.into_iter().map(Self::negate).collect(),
+            }),
+            Self::Or(preds) => Self::And(NonEmpty {
+                head: Box::new(preds.head.negate()),
+                tail: preds.tail.into_iter().map(Self::negate).collect(),
+            }),
             Self::Not(pred) => *pred, // TODO: should we recursively simplify?
-            Self::Raw(pred) => Self::Not(Box::new(PredicateBox::Raw(pred))),
+            Self::Raw(pred) => Self::Not(Box::new(Self::Raw(pred))),
         }
     }
+}
 
+impl<Pred, Input> PredicateTrait<Input> for GenericPredicateBox<Pred>
+where
+    Input: ?Sized + Copy,
+    Pred: PredicateTrait<Input>,
+{
+    type EvaluatesTo = Pred::EvaluatesTo;
+
+    #[inline] // This is not a simple function, but it allows you to inline the logic and optimise away the logical operations.
+    fn applies(&self, input: Input) -> Self::EvaluatesTo {
+        match self {
+            Self::Raw(predicate) => predicate.applies(input),
+            Self::And(predicates) => {
+                let initial = predicates.head.applies(input);
+                let mut operands = predicates
+                    .tail
+                    .iter()
+                    .map(|predicate| predicate.applies(input));
+                match operands.try_fold(initial, PredicateSymbol::and) {
+                    ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+                }
+            }
+            Self::Or(predicates) => {
+                let initial = predicates.head.applies(input);
+                let mut operands = predicates
+                    .tail
+                    .iter()
+                    .map(|predicate| predicate.applies(input));
+                match operands.try_fold(initial, PredicateSymbol::or) {
+                    ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+                }
+            }
+            Self::Not(predicate) => predicate.applies(input).not(),
+        }
+    }
+}
+
+/// Predicate combinator for predicates operating on `Value`
+pub type PredicateBox = GenericPredicateBox<value::Predicate>;
+
+impl PredicateBox {
     #[must_use]
     #[inline]
     /// Filter [`Value`] using `self`.
@@ -74,24 +204,17 @@ impl Default for PredicateBox {
     }
 }
 
-impl PredicateTrait<&Value> for PredicateBox {
-    #[inline] // This is not a simple function, but it allows you to inline the logic and optimise away the logical operations.
-    fn applies(&self, input: &Value) -> bool {
-        match self {
-            PredicateBox::And(vector) => vector.iter().all(|pred| pred.applies(input)),
-            PredicateBox::Or(vector) => vector.iter().any(|pred| pred.applies(input)),
-            PredicateBox::Not(predicate) => !predicate.applies(input),
-            PredicateBox::Raw(predicate) => predicate.applies(input),
-        }
-    }
-}
-
 #[cfg(test)]
 pub mod test {
     #![allow(clippy::print_stdout, clippy::use_debug)]
 
     use super::{value, PredicateBox};
-    use crate::{PredicateTrait as _, ToValue};
+    use crate::{PredicateSymbol, PredicateTrait as _, ToValue};
+
+    #[test]
+    fn boolean_predicate_symbol_conformity() {
+        PredicateSymbol::test_conformity(vec![true, false]);
+    }
 
     #[test]
     fn pass() {
@@ -187,8 +310,10 @@ pub mod string {
     // TODO: Case insensitive variants?
 
     impl<T: AsRef<str> + ?Sized> PredicateTrait<&T> for Predicate {
+        type EvaluatesTo = bool;
+
         #[inline] // Jump table. Needs inline.
-        fn applies(&self, input: &T) -> bool {
+        fn applies(&self, input: &T) -> Self::EvaluatesTo {
             match self {
                 Predicate::Contains(content) => input.as_ref().contains(content),
                 Predicate::StartsWith(content) => input.as_ref().starts_with(content),
@@ -199,8 +324,10 @@ pub mod string {
     }
 
     impl PredicateTrait<&IdBox> for Predicate {
+        type EvaluatesTo = bool;
+
         #[inline] // Jump table. Needs inline.
-        fn applies(&self, input: &IdBox) -> bool {
+        fn applies(&self, input: &IdBox) -> Self::EvaluatesTo {
             match input {
                 IdBox::DomainId(id) => self.applies(&id.to_string()),
                 IdBox::AccountId(id) => self.applies(&id.to_string()),
@@ -595,22 +722,28 @@ pub mod numerical {
     }
 
     impl<T: Copy + Ord> PredicateTrait<T> for SemiInterval<T> {
+        type EvaluatesTo = bool;
+
         #[inline]
-        fn applies(&self, input: T) -> bool {
+        fn applies(&self, input: T) -> Self::EvaluatesTo {
             input < self.limit && input >= self.start
         }
     }
 
     impl<T: Copy + Ord> PredicateTrait<T> for Interval<T> {
+        type EvaluatesTo = bool;
+
         #[inline]
-        fn applies(&self, input: T) -> bool {
+        fn applies(&self, input: T) -> Self::EvaluatesTo {
             input <= self.limit && input >= self.start
         }
     }
 
     impl PredicateTrait<&Value> for SemiRange {
+        type EvaluatesTo = bool;
+
         #[inline]
-        fn applies(&self, input: &Value) -> bool {
+        fn applies(&self, input: &Value) -> Self::EvaluatesTo {
             match input {
                 Value::Numeric(NumericValue::U32(quantity)) => match self {
                     SemiRange::U32(predicate) => predicate.applies(*quantity),
@@ -630,8 +763,10 @@ pub mod numerical {
     }
 
     impl PredicateTrait<&Value> for Range {
+        type EvaluatesTo = bool;
+
         #[inline]
-        fn applies(&self, input: &Value) -> bool {
+        fn applies(&self, input: &Value) -> Self::EvaluatesTo {
             match input {
                 Value::Numeric(NumericValue::U32(quantity)) => match self {
                     Range::U32(predicate) => predicate.applies(*quantity),
@@ -846,7 +981,9 @@ pub mod value {
     }
 
     impl PredicateTrait<&Value> for Predicate {
-        fn applies(&self, input: &Value) -> bool {
+        type EvaluatesTo = bool;
+
+        fn applies(&self, input: &Value) -> Self::EvaluatesTo {
             // Large jump table. Do not inline.
             match self {
                 Predicate::Identifiable(pred) => match input {
@@ -1123,7 +1260,9 @@ pub mod ip_addr {
     pub struct Ipv4Predicate([Mask<u8>; 4]);
 
     impl PredicateTrait<Ipv4Addr> for Ipv4Predicate {
-        fn applies(&self, input: Ipv4Addr) -> bool {
+        type EvaluatesTo = bool;
+
+        fn applies(&self, input: Ipv4Addr) -> Self::EvaluatesTo {
             self.0
                 .iter()
                 .copied()
@@ -1156,7 +1295,9 @@ pub mod ip_addr {
     pub struct Ipv6Predicate([Mask<u16>; 8]);
 
     impl PredicateTrait<Ipv6Addr> for Ipv6Predicate {
-        fn applies(&self, input: Ipv6Addr) -> bool {
+        type EvaluatesTo = bool;
+
+        fn applies(&self, input: Ipv6Addr) -> Self::EvaluatesTo {
             self.0
                 .iter()
                 .copied()

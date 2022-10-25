@@ -176,9 +176,9 @@
       "sorted": true
     }
   },
-  "Vec<iroha_data_model::predicate::PredicateBox>": {
+  "Vec<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>": {
     "Vec": {
-      "ty": "iroha_data_model::predicate::PredicateBox",
+      "ty": "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>",
       "sorted": false
     }
   },
@@ -3857,28 +3857,42 @@
       ]
     }
   },
-  "iroha_data_model::predicate::PredicateBox": {
+  "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>": {
     "Enum": {
       "variants": [
         {
           "name": "And",
           "discriminant": 0,
-          "ty": "Vec<iroha_data_model::predicate::PredicateBox>"
+          "ty": "iroha_data_model::predicate::NonEmpty<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
         },
         {
           "name": "Or",
           "discriminant": 1,
-          "ty": "Vec<iroha_data_model::predicate::PredicateBox>"
+          "ty": "iroha_data_model::predicate::NonEmpty<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
         },
         {
           "name": "Not",
           "discriminant": 2,
-          "ty": "iroha_data_model::predicate::PredicateBox"
+          "ty": "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>"
         },
         {
           "name": "Raw",
           "discriminant": 3,
           "ty": "iroha_data_model::predicate::value::Predicate"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::predicate::NonEmpty<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "head",
+          "ty": "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>"
+        },
+        {
+          "name": "tail",
+          "ty": "Vec<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
         }
       ]
     }
@@ -4128,7 +4142,7 @@
         },
         {
           "name": "filter",
-          "ty": "iroha_data_model::predicate::PredicateBox"
+          "ty": "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>"
         },
         {
           "name": "pagination",
@@ -4162,7 +4176,7 @@
         },
         {
           "name": "filter",
-          "ty": "iroha_data_model::predicate::PredicateBox"
+          "ty": "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>"
         }
       ]
     }

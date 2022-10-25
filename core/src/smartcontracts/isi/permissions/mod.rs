@@ -6,15 +6,21 @@
 )]
 #![allow(clippy::module_name_repetitions)]
 
-use core::{fmt::Display, marker::PhantomData, ops::Deref};
+use core::{
+    fmt::Display,
+    marker::PhantomData,
+    ops::{ControlFlow, Deref, Not},
+};
 
 pub use checks::*;
 use derive_more::Display;
 pub use has_token::*;
 use iroha_data_model::{
     permission::validator::{DenialReason, NeedsPermission},
+    predicate::GenericPredicateBox,
     prelude::*,
     utils::*,
+    PredicateSymbol,
 };
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -51,7 +57,68 @@ pub trait IsAllowed: Display {
 }
 
 /// Box with dyn type implementing [`IsAllowed`]
-pub type IsOperationAllowedBoxed<O> = Box<dyn IsAllowed<Operation = O> + Send + Sync>;
+pub type IsOperationAllowedBoxed<O> =
+    GenericPredicateBox<Box<dyn IsAllowed<Operation = O> + Send + Sync>>;
+
+impl<O: NeedsPermission> IsAllowed for IsOperationAllowedBoxed<O> {
+    type Operation = O;
+
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Self::Operation,
+        wsv: &WorldStateView,
+    ) -> ValidatorVerdict {
+        self.applies((authority, operation, wsv))
+    }
+}
+
+impl<O: NeedsPermission> PredicateTrait<(&AccountId, &O, &WorldStateView)>
+    for Box<dyn IsAllowed<Operation = O> + Send + Sync>
+{
+    type EvaluatesTo = ValidatorVerdict;
+
+    fn applies(&self, input: (&AccountId, &O, &WorldStateView)) -> Self::EvaluatesTo {
+        let (account_id, operation, wsv) = input;
+        self.check(account_id, operation, wsv)
+    }
+}
+
+/// Extension trait for [`IsAllowed`] implementing convenience functions
+/// See implementation of [`PredicateSymbol`] for [`ValidatorVerdict`]
+/// for details on logical operator behaviour.
+pub trait IsAllowedExt: IsAllowed + Send + Sync + 'static + Sized {
+    /// Convert to `IsOperationAllowedBoxed`
+    fn boxed(self) -> IsOperationAllowedBoxed<Self::Operation> {
+        IsOperationAllowedBoxed::Raw(Box::new(self))
+    }
+
+    /// Create [`IsOperationAllowedBoxed`] which combines validation
+    /// results from `self` and `other` with logical "or"
+    fn or(
+        self,
+        other: impl IsAllowed<Operation = Self::Operation> + Send + Sync + 'static,
+    ) -> IsOperationAllowedBoxed<Self::Operation> {
+        IsOperationAllowedBoxed::or(self.boxed(), other.boxed())
+    }
+
+    /// Create [`IsOperationAllowedBoxed`] which combines validation
+    /// results from `self` and `other` with logical "and"
+    fn and(
+        self,
+        other: impl IsAllowed<Operation = Self::Operation> + Send + Sync + 'static,
+    ) -> IsOperationAllowedBoxed<Self::Operation> {
+        IsOperationAllowedBoxed::and(self.boxed(), other.boxed())
+    }
+
+    /// Create [`IsOperationAllowedBoxed`] which negates output
+    /// of `self`
+    fn negate(self) -> IsOperationAllowedBoxed<Self::Operation> {
+        IsOperationAllowedBoxed::negate(self.boxed())
+    }
+}
+
+impl<T> IsAllowedExt for T where T: IsAllowed + Send + Sync + 'static {}
 
 /// Verdict returned by validators
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
@@ -70,6 +137,78 @@ pub enum ValidatorVerdict {
     /// The validator allows an instruction to be executed if
     /// the operation is correct from its point of view.
     Allow,
+}
+
+/// Logical operations on [`ValidatorVerdict`] behave as follows:
+///
+/// | Not   |      |
+/// |-------|------|
+/// | Allow | Deny |
+/// | Skip  | Skip |
+/// | Deny  | Allow|
+///
+/// | And  | Allow | Skip  | Deny |
+/// |------|-------|-------|------|
+/// |Allow | Allow | Allow | Deny |
+/// |Skip  | Allow | Skip  | Deny |
+/// |Deny  | Deny  | Deny  | Deny |
+///
+///
+/// | Or   | Allow | Skip  | Deny  |
+/// |------|-------|-------|-------|
+/// |Allow | Allow | Allow | Allow |
+/// |Skip  | Allow | Skip  | Deny  |
+/// |Deny  | Allow | Deny  | Deny  |
+///
+impl PredicateSymbol for ValidatorVerdict {
+    #[allow(clippy::unnested_or_patterns)] // More verbose, but more readable here
+    fn and(self, other: Self) -> ControlFlow<Self, Self> {
+        match (self, other) {
+            // Deny AND x => Deny
+            (deny @ Self::Deny(_), _) | (_, deny @ Self::Deny(_)) => ControlFlow::Break(deny),
+            // Skip AND Skip => Skip
+            (Self::Skip, Self::Skip) => ControlFlow::Continue(Self::Skip),
+            // Allow AND Allow => Allow
+            (Self::Allow, Self::Allow) |
+            //  Allow AND Skip => Allow
+            (Self::Allow, Self::Skip) | (Self::Skip, Self::Allow) => {
+                ControlFlow::Continue(Self::Allow)
+            }
+        }
+    }
+
+    fn or(self, other: Self) -> ControlFlow<Self, Self> {
+        match (self, other) {
+            // Allow OR x => Allow
+            (Self::Allow, _) | (_, Self::Allow) => ControlFlow::Break(Self::Allow),
+            // Skip OR Skip => Skip
+            (Self::Skip, Self::Skip) => ControlFlow::Continue(Self::Skip),
+            // Deny OR Deny => Deny(combined reasons)
+            (Self::Deny(left), Self::Deny(right)) => {
+                ControlFlow::Continue(ValidatorVerdict::Deny(format!(
+                    "Neither the first validator succeeded: {}, \
+                     nor the second validator : {}",
+                    left, right
+                )))
+            }
+            // Deny OR Skip => Deny
+            (deny @ Self::Deny(_), Self::Skip) | (Self::Skip, deny @ Self::Deny(_)) => {
+                ControlFlow::Continue(deny)
+            }
+        }
+    }
+}
+
+impl Not for ValidatorVerdict {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match &self {
+            ValidatorVerdict::Deny(_) => ValidatorVerdict::Allow,
+            ValidatorVerdict::Skip => ValidatorVerdict::Skip,
+            _ => ValidatorVerdict::Deny("Negated Allow verdict".to_owned()),
+        }
+    }
 }
 
 impl PartialOrd for ValidatorVerdict {
@@ -255,13 +394,12 @@ pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
-        combinators::ValidatorApplyOr as _,
         judge::{
             builder::Builder as JudgeBuilder, AllowAll, DenyAll, Judge, OperationJudgeBoxed,
             QueryJudgeArc,
         },
         roles::{IsGrantAllowed, IsRevokeAllowed},
-        IsAllowed, ValidatorVerdict,
+        IsAllowed, IsAllowedExt, ValidatorVerdict,
     };
 }
 
@@ -384,6 +522,84 @@ mod tests {
                 account_domain.parse().expect("Valid"),
             ),
         ))
+    }
+
+    // Convenience macro to concisely test truth tables
+    macro_rules! assert_maps {
+        ($op:path; $($($left:ident),* => $right:pat_param $(=$cont:ident)?),*) => {{
+            use crate::ValidatorVerdict::{Allow, Deny, Skip};
+            $(assert!(
+                 matches!(
+                     $op($($left.clone()),*),
+                     wrap_cf!($($cont,)? $right)
+                  )
+            ));*
+        }}
+    }
+
+    // Helper for `assert_maps!`
+    macro_rules! wrap_cf {
+        ($p:pat) => {
+            $p
+        };
+        (cont, $p:pat) => {
+            core::ops::ControlFlow::Continue($p)
+        };
+        (brk, $p:pat) => {
+            core::ops::ControlFlow::Break($p)
+        };
+    }
+
+    #[test]
+    #[allow(clippy::cognitive_complexity)] // Clippy gets confused by macros here, I think?
+    pub fn validator_verdict_logic() {
+        fn shallow_eq(left: &ValidatorVerdict, right: &ValidatorVerdict) -> bool {
+            (left.is_allow() && right.is_allow())
+                || (left.is_skip() && right.is_skip())
+                || (left.is_deny() && right.is_deny())
+        }
+
+        let allow = ValidatorVerdict::Allow;
+        let skip = ValidatorVerdict::Skip;
+        let deny = ValidatorVerdict::Deny("dummy".into());
+
+        PredicateSymbol::test_conformity_with_eq(
+            vec![allow.clone(), skip.clone(), deny.clone()],
+            shallow_eq,
+        );
+
+        assert_maps! {
+            core::ops::Not::not;
+            allow => Deny(_),
+            skip  => Skip,
+            deny  => Allow
+        }
+
+        assert_maps! {
+            PredicateSymbol::and;
+            allow, allow => Allow    =cont,
+            allow, skip  => Allow    =cont,
+            allow, deny  => Deny(_)  =brk,
+            skip,  allow => Allow    =cont,
+            skip,  skip  => Skip     =cont,
+            skip,  deny  => Deny(_)  =brk,
+            deny,  allow => Deny(_)  =brk,
+            deny,  skip  => Deny(_)  =brk,
+            deny,  deny  => Deny(_)  =brk
+        }
+
+        assert_maps! {
+            PredicateSymbol::or;
+            allow, allow => Allow    =brk,
+            allow, skip  => Allow    =brk,
+            allow, deny  => Allow    =brk,
+            skip,  allow => Allow    =brk,
+            skip,  skip  => Skip     =cont,
+            skip,  deny  => Deny(_)  =cont,
+            deny,  allow => Allow    =brk,
+            deny,  skip  => Deny(_)  =cont,
+            deny,  deny  => Deny(_)  =cont
+        }
     }
 
     #[test]
