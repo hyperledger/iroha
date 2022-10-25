@@ -28,6 +28,8 @@ fn main() {
         .expect("Account registration example is expected to work correctly");
     asset_registration_test(&config)
         .expect("Asset registration example is expected to work correctly");
+    asset_minting_test(&config).expect("Asset minting example is expected to work correctly");
+    asset_burning_test(&config).expect("Asset burning example is expected to work correctly");
     println!("Success!");
     // END ESCAPE
 }
@@ -182,6 +184,82 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     iroha_client.submit_all([mint.into()])?;
     // END FRAGMENT
 
+    // Finish the test successfully
+    Ok(())
+}
+
+fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
+    // BEGIN FRAGMENT: mint_asset
+    use std::str::FromStr;
+
+    use iroha_client::client::Client;
+    use iroha_data_model::{
+        prelude::{AccountId, AssetDefinitionId, AssetId, MintBox},
+        IdBox, Value,
+    };
+    // Create an Iroha client
+    let iroha_client: Client = Client::new(&config).unwrap();
+    // Define the instances of an Asset and Account
+    let roses = AssetDefinitionId::from_str("rose#wonderland")
+        .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
+    let alice: AccountId = "alice@wonderland".parse()
+        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
+    // Mint the Asset instance
+    let mint_roses = MintBox::new(Value::U32(42), IdBox::AssetId(AssetId::new(roses, alice)));
+    iroha_client
+        .submit(mint_roses)
+        .wrap_err("Failed to submit transaction")?;
+    // Mint the Asset instance (alternate syntax).
+    // The syntax is `asset_name#asset_domain#account_name@account_domain`,
+    // or `roses.to_string() + "#" + alice.to_string()`.
+    // The `##` is a short-hand for the rose `which belongs to the same domain as the account
+    // to which it belongs to.
+    let mint_roses_alt = MintBox::new(
+        Value::U32(10),
+        IdBox::AssetId("rose##alice@wonderland".parse()?),
+    );
+    iroha_client
+        .submit(mint_roses_alt)
+        .wrap_err("Failed to submit transaction")?;
+    // END FRAGMENT
+    // Finish the test successfully
+    Ok(())
+}
+
+fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
+    // BEGIN FRAGMENT: burn_asset
+    use std::str::FromStr;
+
+    use iroha_client::client::Client;
+    use iroha_data_model::{
+        prelude::{AccountId, AssetDefinitionId, AssetId, BurnBox},
+        IdBox, Value,
+    };
+    // Create an Iroha client
+    let iroha_client: Client = Client::new(&config).unwrap();
+    // Define the instances of an Asset and Account
+    let roses = AssetDefinitionId::from_str("rose#wonderland")
+        .expect("Valid, because the string contains no whitespace, has a single '#' character and is not empty after");
+    let alice: AccountId = "alice@wonderland".parse()
+        .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
+    // Burn the Asset instance
+    let burn_roses = BurnBox::new(Value::U32(10), IdBox::AssetId(AssetId::new(roses, alice)));
+    iroha_client
+        .submit(burn_roses)
+        .wrap_err("Failed to submit transaction")?;
+    // Burn the Asset instance (alternate syntax).
+    // The syntax is `asset_name#asset_domain#account_name@account_domain`,
+    // or `roses.to_string() + "#" + alice.to_string()`.
+    // The `##` is a short-hand for the rose `which belongs to the same domain as the account
+    // to which it belongs to.
+    let burn_roses_alt = BurnBox::new(
+        Value::U32(10),
+        IdBox::AssetId("rose##alice@wonderland".parse()?),
+    );
+    iroha_client
+        .submit(burn_roses_alt)
+        .wrap_err("Failed to submit transaction")?;
+    // END FRAGMENT
     // Finish the test successfully
     Ok(())
 }
