@@ -182,7 +182,6 @@ fn p2p_read_loop(
             info!("P2P thread is being shut down");
             return;
         }
-
         std::thread::sleep(Duration::from_millis(10));
 
         // For protocol violators.

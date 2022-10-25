@@ -1139,8 +1139,6 @@ fn sumeragi_init_commit_genesis<F>(
         .p2p
         .update_peer_target(state.current_topology.sorted_peers());
 
-    std::thread::sleep(Duration::from_millis(6500)); // nocheckin should be 250
-
     iroha_logger::info!("Initializing iroha using the genesis block.");
 
     assert_eq!(state.latest_block_height, 0);

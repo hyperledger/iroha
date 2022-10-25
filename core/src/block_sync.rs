@@ -6,6 +6,8 @@
 )]
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
+use std::sync::{Mutex, mpsc};
+
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
 use iroha_data_model::prelude::*;
@@ -24,7 +26,11 @@ pub struct BlockSynchronizer {
     gossip_period: Duration,
     block_batch_size: u32,
     p2p: Arc<P2PSystem>,
-    actor_channel_capacity: u32,
+    /// Sender channel
+    pub message_sender: Mutex<mpsc::SyncSender<message::VersionedMessage>>,
+    /// Receiver channel.
+    pub message_receiver: Mutex<mpsc::Receiver<message::VersionedMessage>>,
+
 }
 /*
     if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
@@ -51,14 +57,55 @@ impl BlockSynchronizer {
         p2p: Arc<P2PSystem>,
         peer_id: PeerId,
     ) -> Arc<Self> {
+        let (incoming_message_sender, incoming_message_receiver) =
+            std::sync::mpsc::sync_channel(250);
+
         Arc::new(Self {
             peer_id,
             sumeragi,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             p2p,
-            actor_channel_capacity: config.actor_channel_capacity,
+            message_sender: Mutex::new(incoming_message_sender),
+            message_receiver: Mutex::new(incoming_message_receiver),
         })
+    }
+}
+
+pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>, p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>) -> ThreadHandler {
+    // Oneshot channel to allow forcefully stopping the thread.
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+
+    let thread_handle = std::thread::spawn(move || {
+        p2p_read_loop(&block_sync, shutdown_receiver, &p2p, &sumeragi);
+    });
+
+    let shutdown = move || {
+        let _result = shutdown_sender.send(());
+    };
+
+    ThreadHandler::new(Box::new(shutdown), thread_handle)
+}
+
+fn p2p_read_loop(
+    block_sync: &BlockSynchronizer,
+    mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
+    p2p: &P2PSystem,
+    sumeragi: &Sumeragi,
+) {
+    let mut message_receiver = p2p.message_receiver.lock().unwrap();
+    let mut last_requested_blocks = Instant::now();
+    loop {
+        // We have no obligations to network delivery so we simply exit on shutdown signal.
+        if shutdown_receiver.try_recv().is_ok() {
+            info!("P2P thread is being shut down");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+
+        if last_requested_blocks.elapsed() > block_sync.gossip_period {
+            last_requested_blocks = Instant::now();
+            
     }
 }
 
