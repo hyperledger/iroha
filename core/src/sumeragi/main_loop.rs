@@ -13,30 +13,13 @@ use super::*;
 use crate::{genesis::GenesisNetwork, sumeragi::tracing::instrument};
 
 /// Fault injection for consensus tests
-pub trait FaultInjection: Send + Sync + Sized + 'static {
-    /// A function to skip or modify a message.
-    fn faulty_message(sumeragi: &SumeragiWithFault<Self>, msg: Message) -> Option<Message>;
-
-    /// Allows controlling Sumeragi rounds by sending `Voting` message
-    /// manually.
-    fn manual_rounds() -> bool {
-        true
-    }
-}
+pub trait FaultInjection: Send + Sync + Sized + 'static {}
 
 /// Correct Sumeragi behavior without fault injection
 #[derive(Copy, Clone, Debug)]
 pub struct NoFault;
 
-impl FaultInjection for NoFault {
-    fn faulty_message(_: &SumeragiWithFault<Self>, msg: Message) -> Option<Message> {
-        Some(msg)
-    }
-
-    fn manual_rounds() -> bool {
-        false
-    }
-}
+impl FaultInjection for NoFault {}
 
 /// `Sumeragi` is the implementation of the consensus. This struct
 /// allows also to add fault injection for tests.
@@ -307,10 +290,16 @@ fn commit_block<F>(
         *wsv = state.wsv.clone();
     }
 
-    for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
-        trace!(?event);
-        // Ignoring error is fine here because lack of event consumer is not an error
-        sumeragi.events_sender.send(event).unwrap_or(0);
+    if sumeragi.events_sender.receiver_count() > 0 {
+        for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
+            trace!(?event);
+            sumeragi
+                .events_sender
+                .send(event)
+                .map_err(|e| warn!(%e, "Some events failed to be sent"))
+                .unwrap_or(0);
+            // Essentially log and ignore.
+        }
     }
 
     state.previous_block_hash = state.latest_block_hash;

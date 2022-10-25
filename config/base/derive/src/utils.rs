@@ -285,7 +285,7 @@ pub fn extract_field_types(fields: &[StructField]) -> Vec<Type> {
         .collect::<Vec<_>>()
 }
 
-pub fn get_type_argument<'sl, 'tl>(s: &'sl str, ty: &'tl Type) -> Option<&'tl GenericArgument> {
+pub fn get_type_argument<'tl>(s: &str, ty: &'tl Type) -> Option<&'tl GenericArgument> {
     let path = if let Type::Path(r#type) = ty {
         r#type
     } else {
