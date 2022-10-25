@@ -1,11 +1,6 @@
 //! Module handling runtime upgrade logic.
 #![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 
-use std::{
-    fmt::Debug,
-    sync::{MutexGuard, PoisonError},
-};
-
 pub use serde::{Deserialize, Serialize};
 use thiserror::*;
 
@@ -31,17 +26,8 @@ pub enum ReloadError {
     Other,
 }
 
-type PoisonErr<'grd, T> =
-    PoisonError<MutexGuard<'grd, Option<Box<(dyn ReloadMut<T> + Send + Sync)>>>>;
-
-impl<T> From<PoisonErr<'_, T>> for ReloadError {
-    fn from(_: PoisonErr<'_, T>) -> Self {
-        Self::Poisoned
-    }
-}
-
 /// The field needs to be mutably borrowed to be reloaded.
-pub trait ReloadMut<T>: Debug {
+pub trait ReloadMut<T> {
     // TODO: When negative traits/specialisation, remove Debug
 
     /// Reload `self` using provided `item`.
@@ -194,9 +180,8 @@ pub mod handle {
         ///
         /// # Errors
         /// [`ReloadError::Poisoned`] When the [`Mutex`] storing the reload handle is poisoned.
-        pub fn set(&self, handle: impl ReloadMut<T> + Send + Sync + 'static) -> Result<()> {
-            *self.inner.lock()? = Some(Box::new(handle));
-            Ok(())
+        pub fn set(&self, handle: impl ReloadMut<T> + Send + Sync + 'static) {
+            *self.inner.lock().expect("Mutex in `Singleton::set` got poisoned") = Some(Box::new(handle));
         }
     }
 
@@ -208,7 +193,7 @@ pub mod handle {
 
     impl<T: Send + Sync + Debug> Reload<T> for Singleton<T> {
         fn reload(&self, item: T) -> Result<()> {
-            match &mut *self.inner.lock()? {
+            match &mut *self.inner.lock().expect("Valid") {
                 Some(handle) => {
                     handle.reload(item)?;
                     Ok(())
@@ -315,7 +300,7 @@ pub mod handle {
         ///
         /// # Errors
         /// If [`Singleton::set`] fails.
-        pub fn set_handle(&self, other: impl ReloadMut<T> + Send + Sync + 'static) -> Result<()> {
+        pub fn set_handle(&self, other: impl ReloadMut<T> + Send + Sync + 'static) {
             self.1.set(other)
         }
     }

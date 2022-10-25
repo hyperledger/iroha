@@ -1,10 +1,7 @@
 //! Retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
-use iroha_config::telemetry::retry_period::{
-    DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
-};
 
 /// Period for re-entrant polling
+#[derive(Clone, Copy, Debug)]
 pub struct RetryPeriod {
     /// The minimum period
     min_period: u64,
@@ -15,9 +12,6 @@ pub struct RetryPeriod {
 }
 
 impl RetryPeriod {
-    pub const DEFAULT_MIN_RETRY_PERIOD: u64 = DEFAULT_MIN_RETRY_PERIOD;
-    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = DEFAULT_MAX_RETRY_DELAY_EXPONENT;
-
     /// Constructs a new object
     pub const fn new(min_period: u64, max_exponent: u8) -> Self {
         Self {
@@ -30,7 +24,9 @@ impl RetryPeriod {
     /// Increases the exponent if it isn't at its maximum
     pub fn increase_exponent(&mut self) {
         if self.exponent < self.max_exponent {
-            self.exponent += 1;
+            self.exponent = self.exponent.saturating_add(1);
+        } else {
+            self.exponent = self.max_exponent
         }
     }
 
@@ -41,11 +37,22 @@ impl RetryPeriod {
     }
 }
 
-impl Default for RetryPeriod {
-    fn default() -> Self {
-        Self::new(
-            Self::DEFAULT_MIN_RETRY_PERIOD,
-            Self::DEFAULT_MAX_RETRY_DELAY_EXPONENT,
-        )
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::restriction)]
+
+    #[test]
+    fn increase_exponent_saturates() {
+        let mut period = super::RetryPeriod {
+            min_period: 32000_u64,
+            max_exponent: u8::MAX,
+            exponent: (u8::MAX - 1),
+        };
+        println!("testing {period:?}");
+        let old = period.period();
+        period.increase_exponent();
+        assert_eq!(period.period(), 2_u64.saturating_mul(old));
+        period.increase_exponent();
+        assert_eq!(period.period(), 2_u64.saturating_mul(old));
     }
 }

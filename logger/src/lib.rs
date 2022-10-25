@@ -100,7 +100,7 @@ where
     let level: tracing::Level = configuration.max_log_level.value().into();
     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
     let (filter, handle) = reload::Layer::new(level_filter);
-    configuration.max_log_level.set_handle(handle)?;
+    configuration.max_log_level.set_handle(handle);
     let (bunyan_layer, storage_layer) = match configuration.log_file_path.clone() {
         Some(path) => (
             Some(BunyanFormattingLayer::new(

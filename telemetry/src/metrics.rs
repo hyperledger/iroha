@@ -190,3 +190,22 @@ impl Metrics {
             .expect("Failed to get the current system time")
     }
 }
+
+#[cfg(test)]
+mod test {
+    #![allow(clippy::restriction)]
+    use super::*;
+
+    #[test]
+    fn metrics_lifecycle() {
+        let metrics = Metrics::default();
+        println!(
+            "{:?}",
+            metrics
+                .try_to_string()
+                .expect("Should not fail for default")
+        );
+        println!("{:?}", Status::from(&Box::new(metrics)));
+        println!("{:?}", Status::default());
+    }
+}
