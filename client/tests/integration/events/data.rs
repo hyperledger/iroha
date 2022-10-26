@@ -45,7 +45,7 @@ fn produce_instructions() -> Vec<Instruction> {
 #[test]
 fn instruction_execution_should_produce_events() -> Result<()> {
     let instructions = produce_instructions().into();
-    transaction_execution_should_produce_events(instructions)
+    transaction_execution_should_produce_events(instructions, 10_665)
 }
 
 #[test]
@@ -87,13 +87,16 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         isi_calls = isi_calls
     );
 
-    transaction_execution_should_produce_events(Executable::Wasm(WasmSmartContract {
-        raw_data: wat.into_bytes(),
-    }))
+    transaction_execution_should_produce_events(
+        Executable::Wasm(WasmSmartContract {
+            raw_data: wat.into_bytes(),
+        }),
+        10_615,
+    )
 }
 
-fn transaction_execution_should_produce_events(executable: Executable) -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+fn transaction_execution_should_produce_events(executable: Executable, port: u16) -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(port).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // spawn event reporter
@@ -131,7 +134,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
 #[test]
 #[allow(clippy::too_many_lines)]
 fn produce_multiple_events() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_645).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Spawn event reporter

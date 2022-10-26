@@ -7,11 +7,15 @@ use tokio::runtime::Runtime;
 
 #[test]
 fn genesis_block_is_commited_with_some_offline_peers() {
-    prepare_test_for_nextest!();
     // Given
     let rt = Runtime::test();
 
-    let (network, iroha_client) = rt.block_on(<Network>::start_test_with_offline(4, 1, 1));
+    let (network, iroha_client) = rt.block_on(<Network>::start_test_with_offline_and_set_n_shifts(
+        4,
+        1,
+        1,
+        Some(10_560),
+    ));
     wait_for_genesis_committed(&network.clients(), 1);
 
     //When

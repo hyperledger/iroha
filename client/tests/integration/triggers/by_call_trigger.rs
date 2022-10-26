@@ -12,8 +12,7 @@ const TRIGGER_NAME: &str = "mint_rose";
 
 #[test]
 fn call_execute_trigger() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_005).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -37,8 +36,7 @@ fn call_execute_trigger() -> Result<()> {
 
 #[test]
 fn execute_trigger_should_produce_event() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_010).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -73,8 +71,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
 
 #[test]
 fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_015).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -101,8 +98,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
 #[test]
 fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_020).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -156,8 +152,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
 #[test]
 fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_025).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -206,8 +201,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_030).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -252,8 +246,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 
 #[test]
 fn unregister_trigger() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_035).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let account_id = AccountId::from_str("alice@wonderland")?;
@@ -311,8 +304,6 @@ fn unregister_trigger() -> Result<()> {
 // This feature will be activated by the build-script on nightly builds/
 #[ignore = "Only on nightly"]
 fn trigger_in_genesis_using_base64() -> Result<()> {
-    prepare_test_for_nextest!();
-
     // Reading wasm smartcontract
     let wasm = std::fs::read(concat!(
         env!("OUT_DIR"),
@@ -354,6 +345,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)
+        .with_port(10_040)
         .start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 

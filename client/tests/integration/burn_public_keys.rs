@@ -28,12 +28,11 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
-    prepare_test_for_nextest!();
     const KEYS_COUNT: usize = 3;
     let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
     let bob_keys_count = |client: &mut Client| account_keys_count(client, bob_id.clone());
 
-    let (_rt, _peer, mut client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut client) = <PeerBuilder>::new().with_port(10_045).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), [])).into();

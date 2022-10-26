@@ -21,8 +21,7 @@ fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
 
 #[test]
 fn find_roles() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_525).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_ids = create_role_ids();
@@ -51,8 +50,7 @@ fn find_roles() -> Result<()> {
 
 #[test]
 fn find_role_ids() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_530).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_ids = create_role_ids();
@@ -78,8 +76,7 @@ fn find_role_ids() -> Result<()> {
 
 #[test]
 fn find_role_by_id() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_535).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
@@ -99,8 +96,7 @@ fn find_role_by_id() -> Result<()> {
 
 #[test]
 fn find_unregistered_role_by_id() {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_540).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
@@ -117,8 +113,7 @@ fn find_unregistered_role_by_id() {
 
 #[test]
 fn find_roles_by_account_id() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_545).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_ids = create_role_ids();

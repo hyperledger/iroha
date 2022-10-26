@@ -20,14 +20,13 @@ use iroha_p2p::{
     *,
 };
 use parity_scale_codec::{Decode, Encode};
-use test_network::{prepare_test_for_nextest, unique_port};
 use tokio::time::Duration;
 
 #[derive(iroha_actor::Message, Clone, Debug, Decode, Encode)]
 struct TestMessage(String);
 
-fn gen_address() -> String {
-    format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap())
+fn gen_address_with_port(port: u16) -> String {
+    format!("127.0.0.1:{port}")
 }
 
 static INIT: Once = Once::new();
@@ -51,11 +50,10 @@ fn setup_logger() {
 /// are properly sent and received using encryption and serialization/deserialization.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn network_create() {
-    prepare_test_for_nextest!();
     let delay = Duration::from_millis(200);
     setup_logger();
     info!("Starting network tests...");
-    let address = gen_address();
+    let address = gen_address_with_port(11_000);
     let broker = Broker::new();
     let public_key = iroha_crypto::PublicKey::from_str(
         "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
@@ -118,7 +116,6 @@ impl Handler<TestMessage> for TestActor {
 /// This peer connects to our second network, emulating some distant peer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_networks() {
-    prepare_test_for_nextest!();
     let delay = Duration::from_millis(200);
     setup_logger();
     let public_key1 = iroha_crypto::PublicKey::from_str(
@@ -130,7 +127,7 @@ async fn two_networks() {
     )
     .unwrap();
     info!("Starting first network...");
-    let address1 = gen_address();
+    let address1 = gen_address_with_port(11_005);
 
     let broker1 = Broker::new();
     let network1 =
@@ -141,7 +138,7 @@ async fn two_networks() {
     tokio::time::sleep(delay).await;
 
     info!("Starting second network...");
-    let address2 = gen_address();
+    let address2 = gen_address_with_port(11_010);
     let broker2 = Broker::new();
     let network2 =
         Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key2.clone(), 100)
@@ -202,7 +199,6 @@ async fn two_networks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multiple_networks() {
-    prepare_test_for_nextest!();
     let log_config = Configuration {
         max_log_level: Level::TRACE.into(),
         compact_mode: false,
@@ -221,8 +217,8 @@ async fn multiple_networks() {
     tokio::time::sleep(delay).await;
 
     let mut peers = Vec::new();
-    for _ in 0_i32..10_i32 {
-        let addr = gen_address();
+    for i in 0_u16..10_u16 {
+        let addr = gen_address_with_port(11_015 + (i * 5));
         peers.push(addr);
     }
 
