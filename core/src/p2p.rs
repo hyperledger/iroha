@@ -87,7 +87,7 @@ pub const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 
-pub const P2P_TCP_TIMEOUT: Duration = Duration::from_millis(500);
+pub const P2P_TCP_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub struct P2PSystem {
     listen_addr: String,
@@ -123,9 +123,11 @@ impl P2PSystem {
             let (stream, crypto) = match connected_to_peers.get_mut(&public_key) {
                 Some(stuff) => stuff,
                 None => {
+                    println!("P2P post failed not connected.");
                     continue;
                 },
             };
+            println!("POST!");
             let encrypted = crypto.encrypt(encoded.clone()).expect("We should always be able to encrypt.");
             let write1 = stream.write_all(&(encrypted.len() as u32).to_le_bytes());
             let write2 = stream.write_all(&encrypted);
@@ -190,7 +192,7 @@ fn p2p_read_loop(
             info!("P2P read thread is being shut down");
             return;
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_micros(2500));
 
         // For protocol violators.
         let mut to_disconnect_keys = Vec::<PublicKey>::new();
@@ -214,7 +216,7 @@ fn p2p_read_loop(
                     continue;
                 }
                 let mut packet_size = [0_u8; 4];
-                if stream.read_exact(&mut packet_size).is_err()
+                if stream.read_exact(&mut packet_size).is_err() // TODO: Peek so that we don't ever wait on packet completion.
                 {
                     to_disconnect_keys.push(public_key.clone());
                     continue;
@@ -233,6 +235,7 @@ fn p2p_read_loop(
                     if let Ok(network_message) = network_message_maybe {
                         match network_message {
                             SumeragiPacket(data) => {
+                                println!("RECV sumeragi");
                                 sumeragi.incoming_message(data.into_v1());
                             }
                             BlockSync(data) => {
@@ -285,8 +288,10 @@ fn p2p_listen_loop(
     listener
         .set_nonblocking(true)
         .expect("P2P subsystem could not enable nonblocking on listening tcp port.");
+
+    let time_slice = Duration::from_millis(5);
     
-    let mut new_outward_connection_index = 0_usize;
+    let mut countdown_to_outgoing = 20;
     loop {
         // We have no obligations to network delivery so we simply exit on shutdown signal.
         if shutdown_receiver.try_recv().is_ok() {
@@ -295,9 +300,8 @@ fn p2p_listen_loop(
         }
         std::thread::sleep(Duration::from_millis((rand::random::<u64>() % 10) + 10));
         
-        let target = p2p.connect_peer_target.lock().unwrap();
-
-        let maybe_new_connection = if rand::random::<bool>() {
+        let maybe_new_connection = if countdown_to_outgoing > 0 {
+            countdown_to_outgoing -= 1;
             // listen
             if let Ok((mut stream, addr)) = listener.accept() {
                 println!("Incomming p2p connection from {}", &addr);
@@ -309,34 +313,40 @@ fn p2p_listen_loop(
                     .expect("Could not set write timeout on socket.");
                 Some(stream)
             } else {
+                std::thread::sleep(time_slice);
+                if rand::random::<bool>() {
+                    std::thread::sleep(time_slice * 2);
+                }
                 None
             }
         } else {
+            countdown_to_outgoing = 20;
             // connect
             let maybe_connect_addr = {
                 let connected_to_peer_keys = p2p.get_connected_to_peer_keys();
 
-                if target.is_empty() {
+                let target_addrs : Vec<String> = p2p.connect_peer_target.lock().unwrap()
+                    .iter()
+                    .filter(|peer_id| connected_to_peer_keys.iter().position(|key| key == &peer_id.public_key).is_none())
+                    .map(|peer_id| peer_id.address.clone())
+                    .collect();
+
+                if target_addrs.is_empty() {
                     None
                 } else {
-                    let peer_id = &target[new_outward_connection_index % target.len()];
-                    new_outward_connection_index = new_outward_connection_index.wrapping_add(1);
+                    let address = &target_addrs[rand::random::<usize>() % target_addrs.len()];
 
-                    if connected_to_peer_keys.iter().position(|key| key == &peer_id.public_key).is_some() {
-                        None
+                    if let Ok(addr) = SocketAddr::from_str(&address) {
+                        Some(addr)
                     } else {
-                        if let Ok(addr) = SocketAddr::from_str(&peer_id.address) {
-                            Some(addr)
-                        } else {
-                            println!("Error can't produce addr from str.");
-                            None
-                        }
+                        println!("Error can't produce addr from str.");
+                        None
                     }
                 }
             };
 
             if let Some(addr) = maybe_connect_addr {
-                if let Ok(mut stream) = TcpStream::connect_timeout(&addr, P2P_TCP_TIMEOUT + Duration::from_millis(rand::random::<u64>() % 100)) {
+                if let Ok(mut stream) = TcpStream::connect_timeout(&addr, time_slice * 40) {
                     println!("Outgoing p2p connection to {}", &addr);
                     stream
                         .set_read_timeout(Some(P2P_TCP_TIMEOUT))
@@ -420,6 +430,8 @@ fn p2p_listen_loop(
         };
         println!("Completed handshake with {}.", other_public_key);
 
+        let target = p2p.connect_peer_target.lock().unwrap();        
+        
         if target.iter().position(|peer_id| peer_id.public_key == other_public_key).is_none() {
             println!("Dropping because not in target, {}.", other_public_key);
             continue;

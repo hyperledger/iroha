@@ -426,6 +426,22 @@ fn handle_role_agnostic_messages<F>(
                     }
                 }
             }
+            Message::BlockCommitted(block_committed) => {
+                let block = block_committed.block;
+                let network_topology = state.current_topology.clone();
+
+                let verified_signatures =
+                    block.verified_signatures().cloned().collect::<Vec<_>>();
+                let valid_signatures = network_topology.filter_signatures_by_roles(
+                    &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail, Role::ObservingPeer],
+                    &verified_signatures,
+                );
+                if valid_signatures.len() >= network_topology.min_votes_for_commit()
+                    && state.latest_block_hash == block.header().previous_block_hash
+                {
+                    commit_block(sumeragi, block, state);
+                }
+            }
             Message::ViewChangeSuggested => {
                 trace!("Received view change suggestion.");
             }
@@ -437,6 +453,7 @@ fn handle_role_agnostic_messages<F>(
 #[allow(clippy::too_many_arguments)]
 fn compare_view_change_index_and_block_height_to_old<F>(
     sumeragi: &SumeragiWithFault<F>,
+    view_change_proof_chain_for_sharing: &Vec<Proof>,    
     current_view_change_index: u64,
     old_view_change_index: &mut u64,
     current_latest_block_height: u64,
@@ -465,6 +482,16 @@ fn compare_view_change_index_and_block_height_to_old<F>(
         current_topology.rebuild_with_new_view_change_count(current_view_change_index);
 
         // there has been a view change, we must reset state for the next round.
+        if current_view_change_index > 0 {
+            // Notify others.
+            sumeragi.broadcast_packet(
+                MessagePacket::new(
+                    view_change_proof_chain_for_sharing.clone(),
+                    Message::ViewChangeSuggested,
+                ),
+                current_topology,
+            );
+        }
 
         *voting_block_option = None;
         block_signature_acc.clear();
@@ -531,7 +558,7 @@ pub fn run<F>(
         if should_sleep {
             let span = span!(Level::TRACE, "Sumeragi Main Thread Sleep");
             let _enter = span.enter();
-            std::thread::sleep(std::time::Duration::from_micros(5000));
+            std::thread::sleep(std::time::Duration::from_micros(20000));
             should_sleep = false;
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
@@ -588,8 +615,11 @@ pub fn run<F>(
             )
         };
 
+        handle_role_agnostic_messages(sumeragi, &mut state, &mut maybe_incoming_message);
+
         compare_view_change_index_and_block_height_to_old(
             sumeragi,
+            &view_change_proof_chain,
             current_view_change_index,
             &mut old_view_change_index,
             state.latest_block_height,
@@ -600,8 +630,6 @@ pub fn run<F>(
             &mut has_sent_transactions,
             &mut instant_when_we_should_create_a_block,
         );
-
-        handle_role_agnostic_messages(sumeragi, &mut state, &mut maybe_incoming_message);
 
         if state.current_topology.role(&sumeragi.peer_id) != Role::Leader {
             if !state.transaction_cache.is_empty() && !has_sent_transactions {
@@ -654,35 +682,6 @@ pub fn run<F>(
                     .expect("Message must have been `Some` at this point");
                 match incoming_message {
                     Message::BlockCreated(_) => {}
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-
-                        // TODO: An observing peer should not validate, yet we will do so
-                        // in order to preserve old behaviour. This should be changed.
-                        // Tracking issue : https://github.com/hyperledger/iroha/issues/2635
-                        let block = block.revalidate(&sumeragi.transaction_validator, &state.wsv);
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
-                        }
-
-                        let network_topology = state.current_topology.clone();
-
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = network_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        let proxy_tail_signatures = network_topology
-                            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-                        if valid_signatures.len() >= network_topology.min_votes_for_commit()
-                            && proxy_tail_signatures.len() == 1
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            commit_block(sumeragi, block, &mut state);
-                        }
-                    }
                     _ => {
                         trace!("Observing peer not handling message {:?}", incoming_message);
                     }
@@ -709,25 +708,6 @@ pub fn run<F>(
                             }
                         } else {
                             error!("Recieved transaction that did not pass transaction limits.");
-                        }
-                    }
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-                        let network_topology = state.current_topology.clone();
-
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = network_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        let proxy_tail_signatures = network_topology
-                            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-                        if valid_signatures.len() >= network_topology.min_votes_for_commit()
-                            && proxy_tail_signatures.len() == 1
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            commit_block(sumeragi, block, &mut state);
                         }
                     }
                     _ => {
@@ -907,21 +887,6 @@ pub fn run<F>(
 
                         let voting_block = VotingBlock::new(block.clone());
                         voting_block_option = Some(voting_block);
-                    }
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        if valid_signatures.len() >= state.current_topology.min_votes_for_commit()
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            commit_block(sumeragi, block, &mut state);
-                        }
                     }
                     _ => {
                         trace!("Not handling message {:?}", incoming_message);

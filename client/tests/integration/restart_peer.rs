@@ -57,7 +57,9 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .expect("Asset not found");
         assert_eq!(AssetValue::Quantity(quantity), *asset.value());
     }
-
+    peer.iroha.take();
+    // Make sure previous peer has time to shutdown.
+    std::thread::sleep(std::time::Duration::from_secs(1));
     {
         let rt = Runtime::test();
         rt.block_on(
