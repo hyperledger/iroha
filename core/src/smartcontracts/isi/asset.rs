@@ -629,7 +629,8 @@ pub mod query {
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            wsv.asset(&id)
+            let value = wsv
+                .asset(&id)
                 .map_err(|asset_err| {
                     if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
                         Error::Find(Box::new(definition_err))
@@ -638,10 +639,8 @@ pub mod query {
                     }
                 })?
                 .value()
-                .try_as_ref()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))
-                .map(Clone::clone)
+                .clone();
+            Ok(value)
         }
     }
 

@@ -263,9 +263,9 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         ])
         .expect("Failed to execute Iroha Special Instruction.");
     thread::sleep(pipeline_time * 3);
-    let expected_seller_eth = 20;
-    let expected_buyer_eth = 180;
-    let expected_buyer_btc = 20;
+    let expected_seller_eth = AssetValue::Quantity(20);
+    let expected_buyer_eth = AssetValue::Quantity(180);
+    let expected_buyer_btc = AssetValue::Quantity(20);
 
     let eth_quantity = iroha_client
         .request(FindAssetQuantityById::new(asset_id_new(

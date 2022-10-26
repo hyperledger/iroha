@@ -977,7 +977,7 @@ pub mod asset {
     }
 
     impl Query for FindAssetQuantityById {
-        type Output = u32;
+        type Output = AssetValue;
     }
 
     /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]

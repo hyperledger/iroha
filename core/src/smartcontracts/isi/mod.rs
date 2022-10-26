@@ -337,15 +337,18 @@ impl Execute for MintBox {
         let object = self.object.evaluate(wsv, &context)?;
         iroha_logger::trace!(%destination_id, ?object, %authority);
         match (destination_id, object) {
-            (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
-                Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
-            }
-            (IdBox::AssetId(asset_id), Value::U128(quantity)) => {
-                Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv)
-            }
-            (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
-                Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
-            }
+            (
+                IdBox::AssetId(asset_id),
+                Value::AssetValue(AssetValue::Quantity(quantity)) | Value::U32(quantity),
+            ) => Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv),
+            (
+                IdBox::AssetId(asset_id),
+                Value::AssetValue(AssetValue::BigQuantity(quantity)) | Value::U128(quantity),
+            ) => Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv),
+            (
+                IdBox::AssetId(asset_id),
+                Value::AssetValue(AssetValue::Fixed(quantity)) | Value::Fixed(quantity),
+            ) => Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv),
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Mint::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
@@ -377,15 +380,18 @@ impl Execute for BurnBox {
             self.destination_id.evaluate(wsv, &context)?,
             self.object.evaluate(wsv, &context)?,
         ) {
-            (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
-                Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
-            }
-            (IdBox::AssetId(asset_id), Value::U128(quantity)) => {
-                Burn::new(quantity, asset_id).execute(authority, wsv)
-            }
-            (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
-                Burn::new(quantity, asset_id).execute(authority, wsv)
-            }
+            (
+                IdBox::AssetId(asset_id),
+                Value::AssetValue(AssetValue::Quantity(quantity)) | Value::U32(quantity),
+            ) => Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv),
+            (
+                IdBox::AssetId(asset_id),
+                Value::AssetValue(AssetValue::BigQuantity(quantity)) | Value::U128(quantity),
+            ) => Burn::new(quantity, asset_id).execute(authority, wsv),
+            (
+                IdBox::AssetId(asset_id),
+                Value::AssetValue(AssetValue::Fixed(quantity)) | Value::Fixed(quantity),
+            ) => Burn::new(quantity, asset_id).execute(authority, wsv),
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Burn::new(public_key, account_id).execute(authority, wsv)
             }
@@ -419,11 +425,15 @@ impl Execute for TransferBox {
         iroha_logger::trace!(?source_asset_id, ?destination_asset_id, ?value, %authority);
 
         match value {
-            Value::U32(quantity) => Transfer::new(source_asset_id, quantity, destination_asset_id)
-                .execute(authority, wsv),
-            Value::U128(quantity) => Transfer::new(source_asset_id, quantity, destination_asset_id)
-                .execute(authority, wsv),
-            Value::Fixed(quantity) => {
+            Value::AssetValue(AssetValue::Quantity(quantity)) | Value::U32(quantity) => {
+                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                    .execute(authority, wsv)
+            }
+            Value::AssetValue(AssetValue::BigQuantity(quantity)) | Value::U128(quantity) => {
+                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                    .execute(authority, wsv)
+            }
+            Value::AssetValue(AssetValue::Fixed(quantity)) | Value::Fixed(quantity) => {
                 Transfer::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
