@@ -21,8 +21,9 @@ use iroha_logger::{debug, info, trace};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use thiserror::Error;
+use aead::generic_array::typenum::Unsigned;
 
-use crate::{handler::ThreadHandler, sumeragi::Sumeragi, NetworkMessage, NetworkMessage::*, PeerId};
+use crate::{handler::ThreadHandler, sumeragi::Sumeragi, block_sync::BlockSynchronizer, NetworkMessage, NetworkMessage::*, PeerId};
 
 /// Errors used in [`crate`].
 #[derive(Debug, Error)]
@@ -90,7 +91,6 @@ pub const P2P_TCP_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct P2PSystem {
     listen_addr: String,
-    listener: TcpListener,
     public_key: PublicKey,
     connect_peer_target: Mutex<Vec<PeerId>>,
     connected_to_peers: Mutex<HashMap<PublicKey, (TcpStream, Cryptographer)>>,
@@ -104,27 +104,22 @@ impl std::fmt::Debug for P2PSystem {
 
 impl P2PSystem {
     pub fn new(listen_addr: String, public_key: PublicKey) -> Arc<P2PSystem> {
-        let listener = TcpListener::bind(&listen_addr).expect("Could not bind p2p tcp listener.");
-        listener
-            .set_nonblocking(true)
-            .expect("P2P subsystem could not enable nonblocking on listening tcp port.");
         Arc::new(P2PSystem {
             listen_addr,
-            listener,
             public_key,
             connect_peer_target: Mutex::new(Vec::new()),
             connected_to_peers: Mutex::new(HashMap::new()),
         })
     }
 
-    pub fn post_to_network(&self, message: NetworkMessage, recipients: Vec<PeerId>) {
+    pub fn post_to_network(&self, message: NetworkMessage, recipients: Vec<PublicKey>) {
         let encoded = message.encode();
 
         // For protocol violators.
         let mut to_disconnect_keys = Vec::new();
 
         let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
-        for public_key in recipients.iter().map(|peer_id| &peer_id.public_key) {
+        for public_key in recipients.iter() {
             let (stream, crypto) = match connected_to_peers.get_mut(&public_key) {
                 Some(stuff) => stuff,
                 None => {
@@ -146,6 +141,18 @@ impl P2PSystem {
         }
     }
 
+    pub fn get_connected_to_peer_keys(&self) -> Vec<PublicKey> {
+        let mut keys = Vec::new();
+
+        for (public_key, (stream, crypto)) in self.connected_to_peers.lock().unwrap().iter_mut() {
+            if stream.write_all(&0_u32.to_le_bytes()).is_err() { // This has to be done in order to detect broken pipes.
+                continue;
+            }
+            keys.push(public_key.clone());
+        }
+        keys
+    }
+
     pub fn update_peer_target(&self, new_target: &[PeerId]) {
         let mut target = self.connect_peer_target.lock().unwrap();
         target.clear();
@@ -156,12 +163,12 @@ impl P2PSystem {
     }
 }
 
-pub fn start_read_loop(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>) -> ThreadHandler {
+pub fn start_read_loop(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>, block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
     // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let thread_handle = std::thread::spawn(move || {
-        p2p_read_loop(&p2p, shutdown_receiver, &sumeragi);
+        p2p_read_loop(&p2p, shutdown_receiver, &sumeragi, &block_sync);
     });
 
     let shutdown = move || {
@@ -175,11 +182,12 @@ fn p2p_read_loop(
     p2p: &P2PSystem,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     sumeragi: &Sumeragi,
+    block_sync: &BlockSynchronizer,
 ) {
     loop {
         // We have no obligations to network delivery so we simply exit on shutdown signal.
         if shutdown_receiver.try_recv().is_ok() {
-            info!("P2P thread is being shut down");
+            info!("P2P read thread is being shut down");
             return;
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -187,10 +195,16 @@ fn p2p_read_loop(
         // For protocol violators.
         let mut to_disconnect_keys = Vec::<PublicKey>::new();
 
+        let target = p2p.connect_peer_target.lock().unwrap().clone();
         let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
         for (public_key, (stream, crypto)) in connected_to_peers.iter_mut() {
             if stream.write_all(&0_u32.to_le_bytes()).is_err() { // This has to be done in order to detect broken pipes.
                 to_disconnect_keys.push(public_key.clone());
+                continue;
+            }
+
+            if target.iter().position(|id| id.public_key == *public_key).is_none() {
+                to_disconnect_keys.push(public_key.clone()); // Disconnect peers not in target.
                 continue;
             }
 
@@ -221,7 +235,9 @@ fn p2p_read_loop(
                             SumeragiPacket(data) => {
                                 sumeragi.incoming_message(data.into_v1());
                             }
-                            BlockSync(data) => /* nocheckin self.broker.issue_send(data.into_v1()).await*/ {},
+                            BlockSync(data) => {
+                                block_sync.incoming_message(*data);
+                            },
                             Health => {}
                         }
                     } else {
@@ -265,196 +281,157 @@ fn p2p_listen_loop(
     p2p: &P2PSystem,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
-    std::thread::sleep(Duration::from_millis((rand::random::<u64>() % 10) + 10));
-
-    let mut waiting_for_server_hello = Vec::new();
-    let mut send_public_key = Vec::new();
-
+    let listener = TcpListener::bind(&p2p.listen_addr).expect("Could not bind p2p tcp listener.");
+    listener
+        .set_nonblocking(true)
+        .expect("P2P subsystem could not enable nonblocking on listening tcp port.");
+    
+    let mut new_outward_connection_index = 0_usize;
     loop {
         // We have no obligations to network delivery so we simply exit on shutdown signal.
         if shutdown_receiver.try_recv().is_ok() {
-            info!("P2P thread is being shut down");
+            info!("P2P listen thread is being shut down");
             return;
         }
+        std::thread::sleep(Duration::from_millis((rand::random::<u64>() % 10) + 10));
+        
+        let target = p2p.connect_peer_target.lock().unwrap();
 
-        /*
-        The following loop is divided into sections. The order of these sections is vital
-        for stable operation. Consider two peers started at the same time connecting to
-        each other. With the sections ordered 1,2,3,4,5 there was a stable configuration
-        where the two peers consistently timed out each other.
+        let maybe_new_connection = if rand::random::<bool>() {
+            // listen
+            if let Ok((mut stream, addr)) = listener.accept() {
+                println!("Incomming p2p connection from {}", &addr);
+                stream
+                    .set_read_timeout(Some(P2P_TCP_TIMEOUT))
+                    .expect("Could not set read timeout on socket.");
+                stream
+                    .set_write_timeout(Some(P2P_TCP_TIMEOUT))
+                    .expect("Could not set write timeout on socket.");
+                Some(stream)
+            } else {
+                None
+            }
+        } else {
+            // connect
+            let maybe_connect_addr = {
+                let connected_to_peer_keys = p2p.get_connected_to_peer_keys();
 
-        Peer A is in section 1, listening.
-        Peer B is in section 2, connecting.
+                if target.is_empty() {
+                    None
+                } else {
+                    let peer_id = &target[new_outward_connection_index % target.len()];
+                    new_outward_connection_index = new_outward_connection_index.wrapping_add(1);
 
-        A connection is established. Peer A moves to section 2, Peer B to section 3.
-        Peer B reads the server hello and moves to section 4.
-
-        Now, Peer B is waiting for Peer A to send their public key in section 4.
-        Peer A however, is in section 2 connecting to Peer B. But Peer B is not
-        listening.
-
-        The result is that both Peer's timeout and the connection process fails.
-
-        //////////////////////////////////////////////////////////////////////
-
-        To remedy this issue, Section 2 was moved to the top. Now let me demonstrate
-        how this issue is now solved.
-
-        Peer A is in section 2, connecting.
-        Peer B is in section 1, listening.
-
-        A connection is established. Peer B moves to section 3. Peer A moves to
-        section 1, listening. But since there is no client connecting it quickly
-        moves on to section 3.
-
-        Now both peers have gotten to section 3 and there is 1 tcp stream in use.
-        The peers exchange keys and the connection is established.
-        */
-
-        // Section 2, initiate outgoing connections.
-        {
-            let connected_to_peers = p2p.connected_to_peers.lock().unwrap();
-            let target = p2p.connect_peer_target.lock().unwrap();
-            for peer_id in target.iter() {
-                if let Ok(addr) = SocketAddr::from_str(&peer_id.address) {
-                    if connected_to_peers.contains_key(&peer_id.public_key) {
-                        continue;
-                    }
-
-                    if let Ok(mut stream) = TcpStream::connect_timeout(&addr, P2P_TCP_TIMEOUT) {
-                        println!("Outgoing p2p connection to {}", &addr);
-                        stream
-                            .set_read_timeout(Some(P2P_TCP_TIMEOUT))
-                            .expect("Could not set read timeout on socket.");
-                        stream
-                            .set_write_timeout(Some(P2P_TCP_TIMEOUT))
-                            .expect("Could not set write timeout on socket.");
-
-                        if Garbage::generate().write(&mut stream).is_ok() {
-                            let crypto = Cryptographer::default();
-                            let ursa_key_slice = crypto.public_key.0.as_slice();
-                            if stream.write_all(ursa_key_slice).is_ok() {
-                                waiting_for_server_hello.push((addr, stream, crypto));
-                            }
+                    if connected_to_peer_keys.iter().position(|key| key == &peer_id.public_key).is_some() {
+                        None
+                    } else {
+                        if let Ok(addr) = SocketAddr::from_str(&peer_id.address) {
+                            Some(addr)
+                        } else {
+                            println!("Error can't produce addr from str.");
+                            None
                         }
                     }
                 }
-            }
-        }
+            };
 
-        // Section 1, accept incomming connections.
-        {
-            let target_count = p2p.connect_peer_target.lock().unwrap().len();
-
-            for _ in 0..target_count {
-                if let Ok((mut stream, addr)) = p2p.listener.accept() {
-                    println!("Incomming p2p connection from {}", &addr);
+            if let Some(addr) = maybe_connect_addr {
+                if let Ok(mut stream) = TcpStream::connect_timeout(&addr, P2P_TCP_TIMEOUT + Duration::from_millis(rand::random::<u64>() % 100)) {
+                    println!("Outgoing p2p connection to {}", &addr);
                     stream
                         .set_read_timeout(Some(P2P_TCP_TIMEOUT))
                         .expect("Could not set read timeout on socket.");
                     stream
                         .set_write_timeout(Some(P2P_TCP_TIMEOUT))
                         .expect("Could not set write timeout on socket.");
-                    if Garbage::read(&mut stream).is_ok() {
-                        let mut key = [0_u8; 32];
-                        if stream.read_exact(&mut key).is_ok() {
-                            let client_ursa_key = UrsaPublicKey(Vec::from(key));
-                            println!("Recieved compliant client hello from {}, responding with server hello.", addr);
+                    Some(stream)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
 
-                            if Garbage::generate().write(&mut stream).is_ok() {
-                                let mut crypto = Cryptographer::default();
-                                let ursa_key_slice = crypto.public_key.0.as_slice();
-                                if stream.write_all(ursa_key_slice).is_ok() {
-                                    println!("Sent server hello to {}, pushing to send_public_key queue.", addr);
-                                    crypto.derive_shared_key(&client_ursa_key);
-                                    send_public_key.push((stream, crypto));
-                                }
-                            }
-                        }
+        let mut stream = match maybe_new_connection {
+            Some(new_con) => new_con,
+            None => continue,
+        };
+
+        // Exchange hello's
+        if Garbage::generate().write(&mut stream).is_err() {
+            continue;
+        }
+        let mut crypto = Cryptographer::default();
+        let ursa_key_slice = crypto.public_key.0.as_slice();
+        if stream.write_all(ursa_key_slice).is_err() {
+            continue;
+        }
+        println!("Sent hello.");
+        if Garbage::read(&mut stream).is_err() {
+            continue;
+        }
+        let mut key = [0_u8; 32];
+        if stream.read_exact(&mut key).is_err() {
+            continue;
+        }
+        let other_ursa_key = UrsaPublicKey(Vec::from(key));
+        crypto.derive_shared_key(&other_ursa_key);
+        println!("Received hello.");
+
+        // Exchange public keys
+        let data = p2p.public_key.encode();
+
+        if let Ok(data) = crypto.encrypt(data) {
+            let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
+            #[allow(clippy::cast_possible_truncation)]
+            buf.push(data.len() as u8);
+            buf.extend_from_slice(data.as_slice());
+
+            if stream.write_all(&buf).is_err() {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        println!("Sent public key to other peer.");
+
+        let other_public_key = {
+            let mut size = 0_u8;
+            if stream.read_exact(std::slice::from_mut(&mut size)).is_ok()
+                && (size as usize) < MAX_HANDSHAKE_LENGTH
+            {
+                let mut data = vec![0_u8; size as usize];
+                if stream.read_exact(&mut data).is_err() {
+                    continue;
+                }
+                if let Ok(data) = crypto.decrypt(data) {
+                    if let Ok(pub_key) = Decode::decode(&mut data.as_slice()) {
+                        pub_key
+                    } else {
+                        continue;
                     }
                 } else {
-                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
                 }
+            } else {
+                continue;
             }
+        };
+        println!("Completed handshake with {}.", other_public_key);
+
+        if target.iter().position(|peer_id| peer_id.public_key == other_public_key).is_none() {
+            println!("Dropping because not in target, {}.", other_public_key);
+            continue;
         }
 
-        // Section 3, read server hello's.
-        {
-            for (addr, mut stream, mut crypto) in waiting_for_server_hello {
-                if Garbage::read(&mut stream).is_ok() {
-                    let mut key = [0_u8; 32];
-                    if stream.read_exact(&mut key).is_ok() {
-                        let server_ursa_key = UrsaPublicKey(Vec::from(key));
-                        println!("Recieved compliant server hello from {}. Pushing to send_public_key_queue.", addr);
-
-                        crypto.derive_shared_key(&server_ursa_key);
-                        send_public_key.push((stream, crypto));
-                    }
-                }
-            }
-            waiting_for_server_hello = Vec::new();
+        let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
+        if connected_to_peers.iter().position(|(public_key, (_, _))| *public_key == other_public_key).is_some() {
+            println!("Dropping because already connected, {}.", other_public_key);
+            continue;
         }
 
-        let mut new_connections: Vec<(PublicKey, _, _)> = Vec::new();
-        // Section 4, swap node level public keys.
-        {
-            let mut receive_public_key = Vec::new();
-            for (mut stream, crypto) in send_public_key {
-                let data = p2p.public_key.encode();
-
-                if let Ok(data) = crypto.encrypt(data) {
-                    let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
-                    #[allow(clippy::cast_possible_truncation)]
-                    buf.push(data.len() as u8);
-                    buf.extend_from_slice(data.as_slice());
-
-                    if stream.write_all(&buf).is_ok() {
-                        println!("Sent public key to other peer.");
-                        receive_public_key.push((stream, crypto));
-                    }
-                } else {
-                    println!("Encryption error, dropping connection.");
-                }
-            }
-            send_public_key = Vec::new();
-            for (mut stream, crypto) in receive_public_key {
-                let mut size = 0_u8;
-                if stream.read_exact(std::slice::from_mut(&mut size)).is_ok()
-                    && (size as usize) < MAX_HANDSHAKE_LENGTH
-                {
-                    let mut data = vec![0_u8; size as usize];
-                    if stream.read_exact(&mut data).is_ok() {
-                        if let Ok(data) = crypto.decrypt(data) {
-                            if let Ok(pub_key) = Decode::decode(&mut data.as_slice()) {
-                                println!("Completed handshake with {}.", pub_key);
-                                new_connections.push((pub_key, stream, crypto));
-                            } else {
-                                println!("ParityScale decode error, dropping connection.");
-                            }
-                        } else {
-                            println!("Decryption error, dropping connection.");
-                        }
-                    }
-                }
-            }
-        }
-
-        // nocheckin
-        // explain why this has to be stocastic
-
-        // Section 5, handle new connections.
-        {
-            let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
-            for (public_key, stream, crypto) in new_connections {
-                if connected_to_peers.contains_key(&public_key) {
-                    if rand::random::<bool>() {
-                        connected_to_peers.insert(public_key, (stream, crypto));
-                    }
-                } else {
-                    connected_to_peers.insert(public_key, (stream, crypto));
-                }
-            }
-        }
+        connected_to_peers.insert(other_public_key, (stream, crypto));
     }
 }
 
@@ -519,9 +496,10 @@ where
     pub fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher
-                .encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
-                .map_err(CryptographicError::Encrypt)?),
+            Some(cipher) => {
+                Ok(cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                   .map_err(CryptographicError::Encrypt)?)
+            },
         }
     }
 

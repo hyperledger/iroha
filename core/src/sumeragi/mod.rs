@@ -107,7 +107,6 @@ impl Sumeragi {
                 gossip_batch_size: configuration.gossip_batch_size,
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
-                current_online_peers: Mutex::new(Vec::new()),
                 latest_block_hash: Mutex::new(Hash::zeroed().typed()),
                 message_sender: Mutex::new(incoming_message_sender),
                 message_receiver: Mutex::new(incoming_message_receiver),
@@ -139,9 +138,8 @@ impl Sumeragi {
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .internal
-            .current_online_peers
-            .lock()
-            .expect("Failed to lock `current_online_peers` for `update_metrics`")
+            .p2p
+            .get_connected_to_peer_keys()
             .len()
             .try_into()
             .expect("casting usize to u64");
@@ -254,18 +252,6 @@ impl Sumeragi {
         self.wsv_mutex_access().blocks_from_height(block_height)
     }
 
-    /// Get a random online peer for use in block synchronization.
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
-        use rand::{seq::SliceRandom, SeedableRng};
-
-        let rng = &mut rand::rngs::StdRng::from_entropy();
-        let peers = self.internal.current_online_peers.lock().expect(
-            "Mutex for `current_online_peers` poisoned in `get_random_peer_for_block_sync`",
-        );
-        peers.choose(rng).map(|id| Peer::new(id.clone()))
-    }
-
     /// Access the world state view object in a locking fashion.
     /// If you intend to do anything substantial you should clone
     /// and release the lock. This is because no blocks can be produced
@@ -339,16 +325,6 @@ impl Sumeragi {
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
-    }
-
-    /// Update the sumeragi internal online peers list.
-    #[allow(clippy::expect_used)]
-    pub fn update_online_peers(&self, online_peers: Vec<PeerId>) {
-        *self
-            .internal
-            .current_online_peers
-            .lock()
-            .expect("Failed to lock on update online peers.") = online_peers;
     }
 
     /// Deposit a sumeragi network message.

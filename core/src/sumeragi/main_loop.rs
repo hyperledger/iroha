@@ -88,8 +88,6 @@ where
     /// The time between gossiping. More frequent gossiping shortens
     /// the time to sync, but can overload the network.
     pub gossip_period: Duration,
-    /// [`PeerId`]s of the peers that are currently online.
-    pub current_online_peers: Mutex<Vec<PeerId>>,
     /// Hash of the latest block
     pub latest_block_hash: Mutex<HashOf<VersionedCommittedBlock>>,
     /// Sender channel
@@ -132,18 +130,6 @@ pub struct State {
 }
 
 impl<F: FaultInjection> SumeragiWithFault<F> {
-    /// Get the current online peers by public key.
-    #[allow(clippy::expect_used)]
-    pub fn get_online_peer_keys(&self) -> Vec<PublicKey> {
-        self.current_online_peers
-            .lock()
-            .expect("lock on online peers")
-            .clone()
-            .into_iter()
-            .map(|peer_id| peer_id.public_key)
-            .collect()
-    }
-
     /// Set the public block hash to zero, in a thread-safe manner
     #[allow(clippy::expect_used)]
     pub fn zeroize(&self) {
@@ -180,7 +166,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     ) {
         self.p2p.post_to_network(
             NetworkMessage::SumeragiPacket(Box::new(msg.into())),
-            ids.cloned().collect(),
+            ids.map(|p| p.public_key.clone()).collect(),
         );
     }
 

@@ -33,7 +33,7 @@ fn connected_peers_with_f(faults: u64) {
     let mut status = genesis_client.get_status().unwrap();
     assert_eq!(status.peers, n_peers - 1);
     assert_eq!(status.blocks, 1);
-
+println!("GOT HERE 1");
     // Unregister a peer: committed with f = `faults`
     // then `status.peers` decrements
     let peer = network.peers.values().last().unwrap();
@@ -46,8 +46,7 @@ fn connected_peers_with_f(faults: u64) {
     assert_eq!(status.blocks, 2);
     status = peer_client.get_status().unwrap();
     assert_eq!(status.peers, 0);
-    assert_eq!(status.blocks, 2);
-
+println!("GOT HERE 2");
     // Re-register the peer: committed with f = `faults` - 1 then
     // `status.peers` increments
     let register_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
