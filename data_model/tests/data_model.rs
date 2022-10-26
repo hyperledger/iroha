@@ -10,7 +10,7 @@ use iroha_core::{
 };
 use iroha_data_model::{prelude::*, ParseError};
 use iroha_primitives::small::SmallStr;
-use test_network::{prepare_test_for_nextest, Peer as TestPeer, PeerBuilder, TestRuntime};
+use test_network::{PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
 fn asset_id_new(
@@ -155,7 +155,6 @@ mod register {
 #[allow(unused_must_use)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
-    prepare_test_for_nextest!();
     let kp = KeyPair::new(
         PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
@@ -166,7 +165,10 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
         ).expect("Valid"),
     ).expect("Valid");
-    let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let mut peer = <PeerBuilder>::new()
+        .with_port(11_100)
+        .build()
+        .expect("Failed to create peer");
     let configuration = get_config(std::iter::once(peer.id.clone()).collect(), Some(kp.clone()));
     let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());
 

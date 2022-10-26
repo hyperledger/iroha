@@ -44,18 +44,6 @@ use tokio::{
 };
 pub use unique_port;
 
-/// Prevent port collisions in `unique_port`, when using `cargo nextest`.
-#[macro_export]
-macro_rules! prepare_test_for_nextest {
-    () => {{
-        if std::env::var("NEXTEST").is_ok() {
-            use $crate::unique_port::{generate_unique_start_port, set_port_index};
-            set_port_index(generate_unique_start_port!())
-                .expect("Can't set port index for unique_port");
-        }
-    }};
-}
-
 #[derive(Debug, Clone, Copy)]
 struct ShutdownRuntime;
 
@@ -140,8 +128,6 @@ impl TestGenesis for GenesisNetwork {
             .into(),
         );
 
-        configure_world();
-
         GenesisNetwork::from_configuration(
             submit_genesis,
             genesis,
@@ -151,8 +137,6 @@ impl TestGenesis for GenesisNetwork {
         .expect("Failed to init genesis")
     }
 }
-
-fn configure_world() {}
 
 impl Network {
     /// Send message to an actor instance on peers.
@@ -191,17 +175,26 @@ impl Network {
     /// Starts network with peers with default configuration and
     /// specified options in a new async runtime.  Returns its info
     /// and client for connecting to it.
-    pub fn start_test_with_runtime(n_peers: u32, max_txs_in_block: u32) -> (Runtime, Self, Client) {
+    pub fn start_test_with_runtime(
+        n_peers: u32,
+        max_txs_in_block: u32,
+        start_port: Option<u16>,
+    ) -> (Runtime, Self, Client) {
         let rt = Runtime::test();
-        let (network, client) = rt.block_on(Self::start_test(n_peers, max_txs_in_block));
+        let (network, client) =
+            rt.block_on(Self::start_test(n_peers, max_txs_in_block, start_port));
         (rt, network, client)
     }
 
     /// Starts network with peers with default configuration and
     /// specified options.  Returns its info and client for connecting
     /// to it.
-    pub async fn start_test(n_peers: u32, max_txs_in_block: u32) -> (Self, Client) {
-        Self::start_test_with_offline(n_peers, max_txs_in_block, 0).await
+    pub async fn start_test(
+        n_peers: u32,
+        max_txs_in_block: u32,
+        start_port: Option<u16>,
+    ) -> (Self, Client) {
+        Self::start_test_with_offline(n_peers, max_txs_in_block, 0, start_port).await
     }
 
     /// Starts network with peers with default configuration and
@@ -211,13 +204,19 @@ impl Network {
         n_peers: u32,
         max_txs_in_block: u32,
         offline_peers: u32,
+        start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = max_txs_in_block;
         configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
-        let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
-            .await
-            .expect("Failed to init peers");
+        let network = Network::new_with_offline_peers(
+            Some(configuration),
+            n_peers,
+            offline_peers,
+            start_port,
+        )
+        .await
+        .expect("Failed to init peers");
         let client = Client::test(
             &network.genesis.api_address,
             &network.genesis.telemetry_address,
@@ -232,11 +231,13 @@ impl Network {
         n_peers: u32,
         maximum_transactions_in_block: u32,
         offline_peers: u32,
+        start_port: Option<u16>,
     ) -> (Self, Client) {
         Self::start_test_with_offline_and_set_n_shifts(
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
+            start_port,
         )
         .await
     }
@@ -271,7 +272,9 @@ impl Network {
     /// Creates new network with some offline peers
     ///
     /// # Panics
-    /// Panics if default configuration is not found.
+    /// - If loading an environment configuration fails when
+    /// no default configuration was provided.
+    /// - If keypair generation fails.
     ///
     /// # Errors
     /// - (RARE) Creating new peers and collecting into a [`HashMap`] fails.
@@ -280,45 +283,65 @@ impl Network {
         default_configuration: Option<Configuration>,
         n_peers: u32,
         offline_peers: u32,
+        start_port: Option<u16>,
     ) -> Result<Self> {
-        let n_peers = n_peers - 1;
-        let mut genesis = Peer::new()?;
-        let mut peers = (0..n_peers)
-            .map(|_| Peer::new())
-            .map(|result| result.map(|peer| (peer.id.clone(), peer)))
-            .collect::<Result<HashMap<_, _>>>()?;
+        #[allow(clippy::expect_used)]
+        let mut builders = core::iter::repeat_with(PeerBuilder::new)
+            .enumerate()
+            .map(|(n, builder)| {
+                if let Some(port) = start_port {
+                    let offset: u16 = (n * 5)
+                        .try_into()
+                        .expect("The `n_peers` is too large to fit into `u16`");
+                    (n, builder.with_port(port + offset))
+                } else {
+                    (n, builder)
+                }
+            })
+            .map(|(n, builder)| builder.with_into_genesis(GenesisNetwork::test(n == 0)))
+            .take(n_peers as usize)
+            .collect::<Vec<_>>();
+        let mut peers = builders
+            .iter_mut()
+            .map(PeerBuilder::build)
+            .collect::<Result<Vec<_>>>()?;
 
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
-        configuration.sumeragi.trusted_peers.peers = peers
-            .values()
-            .chain([&genesis])
-            .map(|peer| peer.id.clone())
-            .collect();
+        configuration.sumeragi.trusted_peers.peers =
+            peers.iter().map(|peer| peer.id.clone()).collect();
 
+        let mut genesis_peer = peers.remove(0);
+        let genesis_builder = builders.remove(0).with_configuration(configuration.clone());
+
+        // Offset by one to account for genesis
+        let online_peers = n_peers - offline_peers - 1;
         let rng = &mut rand::thread_rng();
-        let online_peers = n_peers - offline_peers;
         let futures = FuturesUnordered::new();
 
-        let builder = PeerBuilder::new()
-            .with_into_genesis(GenesisNetwork::test(true))
-            .with_configuration(configuration.clone());
+        futures.push(genesis_builder.start_with_peer(&mut genesis_peer));
 
-        futures.push(builder.start_with_peer(&mut genesis));
-        for peer in peers
-            .values_mut()
+        for (builder, peer) in builders
+            .into_iter()
+            .zip(peers.iter_mut())
             .choose_multiple(rng, online_peers as usize)
         {
-            let builder = PeerBuilder::new()
-                .with_into_genesis(GenesisNetwork::test(false))
-                .with_configuration(configuration.clone());
-
-            futures.push(builder.start_with_peer(peer));
+            futures.push(
+                builder
+                    .with_configuration(configuration.clone())
+                    .start_with_peer(peer),
+            );
         }
         futures.collect::<()>().await;
 
         time::sleep(Duration::from_millis(500) * (n_peers + 1)).await;
 
-        Ok(Self { genesis, peers })
+        Ok(Self {
+            genesis: genesis_peer,
+            peers: peers
+                .into_iter()
+                .map(|peer| (peer.id.clone(), peer))
+                .collect::<HashMap<_, _>>(),
+        })
     }
 
     /// Returns all peers.
@@ -505,10 +528,11 @@ impl Peer {
     /// Creates peer
     ///
     /// # Errors
-    /// If can't get a unique port for
+    /// * If can't get a unique port for
     /// - `p2p_address`
     /// - `api_address`
     /// - `telemetry_address`
+    /// * If keypair generation fails
     pub fn new() -> Result<Self> {
         let key_pair = KeyPair::generate()?;
         let p2p_address = local_unique_port()?;
@@ -568,12 +592,23 @@ pub struct PeerBuilder {
     instruction_judge: Option<InstructionJudgeBoxed>,
     query_judge: Option<QueryJudgeBoxed>,
     temp_dir: Option<Arc<TempDir>>,
+    port: Option<u16>,
 }
 
 impl PeerBuilder {
     /// Create [`PeerBuilder`].
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the optional port on which to start the peer.
+    /// As there are also API and telemetry ports being
+    /// initialized when building a peer, subsequent peers
+    /// need to be specified in at least increments of 3.
+    #[must_use]
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
     }
 
     /// Set the optional genesis network.
@@ -624,6 +659,28 @@ impl PeerBuilder {
         self
     }
 
+    /// Build the test [`Peer`] struct, currently
+    /// only setting endpoint addresses if a
+    /// starting port was provided. Does not
+    /// consume [`Self`] as other methods could need
+    /// to create a peer beforehand, but takes out
+    /// the value from [`self.port`] to prevent accidental
+    /// port collision.
+    ///
+    /// # Errors
+    /// - Same as [`Peer::new()`]
+    pub fn build(&mut self) -> Result<Peer> {
+        let mut peer = Peer::new()?;
+        if let Some(port) = self.port.take() {
+            peer.p2p_address = format!("127.0.0.1:{}", port);
+            peer.api_address = format!("127.0.0.1:{}", port + 1);
+            peer.telemetry_address = format!("127.0.0.1:{}", port + 2);
+            // prevent field desync
+            peer.id.address = peer.p2p_address.clone();
+        }
+        Ok(peer)
+    }
+
     /// Accept a peer and starts it.
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let configuration = self.configuration.unwrap_or_else(|| {
@@ -657,8 +714,8 @@ impl PeerBuilder {
     }
 
     /// Create and start a peer with preapplied arguments.
-    pub async fn start(self) -> Peer {
-        let mut peer = Peer::new().expect("Failed to create a peer.");
+    pub async fn start(mut self) -> Peer {
+        let mut peer = self.build().expect("Failed to build a peer.");
         self.start_with_peer(&mut peer).await;
         peer
     }

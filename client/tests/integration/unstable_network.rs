@@ -68,7 +68,7 @@ fn unstable_network(
         configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
         configuration.logger.max_log_level = Level::ERROR.into();
         let network =
-            <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers)
+            <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers, None)
                 .await
                 .expect("Failed to init peers");
         let client = Client::test(

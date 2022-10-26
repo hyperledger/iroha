@@ -108,7 +108,7 @@ fn register_empty_role() -> Result<()> {
 
 #[test]
 fn register_role_with_empty_token_params() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_550).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");

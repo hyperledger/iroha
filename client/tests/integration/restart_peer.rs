@@ -7,18 +7,17 @@ use iroha_client::client;
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 use tokio::runtime::Runtime;
 
 use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
-    prepare_test_for_nextest!();
     let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();
-    let mut peer = <TestPeer>::new()?;
+    let mut peer = <PeerBuilder>::new().with_port(10_000).build()?;
     configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();

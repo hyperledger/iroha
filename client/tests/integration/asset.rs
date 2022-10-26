@@ -12,7 +12,7 @@ use super::Configuration;
 
 #[test]
 fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_620).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
@@ -44,7 +44,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
 
 #[test]
 fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_555).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
@@ -79,8 +79,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_000).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
@@ -111,8 +110,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_510).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
@@ -143,8 +141,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
 
 #[test]
 fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_515).start_with_runtime();
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -196,8 +193,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 
 #[test]
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
-    prepare_test_for_nextest!();
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given

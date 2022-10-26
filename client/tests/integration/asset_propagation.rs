@@ -13,9 +13,8 @@ use super::Configuration;
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {
-    prepare_test_for_nextest!();
     // Given
-    let (_rt, network, iroha_client) = <Network>::start_test_with_runtime(4, 1);
+    let (_rt, network, iroha_client) = <Network>::start_test_with_runtime(4, 1, Some(10_450));
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 

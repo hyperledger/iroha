@@ -8,7 +8,7 @@ use test_network::*;
 
 #[test]
 fn must_execute_both_triggers() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let account_id: AccountId = "alice@wonderland".parse()?;
@@ -60,6 +60,7 @@ fn must_execute_both_triggers() -> Result<()> {
 fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_query_judge(Box::new(AllowAll::new()))
+        .with_port(10_655)
         .start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 

@@ -15,26 +15,29 @@ const PEER_COUNT: usize = 7;
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
-    prepare_test_for_nextest!();
-    test_with_instruction_and_status(None, PipelineStatusKind::Committed)
+    test_with_instruction_and_status_and_port(None, PipelineStatusKind::Committed, 10_250)
 }
 
 #[ignore = "ignore, more in #2851"]
 // #[ignore = "Experiment"]
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
-    prepare_test_for_nextest!();
     let fail = FailBox::new("Should be rejected");
-    test_with_instruction_and_status(Some(fail.into()), PipelineStatusKind::Rejected)
+    test_with_instruction_and_status_and_port(
+        Some(fail.into()),
+        PipelineStatusKind::Rejected,
+        10_350,
+    )
 }
 
 #[allow(dead_code, clippy::needless_range_loop, clippy::needless_pass_by_value)]
-fn test_with_instruction_and_status(
+fn test_with_instruction_and_status_and_port(
     instruction: Option<Instruction>,
     should_be: PipelineStatusKind,
+    port: u16,
 ) -> Result<()> {
     let (_rt, network, genesis_client) =
-        <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1);
+        <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1, Some(port));
     let clients = network.clients();
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Configuration::pipeline_time();

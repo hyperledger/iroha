@@ -83,7 +83,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 fn change_asset_metadata_after_1_sec() -> Result<()> {
     const PERIOD_MS: u64 = 1000;
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
@@ -124,7 +124,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 fn pre_commit_trigger_should_be_executed() -> Result<()> {
     const CHECKS_COUNT: usize = 5;
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_600).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");

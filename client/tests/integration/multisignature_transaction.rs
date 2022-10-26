@@ -15,7 +15,7 @@ use super::Configuration;
 #[ignore = "Multisignature is not working for now. See #2595"]
 #[test]
 fn multisignature_transactions_should_wait_for_all_signatures() {
-    let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
+    let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1, None);
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
