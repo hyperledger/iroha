@@ -772,6 +772,20 @@ impl WorldStateView {
             .map(Clone::clone)
     }
 
+    /// Get total amount of [`Asset`].
+    ///
+    /// # Errors
+    /// - Asset definition not found
+    pub fn asset_total_amount(
+        &self,
+        asset_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Result<AssetValue, FindError> {
+        self.domain(&asset_id.domain_id)?
+            .asset_total_quantity(asset_id)
+            .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
+            .map(Clone::clone)
+    }
+
     /// Get all transactions
     pub fn transaction_values(&self) -> Vec<TransactionQueryResult> {
         let mut txs = self

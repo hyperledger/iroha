@@ -101,10 +101,8 @@ mod asset {
         Deleted(AssetDefinitionId),
         MetadataInserted(AssetDefinitionMetadataChanged),
         MetadataRemoved(AssetDefinitionMetadataChanged),
+        TotalQuantityChanged(AssetDefinitionTotalQuantityChanged),
     }
-    // NOTE: Whenever you add a new event here, please also update the
-    // AssetDefinitionEventFilter enum and its `impl Filter for
-    // AssetDefinitionEventFilter`.
 
     impl HasOrigin for AssetDefinitionEvent {
         type Origin = AssetDefinition;
@@ -115,7 +113,11 @@ mod asset {
                 | Self::Deleted(id)
                 | Self::MintabilityChanged(id)
                 | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
+                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. })
+                | Self::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
+                    asset_definition_id: id,
+                    ..
+                }) => id,
             }
         }
     }
@@ -139,6 +141,27 @@ mod asset {
     pub struct AssetChanged {
         pub asset_id: AssetId,
         pub amount: AssetValue,
+    }
+
+    /// [`Self`] represents updated total asset quantity.
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub struct AssetDefinitionTotalQuantityChanged {
+        pub asset_definition_id: AssetDefinitionId,
+        pub total_amount: AssetValue,
     }
 }
 
@@ -663,7 +686,7 @@ pub mod prelude {
         },
         asset::{
             AssetChanged, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
-            AssetEvent, AssetEventFilter, AssetFilter,
+            AssetDefinitionTotalQuantityChanged, AssetEvent, AssetEventFilter, AssetFilter,
         },
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},

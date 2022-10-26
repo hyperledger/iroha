@@ -193,6 +193,34 @@ pub mod isi {
                     amount: mint.object.into(),
                 }))
             })?;
+
+            #[allow(clippy::expect_used)]
+            wsv.modify_domain(&asset_id.definition_id.domain_id, |domain| {
+                let asset_total_amount: &mut Self = domain
+                    .asset_total_quantity_mut(&asset_id.definition_id)
+                    .expect("Asset total amount not found this is a bug: check `Register<AssetDefinition>` to insert initial total amount")
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
+                *asset_total_amount = asset_total_amount
+                    .checked_add(mint.object)
+                    .and_then(|total| {
+                        total.checked_add(<Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE)
+                    })
+                    .ok_or(MathError::Overflow)?;
+
+                Ok(
+                    DomainEvent::AssetDefinition(
+                        AssetDefinitionEvent::TotalQuantityChanged(
+                            AssetDefinitionTotalQuantityChanged {
+                                asset_definition_id: asset_id.definition_id.clone(),
+                                total_amount: AssetValue::from(*asset_total_amount)
+                            }
+                        )
+                    )
+                )
+            })?;
+
             Ok(())
         }
     }
@@ -237,6 +265,31 @@ pub mod isi {
                     amount: burn.object.into(),
                 }))
             })?;
+
+            #[allow(clippy::expect_used)]
+            wsv.modify_domain(&asset_id.definition_id.domain_id, |domain| {
+                let asset_total_amount: &mut Self = domain
+                    .asset_total_quantity_mut(&asset_id.definition_id)
+                    .expect("Asset total amount not found this is a bug: check `Register<AssetDefinition>` to insert initial total amount")
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
+                *asset_total_amount = asset_total_amount
+                    .checked_sub(burn.object)
+                    .ok_or(MathError::NotEnoughQuantity)?;
+
+                Ok(
+                    DomainEvent::AssetDefinition(
+                        AssetDefinitionEvent::TotalQuantityChanged(
+                            AssetDefinitionTotalQuantityChanged {
+                                asset_definition_id: asset_id.definition_id.clone(),
+                                total_amount: AssetValue::from(*asset_total_amount)
+                            }
+                        )
+                    )
+                )
+            })?;
+
             Ok(())
         }
     }
@@ -589,6 +642,26 @@ pub mod query {
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))
                 .map(Clone::clone)
+        }
+    }
+
+    impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
+        #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            let id = self
+                .id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get asset definition id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
+
+            let asset_definition_entry = wsv.asset_definition_entry(&id)?;
+            let asset_definition = asset_definition_entry.definition();
+            if let AssetValueType::Store = asset_definition.value_type() {
+                return Err(Error::Conversion(String::from("`AssetValueType::Store`")));
+            }
+            let asset_value = wsv.asset_total_amount(&id)?;
+            Ok(asset_value)
         }
     }
 

@@ -28,10 +28,15 @@ use crate::{
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
 pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
 
-/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`DefinitionId`])-value(`AssetDefinition`)
+/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`DefinitionId`])-value([`AssetDefinition`])
 /// pairs.
 pub type AssetDefinitionsMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
+
+/// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`DefinitionId`])-value([`AssetValue`])
+/// pairs.
+pub type AssetTotalQuantityMap =
+    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetValue>;
 
 /// Mintability logic error
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
@@ -519,7 +524,7 @@ impl HasMetadata for NewAssetDefinition {
 #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewAssetDefinition {
     /// Create a [`NewAssetDefinition`], reserved for internal use.
-    fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
+    pub fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
         Self {
             id,
             value_type,

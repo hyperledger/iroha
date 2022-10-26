@@ -40,7 +40,7 @@ use iroha_primitives::{
 };
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
-use prelude::TransactionQueryResult;
+use prelude::{AssetValue, TransactionQueryResult};
 use serde::{Deserialize, Serialize};
 
 use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
@@ -532,6 +532,8 @@ pub enum Value {
     Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
     /// IP Version 6 address.
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
+    /// AssetValue
+    AssetValue(AssetValue),
 }
 
 #[cfg(not(target_arch = "aarch64"))]
@@ -641,6 +643,7 @@ impl fmt::Display for Value {
             Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
             Value::Ipv4Addr(v) => fmt::Display::fmt(&v, f),
             Value::Ipv6Addr(v) => fmt::Display::fmt(&v, f),
+            Value::AssetValue(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -669,7 +672,8 @@ impl Value {
             | Block(_)
             | Ipv4Addr(_)
             | Ipv6Addr(_)
-            | BlockHeader(_) => 1_usize,
+            | BlockHeader(_)
+            | AssetValue(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),

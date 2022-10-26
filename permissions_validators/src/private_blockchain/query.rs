@@ -25,7 +25,10 @@ impl IsAllowed for OnlyAccountsDomain {
     ) -> ValidatorVerdict {
         use QueryBox::*;
         match query {
-            FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
+            FindAssetsByAssetDefinitionId(_)
+            | FindTotalAssetQuantityByAssetDefinitionId(_)
+            | FindAssetsByName(_)
+            | FindAllAssets(_) => {
                 Deny("Only access to the assets of the same domain is permitted.".to_owned())
             }
             FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
@@ -314,6 +317,7 @@ impl IsAllowed for OnlyAccountsData {
                 | FindAssetsByName(_) // TODO: I think this is a mistake.
                 | FindAssetsByDomainId(_)
                 | FindAllAssetsDefinitions(_)
+                | FindTotalAssetQuantityByAssetDefinitionId(_)
                 | FindAssetsByAssetDefinitionId(_)
                 | FindAssetDefinitionById(_)
                 | FindAssetDefinitionKeyValueByIdAndKey(_)

@@ -23,9 +23,10 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{
     account::{Account, AccountsMap},
-    asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap},
+    asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap, AssetTotalQuantityMap},
     ffi::declare_item,
     metadata::Metadata,
+    prelude::AssetValue,
     HasMetadata, Identifiable, Name, ParseError, Registered,
 };
 
@@ -66,6 +67,7 @@ impl From<GenesisDomain> for Domain {
             ))
             .collect(),
             asset_definitions: btree_map::BTreeMap::default(),
+            asset_total_quantities: btree_map::BTreeMap::default(),
             metadata: Metadata::default(),
             logo: None,
         }
@@ -108,6 +110,7 @@ impl crate::Registrable for NewDomain {
             id: self.id,
             accounts: AccountsMap::default(),
             asset_definitions: AssetDefinitionsMap::default(),
+            asset_total_quantities: AssetTotalQuantityMap::default(),
             metadata: self.metadata,
             logo: self.logo,
         }
@@ -179,6 +182,8 @@ declare_item! {
         accounts: AccountsMap,
         /// [`Asset`](AssetDefinition)s defined of the `Domain`.
         asset_definitions: AssetDefinitionsMap,
+        /// Total amount of [`Asset`].
+        asset_total_quantities: AssetTotalQuantityMap,
         /// IPFS link to the `Domain` logo
         // FIXME: Getter implemented manually because `getset`
         // returns &Option<T> when it should return Option<&T>
@@ -230,6 +235,15 @@ impl Domain {
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Option<&AssetDefinitionEntry> {
         self.asset_definitions.get(asset_definition_id)
+    }
+
+    /// Return a reference to the asset definition corresponding to the asset definition id
+    #[inline]
+    pub fn asset_total_quantity(
+        &self,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<&AssetValue> {
+        self.asset_total_quantities.get(asset_definition_id)
     }
 
     /// Get an iterator over [`Account`]s of the `Domain`
@@ -313,6 +327,36 @@ impl Domain {
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Option<AssetDefinitionEntry> {
         self.asset_definitions.remove(asset_definition_id)
+    }
+
+    /// Return a reference to the total [`AssetValue`] corresponding to the asset definition id
+    #[inline]
+    pub fn asset_total_quantity_mut(
+        &mut self,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<&mut AssetValue> {
+        self.asset_total_quantities.get_mut(asset_definition_id)
+    }
+
+    /// Add asset total amount into the [`Domain`] returning previous
+    /// asset amount stored under the same id
+    #[inline]
+    pub fn add_asset_total_quantity(
+        &mut self,
+        asset_definition_id: <AssetDefinition as Identifiable>::Id,
+        initial_amount: impl Into<AssetValue>,
+    ) -> Option<AssetValue> {
+        self.asset_total_quantities
+            .insert(asset_definition_id, initial_amount.into())
+    }
+
+    /// Remove asset total amount from the [`Domain`] and return it
+    #[inline]
+    pub fn remove_asset_total_quantity(
+        &mut self,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<AssetValue> {
+        self.asset_total_quantities.remove(asset_definition_id)
     }
 }
 
