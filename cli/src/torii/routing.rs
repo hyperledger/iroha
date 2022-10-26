@@ -29,6 +29,7 @@ use iroha_data_model::{
     prelude::*,
     query::{self, SignedQueryRequest},
 };
+use iroha_logger::prelude::*;
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use parity_scale_codec::{Decode, Encode};
@@ -110,13 +111,10 @@ pub(crate) async fn handle_instructions(
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    let push_result = queue
+    queue
         .push(transaction, &sumeragi.wsv_mutex_access())
-        .map_err(|(_, err)| err);
-    if let Err(ref error) = push_result {
-        iroha_logger::warn!(%error, "Failed to push into queue")
-    }
-    push_result
+        .map_err(|(_, err)| err)
+        .logged()
         .map_err(Box::new)
         .map_err(Error::PushIntoQueue)
         .map(|()| Empty)
@@ -275,8 +273,9 @@ async fn handle_blocks_stream(sumeragi: Arc<Sumeragi>, mut stream: WebSocket) ->
                 while let Some(message) = stream.try_next().await? {
                     if message.is_close() {
                         return Ok(());
+                    } else {
+                        iroha_logger::warn!("Unexpected message received: {:?}", message);
                     }
-                    iroha_logger::warn!("Unexpected message received: {:?}", message);
                 }
                 eyre::bail!("Can't receive close message")
             } => {
@@ -416,9 +415,11 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 #[allow(clippy::unused_async)] // TODO: remove?
 async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<String> {
     // TODO: Remove network.
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
-    }
+    sumeragi
+        .update_metrics()
+        .wrap_err("Error while calling sumeragi::update_metrics.")
+        .logged()
+        .ignored("Metric update errors cannot be handled");
     sumeragi
         .metrics_mutex_access()
         .try_to_string()
@@ -429,9 +430,11 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -
 #[allow(clippy::unused_async)] // TODO: remove?
 async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<Json> {
     // TODO: remove network
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
-    }
+    sumeragi
+        .update_metrics()
+        .wrap_err("Error while updating metrics")
+        .logged()
+        .ignored("Metric update errors cannot be handled");
     let status = Status::from(&sumeragi.metrics_mutex_access());
     Ok(reply::json(&status))
 }
@@ -536,9 +539,11 @@ impl Torii {
             .and(warp::ws())
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = subscription::handle_subscription(events, this_ws).await {
-                        iroha_logger::error!(%error, "Failure during subscription");
-                    }
+                    subscription::handle_subscription(events, this_ws)
+                        .await
+                        .wrap_err("Failure during subscription")
+                        .logged()
+                        .ignored("Read the documentation at (TODO) to get more information");
                 })
             });
 
@@ -556,9 +561,7 @@ impl Torii {
             .and(warp::ws())
             .map(|sumeragi: Arc<_>, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = handle_blocks_stream(sumeragi, this_ws).await {
-                        iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
-                    }
+                    handle_blocks_stream(sumeragi, this_ws).await.wrap_err("Failed to subscribe to blocks stream").promoted().logged().ignored("If this error persists please file a ticket on `hyperledger/iroha` GitHub");
                 })
             });
 
@@ -648,9 +651,7 @@ impl Torii {
             .into_iter()
             .collect::<FuturesUnordered<_>>()
             .for_each(|handle| {
-                if let Err(error) = handle {
-                    iroha_logger::error!(%error, "Join handle error");
-                }
+                handle.logged().ignored("Http server failure cannot be fixed from inside Iroha");
 
                 futures::future::ready(())
             })

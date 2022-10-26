@@ -1,10 +1,7 @@
 //! Iroha's logging utilities.
-#![allow(
-    clippy::expect_used,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 
+pub mod error;
 pub mod layer;
 pub mod telemetry;
 
@@ -42,9 +39,10 @@ pub type Telemetries = (SubstrateTelemetry, FutureTelemetry);
 
 static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
-/// Initializes `Logger` with given [`Configuration`].
-/// After the initialization `log` macros will print with the use of this `Logger`.
-/// Returns the receiving side of telemetry channels (regular telemetry, future telemetry)
+/// Initializes `Logger` with given [`Configuration`].  After the
+/// initialization `log` macros will print with the use of this
+/// `Logger`.  Returns the receiving side of telemetry channels
+/// (regular telemetry, future telemetry)
 ///
 /// # Errors
 /// If the logger is already set, raises a generic error.
@@ -123,6 +121,7 @@ fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
     configuration: &Configuration,
     subscriber: S,
 ) -> Result<Telemetries> {
+    #![allow(clippy::expect_used)]
     // static global_subscriber: dyn Subscriber = once_cell::new;
     let (subscriber, receiver, receiver_future) = TelemetryLayer::from_capacity(
         subscriber,
@@ -276,7 +275,8 @@ macro_rules! telemetry_future {
     );
 }
 
-/// Installs the panic hook with [`color_eyre::install`] if it isn't installed yet
+/// Installs the panic hook with [`color_eyre::install`] if it isn't
+/// installed yet
 ///
 /// # Errors
 /// Fails if [`color_eyre::install`] fails
@@ -293,7 +293,10 @@ pub fn install_panic_hook() -> Result<(), Report> {
 }
 
 pub mod prelude {
-    //! Module with most used items. Needs to be imported when using `log` macro to avoid `tracing` crate dependency
+    //! Module with most used items. Needs to be imported when using
+    //! `log` macro to avoid `tracing` crate dependency
 
     pub use tracing::{self, debug, error, info, instrument as log, trace, warn};
+
+    pub use crate::error::Logged as LoggedError;
 }

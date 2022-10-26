@@ -158,6 +158,7 @@ pub trait Reload<T> {
 /// ```
 
 pub mod handle {
+    #![allow(clippy::expect_used)]
     use std::{
         fmt::{Debug, Formatter},
         sync::{Arc, Mutex},
@@ -194,9 +195,11 @@ pub mod handle {
         ///
         /// # Errors
         /// [`ReloadError::Poisoned`] When the [`Mutex`] storing the reload handle is poisoned.
-        pub fn set(&self, handle: impl ReloadMut<T> + Send + Sync + 'static) -> Result<()> {
-            *self.inner.lock()? = Some(Box::new(handle));
-            Ok(())
+        pub fn set(&self, handle: impl ReloadMut<T> + Send + Sync + 'static) {
+            *self
+                .inner
+                .lock()
+                .expect("Mutex in `Singleton::set` got poisoned") = Some(Box::new(handle));
         }
     }
 
@@ -208,7 +211,8 @@ pub mod handle {
 
     impl<T: Send + Sync + Debug> Reload<T> for Singleton<T> {
         fn reload(&self, item: T) -> Result<()> {
-            match &mut *self.inner.lock()? {
+            #![allow(clippy::unwrap_in_result)]
+            match &mut *self.inner.lock().expect("Valid") {
                 Some(handle) => {
                     handle.reload(item)?;
                     Ok(())

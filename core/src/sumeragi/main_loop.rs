@@ -305,14 +305,16 @@ where
         *wsv = state.wsv.clone();
     }
 
-    for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
-        trace!(?event);
-        sumeragi
-            .events_sender
-            .send(event)
-            .map_err(|e| error!(%e, "Some events failed to be sent"))
-            .unwrap_or(0);
-        // Essentially log and ignore.
+    if sumeragi.events_sender.receiver_count() > 0 {
+        for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
+            trace!(?event);
+            sumeragi
+                .events_sender
+                .send(event)
+                .logged()
+                .ignored("The connection may have been dropped");
+            // Essentially log and ignore.
+        }
     }
 
     state.latest_block_height = block.header().height;
@@ -721,9 +723,11 @@ pub fn run<F>(
                         // in order to preserve old behaviour. This should be changed.
                         // Tracking issue : https://github.com/hyperledger/iroha/issues/2635
                         let block = block.revalidate(&sumeragi.transaction_validator, &state.wsv);
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
+                        if sumeragi.events_sender.receiver_count() > 0 {
+                            for event in Vec::<Event>::from(&block) {
+                                trace!(?event);
+                                sumeragi.events_sender.send(event).unwrap_or(0);
+                            }
                         }
 
                         let network_topology = state.current_topology.clone();
@@ -900,9 +904,11 @@ pub fn run<F>(
                             block.revalidate(&sumeragi.transaction_validator, &state.wsv)
                         };
 
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
+                        if sumeragi.events_sender.receiver_count() > 0 {
+                            for event in Vec::<Event>::from(&block) {
+                                trace!(?event);
+                                sumeragi.events_sender.send(event).unwrap_or(0);
+                            }
                         }
 
                         // During the genesis round we blindly take on the network topology described in
@@ -943,7 +949,8 @@ pub fn run<F>(
                             block_height,
                             &sumeragi.transaction_limits,
                         ) {
-                            warn!(%e);
+                            e.logged()
+                                .ignored("Invalid blocks should not stop the main loop")
                         } else {
                             let block_clone = block.clone();
                             let key_pair_clone = sumeragi.key_pair.clone();

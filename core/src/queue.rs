@@ -68,6 +68,8 @@ pub enum Error {
     },
 }
 
+iroha_logger::impl_logged!(?Error => warn);
+
 impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &Configuration) -> Self {

@@ -281,7 +281,7 @@ impl Iroha {
         if Self::start_telemetry(telemetry, &config).await? {
             iroha_logger::info!("Telemetry started")
         } else {
-            iroha_logger::error!("Telemetry did not start")
+            iroha_logger::warn!("Telemetry did not start")
         }
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
@@ -450,6 +450,8 @@ fn domains(configuration: &Configuration) -> [Domain; 1] {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic, clippy::print_stdout)]
+
     use std::{iter::repeat, panic, thread};
 
     use futures::future::join_all;
@@ -457,7 +459,6 @@ mod tests {
 
     use super::*;
 
-    #[allow(clippy::panic, clippy::print_stdout)]
     #[tokio::test]
     #[serial]
     async fn iroha_should_notify_on_panic() {

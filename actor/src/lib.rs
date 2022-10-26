@@ -27,7 +27,7 @@ use futures::{Stream, StreamExt};
 /// struct MessageResponse(i32);
 /// ```
 pub use iroha_actor_derive::Message;
-use iroha_logger::InstrumentFutures;
+use iroha_logger::{error::Logged as _, InstrumentFutures};
 use thiserror::Error;
 use tokio::{
     sync::{
@@ -79,6 +79,8 @@ pub enum Error {
     #[error("Failed to receive a response from an actor.")]
     RecvError(RecvError),
 }
+
+iroha_logger::impl_logged!(?Error => warn);
 
 impl<A: Actor> Addr<A> {
     fn new(sender: mpsc::Sender<Envelope<A>>) -> Self {
@@ -165,9 +167,11 @@ impl<A: Actor> Addr<A> {
         A: ContextHandler<M>,
     {
         let envelope = SyncEnvelopeProxy::pack(message, None);
-        if let Err(error) = self.sender.send(envelope).await {
-            iroha_logger::error!(%error, "Error sending actor message");
-        }
+        self.sender
+            .send(envelope)
+            .await
+            .logged()
+            .ignored("The broker model doesn't allow error recovery")
     }
 
     /// Send a message without waiting for an answer.
@@ -186,9 +190,10 @@ impl<A: Actor> Addr<A> {
         A: ContextHandler<M>,
     {
         let envelope = SyncEnvelopeProxy::pack(message, None);
-        if self.sender.blocking_send(envelope).is_err() {
-            iroha_logger::debug!("Failed to send a message to actor channel.");
-        }
+        self.sender
+            .blocking_send(envelope)
+            .logged()
+            .ignored("The broker model doesn't allow error recovery")
     }
 
     /// Constructs recipient for sending only specific messages (without answers)
@@ -307,16 +312,23 @@ impl<M> Sender<M> for mpsc::Sender<M>
 where
     M: Message<Result = ()> + Send + 'static + Debug,
 {
+    #[inline]
     async fn send(&self, m: M) {
-        let _result = self.send(m).await;
+        let _result = self
+            .send(m)
+            .await
+            .logged()
+            .ignored("Cannot do error handling");
     }
 
+    #[inline]
     fn send_sync(&self, m: M) {
-        if self.blocking_send(m).is_err() {
-            iroha_logger::error!("Failed to send message to channel.");
-        }
+        self.blocking_send(m)
+            .logged()
+            .ignored("Cannot do error processing in this context")
     }
 
+    #[inline]
     fn is_closed(&self) -> bool {
         mpsc::Sender::is_closed(self)
     }

@@ -82,6 +82,8 @@ pub mod error {
         Validate(#[from] ValidationError),
     }
 
+    iroha_logger::impl_logged!(?Error => warn);
+
     impl From<FindError> for Error {
         fn from(err: FindError) -> Self {
             Self::Find(Box::new(err))

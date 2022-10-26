@@ -286,17 +286,11 @@ impl WorldStateView {
 
         self.world.triggers.handle_time_event(time_event);
 
-        let res = self
-            .world
+        self.world
             .triggers
-            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) });
-
-        if let Err(errors) = res {
-            warn!(
-                ?errors,
-                "The following errors have occurred during trigger execution"
-            );
-        }
+            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) })
+            .logged()
+            .ignored("These errors cannot be handled.");
 
         self.blocks.push(block);
 
@@ -385,10 +379,7 @@ impl WorldStateView {
 
             Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
         })
-        .map_err(|err| {
-            iroha_logger::warn!(?err);
-            err
-        })?;
+        .map_err(iroha_logger::error::Logged::logged)?;
 
         self.asset(id).map_err(Into::into)
     }
