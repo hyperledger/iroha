@@ -289,7 +289,7 @@ fn p2p_listen_loop(
         .set_nonblocking(true)
         .expect("P2P subsystem could not enable nonblocking on listening tcp port.");
 
-    let time_slice = Duration::from_millis(5);
+    let time_slice = Duration::from_millis(25);
     
     let mut countdown_to_outgoing = 20;
     loop {
