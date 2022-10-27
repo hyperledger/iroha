@@ -104,6 +104,8 @@ pub enum Subcommand {
     Events(events::Args),
     /// The subcommand related to Wasm
     Wasm(wasm::Args),
+    /// The subcommand related to multi-instructions as Json
+    Json(json::Args),
 }
 
 /// Runs subcommand
@@ -126,7 +128,7 @@ macro_rules! match_run_all {
 impl RunArgs for Subcommand {
     fn run(self, cfg: &ClientConfiguration) -> Result<()> {
         use Subcommand::*;
-        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm })
+        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm, Json })
     }
 }
 
@@ -811,6 +813,25 @@ mod wasm {
                 UnlimitedMetadata::new(),
             )
             .wrap_err("Failed to submit a Wasm smart contract")
+        }
+    }
+}
+
+mod json {
+    use std::io::BufReader;
+
+    use super::*;
+
+    /// Subcommand for submitting multi-instructions
+    #[derive(Clone, Copy, Debug, StructOpt)]
+    pub struct Args;
+
+    impl RunArgs for Args {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let reader = BufReader::new(stdin());
+            let instructions: Vec<Instruction> = serde_json::from_reader(reader)?;
+            submit(instructions, cfg, UnlimitedMetadata::new())
+                .wrap_err("Failed to submit parsed instructions")
         }
     }
 }
