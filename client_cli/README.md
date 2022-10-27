@@ -118,3 +118,12 @@ cat /path/to/file.wasm | ./iroha_client_cli wasm
 ```
 
 These subcommands submit the provided wasm binary as an `Executable` to be executed outside a trigger context.
+
+### Multiple instructions
+
+Accept instructions as JSON to stdin:
+```bash
+cat /path/to/file.json | ./iroha_client_cli json
+```
+
+Run multiple instructions with a single subcommand using the JSON representation.
