@@ -339,7 +339,7 @@ fn p2p_listen_loop(
                     if let Ok(addr) = SocketAddr::from_str(&address) {
                         Some(addr)
                     } else {
-                        println!("Error can't produce addr from str.");
+                        println!("Error can't produce addr from str. str={}", &address);
                         None
                     }
                 }
