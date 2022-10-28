@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use std::{
     collections::HashMap,
     io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     str::FromStr,
     sync::{Arc, Mutex},
     time::Duration,
@@ -336,12 +336,12 @@ fn p2p_listen_loop(
                 } else {
                     let address = &target_addrs[rand::random::<usize>() % target_addrs.len()];
 
-                    if let Ok(addr) = SocketAddr::from_str(&address) {
-                        Some(addr)
-                    } else {
+                    // to_socket_addrs is what enables dns lookups.
+                    let maybe_addr = address.to_socket_addrs().unwrap_or(vec![].into_iter()).next();
+                    if maybe_addr.is_none() {
                         println!("Error can't produce addr from str. str={}", &address);
-                        None
                     }
+                    maybe_addr
                 }
             };
 
