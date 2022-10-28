@@ -28,39 +28,41 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
     ) -> ValidatorVerdict {
         match instruction {
             Instruction::Register(register) => {
-                if let RegistrableBox::Asset(asset) = try_evaluate_or_deny!(register.object, wsv) {
-                    let registered_by_signer_account = wsv
-                        .asset_definition_entry(&asset.id().definition_id)
-                        .map(|asset_definition_entry| {
-                            asset_definition_entry.registered_by() == authority
-                        })
-                        .unwrap_or(false);
-
-                    if !registered_by_signer_account {
-                        return Deny(
-                            "Can't register assets with definitions registered by other accounts."
-                                .to_owned(),
-                        );
+                match try_evaluate_or_deny!(register.object, wsv) {
+                    RegistrableBox::Asset(asset) => {
+                        wsv
+                            .asset_definition_entry(&asset.id().definition_id)
+                            .map_or_else(
+                                |err| Deny(err.to_string()),
+                                |asset_definition_entry| {
+                                if asset_definition_entry.registered_by() == authority {
+                                    Allow
+                                } else {
+                                    Deny("Can't register assets with definitions registered by other accounts.".to_owned()) }
+                                }
+                            )
                     }
+                    _ => Allow,
                 }
-                Allow
             }
             Instruction::Mint(mint_box) => {
                 let destination_id = try_evaluate_or_deny!(mint_box.destination_id, wsv);
                 let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
-                let registered_by_signer_account = wsv
+                wsv
                     .asset_definition_entry(&asset_id.definition_id)
-                    .map(|asset_definition_entry| {
-                        asset_definition_entry.registered_by() == authority
-                    })
-                    .unwrap_or(false);
-                if !registered_by_signer_account {
-                    return Deny(
-                        "Can't mint assets with definitions registered by other accounts."
-                            .to_owned(),
-                    );
-                }
-                Allow
+                    .map_or_else(
+                        |err| Deny(err.to_string()),
+                        |asset_definition_entry| {
+                            if asset_definition_entry.registered_by() == authority {
+                                Allow
+                            } else {
+                                Deny(
+                                    "Can't mint assets with definitions registered by other accounts."
+                                        .to_owned(),
+                                )
+                            }
+                        }
+                    )
             }
             _ => Skip,
         }
