@@ -12,10 +12,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  context:
+    runs-on: ubuntu-latest
+    outputs:
+      branch_tag: ${{ steps.tag_step.outputs.TAG }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Get tag from branch name
+        id: tag_step
+        run: |
+          BRANCH=${{ github.ref_name }}
+          PREFIX='iroha2-'
+          TAG=${BRANCH#$PREFIX}
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
   cli:
+    needs: context
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:${{ needs.context.outputs.TAG }}
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -42,6 +56,7 @@ jobs:
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
   docker:
+    needs: context
     # This workflow is too unreliable to enable. Even for
     # releases. The communication with docker from inside docker fails
     # sometimes, works other times it doesn't. In the interest of not
@@ -50,7 +65,7 @@ jobs:
     if: false
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:${{ needs.context.outputs.TAG }}
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -73,9 +88,10 @@ jobs:
         run: bash -c './scripts/test_env.sh cleanup docker'
 
   bench:
+    needs: context
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:${{ needs.context.outputs.TAG }}
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -85,9 +101,10 @@ jobs:
   # ------------------------------ SDK tests go here ------------------------
 
   java-api:
+    needs: context
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:${{ needs.context.outputs.TAG }}
     steps:
       - uses: actions/checkout@v3
       - name: Set up JDK 11
@@ -128,11 +145,11 @@ jobs:
         run: |
           rm -f ~/.gradle/caches/modules-2/modules-2.lock
           rm -f ~/.gradle/caches/modules-2/gc.properties
-
   long:
+    needs: context
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:${{ needs.context.outputs.TAG }}
     steps:
       - uses: actions/checkout@v3
       - name: Run long tests

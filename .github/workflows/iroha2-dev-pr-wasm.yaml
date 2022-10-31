@@ -26,7 +26,7 @@ jobs:
   static-analysis:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:dev
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -43,7 +43,7 @@ jobs:
   tests:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:dev
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2

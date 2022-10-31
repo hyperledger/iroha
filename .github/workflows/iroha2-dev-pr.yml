@@ -23,7 +23,7 @@ jobs:
   check:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:dev
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -47,7 +47,7 @@ jobs:
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:dev
     strategy:
       matrix:
         feature_flag: [all-features, no-default-features]
@@ -73,18 +73,19 @@ jobs:
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
           mold --run cargo +$NIGHTLY llvm-cov --doctests --no-run --${{ matrix.feature_flag }} --workspace --lcov --output-path lcov.info
-      - name: Upload coverage to codecov.io
+      - name: Upload coverage to coveralls.io
         if: matrix.feature_flag == 'all-features'
-        uses: codecov/codecov-action@v3
+        uses: coverallsapp/github-action@1.1.3
         with:
-          files: lcov.info
-          fail_ci_if_error: true
-          commit_parent: ${{ github.event.pull_request.base.sha }}
+          path-to-lcov: lcov.info
+          git-branch: ${{ ${{ github.base_ref }}
+          git-commit: ${{ github.event.pull_request.base.sha}}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   integration:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:dev
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
@@ -97,7 +98,7 @@ jobs:
   unstable:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-planner:dev
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v3
