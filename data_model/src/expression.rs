@@ -24,6 +24,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::{query::QueryBox, Value, ValueBox};
+use crate::NumericValue;
 
 /// Generate expression structure and basic impls for it.
 ///
@@ -524,7 +525,6 @@ impl From<ContextValue> for ExpressionBox {
 
 gen_expr_and_impls! {
     /// Evaluates to the multiplication of left and right expressions.
-    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -545,12 +545,11 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Multiply)",
         "self.right.parenthesise(Operation::Multiply)"
     )]
-    pub Multiply(u32, u32) -> u32
+    pub Multiply(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression divided by the right expression.
-    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -571,12 +570,11 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Divide)",
         "self.right.parenthesise(Operation::Divide)"
     )]
-    pub Divide(u32, u32) -> u32
+    pub Divide(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression modulo the right expression.
-    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -597,12 +595,12 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Mod)",
         "self.right.parenthesise(Operation::Mod)"
     )]
-    pub Mod(u32, u32) -> u32
+    pub Mod(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression in the power of right expression.
-    /// Works only for [`NumericValue::U32`]
+    /// Currently does not support [`NumericValue::Fixed`].
     #[derive(
         Debug,
         Display,
@@ -623,12 +621,11 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::RaiseTo)",
         "self.right.parenthesise(Operation::RaiseTo)"
     )]
-    pub RaiseTo(u32, u32) -> u32
+    pub RaiseTo(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the sum of left and right expressions.
-    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -649,12 +646,11 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Add)",
         "self.right.parenthesise(Operation::Add)"
     )]
-    pub Add(u32, u32) -> u32
+    pub Add(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression minus the right expression.
-    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -675,12 +671,11 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Subtract)",
         "self.right.parenthesise(Operation::Subtract)"
     )]
-    pub Subtract(u32, u32) -> u32
+    pub Subtract(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Returns whether the `left` expression is greater than the `right`.
-    /// Works only for [`NumericValue::U32`].
     #[derive(
         Debug,
         Display,
@@ -701,12 +696,11 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Greater)",
         "self.right.parenthesise(Operation::Greater)"
     )]
-    pub Greater(u32, u32) -> bool
+    pub Greater(NumericValue, NumericValue) -> bool
 }
 
 gen_expr_and_impls! {
     /// Returns whether the `left` expression is less than the `right`.
-    /// Works only for [`NumericValue::U32`].
     #[derive(
         Debug,
         Display,
@@ -727,7 +721,7 @@ gen_expr_and_impls! {
         "self.left.parenthesise(Operation::Less)",
         "self.right.parenthesise(Operation::Less)"
     )]
-    pub Less(u32, u32) -> bool
+    pub Less(NumericValue, NumericValue) -> bool
 }
 
 gen_expr_and_impls! {

@@ -209,6 +209,9 @@ pub mod error {
         /// Unknown error. No actual function should ever return this if possible.
         #[error("Unknown error")]
         Unknown,
+        /// Encountered incompatible type of arguments
+        #[error("Binary operation does not support provided combination of arguments ({0}, {1})")]
+        BinaryOpIncompatibleNumericValueTypes(NumericValue, NumericValue),
     }
 
     impl From<FixedPointOperationError> for Error {

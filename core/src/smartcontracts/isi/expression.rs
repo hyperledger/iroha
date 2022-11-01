@@ -95,9 +95,28 @@ impl Evaluate for Add {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
+        use NumericValue::*;
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        Ok((left + right).into())
+        match (left, right) {
+            (U32(left), U32(right)) => left
+                .checked_add(right)
+                .ok_or(Error::Math(MathError::Overflow))
+                .map(NumericValue::from),
+            (U128(left), U128(right)) => left
+                .checked_add(right)
+                .ok_or(Error::Math(MathError::Overflow))
+                .map(NumericValue::from),
+            (Fixed(left), Fixed(right)) => left
+                .checked_add(right)
+                .map(NumericValue::from)
+                .map_err(Error::from),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -110,9 +129,28 @@ impl Evaluate for Subtract {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
+        use NumericValue::*;
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        Ok((left - right).into())
+        match (left, right) {
+            (U32(left), U32(right)) => left
+                .checked_sub(right)
+                .ok_or(Error::Math(MathError::NotEnoughQuantity))
+                .map(NumericValue::from),
+            (U128(left), U128(right)) => left
+                .checked_sub(right)
+                .ok_or(Error::Math(MathError::NotEnoughQuantity))
+                .map(NumericValue::from),
+            (Fixed(left), Fixed(right)) => left
+                .checked_sub(right)
+                .map(NumericValue::from)
+                .map_err(Error::from),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -125,9 +163,19 @@ impl Evaluate for Greater {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
+        use NumericValue::*;
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        Ok((left > right).into())
+        match (left, right) {
+            (U32(left), U32(right)) => Ok(left > right),
+            (U128(left), U128(right)) => Ok(left > right),
+            (Fixed(left), Fixed(right)) => Ok(left > right),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -140,9 +188,19 @@ impl Evaluate for Less {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
+        use NumericValue::*;
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        Ok((left < right).into())
+        match (left, right) {
+            (U32(left), U32(right)) => Ok(left < right),
+            (U128(left), U128(right)) => Ok(left < right),
+            (Fixed(left), Fixed(right)) => Ok(left < right),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -313,9 +371,28 @@ impl Evaluate for Multiply {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
+        use NumericValue::*;
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        Ok((left * right).into())
+        match (left, right) {
+            (U32(left), U32(right)) => left
+                .checked_mul(right)
+                .ok_or(Error::Math(MathError::Overflow))
+                .map(NumericValue::from),
+            (U128(left), U128(right)) => left
+                .checked_mul(right)
+                .ok_or(Error::Math(MathError::Overflow))
+                .map(NumericValue::from),
+            (Fixed(left), Fixed(right)) => left
+                .checked_mul(right)
+                .map(NumericValue::from)
+                .map_err(Error::from),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -328,9 +405,25 @@ impl Evaluate for RaiseTo {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
-        let left = self.left.evaluate(wsv, context)?;
-        let right = self.right.evaluate(wsv, context)?;
-        Ok(left.pow(right).into())
+        use NumericValue::*;
+        let value = self.left.evaluate(wsv, context)?;
+        let exp = self.right.evaluate(wsv, context)?;
+        match (value, exp) {
+            (U32(value), U32(exp)) => value
+                .checked_pow(exp)
+                .ok_or(Error::Math(MathError::Overflow))
+                .map(NumericValue::from),
+            (U128(value), U32(exp)) => value
+                .checked_pow(exp)
+                .ok_or(Error::Math(MathError::Overflow))
+                .map(NumericValue::from),
+            // TODO (#2945): Extend `RaiseTo` to support `Fixed`
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -343,11 +436,28 @@ impl Evaluate for Divide {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
-        let left: u32 = self.left.evaluate(wsv, context)?;
-        let right: u32 = self.right.evaluate(wsv, context)?;
-        left.checked_div(right)
-            .map(Value::from)
-            .ok_or_else(|| MathError::DivideByZero.into())
+        use NumericValue::*;
+        let left = self.left.evaluate(wsv, context)?;
+        let right = self.right.evaluate(wsv, context)?;
+        match (left, right) {
+            (U32(left), U32(right)) => left
+                .checked_div(right)
+                .ok_or(Error::Math(MathError::DivideByZero))
+                .map(NumericValue::from),
+            (U128(left), U128(right)) => left
+                .checked_div(right)
+                .ok_or(Error::Math(MathError::DivideByZero))
+                .map(NumericValue::from),
+            (Fixed(left), Fixed(right)) => left
+                .checked_div(right)
+                .map(NumericValue::from)
+                .map_err(Error::from),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -360,9 +470,24 @@ impl Evaluate for Mod {
         wsv: &WorldStateView,
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
+        use NumericValue::*;
         let left = self.left.evaluate(wsv, context)?;
         let right = self.right.evaluate(wsv, context)?;
-        Ok((left % right).into())
+        match (left, right) {
+            (U32(left), U32(right)) => left
+                .checked_rem(right)
+                .ok_or(Error::Math(MathError::DivideByZero))
+                .map(NumericValue::from),
+            (U128(left), U128(right)) => left
+                .checked_rem(right)
+                .ok_or(Error::Math(MathError::DivideByZero))
+                .map(NumericValue::from),
+            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                left, right,
+            ))
+            .map_err(Error::from),
+        }
+        .map(Value::from)
     }
 }
 
@@ -370,12 +495,12 @@ impl Evaluate for Mod {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{error::Error as StdError, fmt::Debug};
+    use std::fmt::Debug;
 
     use eyre::Result;
     use iroha_crypto::KeyPair;
     use iroha_data_model::val_vec;
-    use iroha_macro::error::ErrorTryFromEnum;
+    use iroha_primitives::fixed::Fixed;
     use parity_scale_codec::{Decode, Encode};
 
     use super::*;
@@ -548,56 +673,59 @@ mod tests {
     #[test]
     #[allow(clippy::unnecessary_wraps)]
     fn incorrect_types_are_caught() -> Result<()> {
-        fn assert_eval<I, E>(inst: &I, err_msg: &str)
+        fn assert_eval<I>(inst: &I, err_msg: &str)
         where
             I: Evaluate + Debug,
             I::Value: Debug,
-            E: StdError + Eq + Default + Send + Sync + 'static,
         {
             let wsv = WorldStateView::new(World::default());
             let result: Result<_, _> = inst.evaluate(&wsv, &Context::new());
             let _err = result.expect_err(err_msg);
         }
 
-        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
-            &Add::new(10_u32, true),
-            "Should not be possible to add int and bool.",
-        );
-        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
-            &Subtract::new(10_u32, true),
-            "Should not be possible to subtract int and bool.",
-        );
-        assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
+        assert_eval(
             &And::new(
                 EvaluatesTo::new_unchecked(1_u32.into()),
                 EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
             ),
             "Should not be possible to apply logical and to int and vec.",
         );
-        assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
+        assert_eval(
             &Or::new(
                 EvaluatesTo::new_unchecked(1_u32.into()),
                 EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
             ),
             "Should not be possible to apply logical or to int and vec.",
         );
-        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
+        assert_eval(
             &Greater::new(
                 EvaluatesTo::new_unchecked(1_u32.into()),
                 EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
             ),
             "Should not be possible to apply greater sign to int and vec.",
         );
-        assert_eval::<_, ErrorTryFromEnum<Value, u32>>(
+        assert_eval(
             &Less::new(
                 EvaluatesTo::new_unchecked(1_u32.into()),
                 EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
             ),
             "Should not be possible to apply greater sign to int and vec.",
         );
-        assert_eval::<_, ErrorTryFromEnum<Value, bool>>(
+        assert_eval(
             &IfExpression::new(EvaluatesTo::new_unchecked(1_u32.into()), 2_u32, 3_u32),
             "If condition should be bool",
+        );
+        assert_eval(
+            &Add::new(10_u32, 1_u128),
+            "Should not be possible to add `u32` and `u128`",
+        );
+        assert_eval(
+            &Subtract::new(Fixed::try_from(10.2_f64)?, 1_u128),
+            "Should not be possible to subtract `Fixed` and `u128`",
+        );
+        assert_eval(
+            &Multiply::new(0_u32, Fixed::try_from(1.0_f64)?),
+            "Should not be possible to multiply `u32` and `Fixed`",
         );
         Ok(())
     }
@@ -610,8 +738,26 @@ mod tests {
             3_u32.to_value()
         );
         assert_eq!(
+            Add::new(1_u128, 2_u128).evaluate(&wsv, &Context::new())?,
+            3_u128.to_value(),
+        );
+        assert_eq!(
+            Add::new(Fixed::try_from(1.17_f64)?, Fixed::try_from(2.13_f64)?)
+                .evaluate(&wsv, &Context::new())?,
+            3.30_f64.try_to_value()?
+        );
+        assert_eq!(
             Subtract::new(7_u32, 2_u32).evaluate(&wsv, &Context::new())?,
             5_u32.to_value()
+        );
+        assert_eq!(
+            Subtract::new(7_u128, 2_u128).evaluate(&wsv, &Context::new())?,
+            5_u128.to_value()
+        );
+        assert_eq!(
+            Subtract::new(Fixed::try_from(7.250_f64)?, Fixed::try_from(2.125_f64)?)
+                .evaluate(&wsv, &Context::new())?,
+            5.125_f64.try_to_value()?
         );
         assert_eq!(
             Greater::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,

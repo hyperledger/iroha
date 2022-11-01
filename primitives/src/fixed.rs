@@ -6,7 +6,7 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use derive_more::Display;
 use fixnum::{
-    ops::{Bounded, CheckedAdd, CheckedSub, Zero},
+    ops::{Bounded, CheckedAdd, CheckedSub, RoundingDiv, RoundingMul, Zero},
     ArithmeticError,
 };
 use iroha_schema::IntoSchema;
@@ -107,6 +107,42 @@ impl Fixed {
     pub fn checked_sub(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
         match self.valid()?.0.csub(rhs.valid()?.0) {
             Ok(n) => Fixed(n).valid(),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Checked multiplication
+    ///
+    /// Result is rounded to nearest representable value.
+    ///
+    /// # Errors
+    /// If either of the operands is negative or if the multiplication overflows.
+    #[inline]
+    pub fn checked_mul(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
+        match self
+            .valid()?
+            .0
+            .rmul(rhs.valid()?.0, fixnum::ops::RoundMode::Nearest)
+        {
+            Ok(n) => Ok(Fixed(n)),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Checked division
+    ///
+    /// Result is rounded to nearest representable value.
+    ///
+    /// # Errors
+    /// If either of the operands is negative or if the multiplication overflows.
+    #[inline]
+    pub fn checked_div(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
+        match self
+            .valid()?
+            .0
+            .rdiv(rhs.valid()?.0, fixnum::ops::RoundMode::Nearest)
+        {
+            Ok(n) => Ok(Fixed(n)),
             Err(e) => Err(e.into()),
         }
     }
