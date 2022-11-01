@@ -46,7 +46,7 @@ fn connected_peers_with_f(faults: u64) {
     assert_eq!(status.blocks, 2);
     status = peer_client.get_status().unwrap();
     assert_eq!(status.peers, 0);
-    assert_eq!(status.blocks, 1);
+    assert_eq!(status.blocks, 2);
 
     // Re-register the peer: committed with f = `faults` - 1 then
     // `status.peers` increments

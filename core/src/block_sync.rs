@@ -4,9 +4,11 @@
     clippy::std_instead_of_alloc,
     clippy::arithmetic
 )]
-use std::{fmt::Debug, sync::Arc, time::{Duration, Instant}};
-
-use std::sync::{Mutex, mpsc};
+use std::{
+    fmt::Debug,
+    sync::{mpsc, Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
@@ -16,8 +18,10 @@ use iroha_macro::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::handler::ThreadHandler;
-use crate::{p2p::P2PSystem, sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
+use crate::{
+    handler::ThreadHandler, p2p::P2PSystem, sumeragi::Sumeragi, NetworkMessage,
+    VersionedCommittedBlock,
+};
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
@@ -28,10 +32,9 @@ pub struct BlockSynchronizer {
     block_batch_size: u32,
     p2p: Arc<P2PSystem>,
     /// Sender channel
-    pub message_sender: Mutex<mpsc::SyncSender<message::VersionedMessage>>,
+    pub message_sender: mpsc::SyncSender<message::VersionedMessage>,
     /// Receiver channel.
     pub message_receiver: Mutex<mpsc::Receiver<message::VersionedMessage>>,
-
 }
 
 impl BlockSynchronizer {
@@ -42,8 +45,7 @@ impl BlockSynchronizer {
         p2p: Arc<P2PSystem>,
         peer_id: PeerId,
     ) -> Arc<Self> {
-        let (incoming_message_sender, incoming_message_receiver) =
-            std::sync::mpsc::sync_channel(250);
+        let (incoming_message_sender, incoming_message_receiver) = mpsc::sync_channel(250);
 
         Arc::new(Self {
             peer_id,
@@ -51,7 +53,7 @@ impl BlockSynchronizer {
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             p2p,
-            message_sender: Mutex::new(incoming_message_sender),
+            message_sender: incoming_message_sender,
             message_receiver: Mutex::new(incoming_message_receiver),
         })
     }
@@ -60,25 +62,22 @@ impl BlockSynchronizer {
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: message::VersionedMessage) {
         println!("got msg");
-        if self
-            .message_sender
-            .lock()
-            .expect("Lock on sender")
-            .try_send(msg)
-            .is_err()
-        {
+        if self.message_sender.send(msg).is_err() {
             error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
-    }    
+    }
 }
 
 pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
     // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
-    let thread_handle = std::thread::spawn(move || {
-        block_sync_read_loop(&block_sync, shutdown_receiver);
-    });
+    let thread_handle = std::thread::Builder::new()
+        .name("Block Synchronizer Thread".to_owned())
+        .spawn(move || {
+            block_sync_read_loop(&block_sync, shutdown_receiver);
+        })
+        .unwrap();
 
     let shutdown = move || {
         let _result = shutdown_sender.send(());
@@ -108,12 +107,12 @@ fn block_sync_read_loop(
             if !peers.is_empty() {
                 let peer_key = &peers[request_blocks_peer_index % peers.len()];
                 request_blocks_peer_index = request_blocks_peer_index.wrapping_add(1);
-            
+
                 message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
                     block_sync.sumeragi.latest_block_hash(),
                     block_sync.peer_id.clone(),
                 ))
-                    .send_to(&block_sync.p2p, peer_key);
+                .send_to(&block_sync.p2p, peer_key);
                 println!("call out");
             }
         }

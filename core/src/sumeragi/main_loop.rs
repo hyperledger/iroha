@@ -430,10 +430,14 @@ fn handle_role_agnostic_messages<F>(
                 let block = block_committed.block;
                 let network_topology = state.current_topology.clone();
 
-                let verified_signatures =
-                    block.verified_signatures().cloned().collect::<Vec<_>>();
+                let verified_signatures = block.verified_signatures().cloned().collect::<Vec<_>>();
                 let valid_signatures = network_topology.filter_signatures_by_roles(
-                    &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail, Role::ObservingPeer],
+                    &[
+                        Role::ValidatingPeer,
+                        Role::Leader,
+                        Role::ProxyTail,
+                        Role::ObservingPeer,
+                    ],
                     &verified_signatures,
                 );
                 if valid_signatures.len() >= network_topology.min_votes_for_commit()
@@ -453,7 +457,7 @@ fn handle_role_agnostic_messages<F>(
 #[allow(clippy::too_many_arguments)]
 fn compare_view_change_index_and_block_height_to_old<F>(
     sumeragi: &SumeragiWithFault<F>,
-    view_change_proof_chain_for_sharing: &Vec<Proof>,    
+    view_change_proof_chain_for_sharing: &Vec<Proof>,
     current_view_change_index: u64,
     old_view_change_index: &mut u64,
     current_latest_block_height: u64,

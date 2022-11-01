@@ -3,11 +3,13 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    os::unix::io::{AsRawFd, FromRawFd},
     str::FromStr,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use aead::generic_array::typenum::Unsigned;
 use iroha_crypto::{
     ursa::{
         encryption::symm::{prelude::ChaCha20Poly1305, Encryptor, SymmetricEncryptor},
@@ -17,13 +19,21 @@ use iroha_crypto::{
     },
     PublicKey,
 };
-use iroha_logger::{debug, info, trace};
+use iroha_logger::{error, info, trace};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use thiserror::Error;
-use aead::generic_array::typenum::Unsigned;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
+    runtime::Handle,
+    sync::mpsc,
+};
 
-use crate::{handler::ThreadHandler, sumeragi::Sumeragi, block_sync::BlockSynchronizer, NetworkMessage, NetworkMessage::*, PeerId};
+use crate::{
+    block_sync::BlockSynchronizer, handler::ThreadHandler, sumeragi::Sumeragi, NetworkMessage,
+    NetworkMessage::*, PeerId,
+};
 
 /// Errors used in [`crate`].
 #[derive(Debug, Error)]
@@ -93,7 +103,10 @@ pub struct P2PSystem {
     listen_addr: String,
     public_key: PublicKey,
     connect_peer_target: Mutex<Vec<PeerId>>,
-    connected_to_peers: Mutex<HashMap<PublicKey, (TcpStream, Cryptographer)>>,
+    connected_to_peers: Mutex<HashMap<PublicKey, (OwnedWriteHalf, Cryptographer)>>,
+    new_connection_pipe_receiver:
+        tokio::sync::Mutex<mpsc::Receiver<(TcpStream, Cryptographer, PublicKey)>>,
+    new_connection_pipe_sender: mpsc::Sender<(TcpStream, Cryptographer, PublicKey)>,
 }
 
 impl std::fmt::Debug for P2PSystem {
@@ -104,11 +117,14 @@ impl std::fmt::Debug for P2PSystem {
 
 impl P2PSystem {
     pub fn new(listen_addr: String, public_key: PublicKey) -> Arc<P2PSystem> {
+        let (new_connection_pipe_sender, new_connection_pipe_receiver) = mpsc::channel(100);
         Arc::new(P2PSystem {
             listen_addr,
             public_key,
             connect_peer_target: Mutex::new(Vec::new()),
             connected_to_peers: Mutex::new(HashMap::new()),
+            new_connection_pipe_receiver: tokio::sync::Mutex::new(new_connection_pipe_receiver),
+            new_connection_pipe_sender,
         })
     }
 
@@ -123,12 +139,17 @@ impl P2PSystem {
             let (stream, crypto) = match connected_to_peers.get_mut(&public_key) {
                 Some(stuff) => stuff,
                 None => {
-                    println!("P2P post failed not connected.");
+                    trace!("P2P post failed not connected.");
                     continue;
-                },
+                }
             };
-            println!("POST!");
-            let encrypted = crypto.encrypt(encoded.clone()).expect("We should always be able to encrypt.");
+            let tcp_stream_fd = stream.as_ref().as_raw_fd();
+            let mut stream =
+                std::mem::ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(tcp_stream_fd) });
+            println!("POST!!!");
+            let encrypted = crypto
+                .encrypt(encoded.clone())
+                .expect("We should always be able to encrypt.");
             let write1 = stream.write_all(&(encrypted.len() as u32).to_le_bytes());
             let write2 = stream.write_all(&encrypted);
 
@@ -138,19 +159,31 @@ impl P2PSystem {
         }
 
         for key in to_disconnect_keys {
-            println!("Disconnected during post from {}.", key);
-            connected_to_peers.remove(&key).expect("Peer to disconnect must have been in the hashmap.");
+            trace!("Disconnected during post from {}.", key);
+            connected_to_peers
+                .remove(&key)
+                .expect("Peer to disconnect must have been in the hashmap.");
         }
     }
 
     pub fn get_connected_to_peer_keys(&self) -> Vec<PublicKey> {
         let mut keys = Vec::new();
 
-        for (public_key, (stream, crypto)) in self.connected_to_peers.lock().unwrap().iter_mut() {
-            if stream.write_all(&0_u32.to_le_bytes()).is_err() { // This has to be done in order to detect broken pipes.
-                continue;
+        let mut to_remove_keys = Vec::new();
+        let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
+        for (public_key, (stream, crypto)) in connected_to_peers.iter_mut() {
+            let tcp_stream_fd = stream.as_ref().as_raw_fd();
+            let mut stream =
+                std::mem::ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(tcp_stream_fd) });
+            if stream.write_all(&0_u32.to_le_bytes()).is_err() {
+                // This has to be done in order to detect broken pipes.
+                to_remove_keys.push(public_key.clone());
+            } else {
+                keys.push(public_key.clone());
             }
-            keys.push(public_key.clone());
+        }
+        for key in to_remove_keys {
+            connected_to_peers.remove(&key);
         }
         keys
     }
@@ -159,19 +192,28 @@ impl P2PSystem {
         let mut target = self.connect_peer_target.lock().unwrap();
         target.clear();
         target.extend_from_slice(new_target);
-        if let Some(index) = target.iter().position(|peer_id| peer_id.public_key == self.public_key) {
+        if let Some(index) = target
+            .iter()
+            .position(|peer_id| peer_id.public_key == self.public_key)
+        {
             target.remove(index);
         }
     }
 }
 
-pub fn start_read_loop(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>, block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
+pub async fn start_read_loop(
+    p2p: Arc<P2PSystem>,
+    sumeragi: Arc<Sumeragi>,
+    block_sync: Arc<BlockSynchronizer>,
+) -> ThreadHandler {
     // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
-    let thread_handle = std::thread::spawn(move || {
-        p2p_read_loop(&p2p, shutdown_receiver, &sumeragi, &block_sync);
+    let task_handle = tokio::task::spawn(async move {
+        p2p_read_loop(&p2p, shutdown_receiver, &sumeragi, &block_sync).await;
     });
+
+    let thread_handle = std::thread::spawn(move || {}); // We provide a dummy handle for the thread system.
 
     let shutdown = move || {
         let _result = shutdown_sender.send(());
@@ -180,86 +222,141 @@ pub fn start_read_loop(p2p: Arc<P2PSystem>, sumeragi: Arc<Sumeragi>, block_sync:
     ThreadHandler::new(Box::new(shutdown), thread_handle)
 }
 
-fn p2p_read_loop(
+async fn p2p_read_loop(
     p2p: &P2PSystem,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     sumeragi: &Sumeragi,
     block_sync: &BlockSynchronizer,
 ) {
-    loop {
+    let mut new_connection_pipe_receiver = p2p.new_connection_pipe_receiver.lock().await;
+
+    let mut readers: HashMap<PublicKey, tokio::task::JoinHandle<_>> = HashMap::new();
+    let mut should_exit = false;
+    while !should_exit {
         // We have no obligations to network delivery so we simply exit on shutdown signal.
         if shutdown_receiver.try_recv().is_ok() {
             info!("P2P read thread is being shut down");
-            return;
+            should_exit = true;
+            continue;
         }
-        std::thread::sleep(Duration::from_micros(2500));
 
-        // For protocol violators.
-        let mut to_disconnect_keys = Vec::<PublicKey>::new();
-
-        let target = p2p.connect_peer_target.lock().unwrap().clone();
-        let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
-        for (public_key, (stream, crypto)) in connected_to_peers.iter_mut() {
-            if stream.write_all(&0_u32.to_le_bytes()).is_err() { // This has to be done in order to detect broken pipes.
-                to_disconnect_keys.push(public_key.clone());
+        let received = new_connection_pipe_receiver.recv().await;
+        let (mut stream, crypto, public_key) = match received {
+            Some(tup) => tup,
+            None => {
+                info!("Channel closed. P2P async thread shutting down.");
+                should_exit = true;
                 continue;
             }
+        };
 
-            if target.iter().position(|id| id.public_key == *public_key).is_none() {
-                to_disconnect_keys.push(public_key.clone()); // Disconnect peers not in target.
-                continue;
-            }
+        // is already connected
+        let mut connected_to_peer_keys = p2p.get_connected_to_peer_keys();
+        if connected_to_peer_keys
+            .iter()
+            .position(|connected_public_key| *connected_public_key == public_key)
+            .is_some()
+        {
+            trace!("Dropping because already connected, {}.", public_key);
+            continue;
+        }
 
-            let mut _byte = 0_u8;
-            if let Ok(byte_count) = stream.peek(std::slice::from_mut(&mut _byte)) { // Packet incomming
-                if byte_count == 0 {
-                    continue;
-                }
-                let mut packet_size = [0_u8; 4];
-                if stream.read_exact(&mut packet_size).is_err() // TODO: Peek so that we don't ever wait on packet completion.
+        stream
+            .set_nonblocking(true)
+            .expect("Failed to set nonblocking on tcp stream.");
+        let (mut read_half, write_half) = tokio::net::TcpStream::from_std(stream)
+            .expect("Failed to create tokio tcp stream from std.")
+            .into_split();
+
+        p2p.connected_to_peers
+            .lock()
+            .unwrap()
+            .insert(public_key.clone(), (write_half, crypto.clone()));
+
+        // nocheckin write good comment explaining why and add abort code to tasks.
+        let static_p2p: &'static P2PSystem = unsafe { std::mem::transmute(p2p) };
+        let static_sumeragi: &'static Sumeragi = unsafe { std::mem::transmute(sumeragi) };
+        let static_block_sync: &'static BlockSynchronizer =
+            unsafe { std::mem::transmute(block_sync) };
+
+        readers.insert(
+            public_key.clone(),
+            tokio::task::spawn(async move {
+                read_from_socket(
+                    static_p2p,
+                    static_sumeragi,
+                    static_block_sync,
+                    public_key.clone(),
+                    &mut read_half,
+                    crypto,
+                )
+                .await;
                 {
-                    to_disconnect_keys.push(public_key.clone());
-                    continue;
-                }
-                let packet_size = u32::from_le_bytes(packet_size);
-                if packet_size == 0 { continue; }
+                    let tcp_stream_fd = read_half.as_ref().as_raw_fd();
+                    let mut stream = std::mem::ManuallyDrop::new(unsafe {
+                        TcpStream::from_raw_fd(tcp_stream_fd)
+                    });
+                    stream.shutdown(std::net::Shutdown::Both);
 
-                let mut buf = vec![0_u8; packet_size as usize];
-                if stream.read_exact(&mut buf).is_err() {
-                    to_disconnect_keys.push(public_key.clone());
-                    continue;
+                    let mut connected_to_peers = static_p2p.connected_to_peers.lock().unwrap();
+                    connected_to_peers.remove(&public_key);
                 }
+            }),
+        );
+    }
 
-                if let Ok(data) = crypto.decrypt(buf) {
-                    let network_message_maybe = Decode::decode(&mut data.as_slice());
-                    if let Ok(network_message) = network_message_maybe {
-                        match network_message {
-                            SumeragiPacket(data) => {
-                                println!("RECV sumeragi");
-                                sumeragi.incoming_message(data.into_v1());
-                            }
-                            BlockSync(data) => {
-                                block_sync.incoming_message(*data);
-                            },
-                            Health => {}
-                        }
-                    } else {
-                        to_disconnect_keys.push(public_key.clone());
-                        continue;
-                    }
-                } else {
-                    to_disconnect_keys.push(public_key.clone());
-                    continue;
-                }
-            } else {
-                to_disconnect_keys.push(public_key.clone());
-                continue;
-            }
+    for (_, task_handle) in readers {
+        task_handle.abort();
+        task_handle.await;
+    }
+}
+
+async fn read_from_socket(
+    p2p: &P2PSystem,
+    sumeragi: &Sumeragi,
+    block_sync: &BlockSynchronizer,
+    public_key: PublicKey,
+    stream: &mut OwnedReadHalf,
+    crypto: Cryptographer,
+) -> Option<()> {
+    loop {
+        {
+            p2p.connect_peer_target
+                .lock()
+                .unwrap()
+                .iter()
+                .position(|id| id.public_key == public_key)?;
+            p2p.connected_to_peers
+                .lock()
+                .unwrap()
+                .iter()
+                .position(|(key, (_, _))| *key == public_key)?;
         }
 
-        for key in to_disconnect_keys {
-            println!("Disconnected during read from {}.", key);
-            connected_to_peers.remove(&key).expect("Peer to disconnect must have been in the hashmap.");
+        let mut _byte = 0_u8;
+        let byte_count = stream.peek(std::slice::from_mut(&mut _byte)).await.ok()?; // Packet incomming
+        if byte_count == 0 {
+            continue;
+        }
+        let mut packet_size = [0_u8; 4];
+        stream.read_exact(&mut packet_size).await.ok()?;
+        let packet_size = u32::from_le_bytes(packet_size);
+        if packet_size == 0 {
+            continue;
+        }
+
+        let mut buf = vec![0_u8; packet_size as usize];
+        stream.read_exact(&mut buf).await.ok()?;
+        let data = crypto.decrypt(buf).ok()?;
+        let network_message = Decode::decode(&mut data.as_slice()).ok()?;
+        match network_message {
+            SumeragiPacket(data) => {
+                sumeragi.incoming_message(data.into_v1());
+            }
+            BlockSync(data) => {
+                block_sync.incoming_message(*data);
+            }
+            Health => {}
         }
     }
 }
@@ -268,9 +365,12 @@ pub fn start_listen_loop(p2p: Arc<P2PSystem>) -> ThreadHandler {
     // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
-    let thread_handle = std::thread::spawn(move || {
-        p2p_listen_loop(&p2p, shutdown_receiver);
-    });
+    let thread_handle = std::thread::Builder::new()
+        .name("P2P Listen Thread".to_owned())
+        .spawn(move || {
+            p2p_listen_loop(&p2p, shutdown_receiver);
+        })
+        .unwrap();
 
     let shutdown = move || {
         let _result = shutdown_sender.send(());
@@ -279,19 +379,13 @@ pub fn start_listen_loop(p2p: Arc<P2PSystem>) -> ThreadHandler {
     ThreadHandler::new(Box::new(shutdown), thread_handle)
 }
 
-// nocheckin replace println's with trace's.
-fn p2p_listen_loop(
-    p2p: &P2PSystem,
-    mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
-) {
+// nocheckin do maps
+fn p2p_listen_loop(p2p: &P2PSystem, mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>) {
     let listener = TcpListener::bind(&p2p.listen_addr).expect("Could not bind p2p tcp listener.");
     listener
         .set_nonblocking(true)
         .expect("P2P subsystem could not enable nonblocking on listening tcp port.");
 
-    let time_slice = Duration::from_millis(25);
-    
-    let mut countdown_to_outgoing = 20;
     loop {
         // We have no obligations to network delivery so we simply exit on shutdown signal.
         if shutdown_receiver.try_recv().is_ok() {
@@ -299,12 +393,99 @@ fn p2p_listen_loop(
             return;
         }
         std::thread::sleep(Duration::from_millis((rand::random::<u64>() % 10) + 10));
-        
-        let maybe_new_connection = if countdown_to_outgoing > 0 {
-            countdown_to_outgoing -= 1;
-            // listen
+
+        let stream = match unsafe { establish_new_connection(p2p, &listener) } {
+            Some(new_con) => new_con,
+            None => continue,
+        };
+
+        let (stream, crypto, other_public_key) = match perform_handshake(&p2p, stream) {
+            Some(tuple) => tuple,
+            None => continue,
+        };
+
+        let target = p2p.connect_peer_target.lock().unwrap();
+
+        if target
+            .iter()
+            .position(|peer_id| peer_id.public_key == other_public_key)
+            .is_none()
+        {
+            trace!("Dropping because not in target, {}.", other_public_key);
+            continue;
+        }
+
+        p2p.new_connection_pipe_sender
+            .blocking_send((stream, crypto, other_public_key));
+    }
+}
+
+const ESTABLISH_CONNECTION_TIME_SLICE: Duration = Duration::from_millis(25);
+
+unsafe fn establish_new_connection(p2p: &P2PSystem, listener: &TcpListener) -> Option<TcpStream> {
+    let maybe_incoming_connection = {
+        let mut maybe_incoming_connection = None;
+        for _ in 0..20 {
             if let Ok((mut stream, addr)) = listener.accept() {
-                println!("Incomming p2p connection from {}", &addr);
+                trace!("Incomming p2p connection from {}", &addr);
+                stream
+                    .set_read_timeout(Some(P2P_TCP_TIMEOUT))
+                    .expect("Could not set read timeout on socket.");
+                stream
+                    .set_write_timeout(Some(P2P_TCP_TIMEOUT))
+                    .expect("Could not set write timeout on socket.");
+                maybe_incoming_connection = Some(stream);
+                break;
+            } else {
+                std::thread::sleep(ESTABLISH_CONNECTION_TIME_SLICE);
+                if rand::random::<bool>() {
+                    std::thread::sleep(ESTABLISH_CONNECTION_TIME_SLICE * 2);
+                }
+            }
+        }
+        maybe_incoming_connection
+    };
+
+    match maybe_incoming_connection {
+        Some(con) => Some(con),
+        None => {
+            let connected_to_peer_keys = p2p.get_connected_to_peer_keys();
+
+            let target_addrs: Vec<String> = p2p
+                .connect_peer_target
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|peer_id| {
+                    connected_to_peer_keys
+                        .iter()
+                        .position(|key| key == &peer_id.public_key)
+                        .is_none()
+                })
+                .map(|peer_id| peer_id.address.clone())
+                .collect();
+
+            if target_addrs.is_empty() {
+                None
+            } else {
+                let address = &target_addrs[rand::random::<usize>() % target_addrs.len()];
+
+                // to_socket_addrs is what enables dns lookups.
+                let maybe_addr = address
+                    .to_socket_addrs()
+                    .unwrap_or(vec![].into_iter())
+                    .next();
+                if maybe_addr.is_none() {
+                    error!("Error can't produce addr from str. str={}", &address);
+                }
+                maybe_addr
+            }
+        }
+        .map_or(None, |addr| {
+            if let Ok(mut stream) =
+                TcpStream::connect_timeout(&addr, ESTABLISH_CONNECTION_TIME_SLICE * 40)
+            {
+                trace!("Outgoing p2p connection to {}", &addr);
                 stream
                     .set_read_timeout(Some(P2P_TCP_TIMEOUT))
                     .expect("Could not set read timeout on socket.");
@@ -313,138 +494,54 @@ fn p2p_listen_loop(
                     .expect("Could not set write timeout on socket.");
                 Some(stream)
             } else {
-                std::thread::sleep(time_slice);
-                if rand::random::<bool>() {
-                    std::thread::sleep(time_slice * 2);
-                }
                 None
             }
-        } else {
-            countdown_to_outgoing = 20;
-            // connect
-            let maybe_connect_addr = {
-                let connected_to_peer_keys = p2p.get_connected_to_peer_keys();
-
-                let target_addrs : Vec<String> = p2p.connect_peer_target.lock().unwrap()
-                    .iter()
-                    .filter(|peer_id| connected_to_peer_keys.iter().position(|key| key == &peer_id.public_key).is_none())
-                    .map(|peer_id| peer_id.address.clone())
-                    .collect();
-
-                if target_addrs.is_empty() {
-                    None
-                } else {
-                    let address = &target_addrs[rand::random::<usize>() % target_addrs.len()];
-
-                    // to_socket_addrs is what enables dns lookups.
-                    let maybe_addr = address.to_socket_addrs().unwrap_or(vec![].into_iter()).next();
-                    if maybe_addr.is_none() {
-                        println!("Error can't produce addr from str. str={}", &address);
-                    }
-                    maybe_addr
-                }
-            };
-
-            if let Some(addr) = maybe_connect_addr {
-                if let Ok(mut stream) = TcpStream::connect_timeout(&addr, time_slice * 40) {
-                    println!("Outgoing p2p connection to {}", &addr);
-                    stream
-                        .set_read_timeout(Some(P2P_TCP_TIMEOUT))
-                        .expect("Could not set read timeout on socket.");
-                    stream
-                        .set_write_timeout(Some(P2P_TCP_TIMEOUT))
-                        .expect("Could not set write timeout on socket.");
-                    Some(stream)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        let mut stream = match maybe_new_connection {
-            Some(new_con) => new_con,
-            None => continue,
-        };
-
-        // Exchange hello's
-        if Garbage::generate().write(&mut stream).is_err() {
-            continue;
-        }
-        let mut crypto = Cryptographer::default();
-        let ursa_key_slice = crypto.public_key.0.as_slice();
-        if stream.write_all(ursa_key_slice).is_err() {
-            continue;
-        }
-        println!("Sent hello.");
-        if Garbage::read(&mut stream).is_err() {
-            continue;
-        }
-        let mut key = [0_u8; 32];
-        if stream.read_exact(&mut key).is_err() {
-            continue;
-        }
-        let other_ursa_key = UrsaPublicKey(Vec::from(key));
-        crypto.derive_shared_key(&other_ursa_key);
-        println!("Received hello.");
-
-        // Exchange public keys
-        let data = p2p.public_key.encode();
-
-        if let Ok(data) = crypto.encrypt(data) {
-            let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
-            #[allow(clippy::cast_possible_truncation)]
-            buf.push(data.len() as u8);
-            buf.extend_from_slice(data.as_slice());
-
-            if stream.write_all(&buf).is_err() {
-                continue;
-            }
-        } else {
-            continue;
-        }
-        println!("Sent public key to other peer.");
-
-        let other_public_key = {
-            let mut size = 0_u8;
-            if stream.read_exact(std::slice::from_mut(&mut size)).is_ok()
-                && (size as usize) < MAX_HANDSHAKE_LENGTH
-            {
-                let mut data = vec![0_u8; size as usize];
-                if stream.read_exact(&mut data).is_err() {
-                    continue;
-                }
-                if let Ok(data) = crypto.decrypt(data) {
-                    if let Ok(pub_key) = Decode::decode(&mut data.as_slice()) {
-                        pub_key
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-        };
-        println!("Completed handshake with {}.", other_public_key);
-
-        let target = p2p.connect_peer_target.lock().unwrap();        
-        
-        if target.iter().position(|peer_id| peer_id.public_key == other_public_key).is_none() {
-            println!("Dropping because not in target, {}.", other_public_key);
-            continue;
-        }
-
-        let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
-        if connected_to_peers.iter().position(|(public_key, (_, _))| *public_key == other_public_key).is_some() {
-            println!("Dropping because already connected, {}.", other_public_key);
-            continue;
-        }
-
-        connected_to_peers.insert(other_public_key, (stream, crypto));
+        }),
     }
+}
+
+fn perform_handshake(
+    p2p: &P2PSystem,
+    mut stream: TcpStream,
+) -> Option<(TcpStream, Cryptographer, PublicKey)> {
+    // Exchange hello's
+    Garbage::generate().write(&mut stream).ok()?;
+    let mut crypto = Cryptographer::default();
+    let ursa_key_slice = crypto.public_key.0.as_slice();
+    stream.write_all(ursa_key_slice).ok()?;
+
+    trace!("Sent hello.");
+    Garbage::read(&mut stream).ok()?;
+    let mut key = [0_u8; 32];
+    stream.read_exact(&mut key).ok()?;
+    let other_ursa_key = UrsaPublicKey(Vec::from(key));
+    crypto.derive_shared_key(&other_ursa_key);
+    trace!("Received hello.");
+
+    // Exchange public keys
+    let data = p2p.public_key.encode();
+
+    let data = crypto.encrypt(data).ok()?;
+    let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
+    #[allow(clippy::cast_possible_truncation)]
+    buf.push(data.len() as u8);
+    buf.extend_from_slice(data.as_slice());
+
+    stream.write_all(&buf).ok()?;
+    trace!("Sent public key to other peer.");
+
+    let mut size = 0_u8;
+    stream.read_exact(std::slice::from_mut(&mut size)).ok()?;
+    if (size as usize) >= MAX_HANDSHAKE_LENGTH {
+        return None;
+    }
+    let mut data = vec![0_u8; size as usize];
+    stream.read_exact(&mut data).ok()?;
+    let data = crypto.decrypt(data).ok()?;
+    let other_public_key = Decode::decode(&mut data.as_slice()).ok()?;
+
+    trace!("Completed handshake with {}.", other_public_key);
+    Some((stream, crypto, other_public_key))
 }
 
 type Cryptographer = GenericCryptographer<X25519Sha256, ChaCha20Poly1305>;
@@ -459,10 +556,31 @@ where
     pub secret_key: UrsaPrivateKey,
     /// Public part of keypair
     pub public_key: UrsaPublicKey,
+    pub other_public_key: Option<UrsaPublicKey>,
     /// Encryptor created from session key, that we got by Diffie-Hellman scheme
     pub cipher: Option<SymmetricEncryptor<E>>,
     /// Phantom
     pub _key_exchange: PhantomData<K>,
+}
+
+impl<K, E> Clone for GenericCryptographer<K, E>
+where
+    K: KeyExchangeScheme + Send + 'static,
+    E: Encryptor + Send + 'static,
+{
+    fn clone(&self) -> Self {
+        let mut copy = Self {
+            secret_key: self.secret_key.clone(),
+            public_key: self.public_key.clone(),
+            other_public_key: None,
+            cipher: None,
+            _key_exchange: self._key_exchange,
+        };
+        if let Some(other_public_key) = self.other_public_key.as_ref() {
+            copy.derive_shared_key(other_public_key);
+        }
+        copy
+    }
 }
 
 impl<K, E> GenericCryptographer<K, E>
@@ -482,6 +600,7 @@ where
         Self {
             secret_key,
             public_key,
+            other_public_key: None,
             cipher: None,
             _key_exchange: PhantomData::default(),
         }
@@ -508,10 +627,9 @@ where
     pub fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => {
-                Ok(cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
-                   .map_err(CryptographicError::Encrypt)?)
-            },
+            Some(cipher) => Ok(cipher
+                .encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .map_err(CryptographicError::Encrypt)?),
         }
     }
 
@@ -523,12 +641,13 @@ where
     pub fn derive_shared_key(&mut self, public_key: &UrsaPublicKey) -> Result<&Self, Error> {
         let dh = K::new();
         let shared = dh.compute_shared_secret(&self.secret_key, public_key)?;
-        debug!(key = ?shared.0, "Derived shared key");
+        trace!(key = ?shared.0, "Derived shared key");
         let encryptor = {
             let key: &[u8] = shared.0.as_slice();
             SymmetricEncryptor::<E>::new_with_key(key)
         }
         .map_err(CryptographicError::Encrypt)?;
+        self.other_public_key = Some(public_key.clone());
         self.cipher = Some(encryptor);
         Ok(self)
     }
@@ -562,7 +681,7 @@ impl Garbage {
             Err(HandshakeError::Length(size).into())
         } else {
             // Reading garbage
-            debug!(%size, "Reading garbage");
+            trace!(%size, "Reading garbage");
             let mut garbage = vec![0_u8; size];
             let _ = stream.read_exact(&mut garbage)?;
             Ok(Self { garbage })

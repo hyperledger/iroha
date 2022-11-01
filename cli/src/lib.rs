@@ -252,10 +252,15 @@ impl Iroha {
             Arc::clone(&p2p),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
         );
-        let block_sync_thread_handler = iroha_core::block_sync::start_read_loop(Arc::clone(&block_sync));
+        let block_sync_thread_handler =
+            iroha_core::block_sync::start_read_loop(Arc::clone(&block_sync));
 
         let p2p_thread_handler1 = iroha_core::p2p::start_listen_loop(Arc::clone(&p2p));
-        let p2p_thread_handler2 = iroha_core::p2p::start_read_loop(Arc::clone(&p2p), Arc::clone(&sumeragi), Arc::clone(&block_sync));
+        let p2p_thread_handler2 = iroha_core::p2p::start_read_loop(
+            Arc::clone(&p2p),
+            Arc::clone(&sumeragi),
+            Arc::clone(&block_sync),
+        ).await;
 
         let torii = Torii::from_configuration(
             config.clone(),

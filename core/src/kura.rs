@@ -91,9 +91,12 @@ impl Kura {
         // Oneshot channel to allow forcefully stopping the thread.
         let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
-        let thread_handle = std::thread::spawn(move || {
-            Self::kura_recieve_blocks_loop(&kura, shutdown_receiver);
-        });
+        let thread_handle = std::thread::Builder::new()
+            .name("Kura Thread".to_owned())
+            .spawn(move || {
+                Self::kura_recieve_blocks_loop(&kura, shutdown_receiver);
+            })
+            .unwrap();
 
         let shutdown = move || {
             let _result = shutdown_sender.send(());

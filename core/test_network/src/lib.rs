@@ -827,6 +827,7 @@ pub mod query {
 impl TestRuntime for Runtime {
     fn test() -> Self {
         runtime::Builder::new_multi_thread()
+            .thread_name("TestNet Thread")
             .thread_stack_size(32 * 1024 * 1024)
             .enable_all()
             .build()
