@@ -374,6 +374,7 @@ pub fn generate_map() -> DumpDecodedMap {
         expression::EvaluatesTo<RoleId>,
         expression::EvaluatesTo<TriggerId>,
         expression::EvaluatesTo<Value>,
+        expression::EvaluatesTo<NumericValue>,
         expression::EvaluatesTo<Vec<Value>>,
         expression::EvaluatesTo<bool>,
         expression::EvaluatesTo<u32>,

@@ -2953,11 +2953,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3033,11 +3033,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3087,6 +3087,16 @@
     }
   },
   "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "expression",
+          "ty": "iroha_data_model::expression::Expression"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>": {
     "Struct": {
       "declarations": [
         {
@@ -3177,16 +3187,6 @@
     }
   },
   "iroha_data_model::expression::EvaluatesTo<iroha_data_model::trigger::Id>": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "expression",
-          "ty": "iroha_data_model::expression::Expression"
-        }
-      ]
-    }
-  },
-  "iroha_data_model::expression::EvaluatesTo<u32>": {
     "Struct": {
       "declarations": [
         {
@@ -3307,11 +3307,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3339,11 +3339,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3353,11 +3353,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3367,11 +3367,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3405,11 +3405,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
@@ -3419,11 +3419,11 @@
       "declarations": [
         {
           "name": "left",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         },
         {
           "name": "right",
-          "ty": "iroha_data_model::expression::EvaluatesTo<u32>"
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::NumericValue>"
         }
       ]
     }
