@@ -26,8 +26,7 @@ use crate::{
     asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap, AssetTotalQuantityMap},
     ffi::declare_item,
     metadata::Metadata,
-    prelude::AssetValue,
-    HasMetadata, Identifiable, Name, ParseError, Registered,
+    HasMetadata, Identifiable, Name, NumericValue, ParseError, Registered,
 };
 
 /// The domain name of the genesis domain.
@@ -242,7 +241,7 @@ impl Domain {
     pub fn asset_total_quantity(
         &self,
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&AssetValue> {
+    ) -> Option<&NumericValue> {
         self.asset_total_quantities.get(asset_definition_id)
     }
 
@@ -334,7 +333,7 @@ impl Domain {
     pub fn asset_total_quantity_mut(
         &mut self,
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&mut AssetValue> {
+    ) -> Option<&mut NumericValue> {
         self.asset_total_quantities.get_mut(asset_definition_id)
     }
 
@@ -344,8 +343,8 @@ impl Domain {
     pub fn add_asset_total_quantity(
         &mut self,
         asset_definition_id: <AssetDefinition as Identifiable>::Id,
-        initial_amount: impl Into<AssetValue>,
-    ) -> Option<AssetValue> {
+        initial_amount: impl Into<NumericValue>,
+    ) -> Option<NumericValue> {
         self.asset_total_quantities
             .insert(asset_definition_id, initial_amount.into())
     }
@@ -355,7 +354,7 @@ impl Domain {
     pub fn remove_asset_total_quantity(
         &mut self,
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<AssetValue> {
+    ) -> Option<NumericValue> {
         self.asset_total_quantities.remove(asset_definition_id)
     }
 }

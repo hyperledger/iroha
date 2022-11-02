@@ -150,6 +150,7 @@ pub mod isi {
     impl_transfer!(Fixed, "transfer_fixed");
 
     /// Trait for blanket mint implementation.
+    #[allow(clippy::trait_duplication_in_bounds)] // False positive
     trait InnerMint {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
@@ -160,7 +161,9 @@ pub mod isi {
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
             Value: From<Self>,
+            NumericValue: TryAsMut<Self>,
             <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
+            <NumericValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             let asset_id = mint.destination_id;
@@ -226,6 +229,7 @@ pub mod isi {
     }
 
     /// Trait for blanket burn implementation.
+    #[allow(clippy::trait_duplication_in_bounds)] // False positive
     trait InnerBurn {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
@@ -236,7 +240,9 @@ pub mod isi {
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
             Value: From<Self>,
+            NumericValue: TryAsMut<Self>,
             <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
+            <NumericValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             let asset_id = burn.destination_id;
@@ -640,6 +646,8 @@ pub mod query {
                 })?
                 .value()
                 .clone();
+            let value =
+                NumericValue::try_from(value).map_err(|err| Error::Conversion(err.to_string()))?;
             Ok(value)
         }
     }

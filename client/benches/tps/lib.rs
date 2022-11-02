@@ -223,14 +223,19 @@ impl MeasurerUnit {
             ),
             100_u32,
         );
-        let supply_roses = MintBox::new(Value::U32(100), asset_id(self.name));
-        let burn_a_rose = BurnBox::new(Value::U32(1), asset_id(self.name));
+        let supply_roses = MintBox::new(100_u32.to_value(), asset_id(self.name));
+        let burn_a_rose = BurnBox::new(1_u32.to_value(), asset_id(self.name));
 
         IfInstruction::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
     }
 
     fn relay_a_rose(&self) -> Instruction {
-        TransferBox::new(asset_id(self.name), Value::U32(1), asset_id(self.next_name)).into()
+        TransferBox::new(
+            asset_id(self.name),
+            1_u32.to_value(),
+            asset_id(self.next_name),
+        )
+        .into()
     }
 }
 

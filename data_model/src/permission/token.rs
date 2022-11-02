@@ -95,12 +95,17 @@ pub trait ValueTrait: Into<Value> {
     const TYPE: ValueKind;
 }
 
-impl ValueTrait for u32 {
-    const TYPE: ValueKind = ValueKind::U32;
+macro_rules! impl_value_trait {
+    ( $($ty:ident: $kind:expr),+ $(,)? ) => {$(
+        impl ValueTrait for $ty {
+            const TYPE: ValueKind = $kind;
+        }
+    )+}
 }
 
-impl ValueTrait for u128 {
-    const TYPE: ValueKind = ValueKind::U128;
+impl_value_trait! {
+    u32: ValueKind::Numeric,
+    u128: ValueKind::Numeric
 }
 
 impl<I: Into<IdBox> + Into<Value>> ValueTrait for I {

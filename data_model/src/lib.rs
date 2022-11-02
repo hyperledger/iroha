@@ -40,7 +40,7 @@ use iroha_primitives::{
 };
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
-use prelude::{AssetValue, TransactionQueryResult};
+use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
 
 use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
@@ -486,18 +486,12 @@ pub type ValueBox = Box<Value>;
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
-    /// [`u32`] integer.
-    U32(u32),
-    /// [`u128`] integer.
-    U128(u128),
     /// [`bool`] value.
     Bool(bool),
     /// [`String`] value.
     String(String),
     /// [`Name`] value.
     Name(Name),
-    /// [`fixed::Fixed`] value
-    Fixed(fixed::Fixed),
     /// [`Vec`] of `Value`.
     Vec(
         #[skip_from]
@@ -532,8 +526,48 @@ pub enum Value {
     Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
     /// IP Version 6 address.
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
-    /// AssetValue
-    AssetValue(AssetValue),
+    /// Numeric
+    Numeric(NumericValue),
+}
+
+/// Enum for all supported numeric values
+#[derive(
+    Debug,
+    Display,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    FfiType,
+    IntoSchema,
+)]
+pub enum NumericValue {
+    /// `u32` value
+    U32(u32),
+    /// `u128` value
+    U128(u128),
+    /// `Fixed` value
+    Fixed(fixed::Fixed),
+}
+
+impl NumericValue {
+    /// Return `true` if value is zero
+    pub const fn is_zero_value(self) -> bool {
+        use NumericValue::*;
+        match self {
+            U32(value) => value == 0_u32,
+            U128(value) => value == 0_u128,
+            Fixed(value) => value.is_zero(),
+        }
+    }
 }
 
 #[cfg(not(target_arch = "aarch64"))]
@@ -614,12 +648,9 @@ impl fmt::Display for Value {
     // TODO: Maybe derive
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::U32(v) => fmt::Display::fmt(&v, f),
-            Value::U128(v) => fmt::Display::fmt(&v, f),
             Value::Bool(v) => fmt::Display::fmt(&v, f),
             Value::String(v) => fmt::Display::fmt(&v, f),
             Value::Name(v) => fmt::Display::fmt(&v, f),
-            Value::Fixed(v) => fmt::Display::fmt(&v, f),
             #[allow(clippy::use_debug)]
             Value::Vec(v) => {
                 // TODO: Remove so we can derive.
@@ -643,7 +674,7 @@ impl fmt::Display for Value {
             Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
             Value::Ipv4Addr(v) => fmt::Display::fmt(&v, f),
             Value::Ipv6Addr(v) => fmt::Display::fmt(&v, f),
-            Value::AssetValue(v) => fmt::Display::fmt(&v, f),
+            Value::Numeric(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -655,16 +686,13 @@ impl Value {
         use Value::*;
 
         match self {
-            U32(_)
-            | U128(_)
-            | Id(_)
+            Id(_)
             | PublicKey(_)
             | Bool(_)
             | Parameter(_)
             | Identifiable(_)
             | String(_)
             | Name(_)
-            | Fixed(_)
             | TransactionValue(_)
             | TransactionQueryResult(_)
             | PermissionToken(_)
@@ -673,7 +701,7 @@ impl Value {
             | Ipv4Addr(_)
             | Ipv6Addr(_)
             | BlockHeader(_)
-            | AssetValue(_) => 1_usize,
+            | Numeric(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -941,6 +969,109 @@ where
     }
 }
 
+macro_rules! from_and_try_from_and_try_as_value_numeric {
+    ( $( $variant:ident($ty:ty),)+ $(,)? ) => {
+        $(
+            impl TryFrom<Value> for $ty {
+                type Error = ErrorTryFromEnum<Value, Self>;
+
+                #[inline]
+                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                    if let Value::Numeric(NumericValue::$variant(value)) = value {
+                        Ok(value)
+                    } else {
+                        Err(Self::Error::default())
+                    }
+                }
+            }
+
+            impl From<$ty> for Value {
+                #[inline]
+                fn from(value: $ty) -> Self {
+                    Value::Numeric(NumericValue::$variant(value))
+                }
+            }
+
+            impl TryAsMut<$ty> for NumericValue {
+                type Error = crate::EnumTryAsError<$ty, NumericValue>;
+
+                #[inline]
+                fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
+                    if let NumericValue:: $variant (value) = self {
+                        Ok(value)
+                    } else {
+                        Err(crate::EnumTryAsError::got(*self))
+                    }
+                }
+            }
+
+            impl TryAsRef<$ty> for NumericValue {
+                type Error = crate::EnumTryAsError<$ty, NumericValue>;
+
+                #[inline]
+                fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
+                    if let NumericValue:: $variant (value) = self {
+                        Ok(value)
+                    } else {
+                        Err(crate::EnumTryAsError::got(*self))
+                    }
+                }
+            }
+        )*
+    };
+}
+
+from_and_try_from_and_try_as_value_numeric! {
+    U32(u32),
+    U128(u128),
+    Fixed(fixed::Fixed),
+}
+
+impl TryFrom<f64> for Value {
+    type Error = <f64 as TryInto<fixed::Fixed>>::Error;
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        value
+            .try_into()
+            .map(NumericValue::Fixed)
+            .map(Value::Numeric)
+    }
+}
+
+/// Represent type which can be converted into [`Value`] infallibly.
+/// This trait can be used when type inference can't properly inference desired type.
+pub trait ToValue {
+    /// Convert [`Self`] into [`Value`].
+    fn to_value(self) -> Value;
+}
+
+/// Represent type which can be converted into `Value` with possibility of failure.
+/// This trait can be used when type inference can't properly inference desired type.
+pub trait TryToValue {
+    /// Type which represents conversation error.
+    type Error;
+    /// Try convert [`Self`] into [`Value`].
+    ///
+    /// # Errors
+    /// Fail when it is not possible to convert [`Self`] into `Value`
+    fn try_to_value(self) -> Result<Value, Self::Error>;
+}
+
+impl<T: Into<Value>> ToValue for T {
+    #[inline]
+    fn to_value(self) -> Value {
+        self.into()
+    }
+}
+
+impl<T: TryInto<Value>> TryToValue for T {
+    type Error = T::Error;
+
+    #[inline]
+    fn try_to_value(self) -> Result<Value, Self::Error> {
+        self.try_into()
+    }
+}
+
 /// Uniquely identifiable entity ([`Domain`], [`Account`], etc.).
 /// This trait should always be derived with [`IdOrdEqHash`]
 pub trait Identifiable: Ord + Eq + core::hash::Hash {
@@ -1116,8 +1247,9 @@ pub mod prelude {
         sorting::prelude::*,
         transaction::prelude::*,
         trigger::prelude::*,
-        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Parameter,
-        PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
+        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, NumericValue, Parameter,
+        PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, ValidationError,
+        Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

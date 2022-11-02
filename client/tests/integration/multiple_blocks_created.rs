@@ -43,7 +43,7 @@ fn long_multiple_blocks_created() {
     for _ in 0..N_BLOCKS {
         let quantity: u32 = 1;
         let mint_asset = MintBox::new(
-            Value::U32(quantity),
+            quantity.to_value(),
             IdBox::AssetId(AssetId::new(
                 asset_definition_id.clone(),
                 account_id.clone(),

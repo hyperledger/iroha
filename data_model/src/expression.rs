@@ -618,7 +618,7 @@ impl From<ContextValue> for ExpressionBox {
 
 gen_expr_and_impls! {
     /// Evaluates to the multiplication of left and right expressions.
-    /// Works only for [`Value::U32`]
+    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -644,7 +644,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression divided by the right expression.
-    /// Works only for [`Value::U32`]
+    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -670,7 +670,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression modulo the right expression.
-    /// Works only for [`Value::U32`]
+    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -696,7 +696,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression in the power of right expression.
-    /// Works only for [`Value::U32`]
+    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -722,7 +722,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Evaluates to the sum of left and right expressions.
-    /// Works only for [`Value::U32`]
+    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -748,7 +748,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression minus the right expression.
-    /// Works only for [`Value::U32`]
+    /// Works only for [`NumericValue::U32`]
     #[derive(
         Debug,
         Display,
@@ -774,7 +774,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Returns whether the `left` expression is greater than the `right`.
-    /// Works only for [`Value::U32`].
+    /// Works only for [`NumericValue::U32`].
     #[derive(
         Debug,
         Display,
@@ -800,7 +800,7 @@ gen_expr_and_impls! {
 
 gen_expr_and_impls! {
     /// Returns whether the `left` expression is less than the `right`.
-    /// Works only for [`Value::U32`].
+    /// Works only for [`NumericValue::U32`].
     #[derive(
         Debug,
         Display,

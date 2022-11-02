@@ -977,7 +977,7 @@ pub mod asset {
     }
 
     impl Query for FindAssetQuantityById {
-        type Output = AssetValue;
+        type Output = NumericValue;
     }
 
     /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
@@ -1004,7 +1004,7 @@ pub mod asset {
     }
 
     impl Query for FindTotalAssetQuantityByAssetDefinitionId {
-        type Output = AssetValue;
+        type Output = NumericValue;
     }
 
     /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`Value`]

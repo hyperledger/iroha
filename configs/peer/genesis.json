@@ -237,8 +237,8 @@
               "PermissionTokenDefinition": {
                 "id": "can_transfer_only_fixed_number_of_times_per_period",
                 "params": {
-                  "count": "U32",
-                  "period": "U128"
+                  "count": "Numeric",
+                  "period": "Numeric"
                 }
               }
             }
@@ -247,7 +247,9 @@
         {
           "Mint": {
             "object": {
-              "U32": 13
+              "Numeric": {
+                "U32": 13
+              }
             },
             "destination_id": {
               "Id": {
@@ -259,7 +261,9 @@
         {
           "Mint": {
             "object": {
-              "U32": 44
+              "Numeric": {
+                "U32": 44
+              }
             },
             "destination_id": {
               "Id": {

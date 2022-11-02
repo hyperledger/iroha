@@ -211,17 +211,17 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             register::asset_definition("eth", "crypto").into(),
             register::asset_definition("btc2eth_rate", "exchange").into(),
             MintBox::new(
-                Value::U32(200),
+                200_u32.to_value(),
                 IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
             )
             .into(),
             MintBox::new(
-                Value::U32(20),
+                20_u32.to_value(),
                 IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
             )
             .into(),
             MintBox::new(
-                Value::U32(20),
+                20_u32.to_value(),
                 IdBox::AssetId(asset_id_new("btc2eth_rate", "exchange", "dex", "exchange")),
             )
             .into(),
@@ -263,9 +263,9 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         ])
         .expect("Failed to execute Iroha Special Instruction.");
     thread::sleep(pipeline_time * 3);
-    let expected_seller_eth = AssetValue::Quantity(20);
-    let expected_buyer_eth = AssetValue::Quantity(180);
-    let expected_buyer_btc = AssetValue::Quantity(20);
+    let expected_seller_eth = NumericValue::U32(20);
+    let expected_buyer_eth = NumericValue::U32(180);
+    let expected_buyer_btc = NumericValue::U32(20);
 
     let eth_quantity = iroha_client
         .request(FindAssetQuantityById::new(asset_id_new(

@@ -122,7 +122,7 @@ impl TestGenesis for GenesisNetwork {
         );
         genesis.transactions[0].isi.push(
             MintBox::new(
-                Value::U32(13),
+                13_u32.to_value(),
                 IdBox::AssetId(AssetId::new(rose_definition_id, alice_id)),
             )
             .into(),

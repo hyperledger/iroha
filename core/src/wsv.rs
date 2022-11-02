@@ -779,11 +779,11 @@ impl WorldStateView {
     pub fn asset_total_amount(
         &self,
         asset_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Result<AssetValue, FindError> {
+    ) -> Result<NumericValue, FindError> {
         self.domain(&asset_id.domain_id)?
             .asset_total_quantity(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
-            .map(Clone::clone)
+            .copied()
     }
 
     /// Get all transactions

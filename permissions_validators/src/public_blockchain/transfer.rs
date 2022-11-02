@@ -186,7 +186,7 @@ fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration> {
         .get(period_param_name)
         .ok_or_else(|| format!("Expected `{period_param_name}` parameter",))?
     {
-        Value::U128(period) => Ok(Duration::from_millis(
+        Value::Numeric(NumericValue::U128(period)) => Ok(Duration::from_millis(
             u64::try_from(*period).map_err(|e| e.to_string())?,
         )),
         _ => Err(format!(
@@ -206,7 +206,7 @@ fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32> {
         .get(count_param_name)
         .ok_or_else(|| format!("Expected `{count_param_name}` parameter"))?
     {
-        Value::U32(count) => Ok(*count),
+        Value::Numeric(NumericValue::U32(count)) => Ok(*count),
         _ => Err(format!(
             "`{count_param_name}` parameter has wrong value type. Expected `u32`"
         )),

@@ -80,7 +80,7 @@ fn permissions_disallow_asset_transfer() {
 
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
     iroha_client
@@ -91,7 +91,7 @@ fn permissions_disallow_asset_transfer() {
     //When
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id)),
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
     );
     let err = iroha_client
@@ -138,7 +138,7 @@ fn permissions_disallow_asset_burn() {
 
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
     iroha_client
@@ -147,7 +147,7 @@ fn permissions_disallow_asset_burn() {
     thread::sleep(pipeline_time * 2);
     //When
     let burn_asset = BurnBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id, bob_id)),
     );
 
@@ -446,7 +446,7 @@ mod token_parameters {
     fn register_test_token_definition(client: &Client) {
         let token_definition = PermissionTokenDefinition::new(TEST_TOKEN_DEFINITION_ID.clone())
             .with_params([
-                (NUMBER_PARAMETER_NAME.clone(), ValueKind::U32),
+                (NUMBER_PARAMETER_NAME.clone(), ValueKind::Numeric),
                 (STRING_PARAMETER_NAME.clone(), ValueKind::String),
             ]);
         client

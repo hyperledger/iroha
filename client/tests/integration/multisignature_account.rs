@@ -31,7 +31,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     //When
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),

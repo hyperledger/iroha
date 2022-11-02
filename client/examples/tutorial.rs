@@ -7,6 +7,7 @@ use std::fs::File;
 use eyre::{Error, WrapErr};
 // BEGIN FRAGMENT: rust_config_example
 use iroha_config::client::Configuration;
+use iroha_data_model::TryToValue;
 
 fn main() {
     let config_loc = "../configs/client_cli/config.json";
@@ -152,7 +153,6 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
         account::Id as AccountIdStruct,
         prelude::{
             AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintBox, RegisterBox,
-            Value,
         },
     };
 
@@ -177,7 +177,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // Create a MintBox using a previous asset and account
     let mint = MintBox::new(
-        Value::Fixed(12.34_f64.try_into()?),
+        12.34_f64.try_to_value()?,
         IdBox::AssetId(AssetId::new(asset_def_id, account_id)),
     );
     // Submit a minting transaction
@@ -194,8 +194,8 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
 
     use iroha_client::client::Client;
     use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, MintBox},
-        IdBox, Value,
+        prelude::{AccountId, AssetDefinitionId, AssetId, MintBox, ToValue},
+        IdBox,
     };
     // Create an Iroha client
     let iroha_client: Client = Client::new(&config).unwrap();
@@ -205,7 +205,10 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     let alice: AccountId = "alice@wonderland".parse()
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
     // Mint the Asset instance
-    let mint_roses = MintBox::new(Value::U32(42), IdBox::AssetId(AssetId::new(roses, alice)));
+    let mint_roses = MintBox::new(
+        42_u32.to_value(),
+        IdBox::AssetId(AssetId::new(roses, alice)),
+    );
     iroha_client
         .submit(mint_roses)
         .wrap_err("Failed to submit transaction")?;
@@ -215,7 +218,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
     let mint_roses_alt = MintBox::new(
-        Value::U32(10),
+        10_u32.to_value(),
         IdBox::AssetId("rose##alice@wonderland".parse()?),
     );
     iroha_client
@@ -232,8 +235,8 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
 
     use iroha_client::client::Client;
     use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, BurnBox},
-        IdBox, Value,
+        prelude::{AccountId, AssetDefinitionId, AssetId, BurnBox, ToValue},
+        IdBox,
     };
     // Create an Iroha client
     let iroha_client: Client = Client::new(&config).unwrap();
@@ -243,7 +246,10 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     let alice: AccountId = "alice@wonderland".parse()
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
     // Burn the Asset instance
-    let burn_roses = BurnBox::new(Value::U32(10), IdBox::AssetId(AssetId::new(roses, alice)));
+    let burn_roses = BurnBox::new(
+        10_u32.to_value(),
+        IdBox::AssetId(AssetId::new(roses, alice)),
+    );
     iroha_client
         .submit(burn_roses)
         .wrap_err("Failed to submit transaction")?;
@@ -253,7 +259,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
     let burn_roses_alt = BurnBox::new(
-        Value::U32(10),
+        10_u32.to_value(),
         IdBox::AssetId("rose##alice@wonderland".parse()?),
     );
     iroha_client

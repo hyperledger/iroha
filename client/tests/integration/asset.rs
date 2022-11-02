@@ -90,7 +90,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     //When
     let quantity: u32 = 200;
     let mint = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
@@ -121,7 +121,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     //When
     let quantity: u128 = 2_u128.pow(65);
     let mint = MintBox::new(
-        Value::U128(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
@@ -153,7 +153,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     //When
     let quantity: Fixed = Fixed::try_from(123.456_f64).unwrap();
     let mint = MintBox::new(
-        Value::Fixed(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
@@ -172,7 +172,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     // Add some fractional part
     let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
     let mint = MintBox::new(
-        Value::Fixed(quantity2),
+        quantity2.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),

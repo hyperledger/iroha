@@ -346,7 +346,7 @@ impl Evaluate for Divide {
         let left: u32 = self.left.evaluate(wsv, context)?;
         let right: u32 = self.right.evaluate(wsv, context)?;
         left.checked_div(right)
-            .map(Value::U32)
+            .map(Value::from)
             .ok_or_else(|| MathError::DivideByZero.into())
     }
 }
@@ -384,8 +384,8 @@ mod tests {
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
     fn conditional_multisignature_quorum() -> Result<()> {
-        let asset_quantity_high = Value::U32(750);
-        let asset_quantity_low = Value::U32(300);
+        let asset_quantity_high = 750_u32.to_value();
+        let asset_quantity_low = 300_u32.to_value();
         let (public_key_teller_1, _) = KeyPair::generate()?.into();
         let (public_key_teller_2, _) = KeyPair::generate()?.into();
         let (manager_public_key, _) = KeyPair::generate()?.into();
@@ -485,7 +485,7 @@ mod tests {
             )
             .build()
             .evaluate(&WorldStateView::new(World::new()), &Context::new())?,
-            Value::U32(5)
+            5_u32.to_value()
         );
         Ok(())
     }
@@ -509,7 +509,7 @@ mod tests {
             .into();
         assert_eq!(
             outer_expression.evaluate(&WorldStateView::new(World::new()), &Context::new())?,
-            Value::U32(6)
+            6_u32.to_value()
         );
         Ok(())
     }
@@ -536,11 +536,11 @@ mod tests {
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
             IfExpression::new(true, 1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
-            Value::U32(1)
+            1_u32.to_value()
         );
         assert_eq!(
             IfExpression::new(false, 1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
-            Value::U32(2)
+            2_u32.to_value()
         );
         Ok(())
     }
@@ -607,11 +607,11 @@ mod tests {
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
             Add::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,
-            Value::U32(3)
+            3_u32.to_value()
         );
         assert_eq!(
             Subtract::new(7_u32, 2_u32).evaluate(&wsv, &Context::new())?,
-            Value::U32(5)
+            5_u32.to_value()
         );
         assert_eq!(
             Greater::new(1_u32, 2_u32).evaluate(&wsv, &Context::new())?,

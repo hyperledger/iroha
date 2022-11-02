@@ -50,7 +50,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     //When
     let quantity: u32 = 200;
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
-    let mint_asset = MintBox::new(Value::U32(quantity), IdBox::AssetId(asset_id.clone()));
+    let mint_asset = MintBox::new(quantity.to_value(), IdBox::AssetId(asset_id.clone()));
 
     let (public_key1, private_key1) = alice_key_pair.into();
     client_configuration.account_id = alice_id.clone();

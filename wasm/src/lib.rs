@@ -373,8 +373,8 @@ mod tests {
 
     use super::*;
 
-    const QUERY_RESULT: Value = Value::U32(1234);
-    const EXPRESSION_RESULT: Value = Value::U32(5);
+    const QUERY_RESULT: Value = Value::Numeric(NumericValue::U32(1234_u32));
+    const EXPRESSION_RESULT: Value = Value::Numeric(NumericValue::U32(5_u32));
 
     fn get_test_instruction() -> Instruction {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");

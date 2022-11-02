@@ -22,7 +22,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             wrong_asset_definition_id.clone(),
             account_id.clone(),

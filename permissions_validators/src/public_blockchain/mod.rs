@@ -207,7 +207,7 @@ mod tests {
         let wsv = WorldStateView::new(World::new());
         let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
-            object: Value::U32(10).into(),
+            object: 10_u32.to_value().into(),
             destination_id: IdBox::AssetId(bob_xor_id).into(),
         });
         assert!(transfer::OnlyOwnedAssets
@@ -240,7 +240,7 @@ mod tests {
         ));
         let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
-            object: Value::U32(10).into(),
+            object: 10_u32.to_value().into(),
             destination_id: IdBox::AssetId(bob_xor_id).into(),
         });
         let validator =
@@ -355,7 +355,7 @@ mod tests {
             .is_none());
         let wsv = WorldStateView::new(World::with([domain], []));
         let mint = Instruction::Mint(MintBox {
-            object: Value::U32(100).into(),
+            object: 100_u32.to_value().into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
         assert!(mint::OnlyAssetsCreatedByThisAccount
@@ -388,7 +388,7 @@ mod tests {
             mint::CanMintUserAssetDefinitions::new(xor_id).into()
         ));
         let instruction = Instruction::Mint(MintBox {
-            object: Value::U32(100).into(),
+            object: 100_u32.to_value().into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
         let validator =
@@ -436,7 +436,7 @@ mod tests {
             .is_none());
         let wsv = WorldStateView::new(World::with([domain], []));
         let burn = Instruction::Burn(BurnBox {
-            object: Value::U32(100).into(),
+            object: 100_u32.to_value().into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
         assert!(burn::OnlyAssetsCreatedByThisAccount
@@ -469,7 +469,7 @@ mod tests {
             burn::CanBurnAssetWithDefinition::new(xor_id).into()
         ));
         let instruction = Instruction::Burn(BurnBox {
-            object: Value::U32(100).into(),
+            object: 100_u32.to_value().into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
         let validator =
@@ -510,7 +510,7 @@ mod tests {
         );
         let wsv = WorldStateView::new(World::new());
         let burn = Instruction::Burn(BurnBox {
-            object: Value::U32(100).into(),
+            object: 100_u32.to_value().into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
         assert!(burn::OnlyOwnedAssets
@@ -536,7 +536,7 @@ mod tests {
             burn::CanBurnUserAssets::new(alice_xor_id.clone()).into()
         ));
         let transfer = Instruction::Burn(BurnBox {
-            object: Value::U32(10).into(),
+            object: 10_u32.to_value().into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
         let validator = burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner.into_validator());

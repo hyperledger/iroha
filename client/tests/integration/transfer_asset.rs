@@ -60,7 +60,7 @@ fn simulate_transfer<
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let create_asset = RegisterBox::new(value_type(asset_definition_id.clone()));
     let mint_asset = MintBox::new(
-        Value::from(starting_amount),
+        starting_amount.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
 
@@ -76,7 +76,7 @@ fn simulate_transfer<
     //When
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
-        Value::from(amount_to_transfer.clone()),
+        amount_to_transfer.clone().to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), mouse_id.clone())),
     );
     iroha_client

@@ -393,7 +393,7 @@ mod tests {
             .no_denies()
             .build();
         let instruction_burn: Instruction =
-            BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
+            BurnBox::new(10_u32.to_value(), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_owned(),
         });
@@ -420,7 +420,7 @@ mod tests {
             .no_denies()
             .build();
         let instruction_burn: Instruction =
-            BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
+            BurnBox::new(10_u32.to_value(), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_owned(),
         });
@@ -447,7 +447,7 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
+        let instruction_burn: Instruction = BurnBox::new(10_u32.to_value(), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let bob_account = Account::new(bob_id.clone(), []).build();
         assert!(domain.add_account(bob_account).is_none());

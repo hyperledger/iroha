@@ -17,7 +17,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let mut assets = vec![];
     let mut instructions: Vec<Instruction> = vec![];
 
-    for i in 0..10 {
+    for i in 0..10_u128 {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor{}#wonderland", i)).expect("Valid");
         let asset_definition = AssetDefinition::store(asset_definition_id.clone());
@@ -25,8 +25,8 @@ fn correct_pagination_assets_after_creating_new_one() {
         asset_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                Value::U128(i),
-                MetadataLimits::new(10, 22),
+                i.to_value(),
+                MetadataLimits::new(10, 23),
             )
             .expect("Valid");
         let asset = Asset::new(
@@ -75,8 +75,8 @@ fn correct_pagination_assets_after_creating_new_one() {
     new_asset_metadata
         .insert_with_limits(
             sort_by_metadata_key,
-            Value::U128(10),
-            MetadataLimits::new(10, 22),
+            10_u128.to_value(),
+            MetadataLimits::new(10, 23),
         )
         .expect("Valid");
     let new_asset = Asset::new(
@@ -126,15 +126,15 @@ fn correct_sorting_of_asset_definitions() {
     let mut asset_definitions = vec![];
     let mut instructions: Vec<Instruction> = vec![];
 
-    for i in 0..10 {
+    for i in 0..10_u128 {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor{}#wonderland", i)).expect("Valid");
         let mut asset_metadata = Metadata::new();
         asset_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                Value::U128(i),
-                MetadataLimits::new(10, 27),
+                i.to_value(),
+                MetadataLimits::new(10, 28),
             )
             .expect("Valid");
         let asset_definition =
@@ -179,14 +179,14 @@ fn correct_sorting_of_asset_definitions() {
     let mut accounts = vec![];
     let mut instructions = vec![];
 
-    for i in 0..10 {
+    for i in 0..10_u128 {
         let account_id = AccountId::from_str(&format!("bob{}@wonderland", i)).expect("Valid");
         let mut account_metadata = Metadata::new();
         account_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                Value::U128(i),
-                MetadataLimits::new(10, 27),
+                i.to_value(),
+                MetadataLimits::new(10, 28),
             )
             .expect("Valid");
         let account = Account::new(account_id, []).with_metadata(account_metadata);
@@ -236,14 +236,14 @@ fn correct_sorting_of_asset_definitions() {
     let mut domains = vec![];
     let mut instructions = vec![];
 
-    for i in 0..10 {
+    for i in 0..10_u128 {
         let domain_id = DomainId::from_str(&format!("neverland{}", i)).expect("Valid");
         let mut domain_metadata = Metadata::new();
         domain_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                Value::U128(i),
-                MetadataLimits::new(10, 27),
+                i.to_value(),
+                MetadataLimits::new(10, 28),
             )
             .expect("Valid");
         let domain = Domain::new(domain_id).with_metadata(domain_metadata);

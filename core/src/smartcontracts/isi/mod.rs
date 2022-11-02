@@ -337,18 +337,15 @@ impl Execute for MintBox {
         let object = self.object.evaluate(wsv, &context)?;
         iroha_logger::trace!(%destination_id, ?object, %authority);
         match (destination_id, object) {
-            (
-                IdBox::AssetId(asset_id),
-                Value::AssetValue(AssetValue::Quantity(quantity)) | Value::U32(quantity),
-            ) => Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv),
-            (
-                IdBox::AssetId(asset_id),
-                Value::AssetValue(AssetValue::BigQuantity(quantity)) | Value::U128(quantity),
-            ) => Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv),
-            (
-                IdBox::AssetId(asset_id),
-                Value::AssetValue(AssetValue::Fixed(quantity)) | Value::Fixed(quantity),
-            ) => Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv),
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U32(quantity))) => {
+                Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
+            }
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U128(quantity))) => {
+                Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv)
+            }
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::Fixed(quantity))) => {
+                Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
+            }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Mint::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
@@ -356,7 +353,7 @@ impl Execute for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
-            (IdBox::TriggerId(trigger_id), Value::U32(quantity)) => {
+            (IdBox::TriggerId(trigger_id), Value::Numeric(NumericValue::U32(quantity))) => {
                 Mint::<Trigger<FilterBox>, u32>::new(quantity, trigger_id).execute(authority, wsv)
             }
             _ => Err(Error::Unsupported(InstructionType::Mint)),
@@ -380,18 +377,15 @@ impl Execute for BurnBox {
             self.destination_id.evaluate(wsv, &context)?,
             self.object.evaluate(wsv, &context)?,
         ) {
-            (
-                IdBox::AssetId(asset_id),
-                Value::AssetValue(AssetValue::Quantity(quantity)) | Value::U32(quantity),
-            ) => Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv),
-            (
-                IdBox::AssetId(asset_id),
-                Value::AssetValue(AssetValue::BigQuantity(quantity)) | Value::U128(quantity),
-            ) => Burn::new(quantity, asset_id).execute(authority, wsv),
-            (
-                IdBox::AssetId(asset_id),
-                Value::AssetValue(AssetValue::Fixed(quantity)) | Value::Fixed(quantity),
-            ) => Burn::new(quantity, asset_id).execute(authority, wsv),
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U32(quantity))) => {
+                Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
+            }
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U128(quantity))) => {
+                Burn::new(quantity, asset_id).execute(authority, wsv)
+            }
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::Fixed(quantity))) => {
+                Burn::new(quantity, asset_id).execute(authority, wsv)
+            }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Burn::new(public_key, account_id).execute(authority, wsv)
             }
@@ -425,15 +419,15 @@ impl Execute for TransferBox {
         iroha_logger::trace!(?source_asset_id, ?destination_asset_id, ?value, %authority);
 
         match value {
-            Value::AssetValue(AssetValue::Quantity(quantity)) | Value::U32(quantity) => {
+            Value::Numeric(NumericValue::U32(quantity)) => {
                 Transfer::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
-            Value::AssetValue(AssetValue::BigQuantity(quantity)) | Value::U128(quantity) => {
+            Value::Numeric(NumericValue::U128(quantity)) => {
                 Transfer::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
-            Value::AssetValue(AssetValue::Fixed(quantity)) | Value::Fixed(quantity) => {
+            Value::Numeric(NumericValue::Fixed(quantity)) => {
                 Transfer::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
@@ -669,9 +663,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -696,9 +690,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -724,9 +718,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -751,9 +745,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())

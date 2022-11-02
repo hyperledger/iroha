@@ -33,7 +33,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     //When
     let quantity: u32 = 200;
     iroha_client.submit(MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),

@@ -3,9 +3,7 @@ use eyre::Result;
 use iroha_client::client::ClientQueryError;
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    prelude::*, query::asset::FindTotalAssetQuantityByAssetDefinitionId, Registered,
-};
+use iroha_data_model::{prelude::*, query::asset::FindTotalAssetQuantityByAssetDefinitionId};
 use iroha_permissions_validators::public_blockchain::burn::CanBurnUserAssets;
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
@@ -48,30 +46,29 @@ fn find_asset_total_quantity() -> Result<()> {
         (
             "quantity#wonderland",
             AssetValueType::Quantity,
-            Value::U32(10),
-            Value::U32(5),
-            AssetValue::Quantity(25),
+            10_u32.to_value(),
+            5_u32.to_value(),
+            NumericValue::U32(25_u32),
         ),
         (
             "big-quantity#wonderland",
             AssetValueType::BigQuantity,
-            Value::U128(10),
-            Value::U128(5),
-            AssetValue::BigQuantity(25),
+            10_u128.to_value(),
+            5_u128.to_value(),
+            NumericValue::U128(25_u128),
         ),
         (
             "fixed#wonderland",
             AssetValueType::Fixed,
-            Value::Fixed(Fixed::try_from(10.0)?),
-            Value::Fixed(Fixed::try_from(5.0)?),
-            AssetValue::Fixed(Fixed::try_from(25.0)?),
+            10.0_f64.try_to_value()?,
+            5.0_f64.try_to_value()?,
+            NumericValue::Fixed(Fixed::try_from(25.0)?),
         ),
     ] {
         // Registering new asset definition
         let definition_id: <AssetDefinition as Identifiable>::Id =
             definition.parse().expect("Valid");
-        let asset_definition =
-            <AssetDefinition as Registered>::With::new(definition_id.clone(), asset_value_type);
+        let asset_definition = AssetDefinition::new(definition_id.clone(), asset_value_type);
         test_client.submit_blocking(RegisterBox::new(asset_definition.clone()))?;
 
         let assets = accounts

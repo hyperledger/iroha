@@ -166,7 +166,7 @@ mod tests {
         store
             .insert_with_limits(
                 Name::from_str("Bytes").expect("Valid"),
-                Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+                Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
@@ -182,7 +182,7 @@ mod tests {
         let mut metadata = Metadata::new();
         metadata.insert_with_limits(
             Name::from_str("Bytes")?,
-            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
             MetadataLimits::new(10, 100),
         )?;
 
@@ -283,7 +283,7 @@ mod tests {
             FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?).execute(&wsv)?;
         assert_eq!(
             bytes,
-            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()])
         );
         Ok(())
     }
@@ -296,7 +296,7 @@ mod tests {
             .execute(&wsv)?;
         assert_eq!(
             bytes,
-            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()])
         );
         Ok(())
     }
@@ -424,7 +424,7 @@ mod tests {
             let mut metadata = Metadata::new();
             metadata.insert_with_limits(
                 Name::from_str("Bytes")?,
-                Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+                Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
                 MetadataLimits::new(10, 100),
             )?;
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
@@ -447,7 +447,7 @@ mod tests {
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(
             bytes,
-            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()])
         );
         Ok(())
     }
