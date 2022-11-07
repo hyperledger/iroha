@@ -62,7 +62,7 @@ jobs:
           PREFIX='iroha2-'
           TAG=${BRANCH#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
-      - name: Build and push docker image (load-rs:release)
+      - name: Build and push docker image (load-rs:release/stable)
         run: |
           sleep 10s
           echo "wait to finish other workflow"

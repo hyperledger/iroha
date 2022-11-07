@@ -21,7 +21,7 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -45,7 +45,7 @@ jobs:
         run: mold --run cargo +nightly-2022-08-15 build --target wasm32-unknown-unknown --quiet
 
   with_coverage:
-    runs-on: ubuntu-latest #[self-hosted, Linux]
+    runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: 7272721/i2-ci:nightly
     strategy:
@@ -82,7 +82,7 @@ jobs:
           commit_parent: ${{ github.event.pull_request.base.sha }}
 
   integration:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: 7272721/i2-ci:nightly
     timeout-minutes: 30
@@ -95,7 +95,7 @@ jobs:
           integration:: --skip unstable_network
 
   unstable:
-    runs-on: ubuntu-latest #[self-hosted, Linux]
+    runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: 7272721/i2-ci:nightly
     timeout-minutes: 60
