@@ -5,7 +5,7 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     os::unix::io::{AsRawFd, FromRawFd},
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
@@ -23,12 +23,8 @@ use iroha_logger::{error, info, trace};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use thiserror::Error;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
-    runtime::Handle,
-    sync::mpsc,
-};
+
+use std::ops::DerefMut;
 
 use crate::{
     block_sync::BlockSynchronizer, handler::ThreadHandler, sumeragi::Sumeragi, NetworkMessage,
@@ -103,10 +99,10 @@ pub struct P2PSystem {
     listen_addr: String,
     public_key: PublicKey,
     connect_peer_target: Mutex<Vec<PeerId>>,
-    connected_to_peers: Mutex<HashMap<PublicKey, (OwnedWriteHalf, Cryptographer)>>,
-    new_connection_pipe_receiver:
-        tokio::sync::Mutex<mpsc::Receiver<(TcpStream, Cryptographer, PublicKey)>>,
-    new_connection_pipe_sender: mpsc::Sender<(TcpStream, Cryptographer, PublicKey)>,
+    connected_to_peers: Mutex<HashMap<PublicKey, (TcpStream, Cryptographer)>>,
+    poll_network_index: std::sync::atomic::AtomicU32,
+
+    packet_buffers: Mutex<(Vec<Box<crate::SumeragiPacket>>, Vec<Box<crate::BlockSyncMessage>>)>,
 }
 
 impl std::fmt::Debug for P2PSystem {
@@ -117,14 +113,13 @@ impl std::fmt::Debug for P2PSystem {
 
 impl P2PSystem {
     pub fn new(listen_addr: String, public_key: PublicKey) -> Arc<P2PSystem> {
-        let (new_connection_pipe_sender, new_connection_pipe_receiver) = mpsc::channel(100);
         Arc::new(P2PSystem {
             listen_addr,
             public_key,
             connect_peer_target: Mutex::new(Vec::new()),
             connected_to_peers: Mutex::new(HashMap::new()),
-            new_connection_pipe_receiver: tokio::sync::Mutex::new(new_connection_pipe_receiver),
-            new_connection_pipe_sender,
+            poll_network_index: std::sync::atomic::AtomicU32::new(0),
+            packet_buffers: Mutex::new((Vec::new(), Vec::new())),
         })
     }
 
@@ -143,9 +138,6 @@ impl P2PSystem {
                     continue;
                 }
             };
-            let tcp_stream_fd = stream.as_ref().as_raw_fd();
-            let mut stream =
-                std::mem::ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(tcp_stream_fd) });
             println!("POST!!!");
             let encrypted = crypto
                 .encrypt(encoded.clone())
@@ -166,15 +158,127 @@ impl P2PSystem {
         }
     }
 
+    pub fn post_to_own_sumeragi_buffer(&self, sumeragi_packet: Box<crate::SumeragiPacket>)
+    {
+        let mut packet_buffers = self.packet_buffers.lock().unwrap();
+        let (ref mut sumeragi_packet_buffer, ref mut block_sync_message_buffer) = packet_buffers.deref_mut();
+
+        sumeragi_packet_buffer.push(sumeragi_packet);
+    }
+
+    pub fn poll_network_for_sumeragi_packet(&self) -> Option<crate::SumeragiPacket> {
+        let mut packet_buffers = self.packet_buffers.lock().unwrap();
+        let (ref mut sumeragi_packet_buffer, ref mut block_sync_message_buffer) = packet_buffers.deref_mut();
+
+        if !sumeragi_packet_buffer.is_empty() {
+            println!("Early return sumeragi.");
+            return Some(*sumeragi_packet_buffer.remove(0));
+        }
+
+        let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
+        let mut values : Vec<_> = connected_to_peers.iter_mut().collect();
+        let value_len = values.len();
+
+        let mut to_disconnect_keys = Vec::new();
+        let mut received = None;
+
+        for _ in 0..values.len() {
+            let mut poll_network_index = self.poll_network_index.load(std::sync::atomic::Ordering::SeqCst);
+
+            let (public_key, (stream, crypto)) : &mut (&PublicKey, &mut (TcpStream, Cryptographer)) = &mut values[poll_network_index as usize % value_len];
+            self.poll_network_index.store(poll_network_index.wrapping_add(1), std::sync::atomic::Ordering::SeqCst);
+
+            match read_from_socket(stream, crypto) {
+                None => {
+                    to_disconnect_keys.push(public_key.clone());
+                },
+                Some(maybe_message) => {
+                    match maybe_message {
+                        Some(message) => {
+                            match message {
+                                NetworkMessage::SumeragiPacket(packet) => {
+                                    received = Some(*packet);
+                                    break;
+                                },
+                                NetworkMessage::BlockSync(message) => {
+                                    block_sync_message_buffer.push(message);
+                                }
+                                Health => (),
+                            }
+                        },
+                        None => (),
+                    }
+                },
+            }
+        }
+
+        for key in to_disconnect_keys {
+            println!("Disconnecting from {}.", &key);
+            connected_to_peers.remove(&key);
+        }
+
+        None
+    }
+
+    pub fn poll_network_for_block_sync_message(&self) -> Option<crate::BlockSyncMessage> {
+        let mut packet_buffers = self.packet_buffers.lock().unwrap();
+        let (ref mut sumeragi_packet_buffer, ref mut block_sync_message_buffer) = packet_buffers.deref_mut();
+
+        if !block_sync_message_buffer.is_empty() {
+            println!("Early return block sync.");
+            return Some(*block_sync_message_buffer.remove(0));
+        }
+
+        let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
+        let mut values : Vec<_> = connected_to_peers.iter_mut().collect();
+        let value_len = values.len();
+
+        let mut to_disconnect_keys = Vec::new();
+        let mut received = None;
+
+        for _ in 0..value_len {
+            let mut poll_network_index = self.poll_network_index.load(std::sync::atomic::Ordering::SeqCst);
+
+            let (public_key, (stream, crypto)) : &mut (&PublicKey, &mut (TcpStream, Cryptographer)) = &mut values[poll_network_index as usize % value_len];
+            self.poll_network_index.store(poll_network_index.wrapping_add(1), std::sync::atomic::Ordering::SeqCst);
+
+            match read_from_socket(stream, crypto) {
+                None => {
+                    to_disconnect_keys.push(public_key.clone());
+                },
+                Some(maybe_message) => {
+                    match maybe_message {
+                        Some(message) => {
+                            match message {
+                                NetworkMessage::SumeragiPacket(packet) => {
+                                    sumeragi_packet_buffer.push(packet);
+                                },
+                                NetworkMessage::BlockSync(message) => {
+                                    received = Some(*message);
+                                    break;
+                                }
+                                Health => (),
+                            }
+                        },
+                        None => (),
+                    }
+                },
+            }
+        }
+
+        for key in to_disconnect_keys {
+            println!("Disconnecting from {}.", &key);
+            connected_to_peers.remove(&key);
+        }
+
+        received
+    }
+
     pub fn get_connected_to_peer_keys(&self) -> Vec<PublicKey> {
         let mut keys = Vec::new();
-
         let mut to_remove_keys = Vec::new();
         let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
         for (public_key, (stream, crypto)) in connected_to_peers.iter_mut() {
-            let tcp_stream_fd = stream.as_ref().as_raw_fd();
-            let mut stream =
-                std::mem::ManuallyDrop::new(unsafe { TcpStream::from_raw_fd(tcp_stream_fd) });
             if stream.write_all(&0_u32.to_le_bytes()).is_err() {
                 // This has to be done in order to detect broken pipes.
                 to_remove_keys.push(public_key.clone());
@@ -183,6 +287,7 @@ impl P2PSystem {
             }
         }
         for key in to_remove_keys {
+            println!("Disconnecting due to broken connection from {}.", &key);
             connected_to_peers.remove(&key);
         }
         keys
@@ -198,167 +303,54 @@ impl P2PSystem {
         {
             target.remove(index);
         }
-    }
-}
-
-pub async fn start_read_loop(
-    p2p: Arc<P2PSystem>,
-    sumeragi: Arc<Sumeragi>,
-    block_sync: Arc<BlockSynchronizer>,
-) -> ThreadHandler {
-    // Oneshot channel to allow forcefully stopping the thread.
-    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
-
-    let task_handle = tokio::task::spawn(async move {
-        p2p_read_loop(&p2p, shutdown_receiver, &sumeragi, &block_sync).await;
-    });
-
-    let thread_handle = std::thread::spawn(move || {}); // We provide a dummy handle for the thread system.
-
-    let shutdown = move || {
-        let _result = shutdown_sender.send(());
-    };
-
-    ThreadHandler::new(Box::new(shutdown), thread_handle)
-}
-
-async fn p2p_read_loop(
-    p2p: &P2PSystem,
-    mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
-    sumeragi: &Sumeragi,
-    block_sync: &BlockSynchronizer,
-) {
-    let mut new_connection_pipe_receiver = p2p.new_connection_pipe_receiver.lock().await;
-
-    let mut readers: HashMap<PublicKey, tokio::task::JoinHandle<_>> = HashMap::new();
-    let mut should_exit = false;
-    while !should_exit {
-        // We have no obligations to network delivery so we simply exit on shutdown signal.
-        if shutdown_receiver.try_recv().is_ok() {
-            info!("P2P read thread is being shut down");
-            should_exit = true;
-            continue;
-        }
-
-        let received = new_connection_pipe_receiver.recv().await;
-        let (mut stream, crypto, public_key) = match received {
-            Some(tup) => tup,
-            None => {
-                info!("Channel closed. P2P async thread shutting down.");
-                should_exit = true;
-                continue;
+        let target = target.clone();
+        let mut connected_to_peers = self.connected_to_peers.lock().unwrap();
+        let mut to_disconnect_keys = Vec::new();
+        for public_key in connected_to_peers.keys() {
+            if target.iter().position(|id| id.public_key == *public_key).is_none() {
+                to_disconnect_keys.push(public_key.clone());
             }
-        };
-
-        // is already connected
-        let mut connected_to_peer_keys = p2p.get_connected_to_peer_keys();
-        if connected_to_peer_keys
-            .iter()
-            .position(|connected_public_key| *connected_public_key == public_key)
-            .is_some()
-        {
-            trace!("Dropping because already connected, {}.", public_key);
-            continue;
         }
-
-        stream
-            .set_nonblocking(true)
-            .expect("Failed to set nonblocking on tcp stream.");
-        let (mut read_half, write_half) = tokio::net::TcpStream::from_std(stream)
-            .expect("Failed to create tokio tcp stream from std.")
-            .into_split();
-
-        p2p.connected_to_peers
-            .lock()
-            .unwrap()
-            .insert(public_key.clone(), (write_half, crypto.clone()));
-
-        // nocheckin write good comment explaining why and add abort code to tasks.
-        let static_p2p: &'static P2PSystem = unsafe { std::mem::transmute(p2p) };
-        let static_sumeragi: &'static Sumeragi = unsafe { std::mem::transmute(sumeragi) };
-        let static_block_sync: &'static BlockSynchronizer =
-            unsafe { std::mem::transmute(block_sync) };
-
-        readers.insert(
-            public_key.clone(),
-            tokio::task::spawn(async move {
-                read_from_socket(
-                    static_p2p,
-                    static_sumeragi,
-                    static_block_sync,
-                    public_key.clone(),
-                    &mut read_half,
-                    crypto,
-                )
-                .await;
-                {
-                    let tcp_stream_fd = read_half.as_ref().as_raw_fd();
-                    let mut stream = std::mem::ManuallyDrop::new(unsafe {
-                        TcpStream::from_raw_fd(tcp_stream_fd)
-                    });
-                    stream.shutdown(std::net::Shutdown::Both);
-
-                    let mut connected_to_peers = static_p2p.connected_to_peers.lock().unwrap();
-                    connected_to_peers.remove(&public_key);
-                }
-            }),
-        );
-    }
-
-    for (_, task_handle) in readers {
-        task_handle.abort();
-        task_handle.await;
+        for key in to_disconnect_keys {
+            println!("Disconnected because not in target from {}.", key);
+            connected_to_peers.remove(&key);
+        }
     }
 }
 
-async fn read_from_socket(
-    p2p: &P2PSystem,
-    sumeragi: &Sumeragi,
-    block_sync: &BlockSynchronizer,
-    public_key: PublicKey,
-    stream: &mut OwnedReadHalf,
-    crypto: Cryptographer,
-) -> Option<()> {
-    loop {
-        {
-            p2p.connect_peer_target
-                .lock()
-                .unwrap()
-                .iter()
-                .position(|id| id.public_key == public_key)?;
-            p2p.connected_to_peers
-                .lock()
-                .unwrap()
-                .iter()
-                .position(|(key, (_, _))| *key == public_key)?;
-        }
+fn read_from_socket(
+    stream: &mut TcpStream,
+    crypto: &Cryptographer,
+) -> Option<Option<NetworkMessage>> {
+    if stream.write_all(&0_u32.to_le_bytes()).is_err() {
+        // This has to be done in order to detect broken pipes.
+        return None;
+    }
 
+    let mut packet_size = 0;
+    while packet_size == 0 {
         let mut _byte = 0_u8;
-        let byte_count = stream.peek(std::slice::from_mut(&mut _byte)).await.ok()?; // Packet incomming
+        stream.set_nonblocking(true).unwrap();
+        let byte_count = if let Ok(value) = stream.peek(std::slice::from_mut(&mut _byte)) {
+            stream.set_nonblocking(false).unwrap();
+            value
+        } else {
+            stream.set_nonblocking(false).unwrap();
+            return Some(None);
+        };
         if byte_count == 0 {
-            continue;
+            return Some(None);
         }
-        let mut packet_size = [0_u8; 4];
-        stream.read_exact(&mut packet_size).await.ok()?;
-        let packet_size = u32::from_le_bytes(packet_size);
-        if packet_size == 0 {
-            continue;
-        }
-
-        let mut buf = vec![0_u8; packet_size as usize];
-        stream.read_exact(&mut buf).await.ok()?;
-        let data = crypto.decrypt(buf).ok()?;
-        let network_message = Decode::decode(&mut data.as_slice()).ok()?;
-        match network_message {
-            SumeragiPacket(data) => {
-                sumeragi.incoming_message(data.into_v1());
-            }
-            BlockSync(data) => {
-                block_sync.incoming_message(*data);
-            }
-            Health => {}
-        }
+        let mut packet_size_buf = [0_u8; 4];
+        stream.read_exact(&mut packet_size_buf).ok()?;
+        packet_size = u32::from_le_bytes(packet_size_buf);
     }
+
+    let mut buf = vec![0_u8; packet_size as usize];
+    stream.read_exact(&mut buf).ok()?;
+    let data = crypto.decrypt(buf).ok()?;
+    let network_message = Decode::decode(&mut data.as_slice()).ok()?;
+    Some(Some(network_message))
 }
 
 pub fn start_listen_loop(p2p: Arc<P2PSystem>) -> ThreadHandler {
@@ -404,19 +396,31 @@ fn p2p_listen_loop(p2p: &P2PSystem, mut shutdown_receiver: tokio::sync::oneshot:
             None => continue,
         };
 
-        let target = p2p.connect_peer_target.lock().unwrap();
-
-        if target
-            .iter()
-            .position(|peer_id| peer_id.public_key == other_public_key)
-            .is_none()
         {
-            trace!("Dropping because not in target, {}.", other_public_key);
+            let target = p2p.connect_peer_target.lock().unwrap();
+            if target
+                .iter()
+                .position(|peer_id| peer_id.public_key == other_public_key)
+                .is_none()
+            {
+                trace!("Dropping because not in target, {}.", other_public_key);
+                continue;
+            }
+        }
+
+        let mut connected_to_peers = p2p.connected_to_peers.lock().unwrap();
+
+        if connected_to_peers
+            .keys()
+            .position(|key| *key == other_public_key)
+            .is_some()
+        {
+            trace!("Dropping because already connected, {}.", other_public_key);
             continue;
         }
 
-        p2p.new_connection_pipe_sender
-            .blocking_send((stream, crypto, other_public_key));
+
+        connected_to_peers.insert(other_public_key, (stream, crypto));
     }
 }
 

@@ -307,12 +307,13 @@ fn receive_network_packet(
     state: &mut State,
     view_change_proof_chain: &mut Vec<Proof>,
     maybe_incoming_message: &mut Option<Message>,
-    incoming_message_receiver: &mut mpsc::Receiver<MessagePacket>,
+    p2p: &P2PSystem,
 ) {
     assert!(maybe_incoming_message.is_none(),"If there is a message available it must be consumed within one loop cycle. A in house rule in place to stop one from implementing bugs that render a node not responding.");
 
-    *maybe_incoming_message = match incoming_message_receiver.try_recv() {
-        Ok(packet) => {
+    *maybe_incoming_message = match p2p.poll_network_for_sumeragi_packet() {
+        Some(packet) => {
+            let packet = packet.into_v1();
             let peer_list = state
                 .current_topology
                 .sorted_peers()
@@ -330,13 +331,7 @@ fn receive_network_packet(
             }
             Some(packet.message)
         }
-        Err(recv_error) => match recv_error {
-            mpsc::TryRecvError::Empty => None,
-            mpsc::TryRecvError::Disconnected => {
-                panic!("Sumeragi message pump disconnected. This is not a recoverable error.")
-                // TODO: Use early return.
-            }
-        },
+        None => None,
     };
 }
 
@@ -516,8 +511,6 @@ pub fn run<F>(
 ) where
     F: FaultInjection,
 {
-    let mut incoming_message_receiver = sumeragi.message_receiver.lock().expect("lock on reciever");
-
     if state.latest_block_height == 0 || state.latest_block_hash == Hash::zeroed().typed() {
         if let Some(genesis_network) = state.genesis_network.take() {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
@@ -525,7 +518,6 @@ pub fn run<F>(
             sumeragi_init_listen_for_genesis(
                 sumeragi,
                 &mut state,
-                &mut incoming_message_receiver,
                 &mut shutdown_receiver,
             )
             .unwrap_or_else(|err| assert!(!(EarlyReturn::Disconnected == err), "Disconnected"));
@@ -562,7 +554,7 @@ pub fn run<F>(
         if should_sleep {
             let span = span!(Level::TRACE, "Sumeragi Main Thread Sleep");
             let _enter = span.enter();
-            std::thread::sleep(std::time::Duration::from_micros(20000));
+            std::thread::sleep(std::time::Duration::from_micros(5000));
             should_sleep = false;
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
@@ -609,7 +601,7 @@ pub fn run<F>(
             &mut state,
             &mut view_change_proof_chain,
             &mut maybe_incoming_message,
-            &mut incoming_message_receiver,
+            &sumeragi.p2p,
         );
 
         let current_view_change_index: u64 = {
@@ -1167,7 +1159,6 @@ fn early_return(
 fn sumeragi_init_listen_for_genesis<F>(
     sumeragi: &SumeragiWithFault<F>,
     state: &mut State,
-    incoming_message_receiver: &mut mpsc::Receiver<MessagePacket>,
     shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), EarlyReturn>
 where
@@ -1187,8 +1178,8 @@ where
         early_return(shutdown_receiver)?;
         // we must connect to peers so that our block_sync can find us
         // the genesis block.
-        match incoming_message_receiver.try_recv() {
-            Ok(packet) => match packet.message {
+        match sumeragi.p2p.poll_network_for_sumeragi_packet() {
+            Some(packet) => match packet.into_v1().message {
                 Message::BlockCommitted(block_committed) => {
                     // If we recieve a committed genesis block that is
                     // valid, use it without question.  During the
@@ -1213,8 +1204,7 @@ where
                     trace!(?msg, "Not handling message, waiting genesis.");
                 }
             },
-            Err(mpsc::TryRecvError::Disconnected) => return Err(EarlyReturn::Disconnected),
-            _ => (),
+            None => (),
         }
     }
 }

@@ -117,7 +117,7 @@ fn block_sync_read_loop(
             }
         }
 
-        if let Ok(message) = message_receiver.try_recv() {
+        if let Some(message) = block_sync.p2p.poll_network_for_block_sync_message() {
             message.into_v1().handle_message(&block_sync);
         }
     }
@@ -228,12 +228,12 @@ pub mod message {
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
                     use crate::sumeragi::message::{BlockCommitted, Message, MessagePacket};
                     for block in blocks {
-                        block_sync.sumeragi.incoming_message(MessagePacket::new(
+                        block_sync.p2p.post_to_own_sumeragi_buffer(Box::new(MessagePacket::new(
                             Vec::new(),
                             Message::BlockCommitted(BlockCommitted {
                                 block: block.clone().into(),
                             }),
-                        ));
+                        ).into()));
                     }
                 }
             }

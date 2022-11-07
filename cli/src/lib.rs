@@ -255,12 +255,7 @@ impl Iroha {
         let block_sync_thread_handler =
             iroha_core::block_sync::start_read_loop(Arc::clone(&block_sync));
 
-        let p2p_thread_handler1 = iroha_core::p2p::start_listen_loop(Arc::clone(&p2p));
-        let p2p_thread_handler2 = iroha_core::p2p::start_read_loop(
-            Arc::clone(&p2p),
-            Arc::clone(&sumeragi),
-            Arc::clone(&block_sync),
-        ).await;
+        let p2p_thread_handler = iroha_core::p2p::start_listen_loop(Arc::clone(&p2p));
 
         let torii = Torii::from_configuration(
             config.clone(),
@@ -286,8 +281,7 @@ impl Iroha {
                 sumeragi_thread_handler,
                 block_sync_thread_handler,
                 kura_thread_handler,
-                p2p_thread_handler1,
-                p2p_thread_handler2,
+                p2p_thread_handler,
             ],
         })
     }

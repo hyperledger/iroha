@@ -326,21 +326,6 @@ impl Sumeragi {
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
-
-    /// Deposit a sumeragi network message.
-    #[allow(clippy::expect_used)]
-    pub fn incoming_message(&self, msg: MessagePacket) {
-        if self
-            .internal
-            .message_sender
-            .lock()
-            .expect("Lock on sender")
-            .try_send(msg)
-            .is_err()
-        {
-            error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
-        }
-    }
 }
 
 /// The interval at which sumeragi checks if there are tx in the
