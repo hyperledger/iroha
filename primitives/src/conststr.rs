@@ -521,10 +521,10 @@ mod ffi {
         type Type = Self;
     }
 
-    impl CType for ConstString {
+    impl CType<Self> for ConstString {
         type ReprC = ReprCConstString;
     }
-    impl CTypeConvert<'_, ReprCConstString> for ConstString {
+    impl CTypeConvert<'_, Self, ReprCConstString> for ConstString {
         type RustStore = Self;
         type FfiStore = ();
 
@@ -565,7 +565,7 @@ mod ffi {
         }
     }
 
-    impl COutPtr for ConstString {
+    impl COutPtr<Self> for ConstString {
         type OutPtr = OutBoxedSlice<u8>;
     }
 

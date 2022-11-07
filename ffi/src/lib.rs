@@ -7,7 +7,7 @@
 
 extern crate alloc;
 
-use ir::{Ir, IrTypeOf};
+use ir::Ir;
 pub use iroha_ffi_derive::*;
 use repr_c::{COutPtr, CType, CTypeConvert, NonLocal, NonTransmute};
 
@@ -44,13 +44,13 @@ pub unsafe trait Handle {
 pub unsafe trait ReprC: Copy {}
 
 /// A type that can be converted into some C type
-pub trait FfiType: Sized {
+pub trait FfiType {
     /// C type current type can be converted into
     type ReprC: ReprC;
 }
 
 /// Conversion utility for [`FfiType`]s
-pub trait FfiConvert<'itm, T: ReprC>: Sized {
+pub trait FfiConvert<'itm, C: ReprC>: Sized {
     /// Type into which state can be stored during conversion from [`Self`]. Useful for
     /// returning owning heap allocated types or non-owning types that are not transmutable.
     /// Serves similar purpose as does context in a closure
@@ -62,7 +62,7 @@ pub trait FfiConvert<'itm, T: ReprC>: Sized {
     type FfiStore: Default;
 
     /// Perform the conversion from [`Self`] into [`Self::ReprC`]
-    fn into_ffi(self, store: &'itm mut Self::RustStore) -> T;
+    fn into_ffi(self, store: &'itm mut Self::RustStore) -> C;
 
     /// Perform the conversion from [`Self::ReprC`] into [`Self`]
     ///
@@ -73,7 +73,7 @@ pub trait FfiConvert<'itm, T: ReprC>: Sized {
     /// # Safety
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
-    unsafe fn try_from_ffi(source: T, store: &'itm mut Self::FfiStore) -> Result<Self>;
+    unsafe fn try_from_ffi(source: C, store: &'itm mut Self::FfiStore) -> Result<Self>;
 }
 
 /// Marker trait designating a type that can be returned from an FFI function as an out-pointer
@@ -83,8 +83,8 @@ pub trait FfiOutPtr: FfiType {
 }
 
 /// Type that can be returned from an FFI function as an out-pointer function argument
-pub trait OutPtrOf<T: ReprC>: ReprC {
-    /// Try to write `T` into [`Self`] out-pointer and return whether or not it was successful
+pub trait OutPtrOf<C: ReprC>: ReprC {
+    /// Try to write `C` into [`Self`] out-pointer and return whether or not it was successful
     ///
     /// # Errors
     ///
@@ -95,7 +95,7 @@ pub trait OutPtrOf<T: ReprC>: ReprC {
     /// * All conversions from a pointer must ensure pointer validity beforehand
     // TODO: It could return bool for successful vs not?
     // It depends on whether or not `source` should be checked for validity?
-    unsafe fn write(self, source: T) -> Result<()>;
+    unsafe fn write(self, source: C) -> Result<()>;
 }
 
 /// Result of execution of an FFI function
@@ -156,12 +156,9 @@ pub enum FfiReturn {
 #[macro_export]
 macro_rules! ffi_type {
     (impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Opaque for $ty: ty $(where $where_clause: tt )? ) => {
-        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::option::Niche for $ty where $($where_clause)? {
-            const NICHE_VALUE: Self::ReprC = core::ptr::null_mut();
+        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
+            type Type = $crate::ir::Opaque;
         }
-
-        // SAFETY: Opaque types are never dereferenced
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::InfallibleTransmute for $ty where $($where_clause)? {}
 
         // SAFETY: Transmuting reference to a pointer of the same type
         unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Transmute for &$ty where $($where_clause)? {
@@ -182,20 +179,26 @@ macro_rules! ffi_type {
             }
         }
 
-        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
-            type Type = $crate::ir::Opaque<Self>;
-        }
+        // SAFETY: Opaque types are never dereferenced
+        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::InfallibleTransmute for $ty where $($where_clause)? {}
 
+        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::option::Niche for $ty where $($where_clause)? {
+            const NICHE_VALUE: Self::ReprC = core::ptr::null_mut();
+        }
     };
     (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Robust for $ty: ty $(where $where_clause: tt )? ) => {
-        // SAFETY: Type must be a robust repr(C) type
-        unsafe impl$(<$($impl_generics: $crate::ReprC + $($bounds)?),*>)? $crate::ReprC for $ty where $($where_clause)? {}
-
-        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where Self: $crate::ReprC, $($where_clause)? {
-            type Type = $crate::ir::Robust<Self>;
+        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
+            type Type = $crate::ir::Robust;
         }
+
+        // SAFETY: Type must be a robust #[repr(C)] type
+        unsafe impl$(<$($impl_generics: $crate::ReprC + $($bounds)?),*>)? $crate::ReprC for $ty where $($where_clause)? {}
     };
     (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Transparent for $ty: ty[$target: ty] $(where $where_clause: tt )? validated with {$validity_fn: expr}) => {
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for $ty where $($where_clause)? {
+            type Type = $crate::ir::Transparent;
+        }
+
         // SAFETY: Type must be `#[repr(transparent)]` with respect to the target type
         unsafe impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Transmute for $ty where $($where_clause)? {
             type Target = $target;
@@ -223,9 +226,6 @@ macro_rules! ffi_type {
                 $validity_fn(target)
             }
         }
-        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for $ty where $($where_clause)? {
-            type Type = $crate::ir::Transparent<$ty>;
-        }
     };
 }
 
@@ -246,49 +246,40 @@ pub struct Extern {
     __marker: core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
 }
 
-// SAFETY: `*const T` is robust with a defined C ABI regardless of whether `T` is
-// When `T` is not `ReprC` the pointer is opaque; dereferencing is immediate UB
-unsafe impl<T> ReprC for *const T {}
-// SAFETY: `*mut T` is robust with a defined C ABI regardless of whether `T` is
-// When `T` is not `ReprC` the pointer is opaque; dereferencing is immediate UB
-unsafe impl<T> ReprC for *mut T {}
-// SAFETY: `*mut T` is robust with a defined C ABI
-unsafe impl<T: ReprC, const N: usize> ReprC for [T; N] {}
+// SAFETY: `*const R` is robust with a defined C ABI regardless of whether `R` is
+// When `R` is not `ReprC` the pointer is opaque; dereferencing is immediate UB
+unsafe impl<R> ReprC for *const R {}
+// SAFETY: `*mut R` is robust with a defined C ABI regardless of whether `R` is
+// When `R` is not `ReprC` the pointer is opaque; dereferencing is immediate UB
+unsafe impl<R> ReprC for *mut R {}
+// SAFETY: `*mut R` is robust with a defined C ABI
+unsafe impl<C: ReprC, const N: usize> ReprC for [C; N] {}
 
-impl<'itm, T: Ir + 'itm> FfiType for T
-where
-    T::Type: CType,
-{
-    type ReprC = <T::Type as CType>::ReprC;
+impl<R: Ir + CType<R::Type>> FfiType for R {
+    type ReprC = <R as CType<R::Type>>::ReprC;
 }
-impl<'itm, T: Ir + 'itm, U: ReprC> FfiConvert<'itm, U> for T
-where
-    T::Type: CTypeConvert<'itm, U>,
-{
-    type RustStore = <T::Type as CTypeConvert<'itm, U>>::RustStore;
-    type FfiStore = <T::Type as CTypeConvert<'itm, U>>::FfiStore;
+impl<'itm, R: Ir + CTypeConvert<'itm, R::Type, C>, C: ReprC> FfiConvert<'itm, C> for R {
+    type RustStore = R::RustStore;
+    type FfiStore = R::FfiStore;
 
     #[inline]
-    fn into_ffi(self, store: &'itm mut Self::RustStore) -> U {
-        T::Type::into_ir(self).into_repr_c(store)
+    fn into_ffi(self, store: &'itm mut Self::RustStore) -> C {
+        self.into_repr_c(store)
     }
 
     #[inline]
-    unsafe fn try_from_ffi(source: U, store: &'itm mut Self::FfiStore) -> Result<Self> {
-        T::Type::try_from_repr_c(source, store).map(IrTypeOf::into_rust)
+    unsafe fn try_from_ffi(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        R::try_from_repr_c(source, store)
     }
 }
 
-impl<'itm, T: Ir + 'itm> FfiOutPtr for T
-where
-    T::Type: COutPtr,
-{
-    type OutPtr = <T::Type as COutPtr>::OutPtr;
+impl<R: Ir + COutPtr<R::Type>> FfiOutPtr for R {
+    type OutPtr = R::OutPtr;
 }
 
-impl<T: ReprC> OutPtrOf<T> for *mut T {
+impl<C: ReprC> OutPtrOf<C> for *mut C {
     #[inline]
-    unsafe fn write(self, source: T) -> Result<()> {
+    unsafe fn write(self, source: C) -> Result<()> {
         if self.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -298,9 +289,9 @@ impl<T: ReprC> OutPtrOf<T> for *mut T {
     }
 }
 
-impl<T: ReprC> OutPtrOf<*const T> for *mut T {
+impl<C: ReprC> OutPtrOf<*const C> for *mut C {
     #[inline]
-    unsafe fn write(self, source: *const T) -> Result<()> {
+    unsafe fn write(self, source: *const C) -> Result<()> {
         if self.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -310,9 +301,9 @@ impl<T: ReprC> OutPtrOf<*const T> for *mut T {
     }
 }
 
-impl<T: ReprC> OutPtrOf<*mut T> for *mut T {
+impl<C: ReprC> OutPtrOf<*mut C> for *mut C {
     #[inline]
-    unsafe fn write(self, source: *mut T) -> Result<()> {
+    unsafe fn write(self, source: *mut C) -> Result<()> {
         if self.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -322,9 +313,9 @@ impl<T: ReprC> OutPtrOf<*mut T> for *mut T {
     }
 }
 
-impl<T: ReprC, const N: usize> OutPtrOf<[T; N]> for *mut T {
+impl<C: ReprC, const N: usize> OutPtrOf<[C; N]> for *mut C {
     #[inline]
-    unsafe fn write(self, source: [T; N]) -> Result<()> {
+    unsafe fn write(self, source: [C; N]) -> Result<()> {
         if self.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -362,10 +353,10 @@ macro_rules! impl_tuple {
             type Type = Self;
         }
 
-        impl<$($ty: FfiType),+> $crate::repr_c::CType for ($($ty,)+) {
+        impl<$($ty: FfiType),+> $crate::repr_c::CType<Self> for ($($ty,)+) {
             type ReprC = $ffi_ty<$($ty::ReprC),+>;
         }
-        impl<'itm, $($ty: FfiType + FfiConvert<'itm, <$ty as FfiType>::ReprC>),+> $crate::repr_c::CTypeConvert<'itm, <Self as FfiType>::ReprC> for ($($ty,)+) {
+        impl<'itm, $($ty: FfiType + FfiConvert<'itm, <$ty as FfiType>::ReprC>),+> $crate::repr_c::CTypeConvert<'itm, Self, <Self as FfiType>::ReprC> for ($($ty,)+) {
             type RustStore = ($( $ty::RustStore, )+);
             type FfiStore = ($( $ty::FfiStore, )+);
 
@@ -387,14 +378,14 @@ macro_rules! impl_tuple {
             }
         }
 
-        impl<$($ty),+> COutPtr for ($($ty,)+) where Self: CType {
+        impl<$($ty),+> COutPtr<Self> for ($($ty,)+) where Self: CType<Self> {
             type OutPtr = *mut Self::ReprC;
         }
 
-        impl<$($ty),+> NonTransmute for ($($ty,)+) where Self: CType {}
+        impl<$($ty),+> NonTransmute for ($($ty,)+) where Self: CType<Self> {}
 
         // SAFETY: Tuple doesn't use store if it's inner types don't use it
-        unsafe impl<$($ty: Ir),+> NonLocal for ($($ty,)+) where $($ty::Type: NonLocal,)+ {}
+        unsafe impl<$($ty: Ir + NonLocal<$ty::Type>),+> NonLocal<Self> for ($($ty,)+) {}
     };
 
     // NOTE: This is a trick to index tuples

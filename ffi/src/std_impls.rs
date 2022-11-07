@@ -16,11 +16,9 @@ use crate::{ffi_type, ir::InfallibleTransmute, ReprC};
 ffi_type! {unsafe impl Transparent for String[Vec<u8>] validated with {|target| core::str::from_utf8(target).is_ok()} }
 // NOTE: `core::str::as_bytes` uses transmute internally which means that
 // even though it's a string slice it can be transmuted into byte slice.
-ffi_type! {unsafe impl<'itm> Transparent for &'itm str[&'itm [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
-// NOTE: `core::str::as_bytes` uses transmute internally which means that
-// even though it's a string slice it can be transmuted into byte slice.
+ffi_type! {unsafe impl<'slice> Transparent for &'slice str[&'slice [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
 #[cfg(feature = "non_robust_ref_mut")]
-ffi_type! {unsafe impl<'itm> Transparent for &'itm mut str[&'itm mut [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
+ffi_type! {unsafe impl<'slice> Transparent for &'slice mut str[&'slice mut [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
 ffi_type! {unsafe impl<T> Transparent for core::mem::ManuallyDrop<T>[T] validated with {|_| true} }
 ffi_type! {unsafe impl<T> Transparent for core::ptr::NonNull<T>[*mut T] validated with {|target: &*mut T| target.is_null()} }
 ffi_type! {impl<K, V> Opaque for BTreeMap<K, V> }

@@ -117,11 +117,6 @@ impl OpaqueStruct {
         self.params.remove(param)
     }
 
-    /// Tokens
-    pub fn tokens(&self) -> &[Value] {
-        &self.tokens
-    }
-
     /// Fallible int output
     pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
         if flag {

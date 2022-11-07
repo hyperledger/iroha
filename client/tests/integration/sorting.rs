@@ -8,7 +8,7 @@ use test_network::*;
 
 #[test]
 fn correct_pagination_assets_after_creating_new_one() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_635).start_with_runtime();
 
     let sort_by_metadata_key = Name::from_str("sort").expect("Valid");
 
@@ -117,7 +117,7 @@ fn correct_pagination_assets_after_creating_new_one() {
 
 #[test]
 fn correct_sorting_of_asset_definitions() {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_640).start_with_runtime();
 
     let sort_by_metadata_key = Name::from_str("test_sort").expect("Valid");
 

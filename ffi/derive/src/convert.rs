@@ -65,10 +65,10 @@ fn derive_ffi_type_for_extern_item(name: &Ident, generics: &mut Generics) -> Tok
     quote! {
         impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
             // NOTE: It's ok to get null pointer, dereferencing opaque pointer is UB anyhow
-            type Type = iroha_ffi::ir::Robust<Self>;
+            type Type = iroha_ffi::ir::Robust;
         }
         impl<#impl_generics> iroha_ffi::ir::Ir for #ref_name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Transparent<Self>;
+            type Type = iroha_ffi::ir::Transparent;
         }
     }
 }
@@ -141,7 +141,7 @@ fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenSt
             }
 
             impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
-                type Type = iroha_ffi::ir::Transparent<Self>;
+                type Type = iroha_ffi::ir::Transparent;
             }
         }
     }
@@ -309,10 +309,10 @@ fn derive_ffi_type_for_data_carrying_enum(
                 }
                 syn::Fields::Unit => None,
             })
-            .map(|ty| parse_quote! {<#ty as iroha_ffi::ir::Ir>::Type: iroha_ffi::repr_c::NonLocal})
+            .map(|ty| parse_quote! {#ty: iroha_ffi::repr_c::NonLocal<<#ty as iroha_ffi::ir::Ir>::Type>})
             .for_each(|predicate| non_local_where_clause.predicates.push(predicate));
 
-        quote! {unsafe impl<#impl_generics> iroha_ffi::repr_c::NonLocal for #enum_name #ty_generics #non_local_where_clause {}}
+        quote! {unsafe impl<#impl_generics> iroha_ffi::repr_c::NonLocal<Self> for #enum_name #ty_generics #non_local_where_clause {}}
     };
 
     quote! {
@@ -329,10 +329,10 @@ fn derive_ffi_type_for_data_carrying_enum(
             type Type = Self;
         }
 
-        impl<#impl_generics> iroha_ffi::repr_c::CType for #enum_name #ty_generics #where_clause {
+        impl<#impl_generics> iroha_ffi::repr_c::CType<Self> for #enum_name #ty_generics #where_clause {
             type ReprC = #repr_c_enum_name #ty_generics;
         }
-        impl<#lifetime, #impl_generics> iroha_ffi::repr_c::CTypeConvert<#lifetime, #repr_c_enum_name #ty_generics> for #enum_name #ty_generics #where_clause {
+        impl<#lifetime, #impl_generics> iroha_ffi::repr_c::CTypeConvert<#lifetime, Self, #repr_c_enum_name #ty_generics> for #enum_name #ty_generics #where_clause {
             type RustStore = #rust_store;
             type FfiStore = #ffi_store;
 
@@ -354,7 +354,7 @@ fn derive_ffi_type_for_data_carrying_enum(
             }
         }
 
-        impl<#impl_generics> iroha_ffi::repr_c::COutPtr for #enum_name #ty_generics #where_clause {
+        impl<#impl_generics> iroha_ffi::repr_c::COutPtr<Self> for #enum_name #ty_generics #where_clause {
             type OutPtr = *mut Self::ReprC;
         }
 

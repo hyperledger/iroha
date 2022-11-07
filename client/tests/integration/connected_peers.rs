@@ -11,21 +11,26 @@ use super::Configuration;
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn connected_peers_with_f_2_1_2() {
-    prepare_test_for_nextest!();
-    connected_peers_with_f(2)
+    connected_peers_with_f(2, 10_050)
 }
 
 #[test]
 fn connected_peers_with_f_1_0_1() {
-    prepare_test_for_nextest!();
-    connected_peers_with_f(1)
+    connected_peers_with_f(1, 10_150)
 }
 
 /// Test the number of connected peers, changing the number of faults tolerated down and up
-fn connected_peers_with_f(faults: u64) {
+fn connected_peers_with_f(faults: u64, port: u16) {
     let n_peers = 3 * faults + 1;
 
-    let (_rt, network, genesis_client) = <Network>::start_test_with_runtime(n_peers as u32, 1);
+    #[allow(clippy::expect_used)]
+    let (_rt, network, genesis_client) = <Network>::start_test_with_runtime(
+        (n_peers)
+            .try_into()
+            .expect("`faults` argument `u64` value too high, cannot convert to `u32`"),
+        1,
+        Some(port),
+    );
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
