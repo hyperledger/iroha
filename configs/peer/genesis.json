@@ -247,9 +247,7 @@
         {
           "Mint": {
             "object": {
-              "Numeric": {
-                "U32": 13
-              }
+              "U32": 13
             },
             "destination_id": {
               "Id": {
@@ -261,9 +259,7 @@
         {
           "Mint": {
             "object": {
-              "Numeric": {
-                "U32": 44
-              }
+              "U32": 44
             },
             "destination_id": {
               "Id": {

@@ -32,6 +32,7 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
+use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
 use iroha_ffi::FfiType;
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
@@ -474,11 +475,11 @@ pub type ValueBox = Box<Value>;
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
     FromVariant,
     IntoSchema,
     enum_kinds::EnumKind,
+    PartiallyTaggedSerialize,
+    PartiallyTaggedDeserialize,
 )]
 #[enum_kind(
     ValueKind,
@@ -527,6 +528,7 @@ pub enum Value {
     /// IP Version 6 address.
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
     /// Numeric
+    #[serde_partially_tagged(untagged)]
     Numeric(NumericValue),
 }
 
