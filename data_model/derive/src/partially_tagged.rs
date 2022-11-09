@@ -90,7 +90,7 @@ impl PartiallyTaggedEnum {
 }
 
 /// Convert from vector of variants to tuple of vectors consisting of variant's fields
-fn variants_to_ident_ty<'lt, I: Iterator<Item = &'lt PartiallyTaggedVariant>>(
+fn variants_to_tuple<'lt, I: Iterator<Item = &'lt PartiallyTaggedVariant>>(
     variants: I,
 ) -> (Vec<&'lt Ident>, Vec<&'lt Type>, Vec<&'lt [Attribute]>) {
     variants.fold(
@@ -120,9 +120,9 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
     let enum_ident = &enum_.ident;
     let enum_attrs = &enum_.attrs;
     let ref_internal_repr_ident = format_ident!("{}RefInternalRepr", enum_ident);
-    let (variants_ident, variants_ty, variants_attrs) = variants_to_ident_ty(enum_.variants());
+    let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
-        variants_to_ident_ty(enum_.untagged_variants());
+        variants_to_tuple(enum_.untagged_variants());
 
     quote! {
         impl ::serde::Serialize for #enum_ident {
@@ -181,9 +181,9 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
     let enum_ident = &enum_.ident;
     let enum_attrs = &enum_.attrs;
     let internal_repr_ident = format_ident!("{}InternalRepr", enum_ident);
-    let (variants_ident, variants_ty, variants_attrs) = variants_to_ident_ty(enum_.variants());
+    let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
-        variants_to_ident_ty(enum_.untagged_variants());
+        variants_to_tuple(enum_.untagged_variants());
 
     quote! {
         impl<'de> ::serde::Deserialize<'de> for #enum_ident {

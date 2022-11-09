@@ -27,6 +27,12 @@ pub mod isi {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
+
+            // Increase `Store` asset total quantity by 1 if asset was not present earlier
+            if wsv.asset(&asset_id).is_err() {
+                wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+            }
+
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
 
@@ -150,7 +156,7 @@ pub mod isi {
     impl_transfer!(Fixed, "transfer_fixed");
 
     /// Trait for blanket mint implementation.
-    #[allow(clippy::trait_duplication_in_bounds)] // False positive
+    #[allow(clippy::trait_duplication_in_bounds)] // TODO: remove when update rust to 1.65+ (false positive)
     trait InnerMint {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
@@ -160,10 +166,10 @@ pub mod isi {
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
+            NumericValue: From<Self> + TryAsMut<Self>,
+            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>
+                + From<<NumericValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
-            NumericValue: TryAsMut<Self>,
-            <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
-            <NumericValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             let asset_id = mint.destination_id;
@@ -197,39 +203,13 @@ pub mod isi {
                 }))
             })?;
 
-            #[allow(clippy::expect_used)]
-            wsv.modify_domain(&asset_id.definition_id.domain_id, |domain| {
-                let asset_total_amount: &mut Self = domain
-                    .asset_total_quantity_mut(&asset_id.definition_id)
-                    .expect("Asset total amount not found this is a bug: check `Register<AssetDefinition>` to insert initial total amount")
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
-                *asset_total_amount = asset_total_amount
-                    .checked_add(mint.object)
-                    .and_then(|total| {
-                        total.checked_add(<Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE)
-                    })
-                    .ok_or(MathError::Overflow)?;
-
-                Ok(
-                    DomainEvent::AssetDefinition(
-                        AssetDefinitionEvent::TotalQuantityChanged(
-                            AssetDefinitionTotalQuantityChanged {
-                                asset_definition_id: asset_id.definition_id.clone(),
-                                total_amount: AssetValue::from(*asset_total_amount)
-                            }
-                        )
-                    )
-                )
-            })?;
-
+            wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
             Ok(())
         }
     }
 
     /// Trait for blanket burn implementation.
-    #[allow(clippy::trait_duplication_in_bounds)] // False positive
+    #[allow(clippy::trait_duplication_in_bounds)] // TODO: remove when update rust to 1.65+ (false positive)
     trait InnerBurn {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
@@ -239,10 +219,10 @@ pub mod isi {
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
+            NumericValue: From<Self> + TryAsMut<Self>,
+            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>
+                + From<<NumericValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
-            NumericValue: TryAsMut<Self>,
-            <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
-            <NumericValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             let asset_id = burn.destination_id;
@@ -272,29 +252,7 @@ pub mod isi {
                 }))
             })?;
 
-            #[allow(clippy::expect_used)]
-            wsv.modify_domain(&asset_id.definition_id.domain_id, |domain| {
-                let asset_total_amount: &mut Self = domain
-                    .asset_total_quantity_mut(&asset_id.definition_id)
-                    .expect("Asset total amount not found this is a bug: check `Register<AssetDefinition>` to insert initial total amount")
-                    .try_as_mut()
-                    .map_err(eyre::Error::from)
-                    .map_err(|e| Error::Conversion(e.to_string()))?;
-                *asset_total_amount = asset_total_amount
-                    .checked_sub(burn.object)
-                    .ok_or(MathError::NotEnoughQuantity)?;
-
-                Ok(
-                    DomainEvent::AssetDefinition(
-                        AssetDefinitionEvent::TotalQuantityChanged(
-                            AssetDefinitionTotalQuantityChanged {
-                                asset_definition_id: asset_id.definition_id.clone(),
-                                total_amount: AssetValue::from(*asset_total_amount)
-                            }
-                        )
-                    )
-                )
-            })?;
+            wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
 
             Ok(())
         }
@@ -310,8 +268,8 @@ pub mod isi {
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
+            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
-            <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             assert_matching_definitions(
@@ -661,12 +619,6 @@ pub mod query {
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-
-            let asset_definition_entry = wsv.asset_definition_entry(&id)?;
-            let asset_definition = asset_definition_entry.definition();
-            if let AssetValueType::Store = asset_definition.value_type() {
-                return Err(Error::Conversion(String::from("`AssetValueType::Store`")));
-            }
             let asset_value = wsv.asset_total_amount(&id)?;
             Ok(asset_value)
         }

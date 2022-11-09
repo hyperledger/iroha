@@ -982,6 +982,7 @@ pub mod asset {
 
     /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
     /// if [`AssetDefinitionId`] is presented in Iroha Peer.
+    /// In case of `Store` asset value type total quantity is sum of assets through all accounts with provided [`AssetDefinitionId`].
     #[derive(
         Debug,
         Display,
@@ -997,7 +998,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find quantity of the `{}` asset", id)]
+    #[display(fmt = "Find total quantity of the `{}` asset", id)]
     pub struct FindTotalAssetQuantityByAssetDefinitionId {
         /// `Id` of an [`Asset`] to find quantity of.
         pub id: EvaluatesTo<AssetDefinitionId>,

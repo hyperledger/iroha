@@ -1914,7 +1914,7 @@
         },
         {
           "name": "total_amount",
-          "ty": "iroha_data_model::asset::AssetValue"
+          "ty": "iroha_data_model::NumericValue"
         }
       ]
     }

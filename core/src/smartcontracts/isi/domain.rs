@@ -93,6 +93,7 @@ pub mod isi {
                     ));
                 }
 
+                #[allow(clippy::match_same_arms)]
                 match asset_definition.value_type() {
                     AssetValueType::Fixed => {
                         domain.add_asset_total_quantity(asset_definition_id.clone(), Fixed::ZERO);
@@ -104,7 +105,7 @@ pub mod isi {
                         domain.add_asset_total_quantity(asset_definition_id.clone(), u128::MIN);
                     }
                     AssetValueType::Store => {
-                        // `Store` asset value type doesn't have total quantity
+                        domain.add_asset_total_quantity(asset_definition_id.clone(), u32::MIN);
                     }
                 }
 

@@ -778,12 +778,92 @@ impl WorldStateView {
     /// - Asset definition not found
     pub fn asset_total_amount(
         &self,
-        asset_id: &<AssetDefinition as Identifiable>::Id,
+        definition_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Result<NumericValue, FindError> {
-        self.domain(&asset_id.domain_id)?
-            .asset_total_quantity(asset_id)
-            .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
+        self.domain(&definition_id.domain_id)?
+            .asset_total_quantity(definition_id)
+            .ok_or_else(|| FindError::AssetDefinition(definition_id.clone()))
             .copied()
+    }
+
+    /// Increase [`Asset`] total amount by given value
+    ///
+    /// # Errors
+    /// - [`AssetDefinition`], [`Domain`] not found
+    /// - Overflow
+    pub fn increase_asset_total_amount<I>(
+        &self,
+        definition_id: &<AssetDefinition as Identifiable>::Id,
+        increment: I,
+    ) -> Result<(), Error>
+    where
+        I: iroha_primitives::CheckedOp + Copy,
+        NumericValue: From<I> + TryAsMut<I>,
+        eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
+    {
+        #[allow(clippy::expect_used)]
+        self.modify_domain(&definition_id.domain_id, |domain| {
+            let asset_total_amount: &mut I = domain
+                .asset_total_quantity_mut(definition_id)
+                .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
+                .try_as_mut()
+                .map_err(eyre::Error::from)
+                .map_err(|e| Error::Conversion(e.to_string()))?;
+            *asset_total_amount = asset_total_amount
+                .checked_add(increment)
+                .ok_or(crate::smartcontracts::MathError::Overflow)?;
+
+            Ok(
+                DomainEvent::AssetDefinition(
+                    AssetDefinitionEvent::TotalQuantityChanged(
+                        AssetDefinitionTotalQuantityChanged {
+                            asset_definition_id: definition_id.clone(),
+                            total_amount: NumericValue::from(*asset_total_amount)
+                        }
+                    )
+                )
+            )
+        })
+    }
+
+    /// Decrease [`Asset`] total amount by given value
+    ///
+    /// # Errors
+    /// - [`AssetDefinition`], [`Domain`] not found
+    /// - Not enough quantity
+    pub fn decrease_asset_total_amount<I>(
+        &self,
+        definition_id: &<AssetDefinition as Identifiable>::Id,
+        decrement: I,
+    ) -> Result<(), Error>
+    where
+        I: iroha_primitives::CheckedOp + Copy,
+        NumericValue: From<I> + TryAsMut<I>,
+        eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
+    {
+        #[allow(clippy::expect_used)]
+        self.modify_domain(&definition_id.domain_id, |domain| {
+            let asset_total_amount: &mut I = domain
+                .asset_total_quantity_mut(definition_id)
+                .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
+                .try_as_mut()
+                .map_err(eyre::Error::from)
+                .map_err(|e| Error::Conversion(e.to_string()))?;
+            *asset_total_amount = asset_total_amount
+                .checked_sub(decrement)
+                .ok_or(crate::smartcontracts::MathError::NotEnoughQuantity)?;
+
+            Ok(
+                DomainEvent::AssetDefinition(
+                    AssetDefinitionEvent::TotalQuantityChanged(
+                        AssetDefinitionTotalQuantityChanged {
+                            asset_definition_id: definition_id.clone(),
+                            total_amount: NumericValue::from(*asset_total_amount)
+                        }
+                    )
+                )
+            )
+        })
     }
 
     /// Get all transactions

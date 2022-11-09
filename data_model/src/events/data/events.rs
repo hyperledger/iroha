@@ -161,7 +161,7 @@ mod asset {
     #[allow(missing_docs)]
     pub struct AssetDefinitionTotalQuantityChanged {
         pub asset_definition_id: AssetDefinitionId,
-        pub total_amount: AssetValue,
+        pub total_amount: NumericValue,
     }
 }
 
