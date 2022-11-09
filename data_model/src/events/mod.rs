@@ -13,6 +13,7 @@ pub mod data;
 pub mod execute_trigger;
 pub mod pipeline;
 pub mod time;
+pub mod trigger_executed;
 
 declare_versioned_with_scale!(VersionedEventMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
@@ -97,8 +98,10 @@ pub enum Event {
     Data(data::Event),
     /// Time event.
     Time(time::Event),
-    /// Trigger execution event.
+    /// Event to execute a specified trigger.
     ExecuteTrigger(execute_trigger::Event),
+    /// Trigger execution event.
+    TriggerExecuted(trigger_executed::Event),
 }
 
 /// Event type. Like [`Event`] but without actual event data
@@ -110,8 +113,10 @@ pub enum EventType {
     Data,
     /// Time event.
     Time,
-    /// Trigger execution event.
+    /// Event to execute a specified trigger.
     ExecuteTrigger,
+    /// Trigger execution event.
+    TriggerExecuted,
 }
 
 /// Trait for filters
@@ -159,14 +164,16 @@ pub trait Filter {
     Deserialize,
 )]
 pub enum FilterBox {
-    /// Listen to pipeline events with filter.
+    /// Filter for [`Event::Pipeline`].
     Pipeline(pipeline::EventFilter),
-    /// Listen to data events with filter.
+    /// Filter for [`Event::Data`].
     Data(data::EventFilter),
-    /// Listen to time events with filter.
+    /// Filter for [`Event::Time`].
     Time(time::EventFilter),
-    /// Listen to trigger execution event with filter.
+    /// Filter for [`Event::ExecuteTrigger`].
     ExecuteTrigger(execute_trigger::EventFilter),
+    /// Filter for [`Event::TriggerExecuted`].
+    TriggerExecuted(trigger_executed::EventFilter),
 }
 
 impl Filter for FilterBox {
@@ -181,6 +188,9 @@ impl Filter for FilterBox {
             (Event::ExecuteTrigger(event), FilterBox::ExecuteTrigger(filter)) => {
                 filter.matches(event)
             }
+            (Event::TriggerExecuted(event), FilterBox::TriggerExecuted(filter)) => {
+                filter.matches(event)
+            }
             _ => false,
         }
     }
@@ -190,7 +200,7 @@ impl Filter for FilterBox {
 pub mod prelude {
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        Event, EventMessage, EventSubscriptionRequest, EventType, Filter, FilterBox,
-        VersionedEventMessage, VersionedEventSubscriptionRequest,
+        trigger_executed::prelude::*, Event, EventMessage, EventSubscriptionRequest, EventType,
+        Filter, FilterBox, VersionedEventMessage, VersionedEventSubscriptionRequest,
     };
 }

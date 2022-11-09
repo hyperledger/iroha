@@ -61,6 +61,8 @@ pub mod isi {
                             .try_into()
                             .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
                     ),
+                    // `TriggerExecuted` event does not chain trigger executions at the moment
+                    FilterBox::TriggerExecuted(_) => unreachable!(),
                 };
                 if success {
                     Ok(TriggerEvent::Created(trigger_id))

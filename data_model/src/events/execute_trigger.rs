@@ -1,11 +1,11 @@
-//! Trigger execution event and filter
+//! Event that conveys the intention to execute a specific trigger directly.
 
 use iroha_ffi::FfiType;
 
 use super::*;
 use crate::prelude::*;
 
-/// Trigger execution event. Produced every time the `ExecuteTrigger` instruction is executed.
+/// Event to execute a specified trigger. Produced every time the `ExecuteTrigger` instruction is executed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
 pub struct Event {
     /// Id of trigger to be executed
@@ -24,7 +24,7 @@ impl Event {
     }
 }
 
-/// Filter for trigger execution [`Event`]
+/// Filter for [`Event`]
 #[derive(
     Debug,
     PartialOrd,

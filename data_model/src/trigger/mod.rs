@@ -428,6 +428,8 @@ mod tests {
                         .map(|_| ())
                         .unwrap()
                 }
+                // `TriggerExecuted` event does not chain trigger executions at the moment
+                FilterBox::TriggerExecuted(_) => unreachable!(),
             }
         }
     }

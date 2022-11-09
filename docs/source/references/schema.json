@@ -101,11 +101,17 @@
   "Option<iroha_data_model::events::time::Interval>": {
     "Option": "iroha_data_model::events::time::Interval"
   },
+  "Option<iroha_data_model::events::trigger_executed::StatusKind>": {
+    "Option": "iroha_data_model::events::trigger_executed::StatusKind"
+  },
   "Option<iroha_data_model::isi::Instruction>": {
     "Option": "iroha_data_model::isi::Instruction"
   },
   "Option<iroha_data_model::name::Name>": {
     "Option": "iroha_data_model::name::Name"
+  },
+  "Option<iroha_data_model::trigger::Id>": {
+    "Option": "iroha_data_model::trigger::Id"
   },
   "Option<u32>": {
     "Option": "u32"
@@ -1480,6 +1486,11 @@
           "name": "ExecuteTrigger",
           "discriminant": 3,
           "ty": "iroha_data_model::events::execute_trigger::Event"
+        },
+        {
+          "name": "TriggerExecuted",
+          "discriminant": 4,
+          "ty": "iroha_data_model::events::trigger_executed::Event"
         }
       ]
     }
@@ -1520,6 +1531,11 @@
           "name": "ExecuteTrigger",
           "discriminant": 3,
           "ty": "iroha_data_model::events::execute_trigger::EventFilter"
+        },
+        {
+          "name": "TriggerExecuted",
+          "discriminant": 4,
+          "ty": "iroha_data_model::events::trigger_executed::EventFilter"
         }
       ]
     }
@@ -2972,6 +2988,66 @@
         {
           "name": "period",
           "ty": "Option<Duration>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::trigger_executed::Event": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "id",
+          "ty": "iroha_data_model::trigger::Id"
+        },
+        {
+          "name": "status",
+          "ty": "iroha_data_model::events::trigger_executed::Status"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::trigger_executed::EventFilter": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "id",
+          "ty": "Option<iroha_data_model::trigger::Id>"
+        },
+        {
+          "name": "status_kind",
+          "ty": "Option<iroha_data_model::events::trigger_executed::StatusKind>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::trigger_executed::Status": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Succeeded",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "Failed",
+          "discriminant": 1,
+          "ty": "iroha_data_model::metadata::Metadata"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::trigger_executed::StatusKind": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Succeeded",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "Failed",
+          "discriminant": 1,
+          "ty": null
         }
       ]
     }

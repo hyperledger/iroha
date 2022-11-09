@@ -163,6 +163,8 @@ impl Set {
                         .expect(
                             "`Set::by_call_triggers` doesn't contain required id. This is a bug",
                         ),
+                    // `TriggerExecuted` event does not chain trigger executions at the moment
+                    EventType::TriggerExecuted => unreachable!(),
                 };
 
                 Some(result)
@@ -198,6 +200,8 @@ impl Set {
                 .get(id)
                 .map(|entry| f(entry.value()))
                 .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+            // `TriggerExecuted` event does not chain trigger executions at the moment
+            EventType::TriggerExecuted => unreachable!(),
         })
     }
 
@@ -228,6 +232,8 @@ impl Set {
                         "`Set::by_call_triggers` doesn't contain required id. This is a bug",
                     )
                 }
+                // `TriggerExecuted` event does not chain trigger executions at the moment
+                EventType::TriggerExecuted => unreachable!(),
             })
             .is_some()
     }
@@ -450,6 +456,8 @@ impl Set {
                     .by_call_triggers
                     .get(&id)
                     .map(|entry| apply_f(entry.value(), event)),
+                // `TriggerExecuted` event does not chain trigger executions at the moment
+                Event::TriggerExecuted(_) => unreachable!(),
             };
 
             match result.flatten() {
