@@ -455,6 +455,7 @@ const ESTABLISH_CONNECTION_TIME_SLICE: Duration = Duration::from_millis(25);
 unsafe fn establish_new_connection(p2p: &P2PSystem, listener: &TcpListener) -> Option<TcpStream> {
     let maybe_incoming_connection = {
         let mut maybe_incoming_connection = None;
+        if rand::random::<u32>() >= (u32::MAX / 8) {
         for _ in 0..20 {
             if let Ok((mut stream, addr)) = listener.accept() {
                 trace!("Incomming p2p connection from {}", &addr);
@@ -472,6 +473,7 @@ unsafe fn establish_new_connection(p2p: &P2PSystem, listener: &TcpListener) -> O
                     std::thread::sleep(ESTABLISH_CONNECTION_TIME_SLICE * 2);
                 }
             }
+        }
         }
         maybe_incoming_connection
     };
@@ -515,7 +517,7 @@ unsafe fn establish_new_connection(p2p: &P2PSystem, listener: &TcpListener) -> O
             if let Ok(mut stream) =
                 TcpStream::connect_timeout(&addr, ESTABLISH_CONNECTION_TIME_SLICE * 40)
             {
-                trace!("Outgoing p2p connection to {}", &addr);
+                info!("Outgoing p2p connection to {}", &addr);
                 stream
                     .set_read_timeout(Some(P2P_TCP_TIMEOUT))
                     .expect("Could not set read timeout on socket.");
