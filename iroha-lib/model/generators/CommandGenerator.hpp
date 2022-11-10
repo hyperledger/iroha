@@ -2,6 +2,7 @@
 #define COMMAND_GENERATOR_HPP
 
 #include "commands.pb.h"
+#include <optional>
 
 
 namespace iroha_lib {
