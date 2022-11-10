@@ -2,6 +2,7 @@
 #define QUERY_GENERATOR_HPP
 
 #include "queries.pb.h"
+#include <optional>
 
 
 namespace iroha_lib {
