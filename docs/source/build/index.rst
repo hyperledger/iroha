@@ -146,6 +146,11 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   libraries, please consider installing the
   `latest release <https://cmake.org/download/>`_ of CMake.
 
+RaspberryPi 4
+""""""""""""""""""""""""""
+
+Building Iroha for RPI4 looks the same as for Linux. The only difference is that you need to have enough operation memory. If there is less than 8Gb RAM creating swap is recommended.
+
 Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
 .. _macos-pre:
