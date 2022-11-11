@@ -36,3 +36,4 @@ yarg==0.1.9
 mistune==2.0.3
 pygments-lexer-solidity
 sphinxext-remoteliteralinclude
+m2r2==0.3.3
