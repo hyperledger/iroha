@@ -161,6 +161,11 @@ impl Iroha {
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
         iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
+        iroha_logger::info!(
+            cargo_pkg_version = env!("CARGO_PKG_VERSION"),
+            git_sha = env!("VERGEN_GIT_SHA"),
+            "Iroha version"
+        );
 
         let genesis = if let Some(genesis_path) = &args.genesis_path {
             GenesisNetwork::from_configuration(
