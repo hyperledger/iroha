@@ -47,6 +47,13 @@
       "sorted_by_key": true
     }
   },
+  "Map<iroha_data_model::asset::DefinitionId, iroha_data_model::NumericValue>": {
+    "Map": {
+      "key": "iroha_data_model::asset::DefinitionId",
+      "value": "iroha_data_model::NumericValue",
+      "sorted_by_key": true
+    }
+  },
   "Map<iroha_data_model::asset::DefinitionId, iroha_data_model::asset::AssetDefinitionEntry>": {
     "Map": {
       "key": "iroha_data_model::asset::DefinitionId",
@@ -760,6 +767,27 @@
       ]
     }
   },
+  "iroha_data_model::NumericValue": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "U32",
+          "discriminant": 0,
+          "ty": "u32"
+        },
+        {
+          "name": "U128",
+          "discriminant": 1,
+          "ty": "u128"
+        },
+        {
+          "name": "Fixed",
+          "discriminant": 2,
+          "ty": "iroha_primitives::fixed::Fixed"
+        }
+      ]
+    }
+  },
   "iroha_data_model::Parameter": {
     "Enum": {
       "variants": [
@@ -841,109 +869,99 @@
     "Enum": {
       "variants": [
         {
-          "name": "U32",
-          "discriminant": 0,
-          "ty": "u32"
-        },
-        {
-          "name": "U128",
-          "discriminant": 1,
-          "ty": "u128"
-        },
-        {
           "name": "Bool",
-          "discriminant": 2,
+          "discriminant": 0,
           "ty": "bool"
         },
         {
           "name": "String",
-          "discriminant": 3,
+          "discriminant": 1,
           "ty": "String"
         },
         {
           "name": "Name",
-          "discriminant": 4,
+          "discriminant": 2,
           "ty": "iroha_data_model::name::Name"
         },
         {
-          "name": "Fixed",
-          "discriminant": 5,
-          "ty": "iroha_primitives::fixed::Fixed"
-        },
-        {
           "name": "Vec",
-          "discriminant": 6,
+          "discriminant": 3,
           "ty": "Vec<iroha_data_model::Value>"
         },
         {
           "name": "LimitedMetadata",
-          "discriminant": 7,
+          "discriminant": 4,
           "ty": "iroha_data_model::metadata::Metadata"
         },
         {
           "name": "Id",
-          "discriminant": 8,
+          "discriminant": 5,
           "ty": "iroha_data_model::IdBox"
         },
         {
           "name": "Identifiable",
-          "discriminant": 9,
+          "discriminant": 6,
           "ty": "iroha_data_model::IdentifiableBox"
         },
         {
           "name": "PublicKey",
-          "discriminant": 10,
+          "discriminant": 7,
           "ty": "iroha_crypto::PublicKey"
         },
         {
           "name": "Parameter",
-          "discriminant": 11,
+          "discriminant": 8,
           "ty": "iroha_data_model::Parameter"
         },
         {
           "name": "SignatureCheckCondition",
-          "discriminant": 12,
+          "discriminant": 9,
           "ty": "iroha_data_model::account::SignatureCheckCondition"
         },
         {
           "name": "TransactionValue",
-          "discriminant": 13,
+          "discriminant": 10,
           "ty": "iroha_data_model::transaction::TransactionValue"
         },
         {
           "name": "TransactionQueryResult",
-          "discriminant": 14,
+          "discriminant": 11,
           "ty": "iroha_data_model::transaction::TransactionQueryResult"
         },
         {
           "name": "PermissionToken",
-          "discriminant": 15,
+          "discriminant": 12,
           "ty": "iroha_data_model::permission::token::Token"
         },
         {
           "name": "Hash",
-          "discriminant": 16,
+          "discriminant": 13,
           "ty": "iroha_crypto::hash::Hash"
         },
         {
           "name": "Block",
-          "discriminant": 17,
+          "discriminant": 14,
           "ty": "iroha_data_model::block_value::BlockValue"
         },
         {
           "name": "BlockHeader",
-          "discriminant": 18,
+          "discriminant": 15,
           "ty": "iroha_data_model::block_value::BlockHeaderValue"
         },
         {
           "name": "Ipv4Addr",
-          "discriminant": 19,
+          "discriminant": 16,
           "ty": "iroha_primitives::addr::Ipv4Addr"
         },
         {
           "name": "Ipv6Addr",
-          "discriminant": 20,
+          "discriminant": 17,
           "ty": "iroha_primitives::addr::Ipv6Addr"
+        },
+        {
+          "name": "Numeric",
+          "discriminant": 18,
+          "ty": "iroha_data_model::NumericValue"
         }
       ]
     }
@@ -952,108 +970,98 @@
     "Enum": {
       "variants": [
         {
-          "name": "U32",
+          "name": "Bool",
           "discriminant": 0,
           "ty": null
         },
         {
-          "name": "U128",
+          "name": "String",
           "discriminant": 1,
           "ty": null
         },
         {
-          "name": "Bool",
+          "name": "Name",
           "discriminant": 2,
           "ty": null
         },
         {
-          "name": "String",
+          "name": "Vec",
           "discriminant": 3,
           "ty": null
         },
         {
-          "name": "Name",
+          "name": "LimitedMetadata",
           "discriminant": 4,
           "ty": null
         },
         {
-          "name": "Fixed",
+          "name": "Id",
           "discriminant": 5,
           "ty": null
         },
         {
-          "name": "Vec",
+          "name": "Identifiable",
           "discriminant": 6,
           "ty": null
         },
         {
-          "name": "LimitedMetadata",
+          "name": "PublicKey",
           "discriminant": 7,
           "ty": null
         },
         {
-          "name": "Id",
+          "name": "Parameter",
           "discriminant": 8,
           "ty": null
         },
         {
-          "name": "Identifiable",
+          "name": "SignatureCheckCondition",
           "discriminant": 9,
           "ty": null
         },
         {
-          "name": "PublicKey",
+          "name": "TransactionValue",
           "discriminant": 10,
           "ty": null
         },
         {
-          "name": "Parameter",
+          "name": "TransactionQueryResult",
           "discriminant": 11,
           "ty": null
         },
         {
-          "name": "SignatureCheckCondition",
+          "name": "PermissionToken",
           "discriminant": 12,
           "ty": null
         },
         {
-          "name": "TransactionValue",
+          "name": "Hash",
           "discriminant": 13,
           "ty": null
         },
         {
-          "name": "TransactionQueryResult",
+          "name": "Block",
           "discriminant": 14,
           "ty": null
         },
         {
-          "name": "PermissionToken",
+          "name": "BlockHeader",
           "discriminant": 15,
           "ty": null
         },
         {
-          "name": "Hash",
+          "name": "Ipv4Addr",
           "discriminant": 16,
           "ty": null
         },
         {
-          "name": "Block",
+          "name": "Ipv6Addr",
           "discriminant": 17,
           "ty": null
         },
         {
-          "name": "BlockHeader",
+          "name": "Numeric",
           "discriminant": 18,
-          "ty": null
-        },
-        {
-          "name": "Ipv4Addr",
-          "discriminant": 19,
-          "ty": null
-        },
-        {
-          "name": "Ipv6Addr",
-          "discriminant": 20,
           "ty": null
         }
       ]
@@ -1371,6 +1379,10 @@
         {
           "name": "asset_definitions",
           "ty": "Map<iroha_data_model::asset::DefinitionId, iroha_data_model::asset::AssetDefinitionEntry>"
+        },
+        {
+          "name": "asset_total_quantities",
+          "ty": "Map<iroha_data_model::asset::DefinitionId, iroha_data_model::NumericValue>"
         },
         {
           "name": "logo",
@@ -1834,6 +1846,11 @@
           "name": "MetadataRemoved",
           "discriminant": 4,
           "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>"
+        },
+        {
+          "name": "TotalQuantityChanged",
+          "discriminant": 5,
+          "ty": "iroha_data_model::events::data::events::asset::AssetDefinitionTotalQuantityChanged"
         }
       ]
     }
@@ -1865,6 +1882,11 @@
           "name": "ByMetadataRemoved",
           "discriminant": 4,
           "ty": null
+        },
+        {
+          "name": "ByTotalQuantityChanged",
+          "discriminant": 5,
+          "ty": null
         }
       ]
     }
@@ -1879,6 +1901,20 @@
         {
           "name": "event_filter",
           "ty": "iroha_data_model::events::data::filters::FilterOpt<iroha_data_model::events::data::events::asset::AssetDefinitionEventFilter>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::asset::AssetDefinitionTotalQuantityChanged": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "asset_definition_id",
+          "ty": "iroha_data_model::asset::DefinitionId"
+        },
+        {
+          "name": "total_amount",
+          "ty": "iroha_data_model::NumericValue"
         }
       ]
     }
@@ -4215,113 +4251,118 @@
           "ty": "iroha_data_model::query::asset::FindAssetQuantityById"
         },
         {
-          "name": "FindAssetKeyValueByIdAndKey",
+          "name": "FindTotalAssetQuantityByAssetDefinitionId",
           "discriminant": 16,
+          "ty": "iroha_data_model::query::asset::FindTotalAssetQuantityByAssetDefinitionId"
+        },
+        {
+          "name": "FindAssetKeyValueByIdAndKey",
+          "discriminant": 17,
           "ty": "iroha_data_model::query::asset::FindAssetKeyValueByIdAndKey"
         },
         {
           "name": "FindAssetDefinitionKeyValueByIdAndKey",
-          "discriminant": 17,
+          "discriminant": 18,
           "ty": "iroha_data_model::query::asset::FindAssetDefinitionKeyValueByIdAndKey"
         },
         {
           "name": "FindAllDomains",
-          "discriminant": 18,
+          "discriminant": 19,
           "ty": "iroha_data_model::query::domain::FindAllDomains"
         },
         {
           "name": "FindDomainById",
-          "discriminant": 19,
+          "discriminant": 20,
           "ty": "iroha_data_model::query::domain::FindDomainById"
         },
         {
           "name": "FindDomainKeyValueByIdAndKey",
-          "discriminant": 20,
+          "discriminant": 21,
           "ty": "iroha_data_model::query::domain::FindDomainKeyValueByIdAndKey"
         },
         {
           "name": "FindAllPeers",
-          "discriminant": 21,
+          "discriminant": 22,
           "ty": "iroha_data_model::query::peer::FindAllPeers"
         },
         {
           "name": "FindAllBlocks",
-          "discriminant": 22,
+          "discriminant": 23,
           "ty": "iroha_data_model::query::block::FindAllBlocks"
         },
         {
           "name": "FindAllBlockHeaders",
-          "discriminant": 23,
+          "discriminant": 24,
           "ty": "iroha_data_model::query::block::FindAllBlockHeaders"
         },
         {
           "name": "FindBlockHeaderByHash",
-          "discriminant": 24,
+          "discriminant": 25,
           "ty": "iroha_data_model::query::block::FindBlockHeaderByHash"
         },
         {
           "name": "FindAllTransactions",
-          "discriminant": 25,
+          "discriminant": 26,
           "ty": "iroha_data_model::query::transaction::FindAllTransactions"
         },
         {
           "name": "FindTransactionsByAccountId",
-          "discriminant": 26,
+          "discriminant": 27,
           "ty": "iroha_data_model::query::transaction::FindTransactionsByAccountId"
         },
         {
           "name": "FindTransactionByHash",
-          "discriminant": 27,
+          "discriminant": 28,
           "ty": "iroha_data_model::query::transaction::FindTransactionByHash"
         },
         {
           "name": "FindPermissionTokensByAccountId",
-          "discriminant": 28,
+          "discriminant": 29,
           "ty": "iroha_data_model::query::permissions::FindPermissionTokensByAccountId"
         },
         {
           "name": "FindAllPermissionTokenDefinitions",
-          "discriminant": 29,
+          "discriminant": 30,
           "ty": "iroha_data_model::query::permissions::FindAllPermissionTokenDefinitions"
         },
         {
           "name": "FindAllActiveTriggerIds",
-          "discriminant": 30,
+          "discriminant": 31,
           "ty": "iroha_data_model::query::trigger::FindAllActiveTriggerIds"
         },
         {
           "name": "FindTriggerById",
-          "discriminant": 31,
+          "discriminant": 32,
           "ty": "iroha_data_model::query::trigger::FindTriggerById"
         },
         {
           "name": "FindTriggerKeyValueByIdAndKey",
-          "discriminant": 32,
+          "discriminant": 33,
           "ty": "iroha_data_model::query::trigger::FindTriggerKeyValueByIdAndKey"
         },
         {
           "name": "FindTriggersByDomainId",
-          "discriminant": 33,
+          "discriminant": 34,
           "ty": "iroha_data_model::query::trigger::FindTriggersByDomainId"
         },
         {
           "name": "FindAllRoles",
-          "discriminant": 34,
+          "discriminant": 35,
           "ty": "iroha_data_model::query::role::FindAllRoles"
         },
         {
           "name": "FindAllRoleIds",
-          "discriminant": 35,
+          "discriminant": 36,
           "ty": "iroha_data_model::query::role::FindAllRoleIds"
         },
         {
           "name": "FindRoleByRoleId",
-          "discriminant": 36,
+          "discriminant": 37,
           "ty": "iroha_data_model::query::role::FindRoleByRoleId"
         },
         {
           "name": "FindRolesByAccountId",
-          "discriminant": 37,
+          "discriminant": 38,
           "ty": "iroha_data_model::query::role::FindRolesByAccountId"
         }
       ]
@@ -4547,6 +4588,16 @@
         {
           "name": "name",
           "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::name::Name>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::query::asset::FindTotalAssetQuantityByAssetDefinitionId": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "id",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::asset::DefinitionId>"
         }
       ]
     }

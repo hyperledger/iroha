@@ -27,6 +27,12 @@ pub mod isi {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
+
+            // Increase `Store` asset total quantity by 1 if asset was not present earlier
+            if wsv.asset(&asset_id).is_err() {
+                wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+            }
+
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
 
@@ -150,6 +156,7 @@ pub mod isi {
     impl_transfer!(Fixed, "transfer_fixed");
 
     /// Trait for blanket mint implementation.
+    #[allow(clippy::trait_duplication_in_bounds)] // TODO: remove when update rust to 1.65+ (false positive)
     trait InnerMint {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
@@ -159,8 +166,10 @@ pub mod isi {
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
+            NumericValue: From<Self> + TryAsMut<Self>,
+            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>
+                + From<<NumericValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
-            <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             let asset_id = mint.destination_id;
@@ -193,11 +202,14 @@ pub mod isi {
                     amount: mint.object.into(),
                 }))
             })?;
+
+            wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
             Ok(())
         }
     }
 
     /// Trait for blanket burn implementation.
+    #[allow(clippy::trait_duplication_in_bounds)] // TODO: remove when update rust to 1.65+ (false positive)
     trait InnerBurn {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
@@ -207,8 +219,10 @@ pub mod isi {
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
+            NumericValue: From<Self> + TryAsMut<Self>,
+            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>
+                + From<<NumericValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
-            <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             let asset_id = burn.destination_id;
@@ -237,6 +251,9 @@ pub mod isi {
                     amount: burn.object.into(),
                 }))
             })?;
+
+            wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
+
             Ok(())
         }
     }
@@ -251,8 +268,8 @@ pub mod isi {
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
             AssetValue: From<Self> + TryAsMut<Self>,
+            eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
-            <AssetValue as TryAsMut<Self>>::Error: std::error::Error + Send + Sync + 'static,
             Err: From<Error>,
         {
             assert_matching_definitions(
@@ -576,7 +593,8 @@ pub mod query {
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            wsv.asset(&id)
+            let value = wsv
+                .asset(&id)
                 .map_err(|asset_err| {
                     if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
                         Error::Find(Box::new(definition_err))
@@ -585,10 +603,24 @@ pub mod query {
                     }
                 })?
                 .value()
-                .try_as_ref()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))
-                .map(Clone::clone)
+                .clone();
+            let value =
+                NumericValue::try_from(value).map_err(|err| Error::Conversion(err.to_string()))?;
+            Ok(value)
+        }
+    }
+
+    impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
+        #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            let id = self
+                .id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get asset definition id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
+            let asset_value = wsv.asset_total_amount(&id)?;
+            Ok(asset_value)
         }
     }
 

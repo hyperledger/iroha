@@ -60,7 +60,7 @@ fn query_requests(criterion: &mut Criterion) {
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
@@ -171,7 +171,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         b.iter(|| {
             let quantity: u32 = 200;
             let mint_asset = MintBox::new(
-                Value::U32(quantity),
+                quantity.to_value(),
                 IdBox::AssetId(AssetId::new(
                     asset_definition_id.clone(),
                     account_id.clone(),

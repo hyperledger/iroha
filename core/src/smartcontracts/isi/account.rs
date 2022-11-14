@@ -36,6 +36,29 @@ pub mod isi {
                         assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
                         wsv.asset_or_insert(asset_id, self.object.value().clone())
                             .expect("Account exists");
+                        match self.object.value() {
+                            AssetValue::Quantity(increment) => {
+                                wsv.increase_asset_total_amount(
+                                    &asset_id.definition_id,
+                                    *increment,
+                                )?;
+                            }
+                            AssetValue::BigQuantity(increment) => {
+                                wsv.increase_asset_total_amount(
+                                    &asset_id.definition_id,
+                                    *increment,
+                                )?;
+                            }
+                            AssetValue::Fixed(increment) => {
+                                wsv.increase_asset_total_amount(
+                                    &asset_id.definition_id,
+                                    *increment,
+                                )?;
+                            }
+                            AssetValue::Store(_) => {
+                                wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+                            }
+                        }
                         Ok(())
                     }
                     _ => Err(err.into()),
@@ -55,6 +78,21 @@ pub mod isi {
         fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
+
+            match wsv.asset(&asset_id)?.value() {
+                AssetValue::Quantity(increment) => {
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, *increment)?;
+                }
+                AssetValue::BigQuantity(increment) => {
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, *increment)?;
+                }
+                AssetValue::Fixed(increment) => {
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, *increment)?;
+                }
+                AssetValue::Store(_) => {
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+                }
+            }
 
             wsv.modify_account(&account_id, |account| {
                 account

@@ -6,7 +6,9 @@
                 {
                     "Mint": {
                         "object": {
-                            "U32": 1
+                            "Numeric": {
+                                "U32": 1
+                            }
                         },
                         "destination_id": {
                             "Id": {

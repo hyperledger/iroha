@@ -41,7 +41,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
         iroha_client.submit_blocking(create_asset)?;
         let mint_asset = MintBox::new(
-            Value::U32(quantity),
+            quantity.to_value(),
             IdBox::AssetId(AssetId::new(
                 asset_definition_id.clone(),
                 account_id.clone(),

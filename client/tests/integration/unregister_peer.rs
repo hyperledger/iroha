@@ -78,7 +78,7 @@ fn mint(
     quantity: u32,
 ) -> Result<u32, color_eyre::Report> {
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),

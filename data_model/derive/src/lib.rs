@@ -6,6 +6,7 @@ use syn::parse_macro_input;
 
 mod filter;
 mod id;
+mod partially_tagged;
 
 /// Derive macro for `Identifiable` trait which also automatically implements [`Ord`], [`Eq`],
 /// and [`Hash`] for the annotated struct by delegating to it's identifier field. Identifier
@@ -247,4 +248,96 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 pub fn filter_derive(input: TokenStream) -> TokenStream {
     let event = parse_macro_input!(input as filter::EventEnum);
     filter::impl_filter(&event)
+}
+
+/// Derive `::serde::Serialize` trait for `enum` with possibility to avoid tags for selected variants
+///
+/// ```
+/// use serde::Serialize;
+/// use iroha_data_model_derive::PartiallyTaggedSerialize;
+///
+/// #[derive(PartiallyTaggedSerialize)]
+/// enum Outer {
+///     A(u64),
+///     #[serde_partially_tagged(untagged)]
+///     Inner(Inner),
+/// }
+///
+/// #[derive(Serialize)]
+/// enum Inner {
+///     B(u32),
+/// }
+///
+/// assert_eq!(
+///     &serde_json::to_string(&Outer::Inner(Inner::B(42))).expect("Failed to serialize"), r#"{"B":42}"#
+/// );
+///
+/// assert_eq!(
+///     &serde_json::to_string(&Outer::A(42)).expect("Failed to serialize"), r#"{"A":42}"#
+/// );
+/// ```
+#[proc_macro_error::proc_macro_error]
+#[proc_macro_derive(PartiallyTaggedSerialize, attributes(serde_partially_tagged, serde))]
+pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
+    partially_tagged::impl_partially_tagged_serialize(&parse_macro_input!(input))
+}
+
+/// Derive `::serde::Deserialize` trait for `enum` with possibility to avoid tags for selected variants
+///
+/// ```
+/// use serde::Deserialize;
+/// use iroha_data_model_derive::PartiallyTaggedDeserialize;
+///
+/// #[derive(PartiallyTaggedDeserialize, PartialEq, Eq, Debug)]
+/// enum Outer {
+///     A(u64),
+///     #[serde_partially_tagged(untagged)]
+///     Inner(Inner),
+/// }
+///
+/// #[derive(Deserialize, PartialEq, Eq, Debug)]
+/// enum Inner {
+///     B(u32),
+/// }
+///
+/// assert_eq!(
+///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize"), Outer::Inner(Inner::B(42))
+/// );
+///
+/// assert_eq!(
+///     serde_json::from_str::<Outer>(r#"{"A":42}"#).expect("Failed to deserialize"), Outer::A(42)
+/// );
+/// ```
+///
+/// Deserialization of untagged variants happens in declaration order.
+/// Should be used with care to avoid ambiguity.
+///
+/// ```
+/// use serde::Deserialize;
+/// use iroha_data_model_derive::PartiallyTaggedDeserialize;
+///
+/// #[derive(PartiallyTaggedDeserialize, PartialEq, Eq, Debug)]
+/// enum Outer {
+///     A(u64),
+///     // Ambiguity is created here because without tag it is impossible to distinguish `Inner1` and `Inner2`.
+///     // Due to deserialization order `Inner1` will be deserialized in case of ambiguity.
+///     #[serde_partially_tagged(untagged)]
+///     Inner1(Inner),
+///     #[serde_partially_tagged(untagged)]
+///     Inner2(Inner),
+/// }
+///
+/// #[derive(Deserialize, PartialEq, Eq, Debug)]
+/// enum Inner {
+///     B(u32),
+/// }
+///
+/// assert_eq!(
+///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize"), Outer::Inner1(Inner::B(42))
+/// );
+/// ```
+#[proc_macro_error::proc_macro_error]
+#[proc_macro_derive(PartiallyTaggedDeserialize, attributes(serde_partially_tagged, serde))]
+pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
+    partially_tagged::impl_partially_tagged_deserialize(&parse_macro_input!(input))
 }

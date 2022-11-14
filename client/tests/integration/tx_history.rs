@@ -29,9 +29,9 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     //When
     let quantity: u32 = 200;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let mint_existed_asset = MintBox::new(Value::U32(quantity), IdBox::AssetId(asset_id));
+    let mint_existed_asset = MintBox::new(quantity.to_value(), IdBox::AssetId(asset_id));
     let mint_not_existed_asset = MintBox::new(
-        Value::U32(quantity),
+        quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             AssetDefinitionId::from_str("foo#wonderland").expect("Valid"),
             account_id.clone(),

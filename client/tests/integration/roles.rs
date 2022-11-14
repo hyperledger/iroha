@@ -61,8 +61,11 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     test_client.submit_blocking(grant_role)?;
 
     // Exhausting limit
-    let transfer_rose =
-        TransferBox::new(alice_rose_id.clone(), Value::U32(1), mouse_rose_id.clone());
+    let transfer_rose = TransferBox::new(
+        alice_rose_id.clone(),
+        1_u32.to_value(),
+        mouse_rose_id.clone(),
+    );
     for _ in 0..COUNT {
         test_client.submit_blocking(transfer_rose.clone())?;
     }

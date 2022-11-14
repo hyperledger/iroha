@@ -93,7 +93,8 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     let key = Name::from_str("petal")?;
 
     let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
-    let instruction = SetKeyValueBox::new(asset_definition_id.clone(), key.clone(), Value::U32(3));
+    let instruction =
+        SetKeyValueBox::new(asset_definition_id.clone(), key.clone(), 3_u32.to_value());
     let register_trigger = RegisterBox::new(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
@@ -115,7 +116,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         id: asset_definition_id.into(),
         key: key.into(),
     })?;
-    assert!(matches!(value, Value::U32(3)));
+    assert!(matches!(value, Value::Numeric(NumericValue::U32(3_u32))));
 
     Ok(())
 }

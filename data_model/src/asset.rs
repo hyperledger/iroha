@@ -22,16 +22,21 @@ use strum::EnumString;
 
 use crate::{
     account::prelude::*, domain::prelude::*, ffi::declare_item, metadata::Metadata, HasMetadata,
-    Identifiable, Name, ParseError, Registered, TryAsMut, TryAsRef, Value,
+    Identifiable, Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
 pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
 
-/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`DefinitionId`])-value(`AssetDefinition`)
+/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`DefinitionId`])-value([`AssetDefinition`])
 /// pairs.
 pub type AssetDefinitionsMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
+
+/// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`DefinitionId`])-value([`AssetValue`])
+/// pairs.
+pub type AssetTotalQuantityMap =
+    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, NumericValue>;
 
 /// Mintability logic error
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
@@ -342,6 +347,19 @@ impl_try_as_for_asset_value! {
     Store(Metadata),
 }
 
+impl TryFrom<AssetValue> for NumericValue {
+    type Error = crate::ErrorTryFromEnum<Self, AssetValue>;
+
+    fn try_from(value: AssetValue) -> Result<Self, Self::Error> {
+        match value {
+            AssetValue::Quantity(value) => Ok(NumericValue::U32(value)),
+            AssetValue::BigQuantity(value) => Ok(NumericValue::U128(value)),
+            AssetValue::Fixed(value) => Ok(NumericValue::Fixed(value)),
+            _ => Err(crate::ErrorTryFromEnum::default()),
+        }
+    }
+}
+
 /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
 ///
 /// # Examples
@@ -551,6 +569,16 @@ impl NewAssetDefinition {
 )]
 #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl AssetDefinition {
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn new(
+        id: <Self as Identifiable>::Id,
+        value_type: AssetValueType,
+    ) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, value_type)
+    }
+
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]

@@ -24,7 +24,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let bob_xor_id = <Asset as Identifiable>::Id::new(xor_id, bob_id);
     let transfer = Instruction::Transfer(TransferBox {
         source_id: IdBox::AssetId(alice_xor_id).into(),
-        object: Value::U32(10).into(),
+        object: 10_u32.to_value().into(),
         destination_id: IdBox::AssetId(bob_xor_id).into(),
     });
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");

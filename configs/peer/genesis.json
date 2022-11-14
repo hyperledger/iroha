@@ -237,8 +237,8 @@
               "PermissionTokenDefinition": {
                 "id": "can_transfer_only_fixed_number_of_times_per_period",
                 "params": {
-                  "count": "U32",
-                  "period": "U128"
+                  "count": "Numeric",
+                  "period": "Numeric"
                 }
               }
             }

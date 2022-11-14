@@ -93,6 +93,22 @@ pub mod isi {
                     ));
                 }
 
+                #[allow(clippy::match_same_arms)]
+                match asset_definition.value_type() {
+                    AssetValueType::Fixed => {
+                        domain.add_asset_total_quantity(asset_definition_id.clone(), Fixed::ZERO);
+                    }
+                    AssetValueType::Quantity => {
+                        domain.add_asset_total_quantity(asset_definition_id.clone(), u32::MIN);
+                    }
+                    AssetValueType::BigQuantity => {
+                        domain.add_asset_total_quantity(asset_definition_id.clone(), u128::MIN);
+                    }
+                    AssetValueType::Store => {
+                        domain.add_asset_total_quantity(asset_definition_id.clone(), u32::MIN);
+                    }
+                }
+
                 domain.add_asset_definition(asset_definition, authority);
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
                     asset_definition_id,
@@ -112,30 +128,34 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
+            let mut assets_to_remove: Vec<<Asset as Identifiable>::Id> = Vec::new();
+
             for domain in wsv.domains().iter() {
                 for account in domain.accounts() {
-                    let keys: Vec<_> = account
-                        .assets()
-                        .filter_map(|asset| {
-                            if asset.id().definition_id == asset_definition_id {
-                                return Some(asset.id());
-                            }
+                    assets_to_remove.extend(
+                        account
+                            .assets()
+                            .filter_map(|asset| {
+                                if asset.id().definition_id == asset_definition_id {
+                                    return Some(asset.id());
+                                }
 
-                            None
-                        })
-                        .cloned()
-                        .collect();
-
-                    for key_id in keys {
-                        wsv.modify_account(account.id(), |account_mut| {
-                            if account_mut.remove_asset(&key_id).is_none() {
-                                error!(%key_id, "asset not found. This is a bug");
-                            }
-
-                            Ok(AccountEvent::Asset(AssetEvent::Deleted(key_id)))
-                        })?;
-                    }
+                                None
+                            })
+                            .cloned(),
+                    )
                 }
+            }
+
+            for asset_id in assets_to_remove {
+                let account_id = asset_id.account_id.clone();
+                wsv.modify_account(&account_id, |account| {
+                    if account.remove_asset(&asset_id).is_none() {
+                        error!(%asset_id, "asset not found. This is a bug");
+                    }
+
+                    Ok(AccountEvent::Asset(AssetEvent::Deleted(asset_id)))
+                })?;
             }
 
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
@@ -145,6 +165,8 @@ pub mod isi {
                 {
                     return Err(FindError::AssetDefinition(asset_definition_id).into());
                 }
+
+                domain.remove_asset_total_quantity(&asset_definition_id);
 
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Deleted(
                     asset_definition_id,

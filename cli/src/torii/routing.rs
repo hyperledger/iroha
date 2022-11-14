@@ -167,7 +167,7 @@ fn apply_sorting_and_pagination(
 ) -> Vec<Value> {
     if let Some(ref key) = sorting.sort_by_metadata_key {
         let f = |value1: &Value| {
-            if let Value::U128(num) = value1 {
+            if let Value::Numeric(NumericValue::U128(num)) = value1 {
                 *num
             } else {
                 0

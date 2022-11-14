@@ -73,6 +73,8 @@ pub enum QueryBox {
     FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
     /// [`FindAssetQuantityById`] variant.
     FindAssetQuantityById(FindAssetQuantityById),
+    /// [`FindTotalAssetQuantityByAssetDefinitionId`] variant.
+    FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
     /// [`FindAssetKeyValueByIdAndKey`] variant.
     FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
     /// [`FindAssetKeyValueByIdAndKey`] variant.
@@ -951,7 +953,7 @@ pub mod asset {
         type Output = Vec<Asset>;
     }
 
-    /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`
+    /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
     /// parameter's value if [`Asset`] is presented in Iroha Peer.
     #[derive(
         Debug,
@@ -975,7 +977,35 @@ pub mod asset {
     }
 
     impl Query for FindAssetQuantityById {
-        type Output = u32;
+        type Output = NumericValue;
+    }
+
+    /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
+    /// if [`AssetDefinitionId`] is presented in Iroha Peer.
+    /// In case of `Store` asset value type total quantity is sum of assets through all accounts with provided [`AssetDefinitionId`].
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+        Hash,
+    )]
+    #[display(fmt = "Find total quantity of the `{}` asset", id)]
+    pub struct FindTotalAssetQuantityByAssetDefinitionId {
+        /// `Id` of an [`Asset`] to find quantity of.
+        pub id: EvaluatesTo<AssetDefinitionId>,
+    }
+
+    impl Query for FindTotalAssetQuantityByAssetDefinitionId {
+        type Output = NumericValue;
     }
 
     /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`Value`]
@@ -1127,6 +1157,14 @@ pub mod asset {
         }
     }
 
+    impl FindTotalAssetQuantityByAssetDefinitionId {
+        /// Construct [`FindTotalAssetQuantityByAssetDefinitionId`]
+        pub fn new(id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let id = id.into();
+            FindTotalAssetQuantityByAssetDefinitionId { id }
+        }
+    }
+
     impl FindAssetKeyValueByIdAndKey {
         /// Construct [`FindAssetKeyValueByIdAndKey`].
         pub fn new(id: impl Into<EvaluatesTo<AssetId>>, key: impl Into<EvaluatesTo<Name>>) -> Self {
@@ -1155,6 +1193,7 @@ pub mod asset {
             FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
             FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
             FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
+            FindTotalAssetQuantityByAssetDefinitionId,
         };
     }
 }

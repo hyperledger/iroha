@@ -653,12 +653,12 @@ mod asset {
                 metadata: Metadata(metadata),
             } = self;
             let mint_asset = MintBox::new(
-                Value::U32(quantity),
+                quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
             )
             .into();
             submit([mint_asset], cfg, metadata)
-                .wrap_err("Failed to mint asset of type `Value::U32`")
+                .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
     }
 
@@ -693,7 +693,7 @@ mod asset {
             } = self;
             let transfer_asset = TransferBox::new(
                 IdBox::AssetId(AssetId::new(asset_id.clone(), from)),
-                Value::U32(quantity),
+                quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset_id, to)),
             )
             .into();

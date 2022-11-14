@@ -94,7 +94,7 @@ fn unstable_network(
     for _i in 0..n_transactions {
         let quantity = 1;
         let mint_asset = MintBox::new(
-            Value::U32(quantity),
+            quantity.to_value(),
             IdBox::AssetId(AssetId::new(
                 asset_definition_id.clone(),
                 account_id.clone(),

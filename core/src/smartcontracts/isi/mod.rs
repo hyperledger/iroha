@@ -337,13 +337,13 @@ impl Execute for MintBox {
         let object = self.object.evaluate(wsv, &context)?;
         iroha_logger::trace!(%destination_id, ?object, %authority);
         match (destination_id, object) {
-            (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U32(quantity))) => {
                 Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::U128(quantity)) => {
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U128(quantity))) => {
                 Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::Fixed(quantity))) => {
                 Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
             }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
@@ -353,7 +353,7 @@ impl Execute for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
-            (IdBox::TriggerId(trigger_id), Value::U32(quantity)) => {
+            (IdBox::TriggerId(trigger_id), Value::Numeric(NumericValue::U32(quantity))) => {
                 Mint::<Trigger<FilterBox>, u32>::new(quantity, trigger_id).execute(authority, wsv)
             }
             _ => Err(Error::Unsupported(InstructionType::Mint)),
@@ -377,13 +377,13 @@ impl Execute for BurnBox {
             self.destination_id.evaluate(wsv, &context)?,
             self.object.evaluate(wsv, &context)?,
         ) {
-            (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U32(quantity))) => {
                 Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::U128(quantity)) => {
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U128(quantity))) => {
                 Burn::new(quantity, asset_id).execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
+            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::Fixed(quantity))) => {
                 Burn::new(quantity, asset_id).execute(authority, wsv)
             }
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
@@ -419,11 +419,15 @@ impl Execute for TransferBox {
         iroha_logger::trace!(?source_asset_id, ?destination_asset_id, ?value, %authority);
 
         match value {
-            Value::U32(quantity) => Transfer::new(source_asset_id, quantity, destination_asset_id)
-                .execute(authority, wsv),
-            Value::U128(quantity) => Transfer::new(source_asset_id, quantity, destination_asset_id)
-                .execute(authority, wsv),
-            Value::Fixed(quantity) => {
+            Value::Numeric(NumericValue::U32(quantity)) => {
+                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                    .execute(authority, wsv)
+            }
+            Value::Numeric(NumericValue::U128(quantity)) => {
+                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                    .execute(authority, wsv)
+            }
+            Value::Numeric(NumericValue::Fixed(quantity)) => {
                 Transfer::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
@@ -623,25 +627,25 @@ mod tests {
     use super::*;
     use crate::{wsv::World, PeersIds};
 
-    fn world_with_test_domains() -> Result<World> {
-        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
+    fn wsv_with_test_domains() -> Result<WorldStateView> {
+        let world = World::with([], PeersIds::new());
+        let wsv = WorldStateView::new(world);
+        let genesis_account_id = AccountId::from_str("genesis@genesis")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let (public_key, _) = KeyPair::generate()?.into();
-        let account = Account::new(account_id.clone(), [public_key]).build();
-        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
-        assert!(domain
-            .add_asset_definition(
-                AssetDefinition::store(asset_definition_id).build(),
-                account_id
-            )
-            .is_none());
-        Ok(World::with([domain], PeersIds::new()))
+        RegisterBox::new(Domain::new(DomainId::from_str("wonderland")?))
+            .execute(genesis_account_id.clone(), &wsv)?;
+        RegisterBox::new(Account::new(account_id, [public_key]))
+            .execute(genesis_account_id.clone(), &wsv)?;
+        RegisterBox::new(AssetDefinition::store(asset_definition_id))
+            .execute(genesis_account_id, &wsv)?;
+        Ok(wsv)
     }
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = wsv_with_test_domains()?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
@@ -659,9 +663,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -669,7 +673,7 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = wsv_with_test_domains()?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
@@ -686,9 +690,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -696,7 +700,7 @@ mod tests {
 
     #[test]
     fn asset_definition_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = wsv_with_test_domains()?;
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -714,9 +718,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -724,7 +728,7 @@ mod tests {
 
     #[test]
     fn domain_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = wsv_with_test_domains()?;
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -741,9 +745,9 @@ mod tests {
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
-                Value::U32(1),
-                Value::U32(2),
-                Value::U32(3)
+                1_u32.to_value(),
+                2_u32.to_value(),
+                3_u32.to_value(),
             ]))
         );
         Ok(())
@@ -751,7 +755,7 @@ mod tests {
 
     #[test]
     fn executing_unregistered_trigger_should_return_error() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = wsv_with_test_domains()?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
 
@@ -767,7 +771,7 @@ mod tests {
 
     #[test]
     fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = wsv_with_test_domains()?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let fake_account_id = AccountId::from_str("fake@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;

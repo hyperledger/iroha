@@ -1,0 +1,260 @@
+#![allow(clippy::restriction)]
+use eyre::Result;
+use iroha_client::client::ClientQueryError;
+use iroha_core::smartcontracts::isi::query::Error as QueryError;
+use iroha_crypto::KeyPair;
+use iroha_data_model::{prelude::*, query::asset::FindTotalAssetQuantityByAssetDefinitionId};
+use iroha_permissions_validators::public_blockchain::burn::CanBurnUserAssets;
+use iroha_primitives::fixed::Fixed;
+use test_network::*;
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn find_asset_total_quantity() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    // Register new domain
+    let domain_id: DomainId = "looking_glass".parse()?;
+    let domain = Domain::new(domain_id);
+    test_client.submit_blocking(RegisterBox::new(domain))?;
+
+    let accounts: [AccountId; 5] = [
+        "alice@wonderland".parse()?,
+        "mad_hatter@wonderland".parse()?,
+        "cheshire_cat@wonderland".parse()?,
+        "caterpillar@wonderland".parse()?,
+        "white_rabbit@looking_glass".parse()?,
+    ];
+
+    let keys =
+        core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate `KeyPair`"))
+            .take(accounts.len() - 1)
+            .collect::<Vec<_>>();
+
+    // Registering accounts
+    let register_accounts = accounts
+        .iter()
+        .skip(1) // Alice has already been registered in genesis
+        .cloned()
+        .zip(keys.iter().map(KeyPair::public_key).cloned())
+        .map(|(account_id, public_key)| RegisterBox::new(Account::new(account_id, [public_key])).into())
+        .collect::<Vec<_>>();
+    test_client.submit_all_blocking(register_accounts)?;
+
+    // Test for numeric assets value types
+    for (
+        definition,
+        asset_value_type,
+        initial_value,
+        to_mint,
+        to_burn,
+        expected_total_asset_quantity,
+    ) in [
+        (
+            "quantity#wonderland",
+            AssetValueType::Quantity,
+            AssetValue::Quantity(1_u32),
+            10_u32.to_value(),
+            5_u32.to_value(),
+            NumericValue::U32(30_u32),
+        ),
+        (
+            "big-quantity#wonderland",
+            AssetValueType::BigQuantity,
+            AssetValue::BigQuantity(1_u128),
+            10_u128.to_value(),
+            5_u128.to_value(),
+            NumericValue::U128(30_u128),
+        ),
+        (
+            "fixed#wonderland",
+            AssetValueType::Fixed,
+            AssetValue::Fixed(Fixed::try_from(1.0)?),
+            10.0_f64.try_to_value()?,
+            5.0_f64.try_to_value()?,
+            NumericValue::Fixed(Fixed::try_from(30.0)?),
+        ),
+    ] {
+        // Registering new asset definition
+        let definition_id: <AssetDefinition as Identifiable>::Id =
+            definition.parse().expect("Failed to parse `definition_id`");
+        let asset_definition = AssetDefinition::new(definition_id.clone(), asset_value_type);
+        test_client.submit_blocking(RegisterBox::new(asset_definition.clone()))?;
+
+        let asset_ids = accounts
+            .iter()
+            .cloned()
+            .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
+            .collect::<Vec<_>>();
+
+        // Give Alice ability to burn other accounts assets
+        asset_ids
+            .iter()
+            .skip(1)
+            .cloned()
+            .map(|asset_id| CanBurnUserAssets::new(asset_id).into())
+            .map(|permission_token: PermissionToken| {
+                GrantBox::new(permission_token, accounts[0].clone())
+            })
+            .zip(accounts.iter().skip(1).cloned())
+            .zip(keys.iter().cloned())
+            .map(|((grant_box, account_id), key_pair)| {
+                Transaction::new(
+                    account_id,
+                    Executable::Instructions(vec![grant_box.into()]),
+                    100_000,
+                )
+                .sign(key_pair)
+                .expect("Signing failed")
+            })
+            .for_each(|transaction| {
+                test_client
+                    .submit_transaction_blocking(transaction)
+                    .expect("Unable to execute transaction");
+            });
+
+        // Assert that initial total quantity before any burns and mints is zero
+        let initial_total_asset_quantity = test_client.request(
+            FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
+        )?;
+        assert!(initial_total_asset_quantity.is_zero_value());
+
+        let register_asset = asset_ids
+            .iter()
+            .cloned()
+            .map(|asset_id| Asset::new(asset_id, initial_value.clone()))
+            .map(|asset| RegisterBox::new(asset).into())
+            .collect::<Vec<_>>();
+        test_client.submit_all_blocking(register_asset)?;
+
+        let mint_asset = asset_ids
+            .iter()
+            .cloned()
+            .map(|asset_id| MintBox::new(to_mint.clone(), asset_id).into());
+        test_client.submit_all_blocking(mint_asset)?;
+
+        let burn_asset = asset_ids
+            .iter()
+            .cloned()
+            .map(|asset_id| BurnBox::new(to_burn.clone(), asset_id).into())
+            .collect::<Vec<_>>();
+        test_client.submit_all_blocking(burn_asset)?;
+
+        // Assert that total asset quantity is equal to: `n_accounts * (initial_value + to_mint - to_burn)`
+        let total_asset_quantity = test_client.request(
+            FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
+        )?;
+        assert_eq!(expected_total_asset_quantity, total_asset_quantity);
+
+        let unregister_asset = asset_ids
+            .iter()
+            .cloned()
+            .map(|asset_id| UnregisterBox::new(asset_id).into())
+            .collect::<Vec<_>>();
+        test_client.submit_all_blocking(unregister_asset)?;
+
+        // Assert that total asset quantity is zero after unregistering asset from all accounts
+        let total_asset_quantity = test_client.request(
+            FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
+        )?;
+        assert!(total_asset_quantity.is_zero_value());
+
+        // Unregister asset definition
+        test_client.submit_blocking(UnregisterBox::new(definition_id.clone()))?;
+
+        // Assert that total asset quantity cleared with unregistering of asset definition
+        let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
+            definition_id.clone(),
+        ));
+        assert!(matches!(
+            result,
+            Err(ClientQueryError::QueryError(QueryError::Find(_)))
+        ));
+    }
+
+    // Test for `Store` asset value type
+    let definition_id: <AssetDefinition as Identifiable>::Id =
+        "store#wonderland".parse().expect("Valid");
+    let asset_definition = AssetDefinition::store(definition_id.clone());
+    test_client.submit_blocking(RegisterBox::new(asset_definition))?;
+
+    let asset_ids = accounts
+        .iter()
+        .cloned()
+        .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
+        .collect::<Vec<_>>();
+
+    // Give Alice ability to burn other accounts assets
+    asset_ids
+        .iter()
+        .skip(1)
+        .cloned()
+        .map(|asset_id| CanBurnUserAssets::new(asset_id).into())
+        .map(|permission_token: PermissionToken| {
+            GrantBox::new(permission_token, accounts[0].clone())
+        })
+        .zip(accounts.iter().skip(1).cloned())
+        .zip(keys.iter().cloned())
+        .map(|((grant_box, account_id), key_pair)| {
+            Transaction::new(
+                account_id,
+                Executable::Instructions(vec![grant_box.into()]),
+                100_000,
+            )
+            .sign(key_pair)
+            .expect("Signing failed")
+        })
+        .for_each(|transaction| {
+            test_client
+                .submit_transaction_blocking(transaction)
+                .expect("Unable to execute transaction");
+        });
+
+    // Assert that initial total quantity before any registrations and unregistrations is zero
+    let initial_total_asset_quantity = test_client.request(
+        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
+    )?;
+    assert!(initial_total_asset_quantity.is_zero_value());
+
+    let register_asset = asset_ids
+        .iter()
+        .cloned()
+        .map(|asset_id| Asset::new(asset_id, Metadata::default()))
+        .map(|asset| RegisterBox::new(asset).into())
+        .collect::<Vec<_>>();
+    test_client.submit_all_blocking(register_asset)?;
+
+    // Assert that total quantity is equal to number of registrations
+    let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
+        definition_id.clone(),
+    ))?;
+    assert_eq!(NumericValue::U32(5), result);
+
+    let unregister_asset = asset_ids
+        .iter()
+        .cloned()
+        .map(|asset_id| UnregisterBox::new(asset_id).into())
+        .collect::<Vec<_>>();
+    test_client.submit_all_blocking(unregister_asset)?;
+
+    // Assert that total asset quantity is zero after unregistering asset from all accounts
+    let total_asset_quantity = test_client.request(
+        FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
+    )?;
+    assert!(total_asset_quantity.is_zero_value());
+
+    // Unregister asset definition
+    test_client.submit_blocking(UnregisterBox::new(definition_id.clone()))?;
+
+    // Assert that total asset quantity cleared with unregistering of asset definition
+    let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
+        definition_id,
+    ));
+    assert!(matches!(
+        result,
+        Err(ClientQueryError::QueryError(QueryError::Find(_)))
+    ));
+
+    Ok(())
+}

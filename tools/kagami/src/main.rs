@@ -178,11 +178,7 @@ mod genesis {
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
         tx::{AssetValueType, MintBox, RegisterBox},
     };
-    use iroha_data_model::{
-        metadata::Limits,
-        prelude::{AssetId, Value},
-        IdBox,
-    };
+    use iroha_data_model::{metadata::Limits, prelude::AssetId, IdBox};
     use iroha_permissions_validators::public_blockchain::{
         self,
         key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
@@ -257,14 +253,14 @@ mod genesis {
             .build();
 
         let mint = MintBox::new(
-            Value::U32(13_u32),
+            13_u32.to_value(),
             IdBox::AssetId(AssetId::new(
                 "rose#wonderland".parse()?,
                 "alice@wonderland".parse()?,
             )),
         );
         let mint_cabbage = MintBox::new(
-            Value::U32(44),
+            44_u32.to_value(),
             IdBox::AssetId(AssetId::new(
                 "cabbage#garden_of_live_flowers".parse()?,
                 "alice@wonderland".parse()?,
@@ -342,7 +338,7 @@ mod genesis {
                 for account in 0..accounts_per_domain {
                     for asset in 0..assets_per_domain {
                         let mint = MintBox::new(
-                            Value::U32(13_u32),
+                            13_u32.to_value(),
                             IdBox::AssetId(AssetId::new(
                                 format!("asset_{asset}#domain_{domain}").parse()?,
                                 format!("account_{account}@domain_{domain}").parse()?,
