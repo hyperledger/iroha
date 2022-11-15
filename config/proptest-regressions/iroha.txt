@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9e64f99c856c79b4c27b0721aadb4692a2670901fac6fa09ba442c04d1bb9d47 # shrinks to proxy = ConfigurationProxy { public_key: None, private_key: None, disable_panic_terminal_colors: None, kura: None, sumeragi: None, torii: None, block_sync: None, queue: None, logger: None, genesis: None, wsv: None, network: None, telemetry: None }

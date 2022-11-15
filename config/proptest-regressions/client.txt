@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2bf63e09fe20a65fb513f7742f235d0b13df91eb899f48af6bf14fb3cc477a20 # shrinks to proxy = ConfigurationProxy { public_key: Some({ digest: ed25519, payload: 4D58F98E7192BF971121442FC5D3ECC5B74AE7F84EE423109758B57F2A16362C }), private_key: Some({ digest: ed25519, payload: [F5, 5A, E1, A1, 87, DB, 1B, A1, 48, 3B, 39, 9F, 4F, A4, ED, D3, AF, EE, 7A, 13, 45, 63, 98, 39, 9C, 6B, 58, A5, 2D, 1C, A8, F7, 4D, 58, F9, 8E, 71, 92, BF, 97, 11, 21, 44, 2F, C5, D3, EC, C5, B7, 4A, E7, F8, 4E, E4, 23, 10, 97, 58, B5, 7F, 2A, 16, 36, 2C]}), account_id: Some(Id { name: "alice", domain_id: Id { name: "wonderland" } }), basic_auth: Some(None), torii_api_url: Some(SmallStr("http://127.0.0.1:8080")), torii_telemetry_url: Some(SmallStr("http://127.0.0.1:8180")), transaction_time_to_live_ms: Some(100000), transaction_status_timeout_ms: Some(15000), transaction_limits: Some(TransactionLimits { max_instruction_number: 4096, max_wasm_size_bytes: 4194304 }), add_transaction_nonce: Some(false) }
