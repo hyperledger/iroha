@@ -183,7 +183,12 @@ impl ChainedBlock {
     ) -> ValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
-
+        let wsv_clone = WorldStateView::clone(wsv);
+        let wsv = if self.header.is_genesis() {
+            wsv
+        } else {
+            &wsv_clone
+        };
         for tx in self.transactions {
             match transaction_validator.validate(tx.into_v1(), self.header.is_genesis(), wsv) {
                 Ok(tx) => txs.push(tx),
