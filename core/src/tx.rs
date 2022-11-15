@@ -130,19 +130,19 @@ impl TransactionValidator {
             }));
         }
 
-        // TODO: combine the two. Elide the clone.
+        if is_genesis {
+            let wsv_cloned = WorldStateView::clone(&wsv);
+            self.validate_with_builtin_validators(&tx, &wsv_cloned, is_genesis)?;
+        } else {
+            self.validate_with_builtin_validators(&tx, &wsv, is_genesis)?;
+        }
 
-        // WSV is cloned here so that instructions don't get applied to the blockchain
-        // Therefore, this instruction execution validates before actually executing
-        let wsv = wsv.clone();
-
-        self.validate_with_builtin_validators(&tx, &wsv, is_genesis)?;
-
-        // WSV is cloned here so that instructions don't get applied to the blockchain
-        // Therefore, this instruction execution validates before actually executing
-        let wsv = WorldStateView::clone(&wsv);
-
-        Self::validate_with_runtime_validators(tx, &wsv)
+        if is_genesis {
+            let wsv_cloned = WorldStateView::clone(&wsv);
+            Self::validate_with_runtime_validators(tx, &wsv_cloned)
+        } else {
+            Self::validate_with_runtime_validators(tx, &wsv)
+        }
     }
 
     /// Validate signatures for the given transaction
