@@ -12,7 +12,6 @@
 use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv},
     iroha::{Configuration, ConfigurationProxy},
@@ -110,7 +109,6 @@ impl Iroha {
         instruction_judge: InstructionJudgeBoxed,
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
-        let broker = Broker::new();
         let mut proxy = ConfigurationProxy::from_path(&args.config_path)?;
         proxy.load_environment()?;
         let config = proxy.build()?;
@@ -136,7 +134,6 @@ impl Iroha {
             config,
             instruction_judge,
             query_judge,
-            broker,
             telemetry,
         )
         .await
@@ -180,7 +177,6 @@ impl Iroha {
         config: Configuration,
         instruction_judge: InstructionJudgeBoxed,
         query_judge: QueryJudgeBoxed,
-        broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {

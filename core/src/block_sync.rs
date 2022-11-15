@@ -24,12 +24,16 @@ use crate::{
 };
 
 /// Structure responsible for block synchronization between peers.
-#[derive(Debug)]
 pub struct BlockSynchronizer {
+    /// Sumeragi handle
     sumeragi: Arc<Sumeragi>,
+    /// Current Peer's identification
     peer_id: PeerId,
+    /// Periodically gossip about transactions with this interval.
     gossip_period: Duration,
+    /// Batch size for each gossip
     block_batch_size: u32,
+    /// Handle to the `P2P` system.
     p2p: Arc<P2PSystem>,
     /// Sender channel
     pub message_sender: mpsc::SyncSender<message::VersionedMessage>,
@@ -58,16 +62,20 @@ impl BlockSynchronizer {
         })
     }
 
-    /// Deposit a block_sync network message.
+    /// Deposit a `block_sync` network message.
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: message::VersionedMessage) {
-        println!("got msg");
         if self.message_sender.send(msg).is_err() {
             error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }
 }
 
+/// Start a read loop and return a `ThreadHandler` to the listening thread
+///
+/// # Panics
+/// If spawning a thread fails
+#[allow(clippy::expect_used)]
 pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
     // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
@@ -77,10 +85,10 @@ pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
         .spawn(move || {
             block_sync_read_loop(&block_sync, shutdown_receiver);
         })
-        .unwrap();
+        .expect("Failed to spawn listening thread for the `block_sync`. This is an OS error.");
 
     let shutdown = move || {
-        let _result = shutdown_sender.send(());
+        shutdown_sender.send(()).unwrap_or(());
     };
 
     ThreadHandler::new(Box::new(shutdown), thread_handle)
@@ -98,12 +106,18 @@ fn block_sync_read_loop(
             info!("P2P thread is being shut down");
             return;
         }
-        if let Some(message) = block_sync.p2p.poll_network_for_block_sync_message() {
-            message.into_v1().handle_message(&block_sync);
-        } else {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        
+        block_sync
+            .p2p
+            .poll_network_for_block_sync_message()
+            .map_or_else(
+                || {
+                    std::thread::sleep(Duration::from_millis(10));
+                },
+                |message| {
+                    message.into_v1().handle_message(block_sync);
+                },
+            );
+
         if last_requested_blocks.elapsed() > block_sync.gossip_period {
             last_requested_blocks = Instant::now();
             let peers = block_sync.p2p.get_connected_to_peer_keys();
@@ -116,7 +130,6 @@ fn block_sync_read_loop(
                     block_sync.peer_id.clone(),
                 ))
                 .send_to(&block_sync.p2p, peer_key);
-                println!("call out");
             }
         }
     }
@@ -194,14 +207,16 @@ pub mod message {
     #[version_with_scale(n = 1, versioned = "VersionedMessage")]
     #[derive(Debug, Clone, Decode, Encode, FromVariant, iroha_actor::Message)]
     pub enum Message {
-        /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
+        /// Request for blocks after the block with `Hash` for the
+        /// peer with [`PeerId`].
         GetBlocksAfter(GetBlocksAfter),
-        /// The response to `GetBlocksAfter`. Contains the requested blocks and the id of the peer who shared them.
+        /// The response to [`Self::GetBlocksAfter`]. Contains the requested
+        /// blocks and the id of the peer who shared them.
         ShareBlocks(ShareBlocks),
     }
 
     impl Message {
-        /// Handles the incoming message.
+        /// Handle the incoming message.
         pub fn handle_message(&self, block_sync: &BlockSynchronizer) {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
@@ -212,37 +227,45 @@ pub mod message {
                     if *hash == block_sync.sumeragi.latest_block_hash() {
                         return;
                     }
-
-                    let mut blocks = block_sync.sumeragi.blocks_after_hash(*hash);
-                    blocks.truncate(block_sync.block_batch_size as usize);
-
-                    if blocks.is_empty() {
-                        warn!(%hash, "Block hash not found");
-                    } else {
-                        trace!("Sharing blocks after hash: {}", hash);
-                        Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
-                            .send_to(&block_sync.p2p, &peer_id.public_key);
-                    }
+                    handle_get_blocks(block_sync, hash, peer_id);
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
                     use crate::sumeragi::message::{BlockCommitted, Message, MessagePacket};
                     for block in blocks {
-                        block_sync.p2p.post_to_own_sumeragi_buffer(Box::new(MessagePacket::new(
-                            Vec::new(),
-                            Message::BlockCommitted(BlockCommitted {
-                                block: block.clone().into(),
-                            }),
-                        ).into()));
+                        block_sync.p2p.post_to_own_sumeragi_buffer(
+                            MessagePacket::new(
+                                Vec::new(),
+                                Message::BlockCommitted(BlockCommitted {
+                                    block: block.clone().into(),
+                                }),
+                            )
+                            .into(),
+                        );
                     }
                 }
             }
         }
 
         /// Send this message over the network to the specified `peer`.
-        #[log("TRACE")]
         pub fn send_to(self, p2p: &P2PSystem, peer: &PublicKey) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
-            p2p.post_to_network(data, vec![peer.clone()]);
+            p2p.post_to_network(&data, &[peer.clone()]);
+        }
+    }
+
+    fn handle_get_blocks(
+        block_sync: &BlockSynchronizer,
+        hash: &HashOf<VersionedCommittedBlock>,
+        peer_id: &PeerId,
+    ) {
+        let mut blocks = block_sync.sumeragi.blocks_after_hash(*hash);
+        blocks.truncate(block_sync.block_batch_size as usize);
+        if blocks.is_empty() {
+            warn!(%hash, "Block hash not found");
+        } else {
+            trace!("Sharing blocks after hash: {}", hash);
+            Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
+                .send_to(&block_sync.p2p, &peer_id.public_key);
         }
     }
 }

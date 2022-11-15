@@ -87,6 +87,10 @@ impl Kura {
     }
 
     /// Start the Kura thread
+    ///
+    /// # Panics
+    /// If Kura thread failed to spawn.
+    #[allow(clippy::expect_used)]
     pub fn start(kura: Arc<Self>) -> ThreadHandler {
         // Oneshot channel to allow forcefully stopping the thread.
         let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
@@ -96,10 +100,12 @@ impl Kura {
             .spawn(move || {
                 Self::kura_recieve_blocks_loop(&kura, shutdown_receiver);
             })
-            .unwrap();
+            .expect(
+                "Failed to spawn thread for Kura. This is an OS error, please check your machine",
+            );
 
         let shutdown = move || {
-            let _result = shutdown_sender.send(());
+            shutdown_sender.send(()).unwrap_or(());
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
@@ -121,10 +127,11 @@ impl Kura {
         )
     }
 
-    /// Initialize [`Kura`] after its construction to be able to work with it.
+    /// [`Self`] startup housekeeping. Probe the file storage, read
+    /// the index file, or rebuild the index from the existing block
+    /// storage, handle any malformed blocks.
     ///
     /// # Errors
-    /// Fails if:
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]

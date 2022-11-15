@@ -6,7 +6,6 @@ use std::num::TryFromIntError;
 
 use eyre::WrapErr;
 use futures::TryStreamExt;
-use iroha_actor::Addr;
 use iroha_config::{
     base::proxy::Documented,
     iroha::{Configuration, ConfigurationView},
