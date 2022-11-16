@@ -66,6 +66,7 @@ pub fn slice_to_slice(value: &[TransparentStruct]) -> &[TransparentStruct] {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn transparent_self_to_self() {
     let transparent_struct = TransparentStruct::new(GenericTransparentStruct::new(42));
     // NOTE: recursively traversing transparent structs
@@ -84,6 +85,7 @@ fn transparent_self_to_self() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn transparent_vec_to_vec() {
     let transparent_struct_vec = vec![
         TransparentStruct::new(GenericTransparentStruct::new(1)),
@@ -123,6 +125,7 @@ fn transparent_vec_to_vec() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 // False positive
 #[allow(clippy::let_unit_value)]
 fn transparent_slice_to_slice() {
@@ -150,6 +153,7 @@ fn transparent_slice_to_slice() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn transparent_method_consume() {
     let mut transparent_struct = TransparentStruct::new(GenericTransparentStruct::new(42));
     let payload = GenericTransparentStruct::new(24);
@@ -173,6 +177,7 @@ fn transparent_method_consume() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn transparent_method_borrow() {
     let transparent_struct = TransparentStruct::new(GenericTransparentStruct::new(42));
     let mut output = MaybeUninit::new(core::ptr::null());

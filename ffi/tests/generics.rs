@@ -21,6 +21,7 @@ pub fn freestanding(input: GenericFfiStruct<String>) -> GenericFfiStruct<String>
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn get_return_generic() {
     let ffi_struct = &FfiStruct {
         inner: GenericFfiStruct(true),
@@ -37,6 +38,7 @@ fn get_return_generic() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn freestanding_accept_and_return_generic() {
     let inner = GenericFfiStruct(String::from("hello world"));
     let mut output = MaybeUninit::<*mut GenericFfiStruct<String>>::new(core::ptr::null_mut());

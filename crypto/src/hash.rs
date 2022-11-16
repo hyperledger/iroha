@@ -3,7 +3,6 @@ use alloc::{alloc::alloc, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
-use iroha_ffi::FfiType;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -29,10 +28,7 @@ ffi::ffi_item! {
         Ord,
         PartialOrd,
         IntoSchema,
-        FfiType,
     )]
-    // TODO: use #[ffi_type(unsafe {robust})] instead
-    #[ffi_type(opaque)]
     #[display(fmt = "{}", "hex::encode(self.as_ref())")]
     #[debug(fmt = "{}", "hex::encode(self.as_ref())")]
     #[repr(C)]
@@ -40,6 +36,14 @@ ffi::ffi_item! {
         more_significant_bits: [u8; Self::LENGTH - 1],
         least_significant_byte: NonZeroU8,
     }
+}
+
+// NOTE: Hash is FFI serialized as an array (a pointer in a function call, by value when part of a struct)
+iroha_ffi::ffi_type! {unsafe impl Transparent for Hash[[u8; Hash::LENGTH]] validated with {Hash::is_lsb_1} }
+
+impl iroha_ffi::option::Niche for Hash {
+    // NOTE: Any value that has lsb=0 is a niche value
+    const NICHE_VALUE: Self::ReprC = [0; Hash::LENGTH];
 }
 
 impl Hash {

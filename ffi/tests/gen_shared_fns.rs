@@ -33,6 +33,7 @@ impl FfiStruct1 {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn gen_shared_fns() {
     let name = String::from("X");
 
