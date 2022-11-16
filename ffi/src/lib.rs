@@ -9,7 +9,7 @@ extern crate alloc;
 
 use ir::Ir;
 pub use iroha_ffi_derive::*;
-use repr_c::{COutPtr, CType, CTypeConvert, NonLocal, NonTransmute};
+use repr_c::{COutPtr, CType, CTypeConvert, Cloned, NonLocal};
 
 pub mod handle;
 pub mod ir;
@@ -159,6 +159,9 @@ macro_rules! ffi_type {
         impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
             type Type = $crate::ir::Opaque;
         }
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for &$ty where $($where_clause)? {
+            type Type = $crate::ir::Transparent;
+        }
 
         // SAFETY: Transmuting reference to a pointer of the same type
         unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Transmute for &$ty where $($where_clause)? {
@@ -190,12 +193,18 @@ macro_rules! ffi_type {
         impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
             type Type = $crate::ir::Robust;
         }
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for &$ty where $($where_clause)? {
+            type Type = $crate::ir::Transparent;
+        }
 
         // SAFETY: Type must be a robust #[repr(C)] type
         unsafe impl$(<$($impl_generics: $crate::ReprC + $($bounds)?),*>)? $crate::ReprC for $ty where $($where_clause)? {}
     };
     (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Transparent for $ty: ty[$target: ty] $(where $where_clause: tt )? validated with {$validity_fn: expr}) => {
         impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for $ty where $($where_clause)? {
+            type Type = $crate::ir::Transparent;
+        }
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for &$ty where $($where_clause)? {
             type Type = $crate::ir::Transparent;
         }
 
@@ -349,9 +358,6 @@ macro_rules! impl_tuple {
         impl<$($ty),+> $crate::ir::Ir for ($($ty,)+) {
             type Type = Self;
         }
-        impl<$($ty),+> $crate::ir::Ir for &($($ty,)+) {
-            type Type = Self;
-        }
 
         impl<$($ty: FfiType),+> $crate::repr_c::CType<Self> for ($($ty,)+) {
             type ReprC = $ffi_ty<$($ty::ReprC),+>;
@@ -382,7 +388,7 @@ macro_rules! impl_tuple {
             type OutPtr = *mut Self::ReprC;
         }
 
-        impl<$($ty),+> NonTransmute for ($($ty,)+) where Self: CType<Self> {}
+        impl<$($ty),+> Cloned for ($($ty,)+) where Self: CType<Self> {}
 
         // SAFETY: Tuple doesn't use store if it's inner types don't use it
         unsafe impl<$($ty: Ir + NonLocal<$ty::Type>),+> NonLocal<Self> for ($($ty,)+) {}

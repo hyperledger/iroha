@@ -82,23 +82,23 @@ pub trait COutPtr<S>: CType<S> {
 pub unsafe trait NonLocal<S>: COutPtr<S> {}
 
 /// Type that cannot be transmuted into a [`ReprC`] type
-pub trait NonTransmute {}
+pub trait Cloned {}
 
-impl<R: Ir> NonTransmute for &R where R::Type: NonTransmute {}
-impl<R> NonTransmute for Box<R> {}
-impl<R> NonTransmute for &[R] {}
-impl<R> NonTransmute for Vec<R> {}
-impl<R: Ir, const N: usize> NonTransmute for [R; N] where R::Type: NonTransmute {}
+impl<R: Ir> Cloned for &R where R::Type: Cloned {}
+impl<R> Cloned for Box<R> {}
+impl<R> Cloned for &[R] {}
+impl<R> Cloned for Vec<R> {}
+impl<R: Ir, const N: usize> Cloned for [R; N] where R::Type: Cloned {}
 
 // NOTE: `CType` cannot be implemented for `&mut T`
-impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<&S> for &R {
-    type ReprC = *const <R as CType<R::Type>>::ReprC;
+impl<R: CType<S>, S: Cloned> CType<&S> for &R {
+    type ReprC = *const R::ReprC;
 }
-impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, C: ReprC>
-    CTypeConvert<'itm, &S, *const C> for &'itm R
+impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
+    CTypeConvert<'itm, &'itm S, *const C> for &'itm R
 {
-    type RustStore = (Option<C>, <R as CTypeConvert<'itm, R::Type, C>>::RustStore);
-    type FfiStore = (Option<R>, <R as CTypeConvert<'itm, R::Type, C>>::FfiStore);
+    type RustStore = (Option<C>, R::RustStore);
+    type FfiStore = (Option<R>, R::FfiStore);
 
     fn into_repr_c(self, store: &'itm mut Self::RustStore) -> *const C {
         store.0.insert(self.clone().into_repr_c(&mut store.1))
@@ -117,10 +117,10 @@ impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, 
     }
 }
 
-impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<Box<S>> for Box<R> {
+impl<R: CType<S>, S: Cloned> CType<Box<S>> for Box<R> {
     type ReprC = *mut R::ReprC;
 }
-impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, C: ReprC>
+impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
     CTypeConvert<'itm, Box<S>, *mut C> for Box<R>
 {
     type RustStore = (Option<C>, R::RustStore);
@@ -142,10 +142,10 @@ impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, 
 }
 
 // NOTE: `CType` cannot be implemented for `&mut [T]`
-impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<&[S]> for &[R] {
+impl<R: CType<S>, S: Cloned> CType<&[S]> for &[R] {
     type ReprC = SliceRef<R::ReprC>;
 }
-impl<'slice, R: Ir<Type = S> + CTypeConvert<'slice, S, C> + Clone, S: NonTransmute, C: ReprC>
+impl<'slice, R: CTypeConvert<'slice, S, C> + Clone, S: Cloned, C: ReprC>
     CTypeConvert<'slice, &[S], SliceRef<C>> for &'slice [R]
 {
     type RustStore = (Vec<C>, Vec<R::RustStore>);
@@ -195,10 +195,10 @@ impl<'slice, R: Ir<Type = S> + CTypeConvert<'slice, S, C> + Clone, S: NonTransmu
     }
 }
 
-impl<R: Ir<Type = S> + CType<S>, S: NonTransmute> CType<Vec<S>> for Vec<R> {
+impl<R: CType<S>, S: Cloned> CType<Vec<S>> for Vec<R> {
     type ReprC = SliceMut<R::ReprC>;
 }
-impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, C: ReprC>
+impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
     CTypeConvert<'itm, Vec<S>, SliceMut<C>> for Vec<R>
 {
     type RustStore = (Vec<C>, Vec<R::RustStore>);
@@ -246,16 +246,11 @@ impl<'itm, R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone, S: NonTransmute, 
     }
 }
 
-impl<R: Ir<Type = S> + CType<S>, S: NonTransmute, const N: usize> CType<[S; N]> for [R; N] {
+impl<R: CType<S>, S: Cloned, const N: usize> CType<[S; N]> for [R; N] {
     type ReprC = [R::ReprC; N];
 }
-impl<
-        'itm,
-        R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone,
-        S: NonTransmute,
-        C: ReprC,
-        const N: usize,
-    > CTypeConvert<'itm, [S; N], [C; N]> for [R; N]
+impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC, const N: usize>
+    CTypeConvert<'itm, [S; N], [C; N]> for [R; N]
 where
     [R::RustStore; N]: Default,
     [R::FfiStore; N]: Default,
@@ -324,13 +319,8 @@ where
         )
     }
 }
-impl<
-        'itm,
-        R: Ir<Type = S> + CTypeConvert<'itm, S, C> + Clone,
-        S: NonTransmute,
-        C: ReprC,
-        const N: usize,
-    > CTypeConvert<'itm, [S; N], *mut C> for [R; N]
+impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC, const N: usize>
+    CTypeConvert<'itm, [S; N], *mut C> for [R; N]
 where
     [R::RustStore; N]: Default,
     [R::FfiStore; N]: Default,
@@ -348,28 +338,28 @@ where
     }
 }
 
-impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<&S> for &R {
-    type OutPtr = *mut Self::ReprC;
-}
-impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<&[S]> for &[R] {
-    type OutPtr = OutBoxedSlice<R::ReprC>;
-}
-impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<Box<S>> for Box<R> {
+impl<R: NonLocal<S>, S: Cloned> COutPtr<&S> for &R {
     type OutPtr = *mut R::ReprC;
 }
-impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute> COutPtr<Vec<S>> for Vec<R> {
+impl<R: NonLocal<S>, S: Cloned> COutPtr<&[S]> for &[R] {
     type OutPtr = OutBoxedSlice<R::ReprC>;
 }
-impl<R: Ir<Type = S> + NonLocal<S>, S: NonTransmute, const N: usize> COutPtr<[S; N]> for [R; N] {
+impl<R: NonLocal<S>, S: Cloned> COutPtr<Box<S>> for Box<R> {
+    type OutPtr = *mut R::ReprC;
+}
+impl<R: NonLocal<S>, S: Cloned> COutPtr<Vec<S>> for Vec<R> {
+    type OutPtr = OutBoxedSlice<R::ReprC>;
+}
+impl<R: NonLocal<S>, S: Cloned, const N: usize> COutPtr<[S; N]> for [R; N] {
     type OutPtr = *mut R::ReprC;
 }
 
 /* ---------------------------------------Robust-------------------------------------- */
 
-impl<R: ReprC + Ir<Type = Robust>> CType<Robust> for R {
+impl<R: ReprC> CType<Robust> for R {
     type ReprC = R;
 }
-impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Robust, R> for R {
+impl<R: ReprC> CTypeConvert<'_, Robust, R> for R {
     type RustStore = ();
     type FfiStore = ();
 
@@ -382,10 +372,10 @@ impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Robust, R> for R {
     }
 }
 
-impl<R: ReprC + Ir<Type = Robust>> CType<Box<Robust>> for Box<R> {
+impl<R: ReprC> CType<Box<Robust>> for Box<R> {
     type ReprC = *mut R;
 }
-impl<R: ReprC + Ir<Type = Robust> + Default> CTypeConvert<'_, Box<Robust>, *mut R> for Box<R> {
+impl<R: ReprC + Default> CTypeConvert<'_, Box<Robust>, *mut R> for Box<R> {
     type RustStore = Box<R>;
     type FfiStore = ();
 
@@ -403,10 +393,10 @@ impl<R: ReprC + Ir<Type = Robust> + Default> CTypeConvert<'_, Box<Robust>, *mut 
     }
 }
 
-impl<R: ReprC + Ir<Type = Robust>> CType<&[Robust]> for &[R] {
+impl<R: ReprC> CType<&[Robust]> for &[R] {
     type ReprC = SliceRef<R>;
 }
-impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, &[Robust], SliceRef<R>> for &[R] {
+impl<R: ReprC> CTypeConvert<'_, &[Robust], SliceRef<R>> for &[R] {
     type RustStore = ();
     type FfiStore = ();
 
@@ -419,10 +409,10 @@ impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, &[Robust], SliceRef<R>> for 
     }
 }
 
-impl<R: ReprC + Ir<Type = Robust>> CType<&mut [Robust]> for &mut [R] {
+impl<R: ReprC> CType<&mut [Robust]> for &mut [R] {
     type ReprC = SliceMut<R>;
 }
-impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, &mut [Robust], SliceMut<R>> for &mut [R] {
+impl<R: ReprC> CTypeConvert<'_, &mut [Robust], SliceMut<R>> for &mut [R] {
     type RustStore = ();
     type FfiStore = ();
 
@@ -435,10 +425,10 @@ impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, &mut [Robust], SliceMut<R>> 
     }
 }
 
-impl<R: ReprC + Ir<Type = Robust>> CType<Vec<Robust>> for Vec<R> {
+impl<R: ReprC> CType<Vec<Robust>> for Vec<R> {
     type ReprC = SliceMut<R>;
 }
-impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> for Vec<R> {
+impl<R: ReprC> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> for Vec<R> {
     type RustStore = Vec<R>;
     type FfiStore = ();
 
@@ -455,12 +445,10 @@ impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> fo
     }
 }
 
-impl<R: ReprC + Ir<Type = Robust>, const N: usize> CType<[Robust; N]> for [R; N] {
+impl<R: ReprC, const N: usize> CType<[Robust; N]> for [R; N] {
     type ReprC = [R; N];
 }
-impl<R: ReprC + Ir<Type = Robust>, const N: usize> CTypeConvert<'_, [Robust; N], [R; N]>
-    for [R; N]
-{
+impl<R: ReprC, const N: usize> CTypeConvert<'_, [Robust; N], [R; N]> for [R; N] {
     type RustStore = ();
     type FfiStore = ();
 
@@ -472,7 +460,7 @@ impl<R: ReprC + Ir<Type = Robust>, const N: usize> CTypeConvert<'_, [Robust; N],
         Ok(source)
     }
 }
-impl<R: ReprC + Ir<Type = Robust>, const N: usize> CTypeConvert<'_, [Robust; N], *mut R> for [R; N]
+impl<R: ReprC, const N: usize> CTypeConvert<'_, [Robust; N], *mut R> for [R; N]
 where
     [R; N]: Default,
 {
@@ -489,40 +477,40 @@ where
     }
 }
 
-impl<R: ReprC + Ir<Type = Robust>> COutPtr<Robust> for R {
+impl<R: ReprC> COutPtr<Robust> for R {
     type OutPtr = *mut R;
 }
-impl<R: ReprC + Ir<Type = Robust>> COutPtr<Box<Robust>> for Box<R> {
+impl<R: ReprC> COutPtr<Box<Robust>> for Box<R> {
     type OutPtr = *mut R;
 }
-impl<R: ReprC + Ir<Type = Robust>> COutPtr<&[Robust]> for &[R] {
+impl<R: ReprC> COutPtr<&[Robust]> for &[R] {
     type OutPtr = *mut SliceRef<R>;
 }
-impl<R: ReprC + Ir<Type = Robust>> COutPtr<&mut [Robust]> for &mut [R] {
+impl<R: ReprC> COutPtr<&mut [Robust]> for &mut [R] {
     type OutPtr = *mut SliceMut<R>;
 }
-impl<R: ReprC + Ir<Type = Robust>> COutPtr<Vec<Robust>> for Vec<R> {
+impl<R: ReprC> COutPtr<Vec<Robust>> for Vec<R> {
     type OutPtr = OutBoxedSlice<R>;
 }
-impl<R: ReprC + Ir<Type = Robust>, const N: usize> COutPtr<[Robust; N]> for [R; N] {
+impl<R: ReprC, const N: usize> COutPtr<[Robust; N]> for [R; N] {
     type OutPtr = *mut [R; N];
 }
 
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: ReprC + Ir<Type = Robust>> NonLocal<Robust> for R {}
+unsafe impl<R: ReprC> NonLocal<Robust> for R {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: ReprC + Ir<Type = Robust>> NonLocal<&[Robust]> for &[R] {}
+unsafe impl<R: ReprC> NonLocal<&[Robust]> for &[R] {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: ReprC + Ir<Type = Robust>> NonLocal<&mut [Robust]> for &mut [R] {}
+unsafe impl<R: ReprC> NonLocal<&mut [Robust]> for &mut [R] {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: ReprC + Ir<Type = Robust>, const N: usize> NonLocal<[Robust; N]> for [R; N] {}
+unsafe impl<R: ReprC, const N: usize> NonLocal<[Robust; N]> for [R; N] {}
 
 /* ---------------------------------------Opaque-------------------------------------- */
 
-impl<R: Ir<Type = Opaque>> CType<Opaque> for R {
+impl<R> CType<Opaque> for R {
     type ReprC = *mut R;
 }
-impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Opaque, *mut R> for R {
+impl<R> CTypeConvert<'_, Opaque, *mut R> for R {
     type RustStore = ();
     type FfiStore = ();
 
@@ -538,10 +526,10 @@ impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Opaque, *mut R> for R {
     }
 }
 
-impl<R: Ir<Type = Opaque>> CType<Box<Opaque>> for Box<R> {
+impl<R> CType<Box<Opaque>> for Box<R> {
     type ReprC = *mut R;
 }
-impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Box<Opaque>, *mut R> for Box<R> {
+impl<R> CTypeConvert<'_, Box<Opaque>, *mut R> for Box<R> {
     type RustStore = ();
     type FfiStore = ();
 
@@ -558,12 +546,10 @@ impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Box<Opaque>, *mut R> for Box<R> {
     }
 }
 
-impl<R: Ir<Type = Opaque>> CType<&[Opaque]> for &[R] {
+impl<R> CType<&[Opaque]> for &[R] {
     type ReprC = SliceRef<*const R>;
 }
-impl<'slice, R: Ir<Type = Opaque> + Clone> CTypeConvert<'slice, &[Opaque], SliceRef<*const R>>
-    for &'slice [R]
-{
+impl<'slice, R: Clone> CTypeConvert<'slice, &[Opaque], SliceRef<*const R>> for &'slice [R] {
     type RustStore = Vec<*const R>;
     type FfiStore = Vec<R>;
 
@@ -594,12 +580,10 @@ impl<'slice, R: Ir<Type = Opaque> + Clone> CTypeConvert<'slice, &[Opaque], Slice
     }
 }
 
-impl<R: Ir<Type = Opaque>> CType<&mut [Opaque]> for &mut [R] {
+impl<R> CType<&mut [Opaque]> for &mut [R] {
     type ReprC = SliceMut<*mut R>;
 }
-impl<'slice, R: Ir<Type = Opaque> + Clone> CTypeConvert<'slice, &mut [Opaque], SliceMut<*mut R>>
-    for &'slice mut [R]
-{
+impl<'slice, R: Clone> CTypeConvert<'slice, &mut [Opaque], SliceMut<*mut R>> for &'slice mut [R] {
     type RustStore = Vec<*mut R>;
     type FfiStore = Vec<R>;
 
@@ -631,10 +615,10 @@ impl<'slice, R: Ir<Type = Opaque> + Clone> CTypeConvert<'slice, &mut [Opaque], S
     }
 }
 
-impl<R: Ir<Type = Opaque>> CType<Vec<Opaque>> for Vec<R> {
+impl<R> CType<Vec<Opaque>> for Vec<R> {
     type ReprC = SliceMut<*mut R>;
 }
-impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Vec<Opaque>, SliceMut<*mut R>> for Vec<R> {
+impl<R> CTypeConvert<'_, Vec<Opaque>, SliceMut<*mut R>> for Vec<R> {
     type RustStore = Vec<*mut R>;
     type FfiStore = ();
 
@@ -660,10 +644,10 @@ impl<R: Ir<Type = Opaque>> CTypeConvert<'_, Vec<Opaque>, SliceMut<*mut R>> for V
     }
 }
 
-impl<R: Ir<Type = Opaque>, const N: usize> CType<[Opaque; N]> for [R; N] {
+impl<R, const N: usize> CType<[Opaque; N]> for [R; N] {
     type ReprC = [*mut R; N];
 }
-impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R; N]> for [R; N] {
+impl<R, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R; N]> for [R; N] {
     type RustStore = ();
     type FfiStore = ();
 
@@ -703,7 +687,7 @@ impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R
         )
     }
 }
-impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], *mut *mut R> for [R; N]
+impl<R, const N: usize> CTypeConvert<'_, [Opaque; N], *mut *mut R> for [R; N]
 where
     [*mut R; N]: Default,
 {
@@ -720,31 +704,31 @@ where
     }
 }
 
-impl<R: Ir<Type = Opaque>> COutPtr<Opaque> for R {
+impl<R> COutPtr<Opaque> for R {
     type OutPtr = *mut *mut R;
 }
-impl<R: Ir<Type = Opaque>> COutPtr<Box<Opaque>> for Box<R> {
+impl<R> COutPtr<Box<Opaque>> for Box<R> {
     type OutPtr = *mut *mut R;
 }
-impl<R: Ir<Type = Opaque>> COutPtr<&[Opaque]> for &[R] {
+impl<R> COutPtr<&[Opaque]> for &[R] {
     type OutPtr = OutBoxedSlice<*const R>;
 }
-impl<R: Ir<Type = Opaque>> COutPtr<&mut [Opaque]> for &mut [R] {
+impl<R> COutPtr<&mut [Opaque]> for &mut [R] {
     type OutPtr = OutBoxedSlice<*mut R>;
 }
-impl<R: Ir<Type = Opaque>> COutPtr<Vec<Opaque>> for Vec<R> {
+impl<R> COutPtr<Vec<Opaque>> for Vec<R> {
     type OutPtr = OutBoxedSlice<*mut R>;
 }
-impl<R: Ir<Type = Opaque>, const N: usize> COutPtr<[Opaque; N]> for [R; N] {
+impl<R, const N: usize> COutPtr<[Opaque; N]> for [R; N] {
     type OutPtr = *mut [*mut R; N];
 }
 
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: Ir<Type = Opaque>> NonLocal<Opaque> for R {}
+unsafe impl<R> NonLocal<Opaque> for R {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: Ir<Type = Opaque>> NonLocal<Box<Opaque>> for Box<R> {}
+unsafe impl<R> NonLocal<Box<Opaque>> for Box<R> {}
 // SAFETY: Type doesn't use store during conversion
-unsafe impl<R: Ir<Type = Opaque>, const N: usize> NonLocal<[Opaque; N]> for [R; N] {}
+unsafe impl<R, const N: usize> NonLocal<[Opaque; N]> for [R; N] {}
 
 /* ------------------------------------Transparent------------------------------------ */
 
@@ -754,7 +738,7 @@ where
 {
     type ReprC = <R::Target as FfiType>::ReprC;
 }
-impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC> CTypeConvert<'itm, Transparent, C> for R
+impl<'itm, R: Transmute, C: ReprC> CTypeConvert<'itm, Transparent, C> for R
 where
     R::Target: FfiConvert<'itm, C>,
 {
@@ -784,14 +768,13 @@ where
     }
 }
 
-impl<R: Transmute + Ir<Type = Transparent>> CType<Box<Transparent>> for Box<R>
+impl<R: Transmute> CType<Box<Transparent>> for Box<R>
 where
     Box<R::Target>: FfiType,
 {
     type ReprC = <Box<R::Target> as FfiType>::ReprC;
 }
-impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC> CTypeConvert<'itm, Box<Transparent>, C>
-    for Box<R>
+impl<'itm, R: Transmute, C: ReprC> CTypeConvert<'itm, Box<Transparent>, C> for Box<R>
 where
     Box<R::Target>: FfiConvert<'itm, C>,
 {
@@ -814,14 +797,14 @@ where
     }
 }
 
-impl<'slice, R: Transmute + Ir<Type = Transparent>> CType<&[Transparent]> for &'slice [R]
+impl<'slice, R: Transmute> CType<&'slice [Transparent]> for &'slice [R]
 where
     &'slice [R::Target]: FfiType,
 {
     type ReprC = <&'slice [R::Target] as FfiType>::ReprC;
 }
-impl<'slice, R: Transmute + Ir<Type = Transparent>, C: ReprC>
-    CTypeConvert<'slice, &[Transparent], C> for &'slice [R]
+impl<'slice, R: Transmute, C: ReprC> CTypeConvert<'slice, &'slice [Transparent], C>
+    for &'slice [R]
 where
     &'slice [R::Target]: FfiConvert<'slice, C>,
 {
@@ -850,14 +833,14 @@ where
     }
 }
 
-impl<'slice, R: Transmute + Ir<Type = Transparent>> CType<&mut [Transparent]> for &'slice mut [R]
+impl<'slice, R: Transmute> CType<&'slice mut [Transparent]> for &'slice mut [R]
 where
     &'slice mut [R::Target]: FfiType,
 {
     type ReprC = <&'slice mut [R::Target] as FfiType>::ReprC;
 }
-impl<'slice, R: Transmute + Ir<Type = Transparent>, C: ReprC>
-    CTypeConvert<'slice, &mut [Transparent], C> for &'slice mut [R]
+impl<'slice, R: Transmute, C: ReprC> CTypeConvert<'slice, &'slice mut [Transparent], C>
+    for &'slice mut [R]
 where
     &'slice mut [R::Target]: FfiConvert<'slice, C>,
 {
@@ -886,14 +869,13 @@ where
     }
 }
 
-impl<R: Transmute + Ir<Type = Transparent>> CType<Vec<Transparent>> for Vec<R>
+impl<R: Transmute> CType<Vec<Transparent>> for Vec<R>
 where
     Vec<R::Target>: FfiType,
 {
     type ReprC = <Vec<R::Target> as FfiType>::ReprC;
 }
-impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC> CTypeConvert<'itm, Vec<Transparent>, C>
-    for Vec<R>
+impl<'itm, R: Transmute, C: ReprC> CTypeConvert<'itm, Vec<Transparent>, C> for Vec<R>
 where
     Vec<R::Target>: FfiConvert<'itm, C>,
 {
@@ -926,14 +908,14 @@ where
     }
 }
 
-impl<R: Transmute + Ir<Type = Transparent>, const N: usize> CType<[Transparent; N]> for [R; N]
+impl<R: Transmute, const N: usize> CType<[Transparent; N]> for [R; N]
 where
     [R::Target; N]: FfiType,
 {
     type ReprC = <[R::Target; N] as FfiType>::ReprC;
 }
-impl<'itm, R: Transmute + Ir<Type = Transparent>, C: ReprC, const N: usize>
-    CTypeConvert<'itm, [Transparent; N], C> for [R; N]
+impl<'itm, R: Transmute, C: ReprC, const N: usize> CTypeConvert<'itm, [Transparent; N], C>
+    for [R; N]
 where
     [R::Target; N]: FfiConvert<'itm, C>,
 {
@@ -963,72 +945,65 @@ where
     }
 }
 
-impl<R: Transmute + Ir<Type = Transparent>> COutPtr<Transparent> for R
+impl<R: Transmute> COutPtr<Transparent> for R
 where
     R::Target: FfiOutPtr,
 {
     type OutPtr = <R::Target as FfiOutPtr>::OutPtr;
 }
-impl<R: Transmute + Ir<Type = Transparent>> COutPtr<Box<Transparent>> for Box<R>
+impl<R: Transmute> COutPtr<Box<Transparent>> for Box<R>
 where
     Box<R::Target>: FfiOutPtr,
 {
     type OutPtr = <Box<R::Target> as FfiOutPtr>::OutPtr;
 }
-impl<'slice, R: Transmute + Ir<Type = Transparent>> COutPtr<&[Transparent]> for &'slice [R]
+impl<'slice, R: Transmute> COutPtr<&'slice [Transparent]> for &'slice [R]
 where
     &'slice [R::Target]: FfiOutPtr,
 {
     type OutPtr = <&'slice [R::Target] as FfiOutPtr>::OutPtr;
 }
-impl<'slice, R: Transmute + Ir<Type = Transparent>> COutPtr<&mut [Transparent]>
-    for &'slice mut [R]
+impl<'slice, R: Transmute> COutPtr<&'slice mut [Transparent]> for &'slice mut [R]
 where
     &'slice mut [R::Target]: FfiOutPtr,
 {
     type OutPtr = <&'slice mut [R::Target] as FfiOutPtr>::OutPtr;
 }
-impl<R: Transmute + Ir<Type = Transparent>> COutPtr<Vec<Transparent>> for Vec<R>
+impl<R: Transmute> COutPtr<Vec<Transparent>> for Vec<R>
 where
     Vec<R::Target>: FfiOutPtr,
 {
     type OutPtr = <Vec<R::Target> as FfiOutPtr>::OutPtr;
 }
-impl<R: Transmute + Ir<Type = Transparent>, const N: usize> COutPtr<[Transparent; N]> for [R; N]
+impl<R: Transmute, const N: usize> COutPtr<[Transparent; N]> for [R; N]
 where
     [R::Target; N]: FfiOutPtr,
 {
     type OutPtr = <[R::Target; N] as FfiOutPtr>::OutPtr;
 }
 
-unsafe impl<R: Transmute + Ir<Type = Transparent>> NonLocal<Transparent> for R where
+unsafe impl<R: Transmute> NonLocal<Transparent> for R where
     R::Target: Ir + NonLocal<<R::Target as Ir>::Type>
 {
 }
-unsafe impl<R: Transmute + Ir<Type = Transparent>> NonLocal<Box<Transparent>> for Box<R> where
-    Box<R::Target>: Ir + FfiOutPtr + NonLocal<<Box<R::Target> as Ir>::Type>
+unsafe impl<R: Transmute> NonLocal<Box<Transparent>> for Box<R> where
+    Box<R::Target>: Ir + NonLocal<<Box<R::Target> as Ir>::Type>
 {
 }
-unsafe impl<'slice, R: Transmute + Ir<Type = Transparent>> NonLocal<&[Transparent]>
-    for &'slice [R]
-where
-    &'slice [R::Target]: Ir + FfiOutPtr + NonLocal<<&'slice [R::Target] as Ir>::Type>,
+unsafe impl<'slice, R: Transmute> NonLocal<&'slice [Transparent]> for &'slice [R] where
+    &'slice [R::Target]: Ir + NonLocal<<&'slice [R::Target] as Ir>::Type>
 {
 }
-unsafe impl<'slice, R: Transmute + Ir<Type = Transparent>> NonLocal<&mut [Transparent]>
-    for &'slice mut [R]
-where
-    &'slice mut [R::Target]: Ir + FfiOutPtr + NonLocal<<&'slice mut [R::Target] as Ir>::Type>,
+unsafe impl<'slice, R: Transmute> NonLocal<&'slice mut [Transparent]> for &'slice mut [R] where
+    &'slice mut [R::Target]: Ir + NonLocal<<&'slice mut [R::Target] as Ir>::Type>
 {
 }
-unsafe impl<R: Transmute + Ir<Type = Transparent>> NonLocal<Vec<Transparent>> for Vec<R> where
-    Vec<R::Target>: Ir + FfiOutPtr + NonLocal<<Vec<R::Target> as Ir>::Type>
+unsafe impl<R: Transmute> NonLocal<Vec<Transparent>> for Vec<R> where
+    Vec<R::Target>: Ir + NonLocal<<Vec<R::Target> as Ir>::Type>
 {
 }
-unsafe impl<R: Transmute + Ir<Type = Transparent>, const N: usize> NonLocal<[Transparent; N]>
-    for [R; N]
-where
-    [R::Target; N]: Ir + FfiOutPtr + NonLocal<<[R::Target; N] as Ir>::Type>,
+unsafe impl<R: Transmute, const N: usize> NonLocal<[Transparent; N]> for [R; N] where
+    [R::Target; N]: Ir + NonLocal<<[R::Target; N] as Ir>::Type>
 {
 }
 

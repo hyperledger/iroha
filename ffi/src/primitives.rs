@@ -10,7 +10,7 @@ mod wasm {
     use crate::{
         repr_c::{COutPtr, CType, CTypeConvert},
         slice::{OutBoxedSlice, SliceMut, SliceRef},
-        FfiReturn,
+        FfiReturn, Result,
     };
 
     /// Marker for an integer primitive type that is not recognized by the `WebAssembly`.
@@ -28,6 +28,7 @@ mod wasm {
                 const NICHE_VALUE: $dst = <$src>::MAX as $dst + 1;
             }
 
+            // SAFETY: References coerce into pointers of the same type
             unsafe impl<'itm> $crate::ir::Transmute for &'itm $src {
                 type Target = *const $src;
 
@@ -36,6 +37,7 @@ mod wasm {
                     !target.is_null()
                 }
             }
+            // SAFETY: References coerce into pointers of the same type
             unsafe impl<'itm> $crate::ir::Transmute for &'itm mut $src {
                 type Target = *mut $src;
 
@@ -51,6 +53,9 @@ mod wasm {
             impl $crate::ir::Ir for $src {
                 type Type = NonWasmIntPrimitive;
             }
+            impl $crate::ir::Ir for &$src {
+                type Type = $crate::ir::Transparent;
+            }
 
             impl CType<NonWasmIntPrimitive> for $src {
                 type ReprC = $dst;
@@ -62,8 +67,28 @@ mod wasm {
                 fn into_repr_c(self, _: &mut ()) -> $dst {
                     self as $dst
                 }
-                unsafe fn try_from_repr_c(source: $dst, _: &mut ()) -> $crate::Result<Self> {
+                unsafe fn try_from_repr_c(source: $dst, _: &mut ()) -> Result<Self> {
                     <$src>::try_from(source).or(Err(FfiReturn::ConversionFailed))
+                }
+            }
+
+            impl CType<Box<NonWasmIntPrimitive>> for Box<$src> {
+                type ReprC = *mut $src;
+            }
+            impl CTypeConvert<'_, Box<NonWasmIntPrimitive>, *mut $src> for Box<$src> {
+                type RustStore = Box<$src>;
+                type FfiStore = ();
+
+                fn into_repr_c(self, store: &mut Self::RustStore) -> *mut $src {
+                    *store = self;
+                    store.as_mut()
+                }
+                unsafe fn try_from_repr_c(source: *mut $src, _: &mut ()) -> Result<Self> {
+                    if source.is_null() {
+                        return Err(FfiReturn::ArgIsNull);
+                    }
+
+                    Ok(ManuallyDrop::into_inner(ManuallyDrop::new(Box::from_raw(source)).clone()))
                 }
             }
 
@@ -78,7 +103,7 @@ mod wasm {
                     let (ptr, len) = (self.as_ptr(), self.len());
                     SliceRef::from_raw_parts(ptr.cast(), len)
                 }
-                unsafe fn try_from_repr_c(source: SliceRef<$src>, _: &mut ()) -> $crate::Result<Self> {
+                unsafe fn try_from_repr_c(source: SliceRef<$src>, _: &mut ()) -> Result<Self> {
                     let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
                     Ok(slice::from_raw_parts(slice.as_ptr().cast(), slice.len()))
                 }
@@ -95,29 +120,9 @@ mod wasm {
                     let (ptr, len) = (self.as_mut_ptr(), self.len());
                     SliceMut::from_raw_parts_mut(ptr.cast(), len)
                 }
-                unsafe fn try_from_repr_c(source: SliceMut<$src>, _: &mut ()) -> $crate::Result<Self> {
+                unsafe fn try_from_repr_c(source: SliceMut<$src>, _: &mut ()) -> Result<Self> {
                     let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
                     Ok(slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()))
-                }
-            }
-
-            impl CType<Box<NonWasmIntPrimitive>> for Box<$src> {
-                type ReprC = *mut $src;
-            }
-            impl CTypeConvert<'_, Box<NonWasmIntPrimitive>, *mut $src> for Box<$src> {
-                type RustStore = $src;
-                type FfiStore = ();
-
-                fn into_repr_c(self, store: &mut Self::RustStore) -> *mut $src {
-                    *store = *self;
-                    store
-                }
-                unsafe fn try_from_repr_c(source: *mut $src, _: &mut ()) -> $crate::Result<Self> {
-                    if source.is_null() {
-                        return Err(FfiReturn::ArgIsNull);
-                    }
-
-                    Ok(Box::new(source.read()))
                 }
             }
 
@@ -125,21 +130,15 @@ mod wasm {
                 type ReprC = SliceMut<$src>;
             }
             impl CTypeConvert<'_, Vec<NonWasmIntPrimitive>, SliceMut<$src>> for Vec<$src> {
-                type RustStore = alloc::vec::Vec<$src>;
+                type RustStore = Vec<$src>;
                 type FfiStore = ();
 
                 fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<$src> {
-                    let mut vec = ManuallyDrop::new(self);
-
-                    *store = unsafe {alloc::vec::Vec::from_raw_parts(
-                        vec.as_mut_ptr().cast(), vec.len(), vec.capacity()
-                    )};
-
+                    *store = self;
                     SliceMut::from_slice(store)
                 }
-                unsafe fn try_from_repr_c(source: SliceMut<$src>, _: &mut ()) -> $crate::Result<Self> {
-                    let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
-                    Ok(slice.iter().copied().collect())
+                unsafe fn try_from_repr_c(source: SliceMut<$src>, _: &mut ()) -> Result<Self> {
+                    source.into_rust().ok_or(FfiReturn::ArgIsNull).map(|slice| slice.to_vec())
                 }
             }
 
@@ -153,7 +152,7 @@ mod wasm {
                 fn into_repr_c(self, _: &mut ()) -> [$src; N] {
                     self
                 }
-                unsafe fn try_from_repr_c(source: [$src; N], _: &mut ()) -> $crate::Result<Self> {
+                unsafe fn try_from_repr_c(source: [$src; N], _: &mut ()) -> Result<Self> {
                     Ok(source)
                 }
             }
@@ -166,7 +165,7 @@ mod wasm {
                     *store = self;
                     store.as_mut_ptr()
                 }
-                unsafe fn try_from_repr_c(source: *mut $src, _: &mut ()) -> $crate::Result<Self> {
+                unsafe fn try_from_repr_c(source: *mut $src, _: &mut ()) -> Result<Self> {
                     Ok(source.cast::<[$src; N]>().read())
                 }
             }
@@ -192,9 +191,11 @@ mod wasm {
 
             // SAFETY: Conversion of non wasm primitive doesn't use store
             unsafe impl $crate::repr_c::NonLocal<NonWasmIntPrimitive> for $src {}
-
+            // SAFETY: Conversion of non wasm primitive slice doesn't use store
             unsafe impl $crate::repr_c::NonLocal<&[NonWasmIntPrimitive]> for &[$src] {}
+            // SAFETY: Conversion of non wasm primitive mutable slice doesn't use store
             unsafe impl $crate::repr_c::NonLocal<&mut [NonWasmIntPrimitive]> for &mut [$src] {}
+            // SAFETY: Conversion of non wasm primitive array doesn't use store
             unsafe impl<const N: usize> $crate::repr_c::NonLocal<[NonWasmIntPrimitive; N]> for [$src; N] {})+
         };
     }
