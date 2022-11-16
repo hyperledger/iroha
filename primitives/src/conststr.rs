@@ -54,9 +54,10 @@ const MAX_INLINED_STRING_LEN: usize = 2 * size_of::<usize>() - 1;
 /// | Box     | ptr   | len                | tag (always 0) |
 /// +---------+-------+--------------------+----------------+
 /// ```
-#[derive(Display, DebugCustom)]
+#[derive(Display, DebugCustom, FfiType)]
 #[display(fmt = "{}", "&**self")]
 #[debug(fmt = "{:?}", "&**self")]
+#[ffi_type(opaque)]
 #[repr(C)]
 pub union ConstString {
     inlined: InlinedString,
@@ -397,7 +398,7 @@ unsafe impl Send for BoxedString {}
 #[allow(unsafe_code)]
 unsafe impl Sync for BoxedString {}
 
-#[derive(Clone, Copy, FfiType)]
+#[derive(Clone, Copy)]
 #[repr(C)]
 struct InlinedString {
     #[cfg(target_endian = "little")]
@@ -465,139 +466,6 @@ impl TryFrom<String> for InlinedString {
         match Self::try_from(value.as_str()) {
             Ok(inlined) => Ok(inlined),
             Err(_) => Err(value),
-        }
-    }
-}
-
-mod ffi {
-    #![allow(unsafe_code)]
-    use core::mem::ManuallyDrop;
-
-    use iroha_ffi::{
-        ir::{Ir, Transmute},
-        repr_c::{COutPtr, CType, CTypeConvert},
-        slice::OutBoxedSlice,
-        FfiReturn,
-    };
-
-    use super::*;
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    pub union ReprCConstString {
-        inlined: InlinedString,
-        boxed: ReprCBoxedString,
-    }
-
-    #[repr(C)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct ReprCBoxedString {
-        #[cfg(target_endian = "little")]
-        ptr: *mut u8,
-        len: usize,
-        #[cfg(target_endian = "big")]
-        ptr: *mut u8,
-    }
-
-    impl ReprCConstString {
-        #[inline]
-        const unsafe fn is_inlined(&self) -> bool {
-            // SAFETY: access to the MSB is always safe regardless of the correct variant.
-            self.inlined.is_inlined()
-        }
-    }
-
-    iroha_ffi::ffi_type! {unsafe impl Robust for ReprCConstString}
-
-    unsafe impl Transmute for &ConstString {
-        type Target = *const ReprCConstString;
-
-        unsafe fn is_valid(target: &Self::Target) -> bool {
-            !target.is_null()
-        }
-    }
-
-    impl Ir for ConstString {
-        type Type = Self;
-    }
-
-    impl CType<Self> for ConstString {
-        type ReprC = ReprCConstString;
-    }
-    impl CTypeConvert<'_, Self, ReprCConstString> for ConstString {
-        type RustStore = Self;
-        type FfiStore = ();
-
-        fn into_repr_c(self, store: &mut Self::RustStore) -> ReprCConstString {
-            *store = self;
-
-            if store.is_inlined() {
-                ReprCConstString {
-                    inlined: *store.inlined(),
-                }
-            } else {
-                let boxed = unsafe {
-                    ReprCBoxedString {
-                        ptr: store.boxed.ptr.as_ptr(),
-                        len: store.boxed.len,
-                    }
-                };
-
-                ReprCConstString { boxed }
-            }
-        }
-
-        unsafe fn try_from_repr_c(source: ReprCConstString, _: &mut ()) -> iroha_ffi::Result<Self> {
-            if source.is_inlined() {
-                return Ok(ConstString {
-                    inlined: source.inlined,
-                });
-            }
-
-            let boxed = ManuallyDrop::new(BoxedString {
-                ptr: NonNull::new(source.boxed.ptr).ok_or(FfiReturn::TrapRepresentation)?,
-                len: source.boxed.len,
-            });
-
-            Ok(ConstString {
-                boxed: Clone::clone(&boxed),
-            })
-        }
-    }
-
-    impl COutPtr<Self> for ConstString {
-        type OutPtr = OutBoxedSlice<u8>;
-    }
-
-    impl iroha_ffi::OutPtrOf<ReprCConstString> for OutBoxedSlice<u8> {
-        #[allow(clippy::restriction)]
-        unsafe fn write(self, _: ReprCConstString) -> iroha_ffi::Result<()> {
-            unimplemented!()
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use iroha_ffi::FfiConvert;
-
-        use super::*;
-
-        #[iroha_ffi::ffi_export]
-        pub fn take_conststring(var: &ConstString) {
-            let const_string: ConstString = "Somewhat big string that goes on a heap".into();
-            assert_eq!(var, &const_string);
-        }
-
-        #[test]
-        fn test() {
-            let const_string: ConstString = "Somewhat big string that goes on a heap".into();
-            let ffi_const_string = FfiConvert::into_ffi(&const_string, &mut ());
-
-            unsafe {
-                assert_eq!(FfiReturn::Ok, __take_conststring(ffi_const_string));
-                // TODO:
-                //assert_eq!(const_string, FfiConvert::try_from_ffi(output.assume_init(), &mut ()).expect("Valid"));
-            }
         }
     }
 }

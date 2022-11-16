@@ -21,6 +21,7 @@ pub struct FfiStruct {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn getset_get() {
     let init_name = Name("Name".to_owned());
     let ffi_struct = &mut FfiStruct {

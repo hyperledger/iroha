@@ -2100,6 +2100,7 @@ version = "2.0.0-pre-rc.9"
 dependencies = [
  "getset",
  "iroha_ffi_derive",
+ "webassembly-test",
 ]
 
 [[package]]
@@ -4841,6 +4842,16 @@ checksum = "ed055ab27f941423197eb86b2035720b1a3ce40504df082cac2ecc6ed73335a1"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webassembly-test"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45e64391864794db026d27b15cbe6edd3c25864222bd90229dfa1a26ebf30705"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

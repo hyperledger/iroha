@@ -14,4 +14,5 @@ non_robust_ref_mut = []
 iroha_ffi_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 
 [dev-dependencies]
+webassembly-test = "0.1.0"
 getset = "0.1.2"

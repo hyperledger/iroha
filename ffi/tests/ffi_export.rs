@@ -190,6 +190,7 @@ pub fn take_non_robust_ref_mut(val: &mut str) -> &mut str {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 #[cfg(feature = "non_robust_ref_mut")]
 fn non_robust_ref_mut() {
     use iroha_ffi::slice::SliceMut;
@@ -264,6 +265,7 @@ fn get_new_struct_with_params() -> OpaqueStruct {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn constructor() {
     let ffi_struct = get_new_struct();
     assert_eq!(Some(Name(String::from('X'))), ffi_struct.name);
@@ -271,6 +273,7 @@ fn constructor() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn builder_method() {
     let ffi_struct = get_new_struct_with_params();
 
@@ -282,6 +285,7 @@ fn builder_method() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn consume_self() {
     let ffi_struct = get_new_struct();
 
@@ -294,6 +298,7 @@ fn consume_self() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn into_iter_item_impl_into() {
     let tokens = vec![
         Value(String::from("My omen")),
@@ -324,6 +329,7 @@ fn into_iter_item_impl_into() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn mutate_opaque() {
     let param_name = Name(String::from("Nomen"));
     let mut ffi_struct = get_new_struct_with_params();
@@ -347,6 +353,7 @@ fn mutate_opaque() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn return_option() {
     #![allow(clippy::let_unit_value)]
 
@@ -388,6 +395,7 @@ fn return_option() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn empty_return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
@@ -404,6 +412,7 @@ fn empty_return_iterator() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn return_iterator() {
     let ffi_struct = get_new_struct_with_params();
     let mut params_len = MaybeUninit::new(0);
@@ -431,6 +440,7 @@ fn return_iterator() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn return_result() {
     let mut output = MaybeUninit::new(0);
 
@@ -449,6 +459,7 @@ fn return_result() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn array_to_pointer() {
     let array = [1_u8];
     let mut store = Default::default();
@@ -469,6 +480,7 @@ fn array_to_pointer() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn array_in_struct() {
     let array = ([1_u8],);
     let mut store = Default::default();
@@ -489,6 +501,7 @@ fn array_in_struct() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn repr_c_union() {
     let union_ = RobustReprCUnion { a: 42 };
     let mut output = MaybeUninit::new(RobustReprCUnion {
@@ -506,6 +519,7 @@ fn repr_c_union() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn repr_c_struct() {
     let struct_ = RobustReprCStruct {
         a: 42,
@@ -531,6 +545,7 @@ fn repr_c_struct() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn primitive_conversion() {
     let byte: u8 = 1;
     let mut output = MaybeUninit::new(0);
@@ -546,6 +561,7 @@ fn primitive_conversion() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn fieldless_enum_conversion() {
     let fieldless_enum = FieldlessEnum::A;
     let mut output = MaybeUninit::new(2);
@@ -565,6 +581,7 @@ fn fieldless_enum_conversion() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 #[cfg(target_family = "wasm")]
 fn primitive_conversion_failed() {
     let byte: u32 = u32::MAX;
@@ -581,6 +598,7 @@ fn primitive_conversion_failed() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn data_carrying_enum_conversion() {
     let data_carrying_enum = DataCarryingEnum::A(get_new_struct());
     let mut output = MaybeUninit::new(__iroha_ffi__ReprCDataCarryingEnum {
@@ -607,6 +625,7 @@ fn data_carrying_enum_conversion() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn invoke_trait_method() {
     let ffi_struct = get_new_struct_with_params();
     let mut output = MaybeUninit::<*mut Name>::new(core::ptr::null_mut());
@@ -625,6 +644,7 @@ fn invoke_trait_method() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn nested_vec() {
     let vec: Vec<Vec<Vec<u8>>> = vec![];
 
@@ -638,6 +658,7 @@ fn nested_vec() {
 }
 
 #[test]
+#[webassembly_test::webassembly_test]
 fn return_vec_of_boxed_opaques() {
     let mut opaques_len = MaybeUninit::new(0);
     let mut opaques = [MaybeUninit::new(core::ptr::null_mut())];
@@ -655,5 +676,51 @@ fn return_vec_of_boxed_opaques() {
             FfiReturn::Ok,
             __drop(OpaqueStruct::ID, opaque.into_ffi(&mut ()).cast())
         );
+    }
+}
+
+#[ffi_export]
+pub fn take_vec_ref(a: &Vec<u8>) {
+    assert_eq!(a, &vec![1, 2])
+}
+
+#[ffi_export]
+pub fn reference_from_slice(a: &[u8]) -> &u8 {
+    &a[0]
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn borrow_vec() {
+    let a = vec![1, 2];
+
+    let mut store = Default::default();
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __take_vec_ref(<&Vec<u8>>::into_ffi(&a, &mut store))
+        );
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn return_reference_from_slice() {
+    let a = vec![1, 2];
+
+    let mut in_store = Default::default();
+    let mut output = MaybeUninit::new(core::ptr::null());
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __reference_from_slice(<&[u8]>::into_ffi(&a, &mut in_store), output.as_mut_ptr())
+        );
+
+        let mut out_store = ();
+        let output = output.assume_init();
+        let output = <&u8>::try_from_ffi(output, &mut out_store).unwrap();
+        assert_eq!(output, &a[0]);
     }
 }
