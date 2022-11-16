@@ -29,9 +29,10 @@ fn gen_shared_fns(name: &Ident, attrs: &[syn::Attribute]) -> Vec<TokenStream> {
         }
 
         if let syn::Meta::List(derives) = attr.parse_meta().expect("Derive macro invalid") {
+            let mut valid_derives = vec![];
+
             let mut derive_eq = false;
             let mut derive_ord = false;
-
             for derive in derives.nested {
                 if let syn::NestedMeta::Meta(meta) = &derive {
                     if let syn::Meta::Path(path) = meta {
@@ -304,7 +305,6 @@ fn gen_impl_ffi(name: &Ident) -> TokenStream {
     }
 }
 
-#[allow(clippy::expect_used)]
 pub fn wrap_impl_items(fns: &[FnDescriptor]) -> TokenStream {
     if fns.is_empty() {
         return quote! {};
