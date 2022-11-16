@@ -149,7 +149,9 @@ Use this code to install environment dependencies on Debian-based Linux distro.
 RaspberryPi 4
 """"""""""""""""""""""""""
 
-Building Iroha for RPI4 looks the same as for Linux. The only difference is that you need to have enough operation memory. If there is less than 8Gb RAM creating swap is recommended.
+To build Iroha on Raspberry Pi 4 follow the same instrcutions as for building Linux. 
+
+**ATTENTION**: Iroha requires 8GiB of RAM. If your build terminates with `SIGKILL` consider creating a swap file or swap partition on the host device, or cross-compiling. 
 
 Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
