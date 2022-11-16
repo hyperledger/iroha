@@ -4,7 +4,7 @@
 //! from automatic, correct and performant conversions from IR to C type equivalent.
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::ReprC;
+use crate::{repr_c::Cloned, ReprC};
 
 /// Marker trait for a type that can be transmuted into some C Type
 ///
@@ -108,11 +108,8 @@ impl<R> Ir for *mut R {
     type Type = Robust;
 }
 
-impl<R: Ir> Ir for &R
-where
-    Self: Transmute,
-{
-    type Type = Transparent;
+impl<'itm, R: Ir + Cloned> Ir for &'itm R {
+    type Type = &'itm R::Type;
 }
 #[cfg(feature = "non_robust_ref_mut")]
 impl<R: Ir> Ir for &mut R

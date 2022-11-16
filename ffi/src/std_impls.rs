@@ -20,7 +20,7 @@ ffi_type! {unsafe impl<'slice> Transparent for &'slice str[&'slice [u8]] validat
 #[cfg(feature = "non_robust_ref_mut")]
 ffi_type! {unsafe impl<'slice> Transparent for &'slice mut str[&'slice mut [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
 ffi_type! {unsafe impl<T> Transparent for core::mem::ManuallyDrop<T>[T] validated with {|_| true} }
-ffi_type! {unsafe impl<T> Transparent for core::ptr::NonNull<T>[*mut T] validated with {|target: &*mut T| target.is_null()} }
+ffi_type! {unsafe impl<T> Transparent for core::ptr::NonNull<T>[*mut T] validated with {|target: &*mut T| !target.is_null()} }
 ffi_type! {impl<K, V> Opaque for BTreeMap<K, V> }
 ffi_type! {impl<K> Opaque for BTreeSet<K> }
 

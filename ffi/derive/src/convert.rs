@@ -115,6 +115,7 @@ fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenSt
 
         quote! {
             iroha_ffi::ffi_type! { unsafe impl #impl_generics Transparent for #name #ty_generics[#inner] #where_clause validated with {|_| true} }
+            // SAFETY: If the type is robust then there are no trap representations that it can be set to
             unsafe impl #impl_generics iroha_ffi::ir::InfallibleTransmute for #name #ty_generics #where_clause {}
         }
     } else {
@@ -141,6 +142,9 @@ fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenSt
             }
 
             impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
+                type Type = iroha_ffi::ir::Transparent;
+            }
+            impl<#impl_generics> iroha_ffi::ir::Ir for &#name #ty_generics #where_clause {
                 type Type = iroha_ffi::ir::Transparent;
             }
         }
@@ -319,13 +323,10 @@ fn derive_ffi_type_for_data_carrying_enum(
         #repr_c_enum
 
         // TODO: Enum can be transmutable if all variants are transmutable and the enum is `repr(C)`
-        impl<#impl_generics> iroha_ffi::repr_c::NonTransmute for #enum_name #ty_generics #where_clause where Self: Clone {}
+        impl<#impl_generics> iroha_ffi::repr_c::Cloned for #enum_name #ty_generics #where_clause where Self: Clone {}
 
         // NOTE: Data-carrying enum cannot implement `ReprC` unless it is robust `repr(C)`
         impl<#impl_generics> iroha_ffi::ir::Ir for #enum_name #ty_generics #where_clause {
-            type Type = Self;
-        }
-        impl<#impl_generics> iroha_ffi::ir::Ir for &#enum_name #ty_generics #where_clause {
             type Type = Self;
         }
 
