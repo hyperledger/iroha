@@ -1,15 +1,17 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::{alloc, ops::Deref};
+use std::ops::Deref;
 
-use iroha_ffi::{ffi_import, FfiType, LocalRef, LocalSlice};
+use iroha_ffi::{ffi, ffi_import, FfiType, LocalRef, LocalSlice};
 
-iroha_ffi::def_ffi_fn! { dealloc }
+ffi! {
+    // NOTE: Wrapped in ffi! to test that macro expansion works for non-opaque types as well.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
-#[ffi_type(unsafe {robust})]
-#[repr(transparent)]
-pub struct Transparent((u32, u32));
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
+    #[ffi_type(unsafe {robust})]
+    #[repr(transparent)]
+    pub struct Transparent((u32, u32));
+}
 
 #[ffi_import]
 pub fn freestanding_returns_non_local(input: &u32) -> &u32 {
@@ -27,12 +29,24 @@ pub fn freestanding_returns_local_slice(input: &[(u32, u32)]) -> &[(u32, u32)] {
 }
 
 #[ffi_import]
-pub fn freestanding_take_and_return_array(input: [(u32, u32); 2]) -> [(u32, u32); 2] {
+pub fn freestanding_returns_iterator(
+    input: impl IntoIterator<Item = u32>,
+) -> impl ExactSizeIterator<Item = u32> {
     unreachable!("replaced by ffi_import")
 }
 
 #[ffi_import]
-pub fn freestanding_take_and_return_non_local_transparent_ref(input: &Transparent) -> &Transparent {
+pub fn freestanding_take_and_return_array(input: [(u32, u32); 2]) -> impl Into<[(u32, u32); 2]> {
+    unreachable!("replaced by ffi_import")
+}
+
+#[ffi_import]
+pub fn freestanding_take_and_return_local_transparent_ref(input: &Transparent) -> &Transparent {
+    unreachable!("replaced by ffi_import")
+}
+
+#[ffi_import]
+pub fn freestanding_take_and_return_boxed_int(input: Box<u8>) -> Box<u8> {
     unreachable!("replaced by ffi_import")
 }
 
@@ -62,6 +76,14 @@ fn vec_of_tuples_is_coppied_when_returned() {
 
 #[test]
 #[webassembly_test::webassembly_test]
+fn return_iterator() {
+    let input = vec![420_u32, 420_u32];
+    let output = freestanding_returns_iterator(input.clone());
+    assert_eq!(input, output);
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
 fn take_and_return_array() {
     let input = [(420, 420), (420, 420)];
     let output: [(u32, u32); 2] = freestanding_take_and_return_array(input);
@@ -70,18 +92,29 @@ fn take_and_return_array() {
 
 #[test]
 #[webassembly_test::webassembly_test]
-fn take_and_return_transparent_non_local_ref() {
+fn take_and_return_transparent_local_ref() {
     let input = Transparent((420, 420));
-    let output: LocalRef<Transparent> =
-        freestanding_take_and_return_non_local_transparent_ref(&input);
+    let output: LocalRef<Transparent> = freestanding_take_and_return_local_transparent_ref(&input);
     assert_eq!(&input, output.deref());
 }
 
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_boxed_int() {
+    let input: Box<u8> = Box::new(42u8);
+    let output: Box<u8> = freestanding_take_and_return_boxed_int(input.clone());
+    assert_eq!(input, output);
+}
+
 mod ffi {
+    use std::alloc;
+
     use iroha_ffi::{
-        slice::{OutBoxedSlice, SliceRef},
-        FfiReturn, FfiTuple2,
+        slice::{OutBoxedSlice, SliceMut, SliceRef},
+        FfiOutPtr, FfiReturn, FfiTuple2, FfiType,
     };
+
+    iroha_ffi::def_ffi_fn! { dealloc }
 
     #[no_mangle]
     unsafe extern "C" fn __freestanding_returns_non_local(
@@ -106,9 +139,18 @@ mod ffi {
         input: SliceRef<FfiTuple2<u32, u32>>,
         output: *mut OutBoxedSlice<FfiTuple2<u32, u32>>,
     ) -> FfiReturn {
-        output.write(OutBoxedSlice::from_vec(
-            input.into_rust().map(|slice| slice.to_vec()),
-        ));
+        let input = input.into_rust().map(|slice| slice.to_vec());
+        output.write(OutBoxedSlice::from_vec(input));
+        FfiReturn::Ok
+    }
+
+    #[no_mangle]
+    unsafe extern "C" fn __freestanding_returns_iterator(
+        input: SliceMut<u32>,
+        output: *mut OutBoxedSlice<u32>,
+    ) -> FfiReturn {
+        let input = input.into_rust().map(|slice| slice.to_vec());
+        output.write(OutBoxedSlice::from_vec(input));
         FfiReturn::Ok
     }
 
@@ -122,9 +164,18 @@ mod ffi {
     }
 
     #[no_mangle]
-    unsafe extern "C" fn __freestanding_take_and_return_non_local_transparent_ref(
-        input: *const FfiTuple2<u32, u32>,
-        output: *mut FfiTuple2<u32, u32>,
+    unsafe extern "C" fn __freestanding_take_and_return_local_transparent_ref(
+        input: <&(u32, u32) as FfiType>::ReprC,
+        output: *mut <&(u32, u32) as FfiOutPtr>::OutPtr,
+    ) -> FfiReturn {
+        output.write(input.read());
+        FfiReturn::Ok
+    }
+
+    #[no_mangle]
+    unsafe extern "C" fn __freestanding_take_and_return_boxed_int(
+        input: <Box<u8> as FfiType>::ReprC,
+        output: *mut <Box<u8> as FfiOutPtr>::OutPtr,
     ) -> FfiReturn {
         output.write(input.read());
         FfiReturn::Ok

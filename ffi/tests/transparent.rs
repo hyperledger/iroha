@@ -2,13 +2,13 @@
 
 use std::{alloc, marker::PhantomData, mem::MaybeUninit};
 
-iroha_ffi::def_ffi_fn! { dealloc }
-
 use iroha_ffi::{
     ffi_export,
     slice::{OutBoxedSlice, SliceRef},
     FfiConvert, FfiOutPtrRead, FfiReturn, FfiType,
 };
+
+iroha_ffi::def_ffi_fn! { dealloc }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
 #[ffi_type(unsafe {robust})]

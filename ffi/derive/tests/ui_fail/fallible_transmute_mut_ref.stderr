@@ -1,31 +1,19 @@
-error[E0271]: type mismatch resolving `<Wrapper as Ir>::Type == Robust`
+error[E0277]: the trait bound `Wrapper: InfallibleTransmute` is not satisfied
   --> tests/ui_fail/fallible_transmute_mut_ref.rs:18:1
    |
 18 | #[ffi_export]
-   | ^^^^^^^^^^^^^ expected enum `Transparent`, found enum `Robust`
+   | ^^^^^^^^^^^^^ the trait `InfallibleTransmute` is not implemented for `Wrapper`
    |
-   = note: required for `Wrapper` to implement `InfallibleTransmute`
-   = note: required for `&mut Wrapper` to implement `Ir`
-   = note: required for `&mut Wrapper` to implement `FfiType`
-   = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0277]: the trait bound `Wrapper: ReprC` is not satisfied
-  --> tests/ui_fail/fallible_transmute_mut_ref.rs:18:1
-   |
-18 | #[ffi_export]
-   | ^^^^^^^^^^^^^ the trait `ReprC` is not implemented for `Wrapper`
-   |
-   = help: the following other types implement trait `ReprC`:
-             *const R
-             *mut R
-             FfiTuple10<A, B, C, D, E, F, G, H, I, J>
-             FfiTuple11<A, B, C, D, E, F, G, H, I, J, K>
-             FfiTuple12<A, B, C, D, E, F, G, H, I, J, K, L>
-             FfiTuple1<A>
-             FfiTuple2<A, B>
-             FfiTuple3<A, B, C>
+   = help: the following other types implement trait `InfallibleTransmute`:
+             BTreeMap<K, V>
+             BTreeSet<K>
+             ManuallyDrop<T>
+             [R; N]
+             i128
+             i16
+             i32
+             i64
            and $N others
-   = note: required for `Wrapper` to implement `InfallibleTransmute`
    = note: required for `&mut Wrapper` to implement `Ir`
    = note: required for `&mut Wrapper` to implement `FfiType`
    = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)

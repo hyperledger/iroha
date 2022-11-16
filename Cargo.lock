@@ -2107,6 +2107,7 @@ dependencies = [
 name = "iroha_ffi"
 version = "2.0.0-pre-rc.11"
 dependencies = [
+ "derive_more",
  "getset",
  "iroha_ffi_derive",
  "webassembly-test",

@@ -13,7 +13,7 @@ use crate::{
     ir::InfallibleTransmute,
     option::Niche,
     slice::{SliceMut, SliceRef},
-    ReprC,
+    ReprC, WrapperTypeOf,
 };
 
 // NOTE: This can be contested as it is nowhere documented that String is
@@ -29,6 +29,16 @@ ffi_type! {unsafe impl<T> Transparent for core::mem::ManuallyDrop<T>[T] validate
 ffi_type! {unsafe impl<T> Transparent for core::ptr::NonNull<T>[*mut T] validated with {|target: &*mut T| !target.is_null()} }
 ffi_type! {impl<K, V> Opaque for BTreeMap<K, V> }
 ffi_type! {impl<K> Opaque for BTreeSet<K> }
+
+impl<T> WrapperTypeOf<NonNull<T>> for *mut T {
+    type Type = NonNull<T>;
+}
+impl<T> WrapperTypeOf<ManuallyDrop<T>> for T {
+    type Type = ManuallyDrop<T>;
+}
+impl WrapperTypeOf<String> for Vec<u8> {
+    type Type = String;
+}
 
 // SAFETY: Type is `ReprC` if the inner type is
 unsafe impl<T: ReprC> ReprC for ManuallyDrop<T> {}

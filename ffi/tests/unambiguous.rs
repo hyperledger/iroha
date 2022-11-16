@@ -2,7 +2,7 @@
 
 use std::mem::MaybeUninit;
 
-use iroha_ffi::{ffi_export, FfiConvert, FfiReturn, FfiType};
+use iroha_ffi::{ffi_export, FfiOutPtrRead, FfiReturn, FfiType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
 #[repr(u8)]
@@ -53,21 +53,21 @@ fn unambiguous_method_call() {
 
     unsafe {
         assert_eq!(FfiReturn::Ok, FfiStruct__ambiguous(output.as_mut_ptr()));
-        let inherent = Ambiguous::try_from_ffi(output.assume_init(), &mut ()).unwrap();
+        let inherent = Ambiguous::try_read_out(output.assume_init()).unwrap();
         assert_eq!(Ambiguous::Inherent, inherent);
 
         assert_eq!(
             FfiReturn::Ok,
             FfiStruct__AmbiguousX__ambiguous(output.as_mut_ptr())
         );
-        let ambiguous_x = Ambiguous::try_from_ffi(output.assume_init(), &mut ()).unwrap();
+        let ambiguous_x = Ambiguous::try_read_out(output.assume_init()).unwrap();
         assert_eq!(Ambiguous::AmbiguousX, ambiguous_x);
 
         assert_eq!(
             FfiReturn::Ok,
             FfiStruct__AmbiguousY__ambiguous(output.as_mut_ptr())
         );
-        let ambiguous_y = Ambiguous::try_from_ffi(output.assume_init(), &mut ()).unwrap();
+        let ambiguous_y = Ambiguous::try_read_out(output.assume_init()).unwrap();
         assert_eq!(Ambiguous::AmbiguousY, ambiguous_y);
     }
 }

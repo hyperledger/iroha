@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, Ident, Type};
+use syn::{parse_quote, visit::Visit, Ident};
 
 use crate::impl_visitor::{find_doc_attr, unwrap_result_type, Arg, FnDescriptor};
 
@@ -38,39 +38,10 @@ pub fn gen_derived_methods(item: &syn::ItemStruct) -> Vec<FnDescriptor> {
     ffi_derives
 }
 
-pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
-    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
-    let store_name = gen_store_name(arg_name);
-
-    quote! {
-        let mut #store_name = Default::default();
-        let #arg_name: #src_type = iroha_ffi::FfiConvert::try_from_ffi(#arg_name, &mut #store_name)?;
-    }
-}
-
-pub fn gen_resolve_type(arg: &Arg, is_output: bool) -> TokenStream {
+pub fn gen_resolve_type(arg: &Arg) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
 
-    let mut resolve_impl_trait = quote! {};
-    if let Type::ImplTrait(type_) = &src_type {
-        for bound in &type_.bounds {
-            if let syn::TypeParamBound::Trait(trait_) = bound {
-                let trait_ = trait_.path.segments.last().expect_or_abort("Defined");
-
-                if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
-                    resolve_impl_trait = quote! {
-                        let #arg_name: Vec<_> = #arg_name.into_iter().collect();
-                    };
-                } else if trait_.ident == "Into" {
-                    resolve_impl_trait = quote! {
-                        let #arg_name = #arg_name.into();
-                    };
-                }
-            }
-        }
-    }
-
-    if is_output && unwrap_result_type(src_type).is_some() {
+    if unwrap_result_type(src_type).is_some() {
         return quote! {
             let #arg_name = if let Ok(ok) = #arg_name {
                 ok
@@ -81,21 +52,9 @@ pub fn gen_resolve_type(arg: &Arg, is_output: bool) -> TokenStream {
         };
     }
 
-    resolve_impl_trait
-}
-
-#[allow(clippy::expect_used)]
-pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
-    let arg_name = arg.name();
-    let resolve_impl_trait = gen_resolve_type(arg, is_output);
-    let ffi_type = arg.ffi_type_resolved(is_output);
-    let store_name = gen_store_name(arg_name);
-
-    quote! {
-        #resolve_impl_trait
-        let mut #store_name = Default::default();
-        let #arg_name: #ffi_type = iroha_ffi::FfiConvert::into_ffi(#arg_name, &mut #store_name);
-    }
+    let mut type_resolver = FfiTypeResolver(arg_name, quote! {});
+    type_resolver.visit_type(src_type);
+    type_resolver.1
 }
 
 /// Parse `getset` attributes to find out which methods it derives
@@ -212,6 +171,20 @@ fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature 
     }
 }
 
-fn gen_store_name(arg_name: &Ident) -> Ident {
+pub fn gen_store_name(arg_name: &Ident) -> Ident {
     Ident::new(&format!("{arg_name}_store"), proc_macro2::Span::call_site())
+}
+
+struct FfiTypeResolver<'itm>(&'itm Ident, TokenStream);
+impl<'itm> Visit<'itm> for FfiTypeResolver<'itm> {
+    fn visit_trait_bound(&mut self, i: &'itm syn::TraitBound) {
+        let trait_ = i.path.segments.last().expect_or_abort("Defined");
+
+        let arg_name = self.0;
+        if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
+            self.1 = quote! { let #arg_name: Vec<_> = #arg_name.into_iter().collect(); };
+        } else if trait_.ident == "Into" {
+            self.1 = quote! { let #arg_name = #arg_name.into(); };
+        }
+    }
 }
