@@ -26,7 +26,7 @@ impl Arg {
                 self.type_.clone()
             } else {
                 let elem = &array.elem;
-                parse_quote! {&mut #elem}
+                parse_quote! {Box<#elem>}
             }
         } else {
             self.type_.clone()

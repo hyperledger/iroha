@@ -147,6 +147,13 @@ fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenSt
             impl<#impl_generics> iroha_ffi::ir::Ir for &#name #ty_generics #where_clause {
                 type Type = iroha_ffi::ir::Transparent;
             }
+
+            impl iroha_ffi::ReturnTypeOf<#name #ty_generics> for #inner #where_clause {
+                type Type = #name #ty_generics;
+            }
+            impl iroha_ffi::option::Niche for #name #ty_generics #where_clause {
+                const NICHE_VALUE: <#inner as iroha_ffi::FfiType>::ReprC = <#inner as iroha_ffi::option::Niche>::NICHE_VALUE;
+            }
         }
     }
 }
@@ -165,7 +172,7 @@ fn derive_ffi_type_for_fieldless_enum(
 
     quote! {
         impl iroha_ffi::option::Niche for #enum_name {
-            const NICHE_VALUE: Self::ReprC = Self::ReprC::MAX;
+            const NICHE_VALUE: <Self as FfiType>::ReprC = <Self as FfiType>::ReprC::MAX;
         }
 
         iroha_ffi::ffi_type! {
@@ -190,8 +197,8 @@ fn derive_ffi_type_for_data_carrying_enum(
 ) -> TokenStream {
     let (repr_c_enum_name, repr_c_enum) =
         gen_data_carrying_repr_c_enum(enum_name, &mut generics, enum_);
-    let mut non_local_where_clause = generics.make_where_clause().clone();
 
+    generics.make_where_clause();
     let lifetime = quote! {'__iroha_ffi_itm};
     let (impl_generics, ty_generics, where_clause) = split_for_impl(&mut generics);
 
@@ -298,6 +305,8 @@ fn derive_ffi_type_for_data_carrying_enum(
     let non_locality = if local {
         quote! {}
     } else {
+        let mut non_local_where_clause = where_clause.expect_or_abort("Defined").clone();
+
         enum_
             .variants
             .iter()
@@ -316,7 +325,26 @@ fn derive_ffi_type_for_data_carrying_enum(
             .map(|ty| parse_quote! {#ty: iroha_ffi::repr_c::NonLocal<<#ty as iroha_ffi::ir::Ir>::Type>})
             .for_each(|predicate| non_local_where_clause.predicates.push(predicate));
 
-        quote! {unsafe impl<#impl_generics> iroha_ffi::repr_c::NonLocal<Self> for #enum_name #ty_generics #non_local_where_clause {}}
+        quote! {
+            unsafe impl<#impl_generics> iroha_ffi::repr_c::NonLocal<Self> for #enum_name #ty_generics #non_local_where_clause {}
+
+            impl<#impl_generics> iroha_ffi::repr_c::CWrapperOutput<Self> for #enum_name #ty_generics #non_local_where_clause {
+                type ReturnType = Self;
+            }
+            impl<#impl_generics> iroha_ffi::repr_c::COutPtr<Self> for #enum_name #ty_generics #non_local_where_clause {
+                type OutPtr = Self::ReprC;
+            }
+            impl<#impl_generics> iroha_ffi::repr_c::COutPtrWrite<Self> for #enum_name #ty_generics #non_local_where_clause {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    iroha_ffi::repr_c::write_non_local::<_, Self>(self, out_ptr);
+                }
+            }
+            impl<#impl_generics> iroha_ffi::repr_c::COutPtrRead<Self> for #enum_name #ty_generics #non_local_where_clause {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> iroha_ffi::Result<Self> {
+                    iroha_ffi::repr_c::read_non_local::<Self, Self>(out_ptr)
+                }
+            }
+        }
     };
 
     quote! {
@@ -353,10 +381,6 @@ fn derive_ffi_type_for_data_carrying_enum(
                     _ => Err(iroha_ffi::FfiReturn::TrapRepresentation)
                 }
             }
-        }
-
-        impl<#impl_generics> iroha_ffi::repr_c::COutPtr<Self> for #enum_name #ty_generics #where_clause {
-            type OutPtr = *mut Self::ReprC;
         }
 
         #non_locality

@@ -4,7 +4,7 @@
 //! from automatic, correct and performant conversions from IR to C type equivalent.
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::{repr_c::Cloned, ReprC};
+use crate::{repr_c::Cloned, LocalRef, LocalSlice, ReprC};
 
 /// Marker trait for a type that can be transmuted into some C Type
 ///
@@ -34,8 +34,8 @@ pub unsafe trait Transmute {
 /// Implementation of [`Transmute::is_valid`] must always return true for this type
 pub unsafe trait InfallibleTransmute {}
 
-/// Designates a type that can be converted to/from internal representation.
-/// IR types are given automatic implementation of [`FfiType`]
+/// Designates a type that can be converted to/from internal representation. Predefined IR
+/// types are given automatic implementation of [`FfiType`] and other conversion traits.
 pub trait Ir {
     /// Internal representation of the type.
     ///
@@ -47,13 +47,13 @@ pub trait Ir {
     /// of the inner type is zero-copy conversion of [`Transparent`] will also be.
     ///
     /// If the [`Ir::Type`] is set to [`Opaque`], `T` will be serialized as an
-    /// opaque pointer (the type is heap allocated during conversion). [`Opaque`]
-    /// is currently the only type that transfers ownership over FFI.
+    /// opaque pointer (the type is heap allocated during conversion). Except for `Vec<T>`,
+    /// [`Opaque`] is currently the only family of types that transfer ownership over FFI.
     ///
-    /// Otherwise, in the common case, [`Ir::Type`] should be set to `Self` to benefit from
-    /// the default implementation of [`FfiType`]. Be warned that in this case [`FfiType`]
-    /// implementation will most likely clone the given type.
-    type Type; // TODO: + CType or CTypeConvert?
+    /// Otherwise, in the common case, [`Ir::Type`] should be set to `Self` and implement
+    /// [`Cloned`] to benefit from the default implementation of [`FfiType`]. Be warned
+    /// that in this case [`FfiType`] implementation will clone the given type.
+    type Type;
 }
 
 /// Marker for a type that is transferred as an opaque pointer over FFI
@@ -151,4 +151,17 @@ impl<R: Ir> Ir for Vec<R> {
 }
 impl<R: Ir, const N: usize> Ir for [R; N] {
     type Type = [R::Type; N];
+}
+
+impl<'itm, R: 'itm> Ir for LocalRef<'itm, R>
+where
+    &'itm R: Ir,
+{
+    type Type = <&'itm R as Ir>::Type;
+}
+impl<'itm, R: 'itm> Ir for LocalSlice<'itm, R>
+where
+    &'itm [R]: Ir,
+{
+    type Type = <&'itm [R] as Ir>::Type;
 }

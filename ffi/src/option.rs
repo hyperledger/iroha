@@ -2,8 +2,8 @@
 
 use crate::{
     ir::Ir,
-    repr_c::{COutPtr, CType, CTypeConvert, NonLocal},
-    FfiConvert, FfiOutPtr, FfiType, ReprC, Result,
+    repr_c::{COutPtr, COutPtrRead, COutPtrWrite, CType, CTypeConvert, CWrapperOutput, NonLocal},
+    FfiConvert, FfiOutPtr, FfiOutPtrRead, FfiOutPtrWrite, FfiType, FfiWrapperOutput, ReprC, Result,
 };
 
 /// Type that has at least one trap representation that can be used as a niche value. The
@@ -29,15 +29,15 @@ where
 }
 
 impl<R: Niche> Ir for Option<R> {
-    type Type = Option<R>;
+    type Type = Self;
 }
 
-impl<R: Niche> CType<Option<R>> for Option<R> {
+impl<R: Niche> CType<Self> for Option<R> {
     type ReprC = R::ReprC;
 }
 // TODO: Hopefully, compiler will elide checks for Option<&T>, Option<&mut T>, Option<*const T>
 // if not U parameter can be used to distinguish set them apart from other type conversions
-impl<'itm, R: FfiConvert<'itm, C> + Niche<ReprC = C>, C: ReprC> CTypeConvert<'itm, Option<R>, C>
+impl<'itm, R: Niche<ReprC = C> + FfiConvert<'itm, C>, C: ReprC> CTypeConvert<'itm, Self, C>
     for Option<R>
 where
     R::ReprC: PartialEq,
@@ -62,9 +62,32 @@ where
     }
 }
 
-impl<R: FfiOutPtr + Niche> COutPtr<Option<R>> for Option<R> {
+impl<R: Niche + FfiWrapperOutput> CWrapperOutput<Self> for Option<R> {
+    type ReturnType = Self;
+}
+impl<R: Niche + FfiOutPtr> COutPtr<Self> for Option<R> {
     type OutPtr = R::OutPtr;
+}
+impl<R: Niche + FfiOutPtrWrite<OutPtr = <R as FfiType>::ReprC>> COutPtrWrite<Self> for Option<R> {
+    unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+        self.map_or_else(
+            || out_ptr.write(R::NICHE_VALUE),
+            |value| R::write_out(value, out_ptr),
+        );
+    }
+}
+impl<R: Niche + FfiOutPtrRead<OutPtr = <R as FfiType>::ReprC>> COutPtrRead<Self> for Option<R>
+where
+    R::ReprC: PartialEq,
+{
+    unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+        if out_ptr == R::NICHE_VALUE {
+            return Ok(None);
+        }
+
+        R::try_read_out(out_ptr).map(Some)
+    }
 }
 
 // SAFETY: Option<T> with a niche doesn't use store if it's inner types don't use it
-unsafe impl<R: Niche + Ir + NonLocal<R::Type>> NonLocal<Option<R>> for Option<R> {}
+unsafe impl<R: Niche + Ir + NonLocal<R::Type>> NonLocal<Self> for Option<R> {}
