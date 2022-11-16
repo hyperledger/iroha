@@ -14,7 +14,7 @@ std = ["ursa"]
 # Force static linking
 vendored = ["openssl-sys"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-#ffi_import = []
+ffi_import = []
 
 # Expose FFI API for dynamic linking (Internal use only)
 ffi_export = ["std"]
