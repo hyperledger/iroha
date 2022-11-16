@@ -2,7 +2,12 @@
 #![allow(clippy::std_instead_of_core)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use derive_more::Display;
 use fixnum::{
@@ -32,20 +37,7 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
 /// An encapsulation of [`Fixed`] in encodable form. [`Fixed`] values
 /// should never become negative.
 #[derive(
-    Debug,
-    Clone,
-    Display,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Clone, Display, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
 )]
 #[serde(transparent)]
 #[repr(transparent)]
@@ -205,6 +197,33 @@ impl From<Fixed> for f64 {
     }
 }
 
+impl<'de> Deserialize<'de> for Fixed {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        FixNum::deserialize(deserializer)
+            .map(Self)
+            .map(Fixed::valid)
+            .and_then(|fixed| fixed.map_err(serde::de::Error::custom))
+    }
+}
+
+impl Decode for Fixed {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        FixNum::decode(input)
+            .map(Self)
+            .map(Fixed::valid)
+            .and_then(|fixed| {
+                fixed.map_err(|err| {
+                    parity_scale_codec::Error::from("Failed to Decode Fixed").chain(err.to_string())
+                })
+            })
+    }
+}
+
 mod ffi {
     #![allow(unsafe_code)]
     use super::*;
@@ -255,9 +274,57 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn deserialize_from_json_should_fail() {
-        serde_json::from_str("-10.00").unwrap()
+    fn deserialize_negative_value_from_json_should_fail() {
+        let serialized = serde_json::to_string(&Fixed::negative_one())
+            .expect("Should be possible to serialize any `Fixed`");
+        let result: Result<Fixed, _> = serde_json::from_str(&serialized);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "-1.0: negative value not allowed"
+        )
+    }
+
+    #[test]
+    fn decode_negative_value_from_parity_scale_should_fail() {
+        let encoded = Fixed::negative_one().encode();
+        let result: Result<Fixed, _> = Fixed::decode(&mut encoded.as_slice());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deserialize_zero_from_json_should_succeed() {
+        let serialized = serde_json::to_string(&Fixed::ZERO)
+            .expect("Should be possible to serialize any `Fixed`");
+        let fixed: Fixed =
+            serde_json::from_str(&serialized).expect("Should be possible to deserialize");
+        assert_eq!(fixed, Fixed::ZERO);
+    }
+
+    #[test]
+    fn decode_zero_from_parity_scale_should_succeed() {
+        let encoded = Fixed::ZERO.encode();
+        let fixed: Fixed =
+            Fixed::decode(&mut encoded.as_slice()).expect("Should be possible to decode");
+        assert_eq!(fixed, Fixed::ZERO);
+    }
+
+    #[test]
+    fn deserialize_positive_from_json_should_succeed() {
+        let initial = Fixed::try_from(2.234_f64).expect("Valid `Fixed` value");
+        let serialized =
+            serde_json::to_string(&initial).expect("Should be possible to serialize any `Fixed`");
+        let fixed: Fixed =
+            serde_json::from_str(&serialized).expect("Should be possible to deserialize");
+        assert_eq!(fixed, initial);
+    }
+
+    #[test]
+    fn decode_positive_value_from_parity_scale_should_succeed() {
+        let initial = Fixed::try_from(2.234_f64).expect("Valid `Fixed` value");
+        let encoded = initial.encode();
+        let fixed: Fixed =
+            Fixed::decode(&mut encoded.as_slice()).expect("Should be possible to decode");
+        assert_eq!(fixed, initial);
     }
 
     #[test]
