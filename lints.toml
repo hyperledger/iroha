@@ -20,7 +20,6 @@ deny = [
     'variant_size_differences',
     'unused_tuple_struct_fields',
     'explicit_outlives_requirements',
-    'let_underscore_drop',
     'non_ascii_idents',
     # TODO: reenable
     # 'unreachable_pub',

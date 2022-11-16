@@ -67,15 +67,15 @@ macro_rules! def_ffi_fn {
         /// pointer type
         #[no_mangle]
         $vis unsafe extern "C" fn __clone(
-            handle_id: <$crate::handle::Id as FfiType>::ReprC,
+            handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             handle_ptr: *const core::ffi::c_void,
             out_ptr: *mut *mut core::ffi::c_void
         ) -> $crate::FfiReturn {
             $crate::def_ffi_fn!(@catch_unwind {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
-                        let handle_ref: &$other = $crate::FfiConvert::try_from_ffi(handle_ptr as <&$other as FfiType>::ReprC, &mut ())?;
-                        <$other as $crate::FfiOutPtrWrite>::write_out(Clone::clone(handle_ref), out_ptr.cast::<<$other as FfiType>::ReprC>());
+                        let handle_ref: &$other = $crate::FfiConvert::try_from_ffi(handle_ptr as <&$other as $crate::FfiType>::ReprC, &mut ())?;
+                        <$other as $crate::FfiOutPtrWrite>::write_out(Clone::clone(handle_ref), out_ptr.cast::<<$other as $crate::FfiType>::ReprC>());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
@@ -94,7 +94,7 @@ macro_rules! def_ffi_fn {
         /// pointer type
         #[no_mangle]
         $vis unsafe extern "C" fn __eq(
-            handle_id: <$crate::handle::Id as FfiType>::ReprC,
+            handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             out_ptr: *mut <bool as $crate::FfiOutPtr>::OutPtr,
@@ -103,8 +103,8 @@ macro_rules! def_ffi_fn {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (
-                            left_handle_ptr as <&$other as FfiType>::ReprC,
-                            right_handle_ptr as <&$other as FfiType>::ReprC
+                            left_handle_ptr as <&$other as $crate::FfiType>::ReprC,
+                            right_handle_ptr as <&$other as $crate::FfiType>::ReprC
                         );
 
                         let mut lhandle_store = Default::default();
@@ -132,7 +132,7 @@ macro_rules! def_ffi_fn {
         /// pointer type
         #[no_mangle]
         $vis unsafe extern "C" fn __ord(
-            handle_id: <$crate::handle::Id as FfiType>::ReprC,
+            handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             out_ptr: *mut <core::cmp::Ordering as $crate::FfiOutPtr>::OutPtr,
@@ -141,8 +141,8 @@ macro_rules! def_ffi_fn {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (
-                            left_handle_ptr as <&$other as FfiType>::ReprC,
-                            right_handle_ptr as <&$other as FfiType>::ReprC
+                            left_handle_ptr as <&$other as $crate::FfiType>::ReprC,
+                            right_handle_ptr as <&$other as $crate::FfiType>::ReprC
                         );
 
                         let mut lhandle_store = Default::default();
@@ -170,13 +170,13 @@ macro_rules! def_ffi_fn {
         /// pointer type
         #[no_mangle]
         $vis unsafe extern "C" fn __drop(
-            handle_id: <$crate::handle::Id as FfiType>::ReprC,
+            handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             handle_ptr: *mut core::ffi::c_void,
         ) -> $crate::FfiReturn {
             $crate::def_ffi_fn!(@catch_unwind {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
-                        let handle_ptr = handle_ptr as <$other as FfiType>::ReprC;
+                        let handle_ptr = handle_ptr as <$other as $crate::FfiType>::ReprC;
                         let handle: $other = $crate::FfiConvert::try_from_ffi(handle_ptr, &mut ())?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
@@ -222,9 +222,9 @@ macro_rules! decl_ffi_fn {
             /// pointer type
             #[no_mangle]
             $vis fn __clone(
-                handle_id: <$crate::handle::Id as FfiType>::ReprC,
-                handle_ptr: *const core::ffi::c_void,
-                out_ptr: *mut *mut core::ffi::c_void
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                handle_ptr: *const $crate::Extern,
+                out_ptr: *mut *mut $crate::Extern
             ) -> $crate::FfiReturn;
         }
     };
@@ -238,9 +238,9 @@ macro_rules! decl_ffi_fn {
             /// pointer type
             #[no_mangle]
             $vis fn __eq(
-                handle_id: <$crate::handle::Id as FfiType>::ReprC,
-                left_handle_ptr: *const core::ffi::c_void,
-                right_handle_ptr: *const core::ffi::c_void,
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                left_handle_ptr: *const $crate::Extern,
+                right_handle_ptr: *const $crate::Extern,
                 out_ptr: *mut u8,
             ) -> $crate::FfiReturn;
         }
@@ -255,9 +255,9 @@ macro_rules! decl_ffi_fn {
             /// pointer type
             #[no_mangle]
             $vis fn __ord(
-                handle_id: <$crate::handle::Id as FfiType>::ReprC,
-                left_handle_ptr: *const core::ffi::c_void,
-                right_handle_ptr: *const core::ffi::c_void,
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                left_handle_ptr: *const $crate::Extern,
+                right_handle_ptr: *const $crate::Extern,
                 out_ptr: *mut i8,
             ) -> $crate::FfiReturn;
         }
@@ -272,20 +272,20 @@ macro_rules! decl_ffi_fn {
             /// pointer type
             #[no_mangle]
             $vis fn __drop(
-                handle_id: <$crate::handle::Id as FfiType>::ReprC,
-                handle_ptr: *mut core::ffi::c_void,
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                handle_ptr: *mut $crate::Extern,
             ) -> $crate::FfiReturn;
         }
     };
     ( dealloc ) => {
-        extern "C" {
+        extern {
             /// FFI function equivalent of [`alloc::alloc::dealloc`]
             ///
             /// # Safety
             ///
             /// See [`GlobalAlloc::dealloc`]
             pub fn __dealloc(
-                ptr: *mut core::ffi::c_void,
+                ptr: *mut $crate::Extern,
                 size: usize,
                 align: usize,
             ) -> $crate::FfiReturn;

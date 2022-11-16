@@ -4,7 +4,32 @@
 //! from automatic, correct and performant conversions from IR to C type equivalent.
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::{repr_c::Cloned, LocalRef, LocalSlice, ReprC};
+use crate::{repr_c::Cloned, Extern, LocalRef, LocalSlice};
+
+/// Type which is replaced by an opaque pointer on FFI import
+///
+/// # Safety
+///
+/// Type implementing must have the same representation as [`*mut Extern`]
+/// `Self::RefType` must have the same representation as [`*const Extern`]
+/// `Self::RefMutType` must have the same representation as [`*mut Extern`]
+pub unsafe trait External {
+    /// Type which replaces `&T` on FFI import
+    type RefType<'itm>;
+    /// Type which replaces `&mut T` on FFI import
+    type RefMutType<'itm>;
+
+    /// Return shared opaque pointer
+    fn as_extern_ptr(&self) -> *const Extern;
+    /// Return mutable opaque pointer
+    fn as_extern_ptr_mut(&mut self) -> *mut Extern;
+    /// Construct type from an opaque pointer
+    ///
+    /// # Safety
+    ///
+    /// The given opaque pointer must be non-null and valid
+    unsafe fn from_extern_ptr(source: *mut Extern) -> Self;
+}
 
 /// Marker trait for a type that can be transmuted into some C Type
 ///
@@ -68,26 +93,23 @@ pub enum Transparent {}
 #[derive(Debug, Clone, Copy)]
 pub enum Robust {}
 
-// SAFETY: `ReprC` are guaranteed to be robust
-unsafe impl<R: ReprC + Ir<Type = Robust>> InfallibleTransmute for R {}
-
-// SAFETY: Transmuting reference to a pointer of the same type
-unsafe impl<R: ReprC + Ir<Type = Robust>> Transmute for &R {
-    type Target = *const R;
+// SAFETY: Transmute relation is transitive
+unsafe impl<'itm, R: Transmute> Transmute for &'itm R {
+    type Target = &'itm R::Target;
 
     #[inline]
     unsafe fn is_valid(target: &Self::Target) -> bool {
-        !target.is_null()
+        R::is_valid(target)
     }
 }
 
-// SAFETY: Transmuting reference to a pointer of the same type
-unsafe impl<R: ReprC + Ir<Type = Robust>> Transmute for &mut R {
-    type Target = *mut R;
+// SAFETY: Transmute relation is transitive
+unsafe impl<'itm, R: Transmute> Transmute for &'itm mut R {
+    type Target = &'itm mut R::Target;
 
     #[inline]
     unsafe fn is_valid(target: &Self::Target) -> bool {
-        !target.is_null()
+        R::is_valid(target)
     }
 }
 
@@ -100,57 +122,156 @@ unsafe impl<R: Transmute, const N: usize> Transmute for [R; N] {
     }
 }
 
+// SAFETY: Arrays have a defined representation
+unsafe impl<R: InfallibleTransmute, const N: usize> InfallibleTransmute for [R; N] {}
+
 impl<R> Ir for *const R {
     type Type = Robust;
 }
-
 impl<R> Ir for *mut R {
     type Type = Robust;
 }
 
-impl<'itm, R: Ir + Cloned> Ir for &'itm R {
-    type Type = &'itm R::Type;
+/// When implemented for a type, defines how dependent types are mapped into [`Ir`]
+pub trait IrTypeFamily {
+    /// [`Ir`] type that `&T` is mapped into
+    type RefType<'itm>
+    where
+        Self: 'itm;
+    /// [`Ir`] type that `&mut T` is mapped into
+    type RefMutType<'itm>
+    where
+        Self: 'itm;
+    /// [`Ir`] type that [`Box<T>`] is mapped into
+    type BoxType;
+    /// [`Ir`] type that `&[T]` is mapped into
+    type SliceRefType<'itm>
+    where
+        Self: 'itm;
+    /// [`Ir`] type that `&mut [T]` is mapped into
+    type SliceRefMutType<'itm>
+    where
+        Self: 'itm;
+    /// [`Ir`] type that [`Vec<T>`] is mapped into
+    type VecType;
+    /// [`Ir`] type that `[T; N]` is mapped into
+    type ArrType<const N: usize>;
+}
+
+impl<R: Cloned> IrTypeFamily for R {
+    type RefType<'itm> = &'itm Self where Self: 'itm;
+    // NOTE: Unused
+    type RefMutType<'itm> = () where Self: 'itm;
+    type BoxType = Box<Self>;
+    type SliceRefType<'itm> = &'itm [Self] where Self: 'itm;
+    // NOTE: Unused
+    type SliceRefMutType<'itm> = () where Self: 'itm;
+    type VecType = Vec<Self>;
+    type ArrType<const N: usize> = [Self; N];
+}
+impl IrTypeFamily for Robust {
+    type RefType<'itm> = Transparent;
+    type RefMutType<'itm> = Transparent;
+    type BoxType = Box<Self>;
+    type SliceRefType<'itm> = &'itm [Self];
+    type SliceRefMutType<'itm> = &'itm mut [Self];
+    type VecType = Vec<Self>;
+    type ArrType<const N: usize> = Self;
+}
+impl IrTypeFamily for Opaque {
+    type RefType<'itm> = Transparent;
+    type RefMutType<'itm> = Transparent;
+    type BoxType = Box<Self>;
+    type SliceRefType<'itm> = &'itm [Self];
+    type SliceRefMutType<'itm> = &'itm mut [Self];
+    type VecType = Vec<Self>;
+    type ArrType<const N: usize> = [Self; N];
+}
+impl IrTypeFamily for Transparent {
+    type RefType<'itm> = Self;
+    type RefMutType<'itm> = Self;
+    type BoxType = Box<Self>;
+    type SliceRefType<'itm> = &'itm [Self];
+    type SliceRefMutType<'itm> = &'itm mut [Self];
+    type VecType = Vec<Self>;
+    type ArrType<const N: usize> = Self;
+}
+impl IrTypeFamily for &Extern {
+    type RefType<'itm> = &'itm Self where Self: 'itm;
+    type RefMutType<'itm> = &'itm mut Self where Self: 'itm;
+    type BoxType = Box<Self>;
+    type SliceRefType<'itm> = &'itm [Self] where Self: 'itm;
+    type SliceRefMutType<'itm> = &'itm mut [Self] where Self: 'itm;
+    type VecType = Vec<Self>;
+    type ArrType<const N: usize> = [Self; N];
+}
+impl IrTypeFamily for &mut Extern {
+    type RefType<'itm> = &'itm Self where Self: 'itm;
+    type RefMutType<'itm> = &'itm mut Self where Self: 'itm;
+    type BoxType = Box<Self>;
+    type SliceRefType<'itm> = &'itm [Self] where Self: 'itm;
+    type SliceRefMutType<'itm> = &'itm mut [Self] where Self: 'itm;
+    type VecType = Vec<Self>;
+    type ArrType<const N: usize> = [Self; N];
+}
+
+impl<'itm, R: Ir> Ir for &'itm R
+where
+    R::Type: IrTypeFamily,
+{
+    type Type = <R::Type as IrTypeFamily>::RefType<'itm>;
 }
 #[cfg(feature = "non_robust_ref_mut")]
-impl<R: Ir> Ir for &mut R
+impl<'itm, R: Ir> Ir for &'itm mut R
 where
-    Self: Transmute,
+    R::Type: IrTypeFamily,
 {
-    type Type = Transparent;
+    type Type = <R::Type as IrTypeFamily>::RefMutType<'itm>;
 }
 #[cfg(not(feature = "non_robust_ref_mut"))]
-impl<R: Ir + InfallibleTransmute> Ir for &mut R
+impl<'itm, R: Ir + InfallibleTransmute> Ir for &'itm mut R
 where
-    Self: Transmute,
+    R::Type: IrTypeFamily,
 {
-    type Type = Transparent;
+    type Type = <R::Type as IrTypeFamily>::RefMutType<'itm>;
 }
-impl<R: Ir> Ir for Box<R> {
-    type Type = Box<R::Type>;
+impl<R: Ir> Ir for Box<R>
+where
+    R::Type: IrTypeFamily,
+{
+    type Type = <R::Type as IrTypeFamily>::BoxType;
 }
-impl<'itm, R: Ir> Ir for &'itm [R] {
-    type Type = &'itm [R::Type];
+impl<'itm, R: Ir> Ir for &'itm [R]
+where
+    R::Type: IrTypeFamily,
+{
+    type Type = <R::Type as IrTypeFamily>::SliceRefType<'itm>;
 }
 #[cfg(feature = "non_robust_ref_mut")]
 impl<'itm, R: Ir> Ir for &'itm mut [R]
 where
-    &'itm mut R: Transmute,
+    R::Type: IrTypeFamily,
 {
-    type Type = &'itm mut [R::Type];
+    type Type = <R::Type as IrTypeFamily>::SliceRefMutType<'itm>;
 }
 #[cfg(not(feature = "non_robust_ref_mut"))]
 impl<'itm, R: Ir + InfallibleTransmute> Ir for &'itm mut [R]
 where
-    &'itm mut R: Transmute,
+    R::Type: IrTypeFamily,
 {
-    type Type = &'itm mut [R::Type];
+    type Type = <R::Type as IrTypeFamily>::SliceRefMutType<'itm>;
 }
-
-impl<R: Ir> Ir for Vec<R> {
-    type Type = Vec<R::Type>;
+impl<R: Ir> Ir for Vec<R>
+where
+    R::Type: IrTypeFamily,
+{
+    type Type = <R::Type as IrTypeFamily>::VecType;
 }
-impl<R: Ir, const N: usize> Ir for [R; N] {
-    type Type = [R::Type; N];
+impl<R: Ir, const N: usize> Ir for [R; N]
+where
+    R::Type: IrTypeFamily,
+{
+    type Type = <R::Type as IrTypeFamily>::ArrType<N>;
 }
 
 impl<'itm, R: 'itm> Ir for LocalRef<'itm, R>
