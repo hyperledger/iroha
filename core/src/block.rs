@@ -13,7 +13,7 @@
 use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
-use eyre::{eyre, Context, Result};
+use eyre::{bail, eyre, Context, Result};
 use iroha_config::sumeragi::{DEFAULT_BLOCK_TIME_MS, DEFAULT_COMMIT_TIME_LIMIT_MS};
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
@@ -302,12 +302,12 @@ impl BlockHeader {
 }
 
 impl ChainedBlock {
-    /// Validate block transactions against current state of the world.
+    /// Validate block transactions against the current state of the world.
     pub fn validate(
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
-    ) -> VersionedValidBlock {
+    ) -> ValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
 
@@ -346,142 +346,22 @@ impl ChainedBlock {
             signatures: BTreeSet::default(),
             event_recommendations,
         }
-        .into()
     }
 
-    /// Calculate hash of the current block.
+    /// Calculate the hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
 }
 
-declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-
-impl VersionedValidBlock {
-    /// Converts from `&VersionedValidBlock` to V1 reference
-    #[inline]
-    pub const fn as_v1(&self) -> &ValidBlock {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Converts from `&mut VersionedValidBlock` to V1 mutable reference
-    #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut ValidBlock {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Performs the conversion from `VersionedValidBlock` to V1
-    #[inline]
-    pub fn into_v1(self) -> ValidBlock {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Returns header of valid block
-    #[inline]
-    pub const fn header(&self) -> &BlockHeader {
-        &self.as_v1().header
-    }
-
-    /// Commit block to the store.
-    pub fn commit(self) -> VersionedCommittedBlock {
-        self.into_v1().commit().into()
-    }
-
-    /// Validate block transactions against current state of the world.
-    #[must_use]
-    pub fn revalidate(
-        self,
-        transaction_validator: &TransactionValidator,
-        wsv: &WorldStateView,
-    ) -> Self {
-        self.into_v1().revalidate(transaction_validator, wsv).into()
-    }
-
-    /// Calculate hash of the current block.
-    pub fn hash(&self) -> HashOf<Self> {
-        self.as_v1().hash().transmute()
-    }
-
-    /// Sign this block and get [`VersionedValidBlock`](`Self`).
-    /// # Errors
-    /// Look at [`ValidBlock`](`ValidBlock`) for more info
-    pub fn sign(self, key_pair: KeyPair) -> Result<Self> {
-        self.into_v1().sign(key_pair).map(Into::into)
-    }
-
-    /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.as_v1()
-            .verified_signatures()
-            .map(SignatureOf::transmute_ref)
-    }
-
-    /// Checks if there are no transactions in this block.
-    pub fn is_empty(&self) -> bool {
-        self.as_v1().is_empty()
-    }
-
-    /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
-        self.as_v1().has_committed_transactions(wsv)
-    }
-
-    /// # Errors
-    /// Asserts specific transaction limits hold true
-    pub fn check_transaction_limits(&self, limits: &TransactionLimits) -> Result<()> {
-        self.as_v1().check_transaction_limits(limits)
-    }
-
-    /// Returns `Ok(())` if validation passed.
-    ///
-    /// # Errors
-    /// Returns the error description if validation doesn't work.
-    pub fn validation_check(
-        &self,
-        wsv: &WorldStateView,
-        latest_block: &HashOf<VersionedCommittedBlock>,
-        block_height: u64,
-        limits: &TransactionLimits,
-    ) -> Result<(), eyre::Report> {
-        if self.is_empty() {
-            return Err(eyre!("Block is empty"));
-        }
-        if self.has_committed_transactions(wsv) {
-            return Err(eyre!("Block has committed transactions"));
-        }
-        if latest_block != &self.header().previous_block_hash {
-            return Err(eyre!(
-                "latest block mismatch. Expected: {}, actual: {}",
-                latest_block,
-                &self.header().previous_block_hash
-            ));
-        }
-        if block_height + 1 != self.header().height {
-            return Err(eyre!(
-                "Block heights are in an inconsistent state. Expected: {}, actual: {}",
-                block_height + 1,
-                self.header().height
-            ));
-        }
-        self.check_transaction_limits(limits)
-    }
-}
-
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
-#[version_with_scale(n = 1, versioned = "VersionedValidBlock")]
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone)]
 pub struct ValidBlock {
     /// Header
     pub header: BlockHeader,
     /// Array of rejected transactions.
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
-    /// Array of transactions.
+    /// Array of all transactions in this block.
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
     pub signatures: BTreeSet<SignatureOf<Self>>,
@@ -531,31 +411,7 @@ impl ValidBlock {
         }
     }
 
-    /// Validate block transactions against current state of the world.
-    #[must_use]
-    pub fn revalidate(
-        self,
-        transaction_validator: &TransactionValidator,
-        wsv: &WorldStateView,
-    ) -> Self {
-        Self {
-            signatures: self.signatures,
-            ..ChainedBlock {
-                header: self.header,
-                event_recommendations: self.event_recommendations,
-                transactions: self
-                    .transactions
-                    .into_iter()
-                    .map(Into::into)
-                    .chain(self.rejected_transactions.into_iter().map(Into::into))
-                    .collect(),
-            }
-            .validate(transaction_validator, wsv)
-            .into_v1()
-        }
-    }
-
-    /// Calculate hash of the current block.
+    /// Calculate the hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
@@ -571,28 +427,12 @@ impl ValidBlock {
         Ok(self)
     }
 
-    /// Signatures that are verified with the `hash` of this block as `payload`.
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         let hash = self.hash();
         self.signatures
             .iter()
             .filter(move |sign| sign.verify_hash(&hash).is_ok())
-    }
-
-    /// Checks if there are no transactions in this block.
-    pub fn is_empty(&self) -> bool {
-        self.transactions.is_empty() && self.rejected_transactions.is_empty()
-    }
-
-    /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
-        self.transactions
-            .iter()
-            .any(|transaction| transaction.is_in_blockchain(wsv))
-            || self
-                .rejected_transactions
-                .iter()
-                .any(|transaction| transaction.is_in_blockchain(wsv))
     }
 
     /// Creates dummy `ValidBlock`. Used in tests
@@ -619,12 +459,6 @@ impl ValidBlock {
         }
         .sign(KeyPair::generate().unwrap())
         .unwrap()
-    }
-}
-
-impl From<&VersionedValidBlock> for Vec<Event> {
-    fn from(block: &VersionedValidBlock) -> Self {
-        block.as_v1().into()
     }
 }
 
@@ -659,6 +493,269 @@ impl From<&ValidBlock> for Vec<Event> {
     }
 }
 
+declare_versioned_with_scale!(VersionedCandidateBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+
+impl VersionedCandidateBlock {
+    /// Convert from `&VersionedCandidateBlock` to V1 reference
+    #[inline]
+    pub const fn as_v1(&self) -> &CandidateBlock {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Convert from `&mut VersionedCandidateBlock` to V1 mutable reference
+    #[inline]
+    pub fn as_mut_v1(&mut self) -> &mut CandidateBlock {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Perform the conversion from `VersionedCandidateBlock` to V1
+    #[inline]
+    pub fn into_v1(self) -> CandidateBlock {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Return the header of a valid block
+    pub const fn header(&self) -> &BlockHeader {
+        &self.as_v1().header
+    }
+
+    /// Calculate the hash of the current block.
+    pub fn hash(&self) -> HashOf<Self> {
+        self.as_v1().hash().transmute()
+    }
+
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.as_v1()
+            .verified_signatures()
+            .map(SignatureOf::transmute_ref)
+    }
+
+    /// Revalidate a block against the current state of the world.
+    ///
+    /// # Errors
+    /// Forward errors from [`CandidateBlock::revalidate`]
+    pub fn revalidate(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: &WorldStateView,
+        latest_block: &HashOf<VersionedCommittedBlock>,
+        block_height: u64,
+    ) -> Result<ValidBlock, eyre::Report> {
+        self.into_v1()
+            .revalidate(transaction_validator, wsv, latest_block, block_height)
+    }
+}
+
+/// Revalidate the block that was sent through the network by transforming it back into [`ValidBlock`]
+#[version_with_scale(n = 1, versioned = "VersionedCandidateBlock")]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+pub struct CandidateBlock {
+    /// Header
+    pub header: BlockHeader,
+    /// Array of rejected transactions.
+    pub rejected_transactions: Vec<VersionedSignedTransaction>,
+    /// Array of all transactions in this block.
+    pub transactions: Vec<VersionedSignedTransaction>,
+    /// Signatures of peers which approved this block.
+    pub signatures: BTreeSet<SignatureOf<Self>>,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
+}
+
+impl CandidateBlock {
+    /// Calculate the hash of the current block.
+    pub fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.header).transmute()
+    }
+
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        let hash = self.hash();
+        self.signatures
+            .iter()
+            .filter(move |sign| sign.verify_hash(&hash).is_ok())
+    }
+
+    /// Check if there are no transactions in this block.
+    pub fn is_empty(&self) -> bool {
+        self.transactions.is_empty() && self.rejected_transactions.is_empty()
+    }
+
+    /// Check if a block has transactions that are already in the blockchain.
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
+        self.transactions
+            .iter()
+            .any(|transaction| transaction.is_in_blockchain(wsv))
+            || self
+                .rejected_transactions
+                .iter()
+                .any(|transaction| transaction.is_in_blockchain(wsv))
+    }
+
+    /// Revalidate a block against the current state of the world.
+    ///
+    /// # Errors
+    /// - Block is empty
+    /// - Block has committed transactions
+    /// - There is a mismatch between candidate block height and actual blockchain height
+    /// - There is a mismatch between candidate block previous block hash and actual latest block hash
+    /// - Block header transaction hashes don't match with computed transaction hashes
+    /// - Error during revalidation of individual transactions
+    pub fn revalidate(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: &WorldStateView,
+        latest_block: &HashOf<VersionedCommittedBlock>,
+        block_height: u64,
+    ) -> Result<ValidBlock, eyre::Report> {
+        if self.is_empty() {
+            bail!("Block is empty");
+        }
+
+        if self.has_committed_transactions(wsv) {
+            bail!("Block has committed transactions");
+        }
+
+        if latest_block != &self.header.previous_block_hash {
+            bail!(
+                "Latest block hash mismatch. Expected: {}, actual: {}",
+                latest_block,
+                &self.header.previous_block_hash
+            );
+        }
+
+        if block_height + 1 != self.header.height {
+            bail!(
+                "Block heights are in an inconsistent state. Expected: {}, actual: {}",
+                block_height + 1,
+                self.header.height
+            );
+        }
+
+        let CandidateBlock {
+            header,
+            rejected_transactions,
+            transactions,
+            signatures,
+            event_recommendations,
+        } = self;
+
+        // Validate that header transactions hashes are matched with actual hashes
+        transactions
+            .iter()
+            .map(VersionedSignedTransaction::hash)
+            .collect::<MerkleTree<_>>()
+            .hash()
+            .unwrap_or(Hash::zeroed().typed())
+            .eq(&header.transactions_hash)
+            .then_some(())
+            .ok_or_else(|| {
+                eyre!("Block header transactions hash does not match actual transactions hash")
+            })?;
+
+        rejected_transactions
+            .iter()
+            .map(VersionedSignedTransaction::hash)
+            .collect::<MerkleTree<_>>()
+            .hash()
+            .unwrap_or(Hash::zeroed().typed())
+            .eq(&header.rejected_transactions_hash)
+            .then_some(())
+            .ok_or_else(|| eyre!("Block header rejected transactions hash does not match actual rejected transaction hash"))?;
+
+        // Check that valid transactions are still valid
+        let transactions = transactions
+            .into_iter()
+            .map(VersionedSignedTransaction::into_v1)
+            .map(|tx| {
+                AcceptedTransaction::from_transaction(tx, &transaction_validator.transaction_limits)
+            })
+            .map(|accepted_tx| {
+                accepted_tx.and_then(|tx| {
+                    transaction_validator
+                        .validate(tx, header.is_genesis(), wsv)
+                        .map_err(|rejected_tx| rejected_tx.into_v1().rejection_reason)
+                        .wrap_err("Failed to validate transaction")
+                })
+            })
+            .try_fold(Vec::new(), |mut acc, tx| {
+                tx.map(|valid_tx| {
+                    acc.push(valid_tx);
+                    acc
+                })
+            })
+            .wrap_err("Error during transaction revalidation")?;
+
+        // Check that rejected transactions are indeed rejected
+        let rejected_transactions = rejected_transactions
+            .into_iter()
+            .map(VersionedSignedTransaction::into_v1)
+            .map(|tx| {
+                AcceptedTransaction::from_transaction(tx, &transaction_validator.transaction_limits)
+            })
+            .map(|accepted_tx| {
+                accepted_tx.and_then(|tx| {
+                    match transaction_validator.validate(tx, header.is_genesis(), wsv) {
+                        Err(rejected_transaction) => Ok(rejected_transaction),
+                        Ok(_) => Err(eyre!("Transactions which supposed to be rejected is valid")),
+                    }
+                })
+            })
+            .try_fold(Vec::new(), |mut acc, rejected_tx| {
+                rejected_tx.map(|tx| {
+                    acc.push(tx);
+                    acc
+                })
+            })
+            .wrap_err("Error during transaction revalidation")?;
+
+        Ok(ValidBlock {
+            header,
+            transactions,
+            rejected_transactions,
+            event_recommendations,
+            signatures: signatures.into_iter().map(SignatureOf::transmute).collect(),
+        })
+    }
+}
+
+impl From<ValidBlock> for CandidateBlock {
+    fn from(valid_block: ValidBlock) -> Self {
+        let ValidBlock {
+            header,
+            rejected_transactions,
+            transactions,
+            signatures,
+            event_recommendations,
+        } = valid_block;
+        Self {
+            header,
+            rejected_transactions: rejected_transactions
+                .into_iter()
+                .map(VersionedSignedTransaction::from)
+                .collect(),
+            transactions: transactions
+                .into_iter()
+                .map(VersionedSignedTransaction::from)
+                .collect(),
+            signatures: signatures.into_iter().map(SignatureOf::transmute).collect(),
+            event_recommendations,
+        }
+    }
+}
+
+impl From<ValidBlock> for VersionedCandidateBlock {
+    fn from(valid_block: ValidBlock) -> Self {
+        CandidateBlock::from(valid_block).into()
+    }
+}
 declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCommittedBlock {
@@ -683,18 +780,18 @@ impl VersionedCommittedBlock {
         }
     }
 
-    /// Calculate hash of the current block.
+    /// Calculate the hash of the current block.
     /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
     pub fn hash(&self) -> HashOf<Self> {
         self.as_v1().hash().transmute()
     }
 
-    /// Returns header of valid block
+    /// Returns the header of a valid block
     pub const fn header(&self) -> &BlockHeader {
         &self.as_v1().header
     }
 
-    /// Signatures that are verified with the `hash` of this block as `payload`.
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.as_v1()
             .verified_signatures()
@@ -758,13 +855,13 @@ pub struct CommittedBlock {
 }
 
 impl CommittedBlock {
-    /// Calculate hash of the current block.
+    /// Calculate the hash of the current block.
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Signatures that are verified with the `hash` of this block as `payload`.
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.signatures.verified_by_hash(self.hash())
     }
@@ -790,10 +887,36 @@ impl From<CommittedBlock> for ValidBlock {
     }
 }
 
-impl From<VersionedCommittedBlock> for VersionedValidBlock {
+impl From<CommittedBlock> for CandidateBlock {
+    fn from(
+        CommittedBlock {
+            header,
+            rejected_transactions,
+            transactions,
+            signatures,
+            event_recommendations,
+        }: CommittedBlock,
+    ) -> Self {
+        Self {
+            header,
+            rejected_transactions: rejected_transactions
+                .into_iter()
+                .map(VersionedSignedTransaction::from)
+                .collect(),
+            transactions: transactions
+                .into_iter()
+                .map(VersionedSignedTransaction::from)
+                .collect(),
+            event_recommendations,
+            signatures: signatures.transmute().into(),
+        }
+    }
+}
+
+impl From<VersionedCommittedBlock> for VersionedCandidateBlock {
     #[inline]
     fn from(block: VersionedCommittedBlock) -> Self {
-        ValidBlock::from(block.into_v1()).into()
+        CandidateBlock::from(block.into_v1()).into()
     }
 }
 

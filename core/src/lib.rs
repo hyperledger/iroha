@@ -106,8 +106,8 @@ pub mod prelude {
     #[doc(inline)]
     pub use crate::{
         block::{
-            CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
-            DEFAULT_CONSENSUS_ESTIMATION_MS,
+            CommittedBlock, PendingBlock, ValidBlock, VersionedCandidateBlock,
+            VersionedCommittedBlock, DEFAULT_CONSENSUS_ESTIMATION_MS,
         },
         smartcontracts::permissions::prelude::*,
         smartcontracts::ValidQuery,

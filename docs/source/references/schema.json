@@ -134,9 +134,9 @@
       "sorted": false
     }
   },
-  "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::ValidBlock>>": {
+  "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>": {
     "Vec": {
-      "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::ValidBlock>",
+      "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>",
       "sorted": true
     }
   },
@@ -191,6 +191,12 @@
   "Vec<iroha_data_model::transaction::VersionedRejectedTransaction>": {
     "Vec": {
       "ty": "iroha_data_model::transaction::VersionedRejectedTransaction",
+      "sorted": false
+    }
+  },
+  "Vec<iroha_data_model::transaction::VersionedSignedTransaction>": {
+    "Vec": {
+      "ty": "iroha_data_model::transaction::VersionedSignedTransaction",
       "sorted": false
     }
   },
@@ -279,6 +285,32 @@
       ]
     }
   },
+  "iroha_core::block::CandidateBlock": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "header",
+          "ty": "iroha_core::block::BlockHeader"
+        },
+        {
+          "name": "rejected_transactions",
+          "ty": "Vec<iroha_data_model::transaction::VersionedSignedTransaction>"
+        },
+        {
+          "name": "transactions",
+          "ty": "Vec<iroha_data_model::transaction::VersionedSignedTransaction>"
+        },
+        {
+          "name": "signatures",
+          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>"
+        },
+        {
+          "name": "event_recommendations",
+          "ty": "Vec<iroha_data_model::events::Event>"
+        }
+      ]
+    }
+  },
   "iroha_core::block::CommittedBlock": {
     "Struct": {
       "declarations": [
@@ -305,28 +337,13 @@
       ]
     }
   },
-  "iroha_core::block::ValidBlock": {
-    "Struct": {
-      "declarations": [
+  "iroha_core::block::VersionedCandidateBlock": {
+    "Enum": {
+      "variants": [
         {
-          "name": "header",
-          "ty": "iroha_core::block::BlockHeader"
-        },
-        {
-          "name": "rejected_transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedRejectedTransaction>"
-        },
-        {
-          "name": "transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedValidTransaction>"
-        },
-        {
-          "name": "signatures",
-          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::ValidBlock>>"
-        },
-        {
-          "name": "event_recommendations",
-          "ty": "Vec<iroha_data_model::events::Event>"
+          "name": "V1",
+          "discriminant": 1,
+          "ty": "iroha_core::block::CandidateBlock"
         }
       ]
     }
@@ -338,17 +355,6 @@
           "name": "V1",
           "discriminant": 1,
           "ty": "iroha_core::block::CommittedBlock"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::VersionedValidBlock": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "V1",
-          "discriminant": 1,
-          "ty": "iroha_core::block::ValidBlock"
         }
       ]
     }
@@ -597,14 +603,14 @@
       ]
     }
   },
-  "iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>": {
+  "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>": {
     "Tuple": {
       "types": [
         "iroha_crypto::signature::Signature"
       ]
     }
   },
-  "iroha_crypto::signature::SignatureOf<iroha_core::block::ValidBlock>": {
+  "iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>": {
     "Tuple": {
       "types": [
         "iroha_crypto::signature::Signature"

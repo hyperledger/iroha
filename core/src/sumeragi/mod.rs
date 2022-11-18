@@ -46,7 +46,7 @@ use crate::{
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
-    EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
+    EventsSender, IrohaNetwork, NetworkMessage,
 };
 
 trait Consensus {
@@ -387,13 +387,13 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Duration,
     /// Valid Block
-    pub block: VersionedValidBlock,
+    pub block: ValidBlock,
 }
 
 impl VotingBlock {
     /// Constructs new `VotingBlock.`
     #[allow(clippy::expect_used)]
-    pub fn new(block: VersionedValidBlock) -> VotingBlock {
+    pub fn new(block: ValidBlock) -> VotingBlock {
         VotingBlock {
             voted_at: current_time(),
             block,

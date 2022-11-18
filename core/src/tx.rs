@@ -36,9 +36,12 @@ use crate::{
 /// Permission validation is skipped for genesis.
 #[derive(Clone)]
 pub struct TransactionValidator {
-    transaction_limits: TransactionLimits,
-    instruction_judge: InstructionJudgeArc,
-    query_judge: QueryJudgeArc,
+    /// [`TransactionLimits`] field
+    pub transaction_limits: TransactionLimits,
+    /// [`InstructionJudgeArc`] field
+    pub instruction_judge: InstructionJudgeArc,
+    /// [`QueryJudgeArc`] field
+    pub query_judge: QueryJudgeArc,
 }
 
 impl TransactionValidator {
@@ -401,6 +404,12 @@ impl Txn for AcceptedTransaction {
     }
 }
 
+impl IsInBlockchain for VersionedSignedTransaction {
+    #[inline]
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        wsv.has_transaction(&self.hash())
+    }
+}
 impl IsInBlockchain for VersionedAcceptedTransaction {
     #[inline]
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
