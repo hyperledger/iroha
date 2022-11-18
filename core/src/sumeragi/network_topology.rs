@@ -16,7 +16,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use serde::Serialize;
 
 use crate::{
-    block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock},
+    block::{EmptyChainHash, VersionedCommittedBlock},
     WorldStateView,
 };
 
@@ -330,11 +330,11 @@ impl Topology {
     }
 
     /// Returns signatures of the peers with the specified `roles` from all `signatures`.
-    pub fn filter_signatures_by_roles<'slf>(
+    pub fn filter_signatures_by_roles<'slf, T: 'slf>(
         &'slf self,
         roles: &'slf [Role],
-        signatures: impl IntoIterator<Item = &'slf SignatureOf<VersionedValidBlock>> + 'slf,
-    ) -> Vec<SignatureOf<VersionedValidBlock>> {
+        signatures: impl IntoIterator<Item = &'slf SignatureOf<T>> + 'slf,
+    ) -> Vec<SignatureOf<T>> {
         let roles: HashSet<Role> = roles.iter().copied().collect();
         let public_keys: HashSet<_> = roles
             .iter()

@@ -282,11 +282,11 @@ fn gossip_transactions<F>(
 }
 
 #[allow(clippy::expect_used)]
-fn commit_block<F>(sumeragi: &SumeragiWithFault<F>, block: VersionedValidBlock, state: &mut State)
+fn commit_block<F>(sumeragi: &SumeragiWithFault<F>, block: ValidBlock, state: &mut State)
 where
     F: FaultInjection,
 {
-    let block = block.commit();
+    let block: VersionedCommittedBlock = block.commit().into();
     let block_hash = block.hash();
 
     state
@@ -502,10 +502,7 @@ fn compare_view_change_index_and_block_height_to_old<F>(
     // below is the state that gets reset.
     current_topology: &mut Topology,
     voting_block_option: &mut Option<VotingBlock>,
-    block_signature_acc: &mut Vec<(
-        HashOf<VersionedValidBlock>,
-        SignatureOf<VersionedValidBlock>,
-    )>,
+    block_signature_acc: &mut Vec<(HashOf<ValidBlock>, SignatureOf<ValidBlock>)>,
     has_sent_transactions: &mut bool,
     instant_when_we_should_create_a_block: &mut Instant,
 ) where
@@ -717,17 +714,7 @@ pub fn run<F>(
                     Message::BlockCommitted(block_committed) => {
                         let block = block_committed.block;
 
-                        // TODO: An observing peer should not validate, yet we will do so
-                        // in order to preserve old behaviour. This should be changed.
-                        // Tracking issue : https://github.com/hyperledger/iroha/issues/2635
-                        let block = block.revalidate(&sumeragi.transaction_validator, &state.wsv);
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
-                        }
-
                         let network_topology = state.current_topology.clone();
-
                         let verified_signatures =
                             block.verified_signatures().cloned().collect::<Vec<_>>();
                         let valid_signatures = network_topology.filter_signatures_by_roles(
@@ -738,8 +725,26 @@ pub fn run<F>(
                             .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
                         if valid_signatures.len() >= network_topology.min_votes_for_commit()
                             && proxy_tail_signatures.len() == 1
-                            && state.latest_block_hash == block.header().previous_block_hash
                         {
+                            // TODO: An observing peer should not validate, yet we will do so
+                            // in order to preserve old behaviour. This should be changed.
+                            // Tracking issue : https://github.com/hyperledger/iroha/issues/2635
+                            let block = match block.revalidate(
+                                &sumeragi.transaction_validator,
+                                &state.wsv,
+                                &state.latest_block_hash,
+                                state.latest_block_height,
+                            ) {
+                                Ok(block) => block,
+                                Err(err) => {
+                                    warn!(%err);
+                                    continue;
+                                }
+                            };
+                            for event in Vec::<Event>::from(&block) {
+                                trace!(?event);
+                                sumeragi.events_sender.send(event).unwrap_or(0);
+                            }
                             commit_block(sumeragi, block, &mut state);
                         }
                     }
@@ -773,8 +778,8 @@ pub fn run<F>(
                     }
                     Message::BlockCommitted(block_committed) => {
                         let block = block_committed.block;
-                        let network_topology = state.current_topology.clone();
 
+                        let network_topology = state.current_topology.clone();
                         let verified_signatures =
                             block.verified_signatures().cloned().collect::<Vec<_>>();
                         let valid_signatures = network_topology.filter_signatures_by_roles(
@@ -785,8 +790,19 @@ pub fn run<F>(
                             .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
                         if valid_signatures.len() >= network_topology.min_votes_for_commit()
                             && proxy_tail_signatures.len() == 1
-                            && state.latest_block_hash == block.header().previous_block_hash
                         {
+                            let block = match block.revalidate(
+                                &sumeragi.transaction_validator,
+                                &state.wsv,
+                                &state.latest_block_hash,
+                                state.latest_block_height,
+                            ) {
+                                Ok(block) => block,
+                                Err(err) => {
+                                    warn!(%err);
+                                    continue;
+                                }
+                            };
                             commit_block(sumeragi, block, &mut state);
                         }
                     }
@@ -820,10 +836,9 @@ pub fn run<F>(
                         .chain(state.latest_block_height, state.latest_block_hash);
                     {
                         let block = {
-                            let span_for_sumeragi_leader_block_validate =
+                            let span =
                                 span!(Level::TRACE, "Sumeragi Leader Create block, validation.");
-                            let _enter_for_sumeragi_leader_block_validate =
-                                span_for_sumeragi_leader_block_validate.enter();
+                            let _enter = span.enter();
 
                             block.validate(&sumeragi.transaction_validator, &state.wsv)
                         };
@@ -840,7 +855,7 @@ pub fn run<F>(
                             sumeragi.broadcast_packet(
                                 MessagePacket::new(
                                     view_change_proof_chain.clone(),
-                                    BlockCommitted::from(signed_block.clone()).into(),
+                                    BlockCommitted::new(signed_block.clone()).into(),
                                 ),
                                 &state.current_topology,
                             );
@@ -859,7 +874,7 @@ pub fn run<F>(
                         sumeragi.broadcast_packet_to(
                             MessagePacket::new(
                                 view_change_proof_chain.clone(),
-                                BlockCreated::from(signed_block.clone()).into(),
+                                BlockCreated::new(signed_block.clone()).into(),
                             ),
                             state.current_topology.peers_set_a().iter(),
                         );
@@ -891,35 +906,6 @@ pub fn run<F>(
 
                         trace!("I, a validating peer, have received a block.");
 
-                        let block = {
-                            let span_for_sumeragi_validating_peer_block_validate =
-                                span!(Level::TRACE, "Sumeragi Validating Peer Validate block.");
-                            let _enter_for_sumeragi_validating_peer_block_validate =
-                                span_for_sumeragi_validating_peer_block_validate.enter();
-
-                            block.revalidate(&sumeragi.transaction_validator, &state.wsv)
-                        };
-
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
-                        }
-
-                        // During the genesis round we blindly take on the network topology described in
-                        // the provided genesis block.
-                        let block_header = block.header();
-                        if block_header.is_genesis()
-                            && state.latest_block_height == 0
-                            && block_header.genesis_topology.is_some()
-                        {
-                            info!("Using network topology from genesis block");
-                            state.current_topology = block_header
-                                .genesis_topology
-                                .clone()
-                                .take()
-                                .expect("We just checked that it is some");
-                        }
-
                         if state
                             .current_topology
                             .filter_signatures_by_roles(
@@ -935,42 +921,55 @@ pub fn run<F>(
                             continue;
                         }
 
-                        let hash = state.latest_block_hash;
-                        let block_height = state.latest_block_height;
-                        if let Err(e) = block.validation_check(
-                            &state.wsv,
-                            &hash,
-                            block_height,
-                            &sumeragi.transaction_limits,
-                        ) {
-                            warn!(%e);
-                        } else {
-                            let block_clone = block.clone();
-                            let key_pair_clone = sumeragi.key_pair.clone();
-                            let signed_block = block_clone
-                                .sign(key_pair_clone)
-                                .expect("maybe we should handle this error");
+                        let block = {
+                            let span = span!(
+                                Level::TRACE,
+                                "Sumeragi Validating Peer is revalidating the block."
+                            );
+                            let _enter = span.enter();
+                            match block.revalidate(
+                                &sumeragi.transaction_validator,
+                                &state.wsv,
+                                &state.latest_block_hash,
+                                state.latest_block_height,
+                            ) {
+                                Ok(block) => block,
+                                Err(err) => {
+                                    warn!(%err);
+                                    continue;
+                                }
+                            }
+                        };
 
-                            sumeragi.broadcast_packet_to(
-                                MessagePacket::new(
-                                    view_change_proof_chain.clone(),
-                                    Message::BlockSigned(signed_block.into()),
-                                ),
-                                [state.current_topology.proxy_tail()].into_iter(),
-                            );
-                            info!(
-                                peer_role = ?state.current_topology.role(&sumeragi.peer_id),
-                                block_hash = %block.hash(),
-                                "Signed block candidate",
-                            );
+                        for event in Vec::<Event>::from(&block) {
+                            trace!(?event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
+
+                        let block_clone = block.clone();
+                        let key_pair_clone = sumeragi.key_pair.clone();
+                        let signed_block = block_clone
+                            .sign(key_pair_clone)
+                            .expect("maybe we should handle this error");
+
+                        sumeragi.broadcast_packet_to(
+                            MessagePacket::new(
+                                view_change_proof_chain.clone(),
+                                BlockSigned::new(signed_block).into(),
+                            ),
+                            [state.current_topology.proxy_tail()].into_iter(),
+                        );
+                        info!(
+                            peer_role = ?state.current_topology.role(&sumeragi.peer_id),
+                            block_hash = %block.hash(),
+                            "Signed block candidate",
+                        );
 
                         let voting_block = VotingBlock::new(block.clone());
                         voting_block_option = Some(voting_block);
                     }
                     Message::BlockCommitted(block_committed) => {
                         let block = block_committed.block;
-
                         let verified_signatures =
                             block.verified_signatures().cloned().collect::<Vec<_>>();
                         let valid_signatures = state.current_topology.filter_signatures_by_roles(
@@ -980,6 +979,26 @@ pub fn run<F>(
                         if valid_signatures.len() >= state.current_topology.min_votes_for_commit()
                             && state.latest_block_hash == block.header().previous_block_hash
                         {
+                            // TODO: don't need to revalidate here instead send only hash and signatures in `BlockCommitted` message (#2955)
+                            let block = {
+                                let span = span!(
+                                    Level::TRACE,
+                                    "Sumeragi Validating Peer is revalidating the block."
+                                );
+                                let _enter = span.enter();
+                                match block.revalidate(
+                                    &sumeragi.transaction_validator,
+                                    &state.wsv,
+                                    &state.latest_block_hash,
+                                    state.latest_block_height,
+                                ) {
+                                    Ok(block) => block,
+                                    Err(err) => {
+                                        warn!(%err);
+                                        continue;
+                                    }
+                                }
+                            };
                             commit_block(sumeragi, block, &mut state);
                         }
                     }
@@ -1007,10 +1026,6 @@ pub fn run<F>(
                         }
 
                         trace!("I, the proxy tail, have received a block.");
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
-                        }
 
                         if block.header().is_genesis() {
                             warn!("Rejecting block because it is genesis.");
@@ -1033,13 +1048,29 @@ pub fn run<F>(
                         }
 
                         let block = {
-                            let span_for_sumeragi_proxy_tail_block_validate =
-                                span!(Level::TRACE, "Sumeragi Validating Peer Validate block.");
-                            let _enter_for_sumeragi_proxy_tail_block_validate =
-                                span_for_sumeragi_proxy_tail_block_validate.enter();
-
-                            block.revalidate(&sumeragi.transaction_validator, &state.wsv)
+                            let span = span!(
+                                Level::TRACE,
+                                "Sumeragi Proxy Tail is revalidating the block."
+                            );
+                            let _enter = span.enter();
+                            match block.revalidate(
+                                &sumeragi.transaction_validator,
+                                &state.wsv,
+                                &state.latest_block_hash,
+                                state.latest_block_height,
+                            ) {
+                                Ok(block) => block,
+                                Err(err) => {
+                                    warn!(%err);
+                                    continue;
+                                }
+                            }
                         };
+
+                        for event in Vec::<Event>::from(&block) {
+                            trace!(?event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
+                        }
 
                         let valid_signatures = state.current_topology.filter_signatures_by_roles(
                             &[Role::ValidatingPeer, Role::Leader],
@@ -1057,7 +1088,7 @@ pub fn run<F>(
                     }
                     Message::BlockSigned(block_signed) => {
                         let block = block_signed.block;
-                        let block_hash = block.hash();
+                        let block_hash = block.hash().transmute();
 
                         if voting_block_option.is_some()
                             && block_hash
@@ -1076,8 +1107,8 @@ pub fn run<F>(
                             block.verified_signatures(),
                         );
 
-                        for sig in &valid_signatures {
-                            block_signature_acc.push((block_hash, sig.clone()));
+                        for sig in valid_signatures {
+                            block_signature_acc.push((block_hash, sig.transmute()));
                         }
                     }
                     _ => {
@@ -1129,7 +1160,7 @@ pub fn run<F>(
                         .block;
                     voting_block_option = None;
 
-                    block.as_mut_v1().signatures = peer_signatures
+                    block.signatures = peer_signatures
                         .into_iter()
                         .map(SignatureOf::transmute)
                         .collect();
@@ -1138,8 +1169,7 @@ pub fn run<F>(
                         .expect("Signing can only fail if the Key-Pair failed. This is mainly caused by hardware failure");
 
                     assert!(
-                        block.as_v1().signatures.len()
-                            >= state.current_topology.min_votes_for_commit()
+                        block.signatures.len() >= state.current_topology.min_votes_for_commit()
                     );
 
                     info!(
@@ -1150,7 +1180,7 @@ pub fn run<F>(
                     sumeragi.broadcast_packet(
                         MessagePacket::new(
                             view_change_proof_chain.clone(),
-                            BlockCommitted::from(block.clone()).into(),
+                            BlockCommitted::new(block.clone()).into(),
                         ),
                         &state.current_topology,
                     );
@@ -1215,10 +1245,7 @@ fn sumeragi_init_commit_genesis<F>(
             .expect("Sign genesis block.");
         {
             sumeragi.broadcast_packet(
-                MessagePacket::new(
-                    Vec::new(),
-                    BlockCommitted::from(signed_block.clone()).into(),
-                ),
+                MessagePacket::new(Vec::new(), BlockCommitted::new(signed_block.clone()).into()),
                 &state.current_topology,
             );
             commit_block(sumeragi, signed_block, state);
@@ -1275,20 +1302,39 @@ where
         match incoming_message_receiver.try_recv() {
             Ok(packet) => match packet.message {
                 Message::BlockCommitted(block_committed) => {
-                    // If we recieve a committed genesis block that is
+                    // If we receive a committed genesis block that is
                     // valid, use it without question.  During the
                     // genesis round we blindly take on the network
                     // topology described in the provided genesis
                     // block.
-                    let block_header = block_committed.block.header();
-                    if block_header.is_genesis() && block_header.genesis_topology.is_some() {
+                    let block = {
+                        let span = span!(
+                            Level::TRACE,
+                            "Genesis Round Peer is revalidating the block."
+                        );
+                        let _enter = span.enter();
+                        match block_committed.block.revalidate(
+                            &sumeragi.transaction_validator,
+                            &state.wsv,
+                            &state.latest_block_hash,
+                            state.latest_block_height,
+                        ) {
+                            Ok(block) => block,
+                            Err(err) => {
+                                warn!(%err);
+                                continue;
+                            }
+                        }
+                    };
+                    if block.header.is_genesis() && block.header.genesis_topology.is_some() {
                         info!("Using network topology from genesis block");
-                        state.current_topology = block_header
+                        state.current_topology = block
+                            .header
                             .genesis_topology
                             .clone()
                             .take()
                             .expect("We just checked that it is some");
-                        commit_block(sumeragi, block_committed.block, state);
+                        commit_block(sumeragi, block, state);
                         info!("Genesis block received and committed.");
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }

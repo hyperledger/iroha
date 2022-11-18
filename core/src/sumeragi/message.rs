@@ -12,7 +12,7 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
-use crate::{VersionedAcceptedTransaction, VersionedValidBlock};
+use crate::{VersionedAcceptedTransaction, VersionedCandidateBlock};
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
@@ -82,11 +82,21 @@ pub enum Message {
 #[non_exhaustive]
 pub struct BlockCreated {
     /// The corresponding block.
-    pub block: VersionedValidBlock,
+    pub block: VersionedCandidateBlock,
 }
 
-impl From<VersionedValidBlock> for BlockCreated {
-    fn from(block: VersionedValidBlock) -> Self {
+impl BlockCreated {
+    /// Construct [`Self`]
+    #[inline]
+    pub fn new(block: impl Into<VersionedCandidateBlock>) -> Self {
+        Self {
+            block: block.into(),
+        }
+    }
+}
+
+impl From<VersionedCandidateBlock> for BlockCreated {
+    fn from(block: VersionedCandidateBlock) -> Self {
         Self { block }
     }
 }
@@ -96,11 +106,21 @@ impl From<VersionedValidBlock> for BlockCreated {
 #[non_exhaustive]
 pub struct BlockSigned {
     /// The corresponding block.
-    pub block: VersionedValidBlock,
+    pub block: VersionedCandidateBlock,
 }
 
-impl From<VersionedValidBlock> for BlockSigned {
-    fn from(block: VersionedValidBlock) -> Self {
+impl BlockSigned {
+    /// Construct [`Self`]
+    #[inline]
+    pub fn new(block: impl Into<VersionedCandidateBlock>) -> Self {
+        Self {
+            block: block.into(),
+        }
+    }
+}
+
+impl From<VersionedCandidateBlock> for BlockSigned {
+    fn from(block: VersionedCandidateBlock) -> Self {
         Self { block }
     }
 }
@@ -110,11 +130,21 @@ impl From<VersionedValidBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// The corresponding block.
-    pub block: VersionedValidBlock,
+    pub block: VersionedCandidateBlock,
 }
 
-impl From<VersionedValidBlock> for BlockCommitted {
-    fn from(block: VersionedValidBlock) -> Self {
+impl BlockCommitted {
+    /// Construct [`Self`]
+    #[inline]
+    pub fn new(block: impl Into<VersionedCandidateBlock>) -> Self {
+        Self {
+            block: block.into(),
+        }
+    }
+}
+
+impl From<VersionedCandidateBlock> for BlockCommitted {
+    fn from(block: VersionedCandidateBlock) -> Self {
         Self { block }
     }
 }

@@ -711,6 +711,22 @@ impl Txn for RejectedTransaction {
     }
 }
 
+impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
+    fn from(transaction: VersionedRejectedTransaction) -> Self {
+        match transaction {
+            VersionedRejectedTransaction::V1(transaction) => {
+                let signatures = transaction.signatures.into();
+
+                SignedTransaction {
+                    payload: transaction.payload,
+                    signatures,
+                }
+                .into()
+            }
+        }
+    }
+}
+
 /// Transaction was reject because it doesn't satisfy signature condition
 #[derive(
     Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,

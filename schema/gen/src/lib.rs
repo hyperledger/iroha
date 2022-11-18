@@ -8,7 +8,7 @@
 )]
 
 use iroha_core::{
-    block::{stream::prelude::*, VersionedValidBlock},
+    block::{stream::prelude::*, VersionedCandidateBlock},
     genesis::RawGenesisBlock,
     smartcontracts::isi::query::Error as QueryError,
 };
@@ -47,7 +47,7 @@ pub fn build_schemas() -> MetaMap {
         // Even though these schemas are not exchanged between server and client,
         // they can be useful to the client to generate and validate their hashes
         MerkleTree<VersionedSignedTransaction>,
-        VersionedValidBlock,
+        VersionedCandidateBlock,
     }
 }
 

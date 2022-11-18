@@ -129,7 +129,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, PeersIds,
+        block::{PendingBlock, VersionedCommittedBlock},
+        prelude::AllowAll,
+        tx::TransactionValidator,
+        wsv::World,
+        PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
@@ -234,7 +238,7 @@ mod tests {
         let mut transactions = vec![valid_tx; valid_tx_per_block];
         transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-        let first_block = PendingBlock::new(transactions.clone(), vec![])
+        let first_block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
             .chain_first()
             .validate(
                 &TransactionValidator::new(
@@ -246,14 +250,15 @@ mod tests {
             )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
-            .commit();
+            .commit()
+            .into();
 
         let mut curr_hash = first_block.hash();
 
         wsv.apply(first_block)?;
 
         for height in 1u64..blocks {
-            let block = PendingBlock::new(transactions.clone(), vec![])
+            let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
                 .chain(height, curr_hash)
                 .validate(
                     &TransactionValidator::new(
@@ -265,7 +270,8 @@ mod tests {
                 )
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
-                .commit();
+                .commit()
+                .into();
             curr_hash = block.hash();
             wsv.apply(block)?;
         }
@@ -401,7 +407,8 @@ mod tests {
             )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
-            .commit();
+            .commit()
+            .into();
         wsv.apply(vcb)?;
 
         let wrong_hash: Hash = HashOf::new(&2_u8).into();
