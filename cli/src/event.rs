@@ -3,7 +3,6 @@
 //! utility Iroha Special Instructions to work with them.
 #![allow(
     clippy::arithmetic,
-    clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
 use futures::TryStreamExt;

@@ -139,10 +139,13 @@ impl Sumeragi {
         let online_peers_count: u64 = self
             .internal
             .p2p
-            .get_connected_to_peer_keys()
+            .connected_to_peers
+            .lock()
+            .expect("Mutex poisoned.")
+            .iter()
             .len()
             .try_into()
-            .expect("casting usize to u64");
+            .expect("Cast usize to u64");
 
         let wsv_guard = self
             .internal
@@ -190,6 +193,7 @@ impl Sumeragi {
 
         let diff_count =
             wsv_guard.metric_tx_amounts_counter.get() - last_guard.metric_tx_amounts_counter;
+        #[allow(clippy::cast_precision_loss)]
         let diff_amount_per_count = (wsv_guard.metric_tx_amounts.get()
             - last_guard.metric_tx_amounts)
             / (diff_count as f64);

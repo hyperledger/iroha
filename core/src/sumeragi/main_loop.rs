@@ -165,8 +165,8 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         ids: impl Iterator<Item = &'peer_id PeerId> + Send,
     ) {
         self.p2p.post_to_network(
-            NetworkMessage::SumeragiPacket(Box::new(msg.into())),
-            ids.map(|p| p.public_key.clone()).collect(),
+            &NetworkMessage::SumeragiPacket(Box::new(msg.into())),
+            &ids.map(|p| p.public_key.clone()).collect::<Vec<_>>(),
         );
     }
 
@@ -332,7 +332,10 @@ fn receive_network_packet(
             }
             Some(packet.message)
         }
-        None => { *should_sleep = true; None },
+        None => {
+            *should_sleep = true;
+            None
+        }
     };
 }
 
@@ -453,7 +456,7 @@ fn handle_role_agnostic_messages<F>(
 #[allow(clippy::too_many_arguments)]
 fn compare_view_change_index_and_block_height_to_old<F>(
     sumeragi: &SumeragiWithFault<F>,
-    view_change_proof_chain_for_sharing: &Vec<Proof>,
+    view_change_proof_chain_for_sharing: &[Proof],
     current_view_change_index: u64,
     old_view_change_index: &mut u64,
     current_latest_block_height: u64,
@@ -486,7 +489,7 @@ fn compare_view_change_index_and_block_height_to_old<F>(
             // Notify others.
             sumeragi.broadcast_packet(
                 MessagePacket::new(
-                    view_change_proof_chain_for_sharing.clone(),
+                    view_change_proof_chain_for_sharing.to_vec(),
                     Message::ViewChangeSuggested,
                 ),
                 current_topology,
@@ -498,7 +501,10 @@ fn compare_view_change_index_and_block_height_to_old<F>(
         *has_sent_transactions = false;
 
         *old_view_change_index = current_view_change_index;
-        error!("Consensus hiccup: View change to attempt #{}", current_view_change_index);
+        error!(
+            "Consensus hiccup: View change to attempt #{}",
+            current_view_change_index
+        );
     }
 }
 
@@ -516,12 +522,8 @@ pub fn run<F>(
         if let Some(genesis_network) = state.genesis_network.take() {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
         } else {
-            sumeragi_init_listen_for_genesis(
-                sumeragi,
-                &mut state,
-                &mut shutdown_receiver,
-            )
-            .unwrap_or_else(|err| assert!(!(EarlyReturn::Disconnected == err), "Disconnected"));
+            sumeragi_init_listen_for_genesis(sumeragi, &mut state, &mut shutdown_receiver)
+                .unwrap_or_else(|err| assert!(!(EarlyReturn::Disconnected == err), "Disconnected"));
         }
     }
 
@@ -532,8 +534,6 @@ pub fn run<F>(
         sumeragi.peer_id.public_key,
         state.current_topology.role(&sumeragi.peer_id),
     );
-
-    let mut last_connect_peers_instant = Instant::now();
 
     // do normal rounds
     let mut voting_block_option = None;
@@ -683,7 +683,7 @@ pub fn run<F>(
                 match incoming_message {
                     Message::BlockCreated(_) => {}
                     _ => {
-                        trace!("Observing peer not handling message {:?}", incoming_message);
+                        trace!(?incoming_message, "Observing peer not handling message");
                     }
                 }
             }
@@ -701,7 +701,7 @@ pub fn run<F>(
                             match sumeragi.queue.push(transaction, &state.wsv) {
                                 Err((_, crate::queue::Error::InBlockchain)) | Ok(_) => (),
                                 Err((_, err)) => {
-                                    error!(%err, "Error while pushing transaction into queue?");
+                                    error!(?err, "Error while pushing transaction into queue?");
                                 }
                             }
                         } else {
@@ -709,7 +709,7 @@ pub fn run<F>(
                         }
                     }
                     _ => {
-                        trace!("Leader not handling message, {:?}", msg);
+                        trace!(?msg, "Leader not handling message");
                     }
                 }
             }
@@ -728,7 +728,7 @@ pub fn run<F>(
                         .map(|tx| tx.clone().expect("Is Some"))
                         .collect();
 
-                    info!("sumeragi Doing block with {} txs.", transactions.len());
+                    info!("Sumeragi handling block with {} txs.", transactions.len());
                     // TODO: This should properly process triggers
                     let event_recommendations = Vec::new();
 
@@ -801,7 +801,7 @@ pub fn run<F>(
                         let block = block_created.block;
 
                         if voting_block_option.is_some() {
-                            warn!("Already have block, ignoring.");
+                            warn!(?voting_block_option, "Already have block, ignoring.");
                             continue;
                         }
 
@@ -1119,10 +1119,7 @@ fn sumeragi_init_commit_genesis<F>(
             commit_block(sumeragi, signed_block, state);
             // We broadcast after so that we don't broadcast the block to
             // any peers that were removed from the network.
-            sumeragi.broadcast_packet(
-                msg,
-                &state.current_topology,
-            );
+            sumeragi.broadcast_packet(msg, &state.current_topology);
         }
     }
 }
