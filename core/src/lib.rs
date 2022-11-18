@@ -56,10 +56,11 @@ pub enum NetworkMessage {
     BlockSync(Box<BlockSyncMessage>),
     /// Health check message
     Health,
-
-    // For some reason messages don't go through unless they have a size.
-    // That's why this otherwise purposeless u64 is required.
+    /// Connection check message variant. It contains the size of the
+    /// message.
     ConnectionCheck(u64),
+    /// Connection check acknowledgement message. Contains the size of
+    /// the message that was suppsoed to be
     ConnectionCheckAck(u64),
 }
 

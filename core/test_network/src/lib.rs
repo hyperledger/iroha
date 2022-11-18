@@ -464,7 +464,6 @@ impl Peer {
             api_addr = %self.api_address,
             telemetry_addr = %self.telemetry_address
         );
-        let broker = self.broker.clone();
         let telemetry =
             iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -476,7 +475,6 @@ impl Peer {
                     configuration,
                     instruction_judge,
                     query_judge,
-                    broker,
                     telemetry,
                 )
                 .await

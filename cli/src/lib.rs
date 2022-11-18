@@ -12,7 +12,6 @@
 use std::{panic, path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv},
     iroha::{Configuration, ConfigurationProxy},
@@ -110,7 +109,6 @@ impl Iroha {
         instruction_judge: InstructionJudgeBoxed,
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
-        let broker = Broker::new();
         let mut proxy = ConfigurationProxy::from_path(&args.config_path)?;
         proxy.load_environment()?;
         let config = proxy.build()?;
@@ -136,7 +134,6 @@ impl Iroha {
             config,
             instruction_judge,
             query_judge,
-            broker,
             telemetry,
         )
         .await
@@ -180,7 +177,6 @@ impl Iroha {
         config: Configuration,
         instruction_judge: InstructionJudgeBoxed,
         query_judge: QueryJudgeBoxed,
-        broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {
@@ -191,7 +187,7 @@ impl Iroha {
         }
         let listen_addr = config.torii.p2p_addr.clone();
         iroha_logger::info!(%listen_addr, "Starting peer");
-        let p2p = P2PSystem::new(listen_addr, config.public_key.clone());
+        let p2p = Arc::new(P2PSystem::new(listen_addr, config.public_key.clone()));
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
@@ -231,7 +227,6 @@ impl Iroha {
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
         let sumeragi = Arc::new(
-            // TODO: No function needs 10 parameters. It should accept one struct.
             Sumeragi::new(
                 &config.sumeragi,
                 events_sender.clone(),

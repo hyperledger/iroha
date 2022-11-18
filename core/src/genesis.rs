@@ -24,11 +24,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::tx::VersionedAcceptedTransaction;
 
-// TODO: 8 is just the optimal value for tests. This number should be
-// revised as soon as we have real data, to fix #1855.
-type Online = SmallVec<[PeerId; 8]>;
-type Offline = SmallVec<[PeerId; 8]>;
-
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 

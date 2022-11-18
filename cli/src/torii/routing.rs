@@ -6,7 +6,6 @@ use std::num::TryFromIntError;
 
 use eyre::WrapErr;
 use futures::TryStreamExt;
-use iroha_actor::Addr;
 use iroha_config::{
     base::proxy::Documented,
     iroha::{Configuration, ConfigurationView},
@@ -426,9 +425,8 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-#[allow(clippy::unused_async)] // TODO: remove?
+#[allow(clippy::unused_async)] // TODO: remove after https://github.com/rust-lang/rust-clippy/issues/9359
 async fn handle_metrics(sumeragi: Arc<Sumeragi>, _: usize) -> Result<String> {
-    // TODO: Remove network.
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
     }
@@ -439,9 +437,8 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _: usize) -> Result<String> {
 }
 
 #[cfg(feature = "telemetry")]
-#[allow(clippy::unused_async)] // TODO: remove?
+#[allow(clippy::unused_async)] // TODO: remove after https://github.com/rust-lang/rust-clippy/issues/9359
 async fn handle_status(sumeragi: Arc<Sumeragi>, _: usize) -> Result<Json> {
-    // TODO: remove network
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
