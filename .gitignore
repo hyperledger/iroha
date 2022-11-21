@@ -37,7 +37,3 @@ cmake-build*
 /.gtm/
 
 *.deb
-
-# except
-!iroha_shepherd.deb
-!iroha.deb
