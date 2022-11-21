@@ -15,9 +15,10 @@ if [ "$1" = 'irohad' ]; then
     /wait-for-it.sh -h $IROHA_POSTGRES_HOST -p $PG_PORT -t 30 -- true
   else
     echo "WARNING: IROHA_POSTGRES_HOST is not defined.
-      Do not wait for Postgres to become ready. Iroha may fail to start up"
+          Iroha use RockDB instead to start up"
+    exec "$@" --genesis_block genesis.block --config config.rockdb.docker --keypair_name $KEY
   fi
-	exec "$@" --genesis_block genesis.block --config config.docker --keypair_name $KEY
+	exec "$@" --genesis_block genesis.block --config config.postgres.docker --keypair_name $KEY
 fi
 
 exec "$@"

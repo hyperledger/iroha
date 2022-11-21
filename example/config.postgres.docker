@@ -1,0 +1,21 @@
+{
+  "block_store_path" : "/tmp/block_store/",
+  "torii_port" : 50051,
+  "internal_port" : 10001,
+  "database": {
+    "type": "postgres",
+    "host": "some-postgres",
+    "port": 5432,
+    "user": "postgres",
+    "password": "mysecretpassword",
+    "working database": "iroha_default",
+    "maintenance database": "postgres"
+  },
+  "max_proposal_size" : 10,
+  "vote_delay" : 5000,
+  "mst_enable" : false,
+  "mst_expiration_time" : 1440,
+  "max_rounds_delay": 3000,
+  "proposal_creation_timeout": 3000,
+  "stale_stream_max_rounds": 2
+}
