@@ -1,16 +1,25 @@
-FROM archlinux:base-devel
+# toolchain stage
+ARG     TAG=dev
+FROM    archlinux:base-devel AS base
 
-ENV NIGHTLY=nightly-2022-08-15
-COPY ./rust-toolchain.toml .
-RUN set -eux && \
-    pacman -Syu rustup mold musl rust-musl --noconfirm && \
-    # toolchain: ./rust-toolchain.toml
-    rustup target add x86_64-unknown-linux-musl && \
-    rustup component add rust-src llvm-tools-preview  && \
-    # toolchain: $NIGHTLY
-    rustup install --profile default $NIGHTLY && \
-    rustup +$NIGHTLY target add x86_64-unknown-linux-musl wasm32-unknown-unknown && \
-    rustup +$NIGHTLY component add rust-src llvm-tools-preview && \
-    # cargo install
-    cargo install cargo-lints webassembly-test-runner cargo-chef coveralls && \
-    :
+ENV     NIGHTLY=nightly-2022-08-15
+RUN     set -eux && \
+        pacman -Syu rustup mold musl rust-musl --noconfirm && \
+        # toolchain: ./rust-toolchain.toml
+        rustup target add x86_64-unknown-linux-musl && \
+        rustup component add rust-src llvm-tools-preview  && \
+        # toolchain: $NIGHTLY
+        rustup install --profile default $NIGHTLY && \
+        rustup +$NIGHTLY target add x86_64-unknown-linux-musl wasm32-unknown-unknown && \
+        rustup +$NIGHTLY component add rust-src llvm-tools-preview && \
+        # cargo install
+        cargo install cargo-lints webassembly-test-runner cargo-chef coveralls && \
+        :
+
+# cache stage
+FROM    base
+
+WORKDIR /iroha
+COPY    . .
+RUN     cargo chef prepare --recipe-path recipe.json
+RUN     cargo chef cook --profile deploy --target x86_64-unknown-linux-musl --features vendored --recipe-path recipe.json

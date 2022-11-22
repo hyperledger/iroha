@@ -23,7 +23,7 @@ jobs:
   check:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-planner:dev
+      image: hyperledger/i2-ci:dev
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -47,7 +47,7 @@ jobs:
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-planner:dev
+      image: hyperledger/i2-ci:dev
     strategy:
       matrix:
         feature_flag: [all-features, no-default-features]
@@ -85,7 +85,7 @@ jobs:
   integration:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-planner:dev
+      image: hyperledger/i2-ci:dev
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
@@ -98,7 +98,7 @@ jobs:
   unstable:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-planner:dev
+      image: hyperledger/i2-ci:dev
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v3

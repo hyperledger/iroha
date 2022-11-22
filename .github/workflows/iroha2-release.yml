@@ -6,53 +6,23 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TARGET_DIR: /iroha/target/x86_64-unknown-linux-musl/deploy
 
 jobs:
-  ci-image:
+  registry:
     runs-on: ubuntu-latest
-    outputs:
-      branch_tag: ${{ steps.tag_step.outputs.TAG }}
+    container:
+      image: hyperledger/i2-ci:dev
     steps:
       - uses: actions/checkout@v3
       - name: Get tag from branch name
-        id: tag_step
         run: |
           BRANCH=${{ github.ref_name }}
           PREFIX='iroha2-'
           TAG=${BRANCH#$PREFIX}
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
-      - uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Check changed files
-        uses: jitterbit/get-changed-files@v1
-        id: changed_config
-      - name: Build and push iroha2-base image
-        if: contains(steps.changed_config.outputs.added_modified, 'Dockerfile.base')
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          tags: hyperledger/iroha2-base:${{ env.TAG }}
-          labels: commit=${{ github.sha }}
-          file: Dockerfile.base
-      - name: Build and push iroha2-planner image
-        uses: docker/build-push-action@v3
-        if: contains(steps.changed_config.outputs.added_modified, 'Cargo.lock')
-        with:
-          push: true
-          tags: hyperledger/iroha2-planner:${{ env.TAG }}
-          labels: commit=${{ github.sha }}
-          file: Dockerfile.planner
-          context: .
-
-  registry:
-    needs: ci-image
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-planner:${{ needs.ci-image.outputs.TAG }}
-    steps:
-      - uses: actions/checkout@v3
+          echo "TAG=$TAG" >>$GITHUB_ENV
+      - name: Iroha2 build
+        run: mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
@@ -69,19 +39,24 @@ jobs:
         with:
           push: true
           tags: |
-            hyperledger/iroha2:${{ needs.ci-image.outputs.TAG }}
-            docker.soramitsu.co.jp/iroha2/iroha2:${{ needs.ci-image.outputs.TAG }}-${{ github.sha }}
+            hyperledger/iroha2:${{ env.TAG }}
+            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
-          build-args: TAG=${{ needs.ci-image.outputs.TAG }}
+          build-args: TAG=${{ env.TAG }}
           file: Dockerfile
           # This context specification is required
           context: .
+      - name: Upload iroha2 binaries artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: iroha2-${{ env.TAG }}-artifacts
+          path: |
+            ${{ env.TARGET_DIR}}/iroha
+            ${{ env.TARGET_DIR}}/iroha_client_cli
+            ${{ env.TARGET_DIR}}/kagami
 
   load-rs:
-    needs: [ci-image, registry]
     runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-planner:${{ needs.ci-image.outputs.TAG }}
     steps:
       - name: Get tag from branch name
         run: |
@@ -98,5 +73,5 @@ jobs:
           owner: soramitsu
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
-          workflow_file_name: load-rs-push-from-${{ needs.ci-image.outputs.TAG }}.yaml
-          ref: iroha2-${{ needs.ci-image.outputs.TAG }}
+          workflow_file_name: load-rs-push-from-${{ env.TAG }}.yaml
+          ref: iroha2-${{ env.TAG }}

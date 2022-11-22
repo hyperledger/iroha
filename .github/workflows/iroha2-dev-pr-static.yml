@@ -23,7 +23,7 @@ jobs:
   analysis:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-planner:dev
+      image: hyperledger/i2-ci:dev
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
