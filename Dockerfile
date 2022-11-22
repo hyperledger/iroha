@@ -4,7 +4,7 @@ FROM alpine:3.17
 ARG  STORAGE=/storage
 ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
 ENV  BIN_PATH=/usr/local/bin/
-ENV  CONFIG_DIR=/configs
+ENV  CONFIG_DIR=/config
 ENV  IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
 ENV  IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 ENV  KURA_BLOCK_STORE_PATH=$STORAGE
