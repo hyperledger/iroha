@@ -113,6 +113,7 @@ impl ValidQuery for QueryBox {
             FindAllRoleIds(query) => query.execute_into_value(wsv),
             FindRolesByAccountId(query) => query.execute_into_value(wsv),
             FindRoleByRoleId(query) => query.execute_into_value(wsv),
+            FindAllParameters(query) => query.execute_into_value(wsv),
         }
     }
 }

@@ -59,6 +59,10 @@ pub enum Instruction {
     Revoke(RevokeBox),
     /// `ExecuteTrigger` variant.
     ExecuteTrigger(ExecuteTriggerBox),
+    /// `SetParameter` variant.
+    SetParameter(SetParameterBox),
+    /// `NewParameter` variant.
+    NewParameter(NewParameterBox),
 }
 
 impl Instruction {
@@ -81,8 +85,36 @@ impl Instruction {
             Grant(grant_box) => grant_box.len(),
             Revoke(revoke_box) => revoke_box.len(),
             ExecuteTrigger(execute_trigger) => execute_trigger.len(),
+            SetParameter(set_parameter) => set_parameter.len(),
+            NewParameter(new_parameter) => new_parameter.len(),
         }
     }
+}
+
+/// Sized structure for all possible on-chain configuration parameters.
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
+)]
+#[display(fmt = "SET `{parameter}`")]
+pub struct SetParameterBox {
+    /// The configuration parameter being changed.
+    #[serde(flatten)]
+    pub parameter: EvaluatesTo<Parameter>,
+    /// The entity requesting the change.
+    pub source_id: EvaluatesTo<IdBox>,
+}
+
+/// Sized structure for all possible on-chain configuration parameters when they are first created.
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
+)]
+#[display(fmt = "SET `{parameter}`")]
+pub struct NewParameterBox {
+    /// The configuration parameter being created.
+    #[serde(flatten)]
+    pub parameter: EvaluatesTo<Parameter>,
+    /// The entity requesting the creation.
+    pub source_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible key value set instructions.
@@ -398,6 +430,60 @@ where
     pub object: O,
     /// Entity which is being revoked this token from.
     pub destination_id: D::Id,
+}
+
+/// Generic instruction for setting a chain-wide config parameter.
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+pub struct SetParameter<P, S>
+where
+    P: Identifiable,
+    S: Registered,
+{
+    /// Parameter to be changed.
+    pub parameter: P,
+    /// Entity which is setting this parameter.
+    pub source_id: S::Id,
+}
+
+/// Generic instruction for setting a chain-wide config parameter.
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+pub struct NewParameter<P, S>
+where
+    P: Identifiable,
+    S: Registered,
+{
+    /// Parameter to be changed.
+    pub parameter: P,
+    /// Entity which is setting this parameter.
+    pub source_id: S::Id,
+}
+
+impl<P, S> SetParameter<P, S>
+where
+    P: Identifiable,
+    S: Registered,
+{
+    /// Construct [`SetParameter`].
+    pub fn new(parameter: P, source_id: S::Id) -> Self {
+        Self {
+            parameter,
+            source_id,
+        }
+    }
+}
+
+impl<P, S> NewParameter<P, S>
+where
+    P: Identifiable,
+    S: Registered,
+{
+    /// Construct [`SetParameter`].
+    pub fn new(parameter: P, source_id: S::Id) -> Self {
+        Self {
+            parameter,
+            source_id,
+        }
+    }
 }
 
 /// Instruction to execute specified trigger
@@ -812,6 +898,42 @@ impl FailBox {
     }
 }
 
+impl SetParameterBox {
+    /// Length of contained instructions and queries.
+    pub fn len(&self) -> usize {
+        self.parameter.len() + self.source_id.len() + 1
+    }
+
+    /// Construct [`SetParameterBox`].
+    pub fn new<P: Into<EvaluatesTo<Parameter>>, S: Into<EvaluatesTo<IdBox>>>(
+        parameter: P,
+        source_id: S,
+    ) -> Self {
+        Self {
+            parameter: parameter.into(),
+            source_id: source_id.into(),
+        }
+    }
+}
+
+impl NewParameterBox {
+    /// Length of contained instructions and queries.
+    pub fn len(&self) -> usize {
+        self.parameter.len() + self.source_id.len() + 1
+    }
+
+    /// Construct [`SetParameterBox`].
+    pub fn new<P: Into<EvaluatesTo<Parameter>>, S: Into<EvaluatesTo<IdBox>>>(
+        parameter: P,
+        source_id: S,
+    ) -> Self {
+        Self {
+            parameter: parameter.into(),
+            source_id: source_id.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(not(feature = "std"))]
@@ -889,8 +1011,8 @@ mod tests {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, ExecuteTriggerBox, FailBox, Grant, GrantBox, If as IfInstruction,
-        Instruction, Mint, MintBox, Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox,
-        Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox,
-        Unregister, UnregisterBox,
+        Instruction, Mint, MintBox, NewParameterBox, Pair, Register, RegisterBox, RemoveKeyValue,
+        RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox,
+        SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }

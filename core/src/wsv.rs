@@ -31,16 +31,15 @@ use crate::{
         isi::{query::Error as QueryError, Error},
         wasm, Execute, FindError,
     },
-    DomainsMap, PeersIds,
+    DomainsMap, Parameters, PeersIds,
 };
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone, Getters)]
 pub struct World {
-    /// Iroha parameters.
-    /// TODO: Use this field
-    _parameters: Vec<Parameter>,
+    /// Iroha config parameters.
+    pub(crate) parameters: Parameters,
     /// Identifications of discovered trusted peers.
     pub(crate) trusted_peers_ids: PeersIds,
     /// Registered domains.
@@ -773,6 +772,15 @@ impl WorldStateView {
             .collect::<Vec<Peer>>();
         vec.sort();
         vec
+    }
+
+    /// Get all `Parameter`s registered in the world.
+    pub fn parameters(&self) -> Vec<Parameter> {
+        self.world
+            .parameters
+            .iter()
+            .map(|param| param.clone())
+            .collect::<Vec<Parameter>>()
     }
 
     /// Get `AssetDefinitionEntry` immutable view.

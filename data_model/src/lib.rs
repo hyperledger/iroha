@@ -28,6 +28,7 @@ use core::{
     fmt,
     fmt::Debug,
     ops::{ControlFlow, RangeInclusive},
+    str::FromStr,
 };
 #[cfg(feature = "std")]
 use std::borrow::Cow;
@@ -35,10 +36,12 @@ use std::borrow::Cow;
 use block_value::{BlockHeaderValue, BlockValue};
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
-use derive_more::{AsRef, Deref, Display, From};
+use derive_more::{AsRef, Deref, Display, From, FromStr};
 use events::FilterBox;
+use ffi::declare_item;
+use getset::Getters;
 use iroha_crypto::{Hash, PublicKey};
-use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
+use iroha_data_model_derive::{IdOrdEqHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
 use iroha_ffi::FfiType;
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
@@ -49,6 +52,8 @@ use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
+use strum::EnumDiscriminants;
 
 use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
 
@@ -267,12 +272,12 @@ impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
 #[cfg(feature = "std")]
 impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED, GOT> {}
 
-/// Represents Iroha Configuration parameters.
+/// Identification of a [`Parameter`].
 #[derive(
     Debug,
     Display,
     Clone,
-    Copy,
+    FromStr,
     PartialEq,
     Eq,
     PartialOrd,
@@ -280,24 +285,121 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
     Hash,
     Decode,
     Encode,
-    Deserialize,
-    Serialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     FfiType,
     IntoSchema,
 )]
-pub enum Parameter {
-    /// Maximum amount of Faulty Peers in the system.
-    #[display(fmt = "Maximum number of faults is {_0}")]
-    MaximumFaultyPeersAmount(u32),
-    /// Maximum time for a leader to create a block.
-    #[display(fmt = "Block time: {_0}ms")]
-    BlockTime(u128),
-    /// Maximum time for a proxy tail to send commit message.
-    #[display(fmt = "Commit time: {_0}ms")]
-    CommitTime(u128),
-    /// Time to wait for a transaction Receipt.
-    #[display(fmt = "Transaction receipt time: {_0}ms")]
-    TransactionReceiptTime(u128),
+#[display(fmt = "{name}")]
+pub struct Id {
+    /// [`Name`] unique to a [`Parameter`].
+    pub name: Name,
+}
+
+declare_item! {
+    #[derive(
+        Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, FfiType, IntoSchema,
+    )]
+    #[display(fmt = "?{id}={val}")]
+    #[getset(get = "pub")]
+    /// A chain-wide configuration parameter and its value.
+    pub struct Parameter {
+        /// Unique [`Id`] of the [`Parameter`].
+        id: Id,
+        /// Current value of the [`Parameter`].
+        val: Value,
+    }
+}
+
+impl FromStr for Parameter {
+    type Err = ParseError;
+
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        if let Some((parameter_id_candidate, val_candidate)) = string.rsplit_once('=') {
+            if let Some(parameter_id_candidate) = parameter_id_candidate.strip_prefix('?') {
+                let param_id: <Parameter as Identifiable>::Id =
+                    parameter_id_candidate.parse().map_err(|_| ParseError {
+                        reason: "Failed to parse the `param_id` part of the `Parameter`.",
+                    })?;
+                if let Some((val, ty)) = val_candidate.rsplit_once('_') {
+                    let val = match ty {
+                        // Shorthand for `LengthLimits`
+                        "LL" => {
+                            let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
+                                    reason:
+                                        "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Two comma-separated values are expected.",
+                                })?;
+                            let lower = lower.parse::<u32>().map_err(|_| ParseError {
+                                reason:
+                                    "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid lower `u32` bound.",
+                            })?;
+                            let upper = upper.parse::<u32>().map_err(|_| ParseError {
+                                reason:
+                                    "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid upper `u32` bound.",
+                            })?;
+                            Value::LengthLimits(LengthLimits::new(lower, upper))
+                        }
+                        // Shorthand for `TransactionLimits`
+                        "TL" => {
+                            let (max_instr, max_wasm_size) = val.rsplit_once(',').ok_or( ParseError {
+                                    reason:
+                                        "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. Two comma-separated values are expected.",
+                                })?;
+                            let max_instr = max_instr.parse::<u64>().map_err(|_| ParseError {
+                                reason:
+                                    "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_instruction_number` field should be a valid `u64`.",
+                            })?;
+                            let max_wasm_size = max_wasm_size.parse::<u64>().map_err(|_| ParseError {
+                                reason:
+                                    "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_wasm_size_bytes` field should be a valid `u64`.",
+                            })?;
+                            Value::TransactionLimits(transaction::TransactionLimits::new(
+                                max_instr,
+                                max_wasm_size,
+                            ))
+                        }
+                        // Shorthand for `MetadataLimits`
+                        "ML" => {
+                            let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
+                                    reason:
+                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Two comma-separated values are expected.",
+                                })?;
+                            let lower = lower.parse::<u32>().map_err(|_| ParseError {
+                                reason:
+                                    "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_len` field.",
+                            })?;
+                            let upper = upper.parse::<u32>().map_err(|_| ParseError {
+                                reason:
+                                    "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_byte_size` field.",
+                            })?;
+                            Value::MetadataLimits(metadata::Limits::new(lower, upper))
+                        }
+                        _ => return Err(ParseError {
+                            reason:
+                                "Unsupported type provided for the `val` part of the `Parameter`.",
+                        }),
+                    };
+                    Ok(Self { id: param_id, val })
+                } else {
+                    let val = val_candidate.parse::<u64>().map_err(|_| ParseError {
+                        reason: "Failed to parse the `val` part of the `Parameter` as `u64`.",
+                    })?;
+                    Ok(Self {
+                        id: param_id,
+                        val: Value::Numeric(NumericValue::from(val)),
+                    })
+                }
+            } else {
+                Err(ParseError {
+                    reason: "`param_id` part of `Parameter` must start with `?`",
+                })
+            }
+        } else {
+            Err(ParseError {
+                reason: "The `Parameter` string did not contain the `=` character.",
+            })
+        }
+    }
 }
 
 /// Sized container for all possible identifications.
@@ -339,6 +441,8 @@ pub enum IdBox {
     PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
     /// [`Validator`](`permission::Validator`) variant.
     ValidatorId(<permission::Validator as Identifiable>::Id),
+    /// [`Parameter`](`Parameter`) variant.
+    ParameterId(<Parameter as Identifiable>::Id),
 }
 
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
@@ -421,6 +525,8 @@ pub enum IdentifiableBox {
     PermissionTokenDefinition(Box<permission::token::Definition>),
     /// [`Validator`](`permission::Validator`) variant.
     Validator(Box<permission::Validator>),
+    /// [`Parameter`](`Parameter`) variant.
+    Parameter(Box<Parameter>),
 }
 
 // TODO: think of a way to `impl Identifiable for IdentifiableBox`.
@@ -442,6 +548,7 @@ impl IdentifiableBox {
             IdentifiableBox::Role(a) => a.id().clone().into(),
             IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
             IdentifiableBox::Validator(a) => a.id().clone().into(),
+            IdentifiableBox::Parameter(a) => a.id().clone().into(),
         }
     }
 }
@@ -490,59 +597,43 @@ pub type ValueBox = Box<Value>;
     Encode,
     FromVariant,
     IntoSchema,
-    enum_kinds::EnumKind,
+    EnumDiscriminants,
     PartiallyTaggedSerialize,
     PartiallyTaggedDeserialize,
 )]
-#[enum_kind(
-    ValueKind,
-    derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema)
+#[strum_discriminants(
+    name(ValueKind),
+    derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema),
+    allow(missing_docs)
 )]
-#[allow(clippy::enum_variant_names)]
+#[allow(clippy::enum_variant_names, missing_docs)]
 pub enum Value {
-    /// [`bool`] value.
     Bool(bool),
-    /// [`String`] value.
     String(String),
-    /// [`Name`] value.
     Name(Name),
-    /// [`Vec`] of `Value`.
     Vec(
         #[skip_from]
         #[skip_try_from]
         Vec<Value>,
     ),
-    /// Recursive inclusion of LimitedMetadata,
     LimitedMetadata(metadata::Metadata),
-    /// `Id` of `Asset`, `Account`, etc.
+    MetadataLimits(metadata::Limits),
+    TransactionLimits(transaction::TransactionLimits),
+    LengthLimits(LengthLimits),
     #[serde_partially_tagged(untagged)]
     Id(IdBox),
-    /// `impl Identifiable` as in `Asset`, `Account` etc.
     #[serde_partially_tagged(untagged)]
     Identifiable(IdentifiableBox),
-    /// [`PublicKey`].
     PublicKey(PublicKey),
-    /// Iroha [`Parameter`] variant.
-    Parameter(Parameter),
-    /// Signature check condition.
     SignatureCheckCondition(SignatureCheckCondition),
-    /// Committed or rejected transactions
     TransactionValue(TransactionValue),
-    /// Transaction Query
     TransactionQueryResult(TransactionQueryResult),
-    /// [`PermissionToken`](permission::Token).
     PermissionToken(permission::Token),
-    /// [`struct@Hash`]
     Hash(Hash),
-    /// Block
     Block(BlockValueWrapper),
-    /// Block headers
     BlockHeader(BlockHeaderValue),
-    /// IP Version 4 address.
     Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
-    /// IP Version 6 address.
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
-    /// Numeric
     #[serde_partially_tagged(untagged)]
     Numeric(NumericValue),
 }
@@ -570,6 +661,8 @@ pub enum Value {
 pub enum NumericValue {
     /// `u32` value
     U32(u32),
+    /// `u64` value
+    U64(u64),
     /// `u128` value
     U128(u128),
     /// `Fixed` value
@@ -582,6 +675,7 @@ impl NumericValue {
         use NumericValue::*;
         match self {
             U32(value) => value == 0_u32,
+            U64(value) => value == 0_u64,
             U128(value) => value == 0_u128,
             Fixed(value) => value.is_zero(),
         }
@@ -684,7 +778,6 @@ impl fmt::Display for Value {
             Value::Id(v) => fmt::Display::fmt(&v, f),
             Value::Identifiable(v) => fmt::Display::fmt(&v, f),
             Value::PublicKey(v) => fmt::Display::fmt(&v, f),
-            Value::Parameter(v) => fmt::Display::fmt(&v, f),
             Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
             Value::TransactionValue(_) => write!(f, "TransactionValue"),
             Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
@@ -695,6 +788,9 @@ impl fmt::Display for Value {
             Value::Ipv4Addr(v) => fmt::Display::fmt(&v, f),
             Value::Ipv6Addr(v) => fmt::Display::fmt(&v, f),
             Value::Numeric(v) => fmt::Display::fmt(&v, f),
+            Value::MetadataLimits(v) => fmt::Display::fmt(&v, f),
+            Value::TransactionLimits(v) => fmt::Display::fmt(&v, f),
+            Value::LengthLimits(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -709,7 +805,6 @@ impl Value {
             Id(_)
             | PublicKey(_)
             | Bool(_)
-            | Parameter(_)
             | Identifiable(_)
             | String(_)
             | Name(_)
@@ -721,6 +816,9 @@ impl Value {
             | Ipv4Addr(_)
             | Ipv6Addr(_)
             | BlockHeader(_)
+            | MetadataLimits(_)
+            | TransactionLimits(_)
+            | LengthLimits(_)
             | Numeric(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
@@ -783,6 +881,7 @@ from_and_try_from_value_idbox!(
     AssetDefinitionId(asset::DefinitionId),
     TriggerId(trigger::Id),
     RoleId(role::Id),
+    ParameterId(Id),
 );
 
 // TODO: Should we wrap String with new type in order to convert like here?
@@ -849,6 +948,7 @@ from_and_try_from_value_identifiablebox!(
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
+    Parameter(Box<Parameter>),
 );
 
 from_and_try_from_value_identifiable!(
@@ -864,6 +964,7 @@ from_and_try_from_value_identifiable!(
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
+    Parameter(Box<Parameter>),
 );
 
 impl TryFrom<Value> for RegistrableBox {
@@ -907,7 +1008,9 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
             Validator(validator) => Ok(RegistrableBox::Validator(validator)),
-            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) => Err(Self::Error::default()),
+            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) | Parameter(_) => {
+                Err(Self::Error::default())
+            }
         }
     }
 }
@@ -1043,6 +1146,7 @@ macro_rules! from_and_try_from_and_try_as_value_numeric {
 
 from_and_try_from_and_try_as_value_numeric! {
     U32(u32),
+    U64(u64),
     U128(u128),
     Fixed(fixed::Fixed),
 }
@@ -1131,7 +1235,24 @@ pub trait Registrable {
 }
 
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Display,
+    Clone,
+    Copy,
+    Hash,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    FfiType,
+)]
+#[display(fmt = "{min},{max}LL")]
 pub struct LengthLimits {
     /// Minimal length in number of chars (inclusive).
     min: u32,
@@ -1500,12 +1621,45 @@ pub mod prelude {
         sorting::prelude::*,
         transaction::prelude::*,
         trigger::prelude::*,
-        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, NumericValue, Parameter,
-        PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, ValidationError,
-        Value,
+        EnumTryAsError, HasMetadata, Id as ParameterId, IdBox, Identifiable, IdentifiableBox,
+        LengthLimits, NumericValue, Parameter, PredicateTrait, RegistrableBox, ToValue, TryAsMut,
+        TryAsRef, TryToValue, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
         permission::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
     };
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    const INVALID_PARAM: [&str; 4] = [
+        "",
+        "Block?SyncGossipPeriod=20000",
+        "?BlockSyncGossipPeriod20000",
+        "?BlockSyncGossipPeriod=20000_u32",
+    ];
+
+    #[test]
+    fn test_invalid_parameter_str() {
+        assert!(matches!(
+            Parameter::from_str(INVALID_PARAM[0]),
+            Err(err) if err.reason == "The `Parameter` string did not contain the `=` character."
+        ));
+        assert!(matches!(
+            Parameter::from_str(INVALID_PARAM[1]),
+            Err(err) if err.reason == "`param_id` part of `Parameter` must start with `?`"
+        ));
+        assert!(matches!(
+            Parameter::from_str(INVALID_PARAM[2]),
+            Err(err) if err.to_string() == "The `Parameter` string did not contain the `=` character."
+        ));
+        assert!(matches!(
+            Parameter::from_str(INVALID_PARAM[3]),
+            Err(err) if err.to_string() == "Unsupported type provided for the `val` part of the `Parameter`."
+        ));
+    }
 }

@@ -40,6 +40,8 @@ impl<V: IsAllowed<Operation = Instruction>> IsAllowed for CheckNested<V> {
             | Instruction::Grant(_)
             | Instruction::Revoke(_)
             | Instruction::Fail(_)
+            | Instruction::SetParameter(_)
+            | Instruction::NewParameter(_)
             | Instruction::ExecuteTrigger(_) => self.validator.check(authority, instruction, wsv),
             Instruction::If(if_box) => self
                 .check(authority, &if_box.then, wsv)

@@ -1564,6 +1564,16 @@ pub mod role {
     }
 }
 
+pub mod parameter {
+    //! Module with queries for config parameters
+    use super::*;
+
+    /// Construct a query to retrieve all config parameters
+    pub const fn all() -> FindAllParameters {
+        FindAllParameters::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
