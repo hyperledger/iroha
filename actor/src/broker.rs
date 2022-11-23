@@ -79,7 +79,7 @@ type BrokerRecipient = Box<dyn Any + Sync + Send + 'static>;
 
 /// Broker type. Can be cloned and shared between many actors.
 #[derive(Debug)]
-pub struct Broker(Arc<MessageMap<ActorMap<BrokerRecipient>>>);
+struct Broker(Arc<MessageMap<ActorMap<BrokerRecipient>>>);
 
 impl Clone for Broker {
     fn clone(&self) -> Self {

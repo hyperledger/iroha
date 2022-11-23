@@ -6,7 +6,9 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -134,7 +136,7 @@ impl P2PSystem {
             None
         } else {
             let address_candidate = &target_addrs[rand::random::<usize>() % target_addrs.len()];
-            // to_socket_addrs enables dns lookups.
+            // to_socket_addrs enables dns look-ups.
             let maybe_addr = address_candidate
                 .to_socket_addrs()
                 .unwrap_or_else(|error| {
@@ -181,14 +183,6 @@ impl P2PSystem {
         self.disconnect_peers(to_disconnect_keys);
     }
 
-    pub(crate) fn post_to_own_sumeragi_buffer(&self, sumeragi_packet: Box<crate::SumeragiPacket>) {
-        let (ref mut sumeragi_packet_buffer, _) = *self
-            .packet_buffers
-            .lock()
-            .expect("Mutex poisoned. Aborting");
-        sumeragi_packet_buffer.push(*sumeragi_packet);
-    }
-
     #[allow(clippy::unwrap_in_result)]
     pub(crate) fn poll_network_for_sumeragi_packet(&self) -> Option<crate::SumeragiPacket> {
         let PacketBufferSet {
@@ -200,9 +194,9 @@ impl P2PSystem {
             .lock()
             .expect("Mutex poisoned. Aborting");
 
-        if !sumeragi_packet_buffer.is_empty() {
+        if !sumeragi_packets.is_empty() {
             iroha_logger::trace!("Early return.");
-            return Some(sumeragi_packet_buffer.remove(0));
+            return Some(sumeragi_packets.remove(0));
         }
 
         let mut connected_to_peers = self
@@ -236,7 +230,7 @@ impl P2PSystem {
                     break;
                 }
                 Ok(NetworkMessage::BlockSync(message)) => {
-                    block_sync_message_buffer.push(*message);
+                    block_packets.push(*message);
                 }
                 Ok(ConnectionCheck(_)) => {
                     send_connection_ack_keys.push(public_key.clone());
@@ -264,9 +258,9 @@ impl P2PSystem {
             .lock()
             .expect("Mutex poisoned. Aborting");
 
-        if !block_sync_message_buffer.is_empty() {
+        if !block_packets.is_empty() {
             iroha_logger::trace!("Short-circuit on: block sync buffer is empty.");
-            return Some(block_sync_message_buffer.remove(0));
+            return Some(block_packets.remove(0));
         }
 
         let mut connected_to_peers = self.connected_to_peers.lock().expect("Mutex poisoned");
@@ -478,7 +472,7 @@ impl P2PSystem {
             if rand::random::<u32>() % 8 > 1 {
                 for _ in 0_i32..20_i32 {
                     if let Ok((stream, addr)) = listener.accept() {
-                        trace!(from=%addr, "Incomming p2p connection");
+                        trace!(from=%addr, "Incoming p2p connection");
                         stream
                             .set_read_timeout(Some(P2P_TCP_TIMEOUT))
                             .expect("Could not set read timeout on socket.");
@@ -720,6 +714,7 @@ where
         let mut packet_size = 0;
         while packet_size == 0 {
             let mut null_byte = 0_u8;
+            // Block for write, unblock for poll momentarily.
             stream
                 .set_nonblocking(true)
                 .wrap_err("Set non-blocking failed. Aborting")?;
