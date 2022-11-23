@@ -2,7 +2,7 @@
 //! should be reserved for testing, and only [`NoFault`], should be
 //! used in code.
 #![allow(clippy::cognitive_complexity)]
-use std::sync::{mpsc, Mutex};
+use std::sync::Mutex;
 
 use iroha_primitives::must_use::MustUse;
 use rand::seq::SliceRandom;
@@ -90,10 +90,6 @@ where
     pub gossip_period: Duration,
     /// Hash of the latest block
     pub latest_block_hash: Mutex<HashOf<VersionedCommittedBlock>>,
-    /// Sender channel
-    pub message_sender: Mutex<mpsc::SyncSender<MessagePacket>>,
-    /// Receiver channel.
-    pub message_receiver: Mutex<mpsc::Receiver<MessagePacket>>,
 }
 
 impl<F: FaultInjection> Debug for SumeragiWithFault<F> {

@@ -87,9 +87,6 @@ impl Sumeragi {
         p2p: Arc<P2PSystem>,
         kura: Arc<Kura>,
     ) -> Self {
-        let (incoming_message_sender, incoming_message_receiver) =
-            std::sync::mpsc::sync_channel(250);
-
         Self {
             internal: SumeragiWithFault::<NoFault> {
                 key_pair: configuration.key_pair.clone(),
@@ -108,8 +105,6 @@ impl Sumeragi {
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
                 latest_block_hash: Mutex::new(Hash::zeroed().typed()),
-                message_sender: Mutex::new(incoming_message_sender),
-                message_receiver: Mutex::new(incoming_message_receiver),
             },
             config: configuration.clone(),
             metrics_mutex: Mutex::new(Metrics::default()),

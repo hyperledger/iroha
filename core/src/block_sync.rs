@@ -6,7 +6,7 @@
 )]
 use std::{
     fmt::Debug,
-    sync::{mpsc, Arc},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -31,8 +31,6 @@ pub struct BlockSynchronizer {
     gossip_period: Duration,
     block_batch_size: u32,
     p2p: Arc<P2PSystem>,
-    message_sender: mpsc::SyncSender<message::VersionedMessage>,
-    //message_receiver: Mutex<mpsc::Receiver<message::VersionedMessage>>, // TODO: This should have been used!
 }
 
 impl BlockSynchronizer {
@@ -43,24 +41,12 @@ impl BlockSynchronizer {
         p2p: Arc<P2PSystem>,
         peer_id: PeerId,
     ) -> Arc<Self> {
-        let (incoming_message_sender, _incoming_message_receiver) = mpsc::sync_channel(250);
-
         Arc::new(Self {
             peer_id,
             sumeragi,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             p2p,
-            message_sender: incoming_message_sender,
-            // message_receiver: Mutex::new(_incoming_message_receiver),
-        })
-    }
-
-    /// Deposit a `block_sync` network message.
-    pub fn incoming_message(&self, msg: message::VersionedMessage) {
-        iroha_logger::debug!(?msg);
-        self.message_sender.send(msg).unwrap_or_else(|e| {
-            error!(?e, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         })
     }
 }
