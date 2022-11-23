@@ -26,20 +26,6 @@
       "sorted_by_key": true
     }
   },
-  "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>": {
-    "Map": {
-      "key": "iroha_crypto::PublicKey",
-      "value": "iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>",
-      "sorted_by_key": true
-    }
-  },
-  "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_data_model::transaction::Payload>>": {
-    "Map": {
-      "key": "iroha_crypto::PublicKey",
-      "value": "iroha_crypto::signature::SignatureOf<iroha_data_model::transaction::Payload>",
-      "sorted_by_key": true
-    }
-  },
   "Map<iroha_data_model::account::Id, iroha_data_model::account::Account>": {
     "Map": {
       "key": "iroha_data_model::account::Id",
@@ -137,6 +123,12 @@
   "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>": {
     "Vec": {
       "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>",
+      "sorted": true
+    }
+  },
+  "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>": {
+    "Vec": {
+      "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>",
       "sorted": true
     }
   },
@@ -302,7 +294,7 @@
         },
         {
           "name": "signatures",
-          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>"
+          "ty": "iroha_crypto::signature::SignaturesOf<iroha_core::block::CandidateBlock>"
         },
         {
           "name": "event_recommendations",
@@ -631,12 +623,22 @@
       ]
     }
   },
+  "iroha_crypto::signature::SignaturesOf<iroha_core::block::CandidateBlock>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "signatures",
+          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>"
+        }
+      ]
+    }
+  },
   "iroha_crypto::signature::SignaturesOf<iroha_core::block::CommittedBlock>": {
     "Struct": {
       "declarations": [
         {
           "name": "signatures",
-          "ty": "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>"
+          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>"
         }
       ]
     }
@@ -646,7 +648,7 @@
       "declarations": [
         {
           "name": "signatures",
-          "ty": "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_data_model::transaction::Payload>>"
+          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_data_model::transaction::Payload>>"
         }
       ]
     }

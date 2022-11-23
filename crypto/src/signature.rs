@@ -9,7 +9,7 @@ use alloc::{
 };
 use core::{fmt, marker::PhantomData};
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::collections::btree_set;
 
 use derive_more::{DebugCustom, Deref, DerefMut};
 use getset::Getters;
@@ -263,10 +263,77 @@ impl<T: Encode> SignatureOf<T> {
     }
 }
 
+/// Wrapper around [`SignatureOf`] used to reimplement [`Eq`], [`Ord`], [`Hash`]
+/// to compare signatures only by their [`PublicKey`].
+#[derive(Deref, DerefMut, Encode, Decode, Serialize, Deserialize)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct SignatureWrapperOf<T>(
+    #[deref]
+    #[deref_mut]
+    #[serde(bound(deserialize = "T: "))]
+    SignatureOf<T>,
+);
+
+impl<T> SignatureWrapperOf<T> {
+    #[inline]
+    fn inner(self) -> SignatureOf<T> {
+        self.0
+    }
+}
+
+impl<T> PartialEq for SignatureWrapperOf<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.public_key.eq(&other.0.public_key)
+    }
+}
+impl<T> Eq for SignatureWrapperOf<T> {}
+
+impl<T> PartialOrd for SignatureWrapperOf<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.0.public_key.partial_cmp(&other.0.public_key)
+    }
+}
+impl<T> Ord for SignatureWrapperOf<T> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.0.public_key.cmp(&other.0.public_key)
+    }
+}
+
+impl<T> fmt::Debug for SignatureWrapperOf<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> Clone for SignatureWrapperOf<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+// Implement `Hash` manually to be consistent with `Ord`
+impl<T> core::hash::Hash for SignatureWrapperOf<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.0.public_key.hash(state);
+    }
+}
+
+// Wrapper is transparent, so forward to the inner type and exclude from schema.
+impl<T: IntoSchema> IntoSchema for SignatureWrapperOf<T> {
+    fn schema(metamap: &mut MetaMap) {
+        SignatureOf::<T>::schema(metamap)
+    }
+
+    fn type_name() -> String {
+        SignatureOf::<T>::type_name()
+    }
+}
+
 /// Container for multiple signatures, each corresponding to a different public key.
 ///
-/// If signature is added which conflicts with a signature already present in the
-/// container, it is not defined which of the two will remain in the container.
+/// If the public key of the added signature is already in the set,
+/// the associated signature will be replaced with the new one.
 ///
 /// GUARANTEE 1: This container always contains at least 1 signature
 /// GUARANTEE 2: Each signature corresponds to a different public key
@@ -275,14 +342,8 @@ impl<T: Encode> SignatureOf<T> {
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
-// TODO: Serialize/Encode as BTreeSet?
 pub struct SignaturesOf<T> {
-    // This structure is backed by map because only one signature is allowed per public key.
-    // In the case of Iroha this means that each peer can sign the payload at most once.
-    //
-    // TODO: If uniqueness of public key in this collection would be upheld by other means or
-    // if it were true that `Signature: Borrow<PublicKey>` then set could be used instead of map
-    signatures: btree_map::BTreeMap<PublicKey, SignatureOf<T>>,
+    signatures: btree_set::BTreeSet<SignatureWrapperOf<T>>,
 }
 
 impl<T> fmt::Debug for SignaturesOf<T> {
@@ -313,8 +374,7 @@ impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
     {
         use serde::de::Error as _;
 
-        let signatures =
-            <btree_map::BTreeMap<PublicKey, SignatureOf<T>>>::deserialize(deserializer)?;
+        let signatures = <btree_set::BTreeSet<SignatureWrapperOf<T>>>::deserialize(deserializer)?;
 
         if signatures.is_empty() {
             return Err(D::Error::custom(
@@ -327,7 +387,7 @@ impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
 }
 impl<T> Decode for SignaturesOf<T> {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-        let signatures = <btree_map::BTreeMap<PublicKey, SignatureOf<T>>>::decode(input)?;
+        let signatures = <btree_set::BTreeSet<SignatureWrapperOf<T>>>::decode(input)?;
 
         if signatures.is_empty() {
             return Err("Could not decode SignaturesOf<T>. Input contains 0 signatures".into());
@@ -339,17 +399,23 @@ impl<T> Decode for SignaturesOf<T> {
 
 impl<T> IntoIterator for SignaturesOf<T> {
     type Item = SignatureOf<T>;
-    type IntoIter = btree_map::IntoValues<PublicKey, Self::Item>;
+    type IntoIter = core::iter::Map<
+        btree_set::IntoIter<SignatureWrapperOf<T>>,
+        fn(SignatureWrapperOf<T>) -> SignatureOf<T>,
+    >;
     fn into_iter(self) -> Self::IntoIter {
-        self.signatures.into_values()
+        self.signatures.into_iter().map(SignatureWrapperOf::inner)
     }
 }
 
 impl<'itm, T> IntoIterator for &'itm SignaturesOf<T> {
     type Item = &'itm SignatureOf<T>;
-    type IntoIter = btree_map::Values<'itm, PublicKey, SignatureOf<T>>;
+    type IntoIter = core::iter::Map<
+        btree_set::Iter<'itm, SignatureWrapperOf<T>>,
+        fn(&'itm SignatureWrapperOf<T>) -> &'itm SignatureOf<T>,
+    >;
     fn into_iter(self) -> Self::IntoIter {
-        self.signatures.values()
+        self.signatures.iter().map(core::ops::Deref::deref)
     }
 }
 
@@ -366,7 +432,7 @@ impl<A> Extend<SignatureOf<A>> for SignaturesOf<A> {
 
 impl<T> From<SignaturesOf<T>> for btree_set::BTreeSet<SignatureOf<T>> {
     fn from(source: SignaturesOf<T>) -> Self {
-        source.signatures.into_values().collect()
+        source.into_iter().collect()
     }
 }
 
@@ -374,26 +440,26 @@ impl<T> TryFrom<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
     type Error = Error;
 
     fn try_from(signatures: btree_set::BTreeSet<SignatureOf<T>>) -> Result<Self, Self::Error> {
-        if !signatures.is_empty() {
-            return Ok(Self {
-                signatures: signatures
-                    .into_iter()
-                    .map(|signature| (signature.public_key().clone(), signature))
-                    .collect(),
-            });
-        }
+        signatures.into_iter().collect()
+    }
+}
 
-        Err(Error::Other(format!(
-            "{} must contain at least one signature",
-            core::any::type_name::<Self>()
-        )))
+impl<A> From<SignatureOf<A>> for SignaturesOf<A> {
+    fn from(signature: SignatureOf<A>) -> Self {
+        Self {
+            signatures: [SignatureWrapperOf(signature)].into(),
+        }
     }
 }
 
 impl<A> FromIterator<SignatureOf<A>> for Result<SignaturesOf<A>, Error> {
     fn from_iter<T: IntoIterator<Item = SignatureOf<A>>>(iter: T) -> Self {
-        let signatures: btree_set::BTreeSet<_> = iter.into_iter().collect();
-        signatures.try_into()
+        let mut iter = iter.into_iter();
+        iter.next()
+            .ok_or(Error::EmptySignatureIter)
+            .map(move |first_signature| core::iter::once(first_signature).chain(iter))
+            .map(|signatures| signatures.map(SignatureWrapperOf).collect())
+            .map(|signatures| SignaturesOf { signatures })
     }
 }
 
@@ -413,15 +479,13 @@ impl<T> SignaturesOf<T> {
 
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn insert(&mut self, signature: SignatureOf<T>) {
-        self.signatures
-            .insert(signature.public_key().clone(), signature);
+        self.signatures.insert(SignatureWrapperOf(signature));
     }
 
     /// Returns signatures that have passed verification.
     #[cfg(feature = "std")]
     pub fn verified_by_hash(&self, hash: HashOf<T>) -> impl Iterator<Item = &SignatureOf<T>> {
-        self.signatures
-            .values()
+        self.iter()
             .filter(move |sign| sign.verify_hash(&hash).is_ok())
     }
 
@@ -431,8 +495,7 @@ impl<T> SignaturesOf<T> {
         self,
         hash: &HashOf<T>,
     ) -> impl Iterator<Item = SignatureOf<T>> + '_ {
-        self.signatures
-            .into_values()
+        self.into_iter()
             .filter(move |sign| sign.verify_hash(hash).is_ok())
     }
 
@@ -455,7 +518,7 @@ impl<T> SignaturesOf<T> {
     /// Fails if verificatoin of any signature fails
     #[cfg(feature = "std")]
     pub fn verify_hash(&self, hash: &HashOf<T>) -> Result<(), SignatureVerificationFail<T>> {
-        self.signatures.values().try_for_each(|signature| {
+        self.iter().try_for_each(|signature| {
             signature
                 .verify_hash(hash)
                 .map_err(|error| SignatureVerificationFail::new(signature.clone(), error))
@@ -470,7 +533,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        [SignatureOf::new(key_pair, value)?].into_iter().collect()
+        SignatureOf::new(key_pair, value).map(SignaturesOf::from)
     }
 
     /// Verifies all signatures
@@ -600,7 +663,7 @@ mod tests {
     #[cfg(feature = "std")]
     fn decode_signatures_of() {
         let no_signatures: SignaturesOf<i32> = SignaturesOf {
-            signatures: btree_map::BTreeMap::new(),
+            signatures: btree_set::BTreeSet::new(),
         };
         let bytes = no_signatures.encode();
 
@@ -612,7 +675,7 @@ mod tests {
     #[cfg(feature = "std")]
     fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
         let no_signatures: SignaturesOf<i32> = SignaturesOf {
-            signatures: btree_map::BTreeMap::new(),
+            signatures: btree_set::BTreeSet::new(),
         };
         let serialized = serde_json::to_string(&no_signatures)?;
 
@@ -620,5 +683,54 @@ mod tests {
         assert!(signatures.is_err());
 
         Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn signatures_of_deduplication_by_public_key() {
+        let key_pair = KeyPair::generate().expect("Failed to generate keys");
+        let signatures = [
+            SignatureOf::new(key_pair.clone(), &1).expect("Failed to sign"),
+            SignatureOf::new(key_pair.clone(), &2).expect("Failed to sign"),
+            SignatureOf::new(key_pair, &3).expect("Failed to sign"),
+        ];
+        let signatures = signatures
+            .into_iter()
+            .collect::<Result<SignaturesOf<u8>, Error>>()
+            .expect("One signature must stay");
+        // Signatures with the same public key was deduplicated
+        assert_eq!(signatures.len(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn signature_wrapper_btree_and_hash_sets_consistent_results() {
+        use std::collections::{BTreeSet, HashSet};
+
+        let keys = 5;
+        let signatures_per_key = 10;
+        let signatures =
+            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate keys"))
+                .take(keys)
+                .flat_map(|key| {
+                    core::iter::repeat_with(move || key.clone())
+                        .zip(0..)
+                        .map(|(key, i)| SignatureOf::new(key, &i).expect("Failed to sign"))
+                        .take(signatures_per_key)
+                })
+                .map(SignatureWrapperOf)
+                .collect::<Vec<_>>();
+        let hash_set: HashSet<_> = signatures.clone().into_iter().collect();
+        let btree_set: BTreeSet<_> = signatures.into_iter().collect();
+
+        // Check that `hash_set` is subset of `btree_set`
+        for signature in &hash_set {
+            assert!(btree_set.contains(signature));
+        }
+        // Check that `btree_set` is subset `hash_set`
+        for signature in &btree_set {
+            assert!(hash_set.contains(signature));
+        }
+        // From the above we can conclude that `SignatureWrapperOf` have consistent behavior for `HashSet` and `BTreeSet`
     }
 }

@@ -355,7 +355,7 @@ impl Client {
     /// Signs transaction
     ///
     /// # Errors
-    /// Fails if generating signature fails
+    /// Fails if signature generation fails
     pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> Result<SignedTransaction> {
         transaction
             .sign(self.key_pair.clone())
@@ -365,7 +365,7 @@ impl Client {
     /// Signs query
     ///
     /// # Errors
-    /// Fails if generating signature fails
+    /// Fails if signature generation fails
     pub fn sign_query(&self, query: QueryRequest) -> Result<SignedQueryRequest> {
         query
             .sign(self.key_pair.clone())

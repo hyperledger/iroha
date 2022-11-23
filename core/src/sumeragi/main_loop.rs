@@ -282,7 +282,7 @@ fn gossip_transactions<F>(
 }
 
 #[allow(clippy::expect_used)]
-fn commit_block<F>(sumeragi: &SumeragiWithFault<F>, block: ValidBlock, state: &mut State)
+fn commit_block<F>(sumeragi: &SumeragiWithFault<F>, block: ValidSignedBlock, state: &mut State)
 where
     F: FaultInjection,
 {
@@ -496,7 +496,7 @@ fn compare_view_change_index_and_block_height_to_old<F>(
     // below is the state that gets reset.
     current_topology: &mut Topology,
     voting_block_option: &mut Option<VotingBlock>,
-    block_signature_acc: &mut Vec<(HashOf<ValidBlock>, SignatureOf<ValidBlock>)>,
+    block_signature_acc: &mut Vec<(HashOf<ValidSignedBlock>, SignatureOf<ValidSignedBlock>)>,
     has_sent_transactions: &mut bool,
     instant_when_we_should_create_a_block: &mut Instant,
 ) where
@@ -837,13 +837,14 @@ pub fn run<F>(
                             block.validate(&sumeragi.transaction_validator, &state.wsv)
                         };
 
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
-                        }
                         let signed_block = block
                             .sign(sumeragi.key_pair.clone())
                             .expect("Sign genesis block.");
+
+                        for event in Vec::<Event>::from(&signed_block) {
+                            trace!(?event);
+                            sumeragi.events_sender.send(event).unwrap_or(0);
+                        }
 
                         if !state.current_topology.is_consensus_required() {
                             sumeragi.broadcast_packet(
@@ -949,7 +950,7 @@ pub fn run<F>(
                         sumeragi.broadcast_packet_to(
                             MessagePacket::new(
                                 view_change_proof_chain.clone(),
-                                BlockSigned::new(signed_block).into(),
+                                BlockSigned::from(signed_block).into(),
                             ),
                             [state.current_topology.proxy_tail()].into_iter(),
                         );
@@ -1081,11 +1082,10 @@ pub fn run<F>(
                             Instant::now() + sumeragi.commit_time;
                     }
                     Message::BlockSigned(block_signed) => {
-                        let block = block_signed.block;
-                        let block_hash = block.hash().transmute();
+                        let BlockSigned { hash, signatures } = block_signed;
 
                         if voting_block_option.is_some()
-                            && block_hash
+                            && hash
                                 != voting_block_option
                                     .as_ref()
                                     .expect("Voting block is `Some`")
@@ -1098,11 +1098,11 @@ pub fn run<F>(
 
                         let valid_signatures = state.current_topology.filter_signatures_by_roles(
                             &[Role::ValidatingPeer, Role::Leader],
-                            block.verified_signatures(),
+                            signatures.verified_by_hash(hash),
                         );
 
                         for sig in valid_signatures {
-                            block_signature_acc.push((block_hash, sig.transmute()));
+                            block_signature_acc.push((hash, sig));
                         }
                     }
                     _ => {
@@ -1149,18 +1149,15 @@ pub fn run<F>(
 
                 vote_count += 1; // We are also voting for this block.
                 if vote_count >= state.current_topology.min_votes_for_commit() {
-                    let mut block = voting_block_option
+                    let block = voting_block_option
                         .expect("Voting block should have been `Some`")
                         .block;
                     voting_block_option = None;
 
-                    block.signatures = peer_signatures
-                        .into_iter()
-                        .map(SignatureOf::transmute)
-                        .collect();
-                    let block = block
+                    let mut block = block
                         .sign(sumeragi.key_pair.clone())
                         .expect("Signing can only fail if the Key-Pair failed. This is mainly caused by hardware failure");
+                    block.signatures.extend(peer_signatures);
 
                     assert!(
                         block.signatures.len() >= state.current_topology.min_votes_for_commit()
@@ -1230,13 +1227,16 @@ fn sumeragi_init_commit_genesis<F>(
             block_hash = %block.hash(),
             "Created a block to commit.",
         );
-        for event in Vec::<Event>::from(&block) {
-            trace!(?event);
-            sumeragi.events_sender.send(event).unwrap_or(0);
-        }
+
         let signed_block = block
             .sign(sumeragi.key_pair.clone())
             .expect("Sign genesis block.");
+
+        for event in Vec::<Event>::from(&signed_block) {
+            trace!(?event);
+            sumeragi.events_sender.send(event).unwrap_or(0);
+        }
+
         {
             sumeragi.broadcast_packet(
                 MessagePacket::new(Vec::new(), BlockCommitted::new(signed_block.clone()).into()),
