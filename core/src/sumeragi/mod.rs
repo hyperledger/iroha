@@ -126,7 +126,6 @@ impl Sumeragi {
     #[allow(
         clippy::expect_used,
         clippy::unwrap_in_result,
-        clippy::cast_precision_loss,
         clippy::float_arithmetic,
         clippy::mutex_integer
     )]

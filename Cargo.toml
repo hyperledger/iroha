@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-  "actor",
-  "actor/derive",
   "cli",
   "cli/derive",
   "client",

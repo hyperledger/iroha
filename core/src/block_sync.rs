@@ -133,10 +133,10 @@ pub mod message {
     /// Message to initiate receiving of latest blocks from other peers
     ///
     /// Every `gossip_period` peer will poll one randomly selected peer for latest blocks
-    #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
+    #[derive(Debug, Clone, Copy, Default)]
     pub struct ReceiveUpdates;
 
-    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
+    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 
     impl VersionedMessage {
         /// Converts from `&VersionedMessage` to V1 reference
@@ -208,7 +208,7 @@ pub mod message {
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[version_with_scale(n = 1, versioned = "VersionedMessage")]
-    #[derive(Debug, Clone, Decode, Encode, FromVariant, iroha_actor::Message)]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant)]
     pub enum Message {
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(GetBlocksAfter),

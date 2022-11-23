@@ -71,9 +71,6 @@ pub enum Error {
     #[error("Failed to push into queue")]
     PushIntoQueue(#[from] Box<queue::Error>),
     #[cfg(feature = "telemetry")]
-    /// Error while getting status
-    #[error("Failed to get status")]
-    Status(#[from] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed")]
     ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
@@ -133,7 +130,7 @@ impl Error {
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
-            Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Prometheus(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

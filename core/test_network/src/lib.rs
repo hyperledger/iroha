@@ -8,7 +8,6 @@ use std::{collections::HashMap, sync::Arc, thread};
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_actor::{broker::*, prelude::*};
 use iroha_client::client::Client;
 use iroha_config::{
     client::Configuration as ClientConfiguration, iroha::Configuration,
@@ -148,39 +147,6 @@ impl TestGenesis for GenesisNetwork {
 fn configure_world() {}
 
 impl Network {
-    /// Send message to an actor instance on peers.
-    ///
-    /// # Panics
-    /// Programmer error. `self.peers()` should already have `iroha`.
-    pub async fn send_to_actor_on_peers<M, A>(
-        &self,
-        select_actor: impl Fn(&Iroha) -> &Addr<A>,
-        msg: M,
-    ) -> Vec<(M::Result, PeerId)>
-    where
-        M: Message + Clone + Send + 'static,
-        M::Result: Send,
-        A: Actor + ContextHandler<M>,
-    {
-        let fut = self
-            .peers()
-            .map(|peer| {
-                (
-                    select_actor(peer.iroha.as_ref().expect("Already initialised")),
-                    peer.id.clone(),
-                )
-            })
-            .map(|(actor, peer_id)| async { (actor.send(msg.clone()).await, peer_id) })
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<_>>();
-        time::timeout(Duration::from_secs(60), fut)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|(result, peer_id)| (result.expect("Always `Ok`"), peer_id))
-            .collect()
-    }
-
     /// Starts network with peers with default configuration and
     /// specified options in a new async runtime.  Returns its info
     /// and client for connecting to it.
