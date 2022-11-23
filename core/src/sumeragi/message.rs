@@ -6,13 +6,14 @@
     clippy::module_name_repetitions
 )]
 
+use iroha_crypto::{HashOf, SignaturesOf};
 use iroha_data_model::prelude::*;
 use iroha_macro::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
-use crate::{VersionedAcceptedTransaction, VersionedCandidateBlock};
+use crate::{block::ValidSignedBlock, VersionedAcceptedTransaction, VersionedCandidateBlock};
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
@@ -105,23 +106,18 @@ impl From<VersionedCandidateBlock> for BlockCreated {
 #[derive(Debug, Clone, Decode, Encode)]
 #[non_exhaustive]
 pub struct BlockSigned {
-    /// The corresponding block.
-    pub block: VersionedCandidateBlock,
+    /// Hash of the block being signed.
+    pub hash: HashOf<ValidSignedBlock>,
+    /// Set of signatures.
+    pub signatures: SignaturesOf<ValidSignedBlock>,
 }
 
-impl BlockSigned {
-    /// Construct [`Self`]
-    #[inline]
-    pub fn new(block: impl Into<VersionedCandidateBlock>) -> Self {
+impl From<ValidSignedBlock> for BlockSigned {
+    fn from(block: ValidSignedBlock) -> Self {
         Self {
-            block: block.into(),
+            hash: block.hash(),
+            signatures: block.signatures,
         }
-    }
-}
-
-impl From<VersionedCandidateBlock> for BlockSigned {
-    fn from(block: VersionedCandidateBlock) -> Self {
-        Self { block }
     }
 }
 

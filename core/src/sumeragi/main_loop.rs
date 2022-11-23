@@ -950,7 +950,7 @@ pub fn run<F>(
                         sumeragi.broadcast_packet_to(
                             MessagePacket::new(
                                 view_change_proof_chain.clone(),
-                                BlockSigned::new(signed_block).into(),
+                                BlockSigned::from(signed_block).into(),
                             ),
                             [state.current_topology.proxy_tail()].into_iter(),
                         );
@@ -1082,11 +1082,10 @@ pub fn run<F>(
                             Instant::now() + sumeragi.commit_time;
                     }
                     Message::BlockSigned(block_signed) => {
-                        let block = block_signed.block;
-                        let block_hash = block.hash().transmute();
+                        let BlockSigned { hash, signatures } = block_signed;
 
                         if voting_block_option.is_some()
-                            && block_hash
+                            && hash
                                 != voting_block_option
                                     .as_ref()
                                     .expect("Voting block is `Some`")
@@ -1099,11 +1098,11 @@ pub fn run<F>(
 
                         let valid_signatures = state.current_topology.filter_signatures_by_roles(
                             &[Role::ValidatingPeer, Role::Leader],
-                            block.verified_signatures(),
+                            signatures.verified_by_hash(hash),
                         );
 
                         for sig in valid_signatures {
-                            block_signature_acc.push((block_hash, sig.transmute()));
+                            block_signature_acc.push((hash, sig));
                         }
                     }
                     _ => {
