@@ -31,9 +31,8 @@ pub mod message;
 pub mod network_topology;
 pub mod view_change;
 
-use std::sync::Mutex;
-
 use main_loop::State;
+use parking_lot::{Mutex, MutexGuard};
 
 use self::{
     main_loop::{NoFault, SumeragiWithFault},
@@ -98,7 +97,7 @@ impl Sumeragi {
                 key_pair: configuration.key_pair.clone(),
                 peer_id: configuration.peer_id.clone(),
                 events_sender,
-                wsv: std::sync::Mutex::new(wsv),
+                wsv: Mutex::new(wsv),
                 commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
                 block_time: Duration::from_millis(configuration.block_time_ms),
                 transaction_limits: configuration.transaction_limits,
@@ -145,26 +144,15 @@ impl Sumeragi {
             .internal
             .current_online_peers
             .lock()
-            .expect("Failed to lock `current_online_peers` for `update_metrics`")
             .len()
             .try_into()
             .expect("casting usize to u64");
 
-        let wsv_guard = self
-            .internal
-            .wsv
-            .lock()
-            .expect("Failed to lock on `wsv`. Mutex poisoned");
+        let wsv_guard = self.internal.wsv.lock();
 
-        let metrics_guard = self
-            .metrics_mutex
-            .lock()
-            .expect("Failed to lock on `metrics`. Mutex poisoned");
+        let metrics_guard = self.metrics_mutex.lock();
 
-        let mut last_guard = self
-            .last_update_metrics_mutex
-            .lock()
-            .expect("Failed to lock on `last_update_metrics`. Mutex poisoned");
+        let mut last_guard = self.last_update_metrics_mutex.lock();
 
         let start_index = last_guard.block_height;
         {
@@ -228,20 +216,14 @@ impl Sumeragi {
 
     /// Access node metrics.
     #[allow(clippy::expect_used)]
-    pub fn metrics_mutex_access(&self) -> std::sync::MutexGuard<Metrics> {
-        self.metrics_mutex
-            .lock()
-            .expect("`Mutex` in `metrics_mutex_access` poisoned. This should not happen, given that panics should stop Iroha.")
+    pub fn metrics_mutex_access(&self) -> MutexGuard<Metrics> {
+        self.metrics_mutex.lock()
     }
 
     /// Get latest block hash for use by the block synchronization subsystem.
     #[allow(clippy::expect_used)]
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
-        *self
-            .internal
-            .latest_block_hash
-            .lock()
-            .expect("Mutex on internal WSV poisoned in `latest_block_hash`")
+        *self.internal.latest_block_hash.lock()
     }
 
     /// Get an array of blocks after the block identified by `block_hash`. Returns
@@ -264,9 +246,7 @@ impl Sumeragi {
         use rand::{seq::SliceRandom, SeedableRng};
 
         let rng = &mut rand::rngs::StdRng::from_entropy();
-        let peers = self.internal.current_online_peers.lock().expect(
-            "Mutex for `current_online_peers` poisoned in `get_random_peer_for_block_sync`",
-        );
+        let peers = self.internal.current_online_peers.lock();
         peers.choose(rng).map(|id| Peer::new(id.clone()))
     }
 
@@ -276,11 +256,8 @@ impl Sumeragi {
     /// while this lock is held.
     // TODO: Return result.
     #[allow(clippy::expect_used)]
-    pub fn wsv_mutex_access(&self) -> std::sync::MutexGuard<WorldStateView> {
-        self.internal
-            .wsv
-            .lock()
-            .expect("World state view Mutex poisoned. You have had a panic somewhere else in the process, which didn't shut down the peer.")
+    pub fn wsv_mutex_access(&self) -> MutexGuard<WorldStateView> {
+        self.internal.wsv.lock()
     }
 
     /// Start the sumeragi thread for this sumeragi instance.
@@ -348,24 +325,13 @@ impl Sumeragi {
     /// Update the sumeragi internal online peers list.
     #[allow(clippy::expect_used)]
     pub fn update_online_peers(&self, online_peers: Vec<PeerId>) {
-        *self
-            .internal
-            .current_online_peers
-            .lock()
-            .expect("Failed to lock on update online peers.") = online_peers;
+        *self.internal.current_online_peers.lock() = online_peers;
     }
 
     /// Deposit a sumeragi network message.
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
-        if self
-            .internal
-            .message_sender
-            .lock()
-            .expect("Lock on sender")
-            .try_send(msg)
-            .is_err()
-        {
+        if self.internal.message_sender.lock().try_send(msg).is_err() {
             error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }

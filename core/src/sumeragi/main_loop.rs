@@ -2,9 +2,10 @@
 //! should be reserved for testing, and only [`NoFault`], should be
 //! used in code.
 #![allow(clippy::cognitive_complexity)]
-use std::sync::{mpsc, Mutex};
+use std::sync::mpsc;
 
 use iroha_primitives::must_use::MustUse;
+use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
@@ -139,7 +140,6 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     pub fn get_online_peer_keys(&self) -> Vec<PublicKey> {
         self.current_online_peers
             .lock()
-            .expect("lock on online peers")
             .clone()
             .into_iter()
             .map(|peer_id| peer_id.public_key)
@@ -149,7 +149,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     /// Set the public block hash to zero, in a thread-safe manner
     #[allow(clippy::expect_used)]
     pub fn zeroize(&self) {
-        *self.latest_block_hash.lock().expect("Poisoned Mutex") = Hash::zeroed().typed()
+        *self.latest_block_hash.lock() = Hash::zeroed().typed()
     }
 
     /// Update network topology by taking the actual list of peers
@@ -298,10 +298,7 @@ where
 
     // Update WSV copy that is public facing
     {
-        let mut wsv = sumeragi
-            .wsv
-            .lock()
-            .expect("WSV mutex in `block_commit` poisoned");
+        let mut wsv = sumeragi.wsv.lock();
         *wsv = state.wsv.clone();
     }
 
@@ -319,10 +316,7 @@ where
     state.latest_block_hash = block.hash();
 
     // Push new block height information to block_sync
-    *sumeragi
-        .latest_block_hash
-        .lock()
-        .expect("lock on latest_block_hash_for_use_by_block_sync") = state.latest_block_hash;
+    *sumeragi.latest_block_hash.lock() = state.latest_block_hash;
 
     let previous_role = state.current_topology.role(&sumeragi.peer_id);
     state.current_topology.refresh_at_new_block(block_hash);
@@ -540,7 +534,7 @@ pub fn run<F>(
 ) where
     F: FaultInjection,
 {
-    let mut incoming_message_receiver = sumeragi.message_receiver.lock().expect("lock on reciever");
+    let mut incoming_message_receiver = sumeragi.message_receiver.lock();
 
     if state.latest_block_height == 0 || state.latest_block_hash == Hash::zeroed().typed() {
         if let Some(genesis_network) = state.genesis_network.take() {
