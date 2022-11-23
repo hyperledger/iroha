@@ -10,7 +10,7 @@
     clippy::arithmetic
 )]
 
-use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
+use std::{error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{bail, eyre, Context, Result};
@@ -343,7 +343,6 @@ impl ChainedBlock {
             header,
             rejected_transactions: rejected,
             transactions: txs,
-            signatures: BTreeSet::default(),
             event_recommendations,
         }
     }
@@ -353,7 +352,6 @@ impl ChainedBlock {
         HashOf::new(&self.header).transmute()
     }
 }
-
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
 #[derive(Debug, Clone)]
 pub struct ValidBlock {
@@ -363,30 +361,50 @@ pub struct ValidBlock {
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// Array of all transactions in this block.
     pub transactions: Vec<VersionedValidTransaction>,
-    /// Signatures of peers which approved this block.
-    pub signatures: BTreeSet<SignatureOf<Self>>,
     /// Event recommendations.
     pub event_recommendations: Vec<Event>,
 }
 
 impl ValidBlock {
-    /// # Errors
-    /// Asserts specific transaction limits hold true
-    pub fn check_transaction_limits(&self, tx_limits: &TransactionLimits) -> Result<()> {
-        self.transactions
-            .iter()
-            .map(|tx| tx.check_limits(tx_limits))
-            .collect::<Result<Vec<_>, _>>()
-            .map(drop)?;
-        // TODO: Check Event recommendations.
-        self.rejected_transactions
-            .iter()
-            .map(|tx| tx.check_limits(tx_limits))
-            .collect::<Result<Vec<_>, _>>()
-            .map(drop)?;
-        Ok(())
+    /// Calculate hash of the current block.
+    pub fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.header).transmute()
     }
 
+    /// Sign this block and get `ValidSignedBlock`.
+    ///
+    /// # Errors
+    /// Fails if generating signature fails
+    pub fn sign(self, key_pair: KeyPair) -> Result<ValidSignedBlock> {
+        let signature = SignatureOf::from_hash(key_pair, &self.hash().transmute())
+            .wrap_err("Failed to sign block")?;
+        let signatures = SignaturesOf::from(signature);
+        Ok(ValidSignedBlock {
+            header: self.header,
+            rejected_transactions: self.rejected_transactions,
+            transactions: self.transactions,
+            event_recommendations: self.event_recommendations,
+            signatures,
+        })
+    }
+}
+
+/// After receiving first signature `ValidBlock` can transform into `ValidSignedBlock`.
+#[derive(Debug, Clone)]
+pub struct ValidSignedBlock {
+    /// Header
+    pub header: BlockHeader,
+    /// Array of rejected transactions.
+    pub rejected_transactions: Vec<VersionedRejectedTransaction>,
+    /// Array of transactions.
+    pub transactions: Vec<VersionedValidTransaction>,
+    /// Signatures of peers which approved this block.
+    pub signatures: SignaturesOf<Self>,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
+}
+
+impl ValidSignedBlock {
     /// Commit block to the store.
     pub fn commit(self) -> CommittedBlock {
         let Self {
@@ -396,11 +414,6 @@ impl ValidBlock {
             event_recommendations,
             signatures,
         } = self;
-
-        #[allow(clippy::expect_used)]
-        let signatures: SignaturesOf<ValidBlock> = signatures
-            .try_into()
-            .expect("Expected at least one signature");
 
         CommittedBlock {
             event_recommendations,
@@ -416,7 +429,7 @@ impl ValidBlock {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Sign this block and get `ValidBlock`.
+    /// Add additional signatures for `ValidSignedBlock`.
     ///
     /// # Errors
     /// Fails if generating signature fails
@@ -429,20 +442,17 @@ impl ValidBlock {
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        let hash = self.hash();
-        self.signatures
-            .iter()
-            .filter(move |sign| sign.verify_hash(&hash).is_ok())
+        self.signatures.verified_by_hash(self.hash())
     }
 
-    /// Creates dummy `ValidBlock`. Used in tests
+    /// Create dummy `ValidBlock`. Used in tests
     ///
     /// # Panics
     /// If generating keys or block signing fails.
     #[allow(clippy::restriction)]
     #[cfg(test)]
     pub fn new_dummy() -> Self {
-        Self {
+        ValidBlock {
             header: BlockHeader {
                 timestamp: 0,
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
@@ -454,7 +464,6 @@ impl ValidBlock {
             },
             rejected_transactions: Vec::new(),
             transactions: Vec::new(),
-            signatures: BTreeSet::default(),
             event_recommendations: Vec::new(),
         }
         .sign(KeyPair::generate().unwrap())
@@ -462,8 +471,8 @@ impl ValidBlock {
     }
 }
 
-impl From<&ValidBlock> for Vec<Event> {
-    fn from(block: &ValidBlock) -> Self {
+impl From<&ValidSignedBlock> for Vec<Event> {
+    fn from(block: &ValidSignedBlock) -> Self {
         block
             .transactions
             .iter()
@@ -547,7 +556,7 @@ impl VersionedCandidateBlock {
         wsv: &WorldStateView,
         latest_block: &HashOf<VersionedCommittedBlock>,
         block_height: u64,
-    ) -> Result<ValidBlock, eyre::Report> {
+    ) -> Result<ValidSignedBlock, eyre::Report> {
         self.into_v1()
             .revalidate(transaction_validator, wsv, latest_block, block_height)
     }
@@ -564,7 +573,7 @@ pub struct CandidateBlock {
     /// Array of all transactions in this block.
     pub transactions: Vec<VersionedSignedTransaction>,
     /// Signatures of peers which approved this block.
-    pub signatures: BTreeSet<SignatureOf<Self>>,
+    pub signatures: SignaturesOf<Self>,
     /// Event recommendations.
     pub event_recommendations: Vec<Event>,
 }
@@ -577,10 +586,7 @@ impl CandidateBlock {
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        let hash = self.hash();
-        self.signatures
-            .iter()
-            .filter(move |sign| sign.verify_hash(&hash).is_ok())
+        self.signatures.verified_by_hash(self.hash())
     }
 
     /// Check if there are no transactions in this block.
@@ -614,7 +620,7 @@ impl CandidateBlock {
         wsv: &WorldStateView,
         latest_block: &HashOf<VersionedCommittedBlock>,
         block_height: u64,
-    ) -> Result<ValidBlock, eyre::Report> {
+    ) -> Result<ValidSignedBlock, eyre::Report> {
         if self.is_empty() {
             bail!("Block is empty");
         }
@@ -716,19 +722,19 @@ impl CandidateBlock {
             })
             .wrap_err("Error during transaction revalidation")?;
 
-        Ok(ValidBlock {
+        Ok(ValidSignedBlock {
             header,
             transactions,
             rejected_transactions,
             event_recommendations,
-            signatures: signatures.into_iter().map(SignatureOf::transmute).collect(),
+            signatures: signatures.transmute(),
         })
     }
 }
 
-impl From<ValidBlock> for CandidateBlock {
-    fn from(valid_block: ValidBlock) -> Self {
-        let ValidBlock {
+impl From<ValidSignedBlock> for CandidateBlock {
+    fn from(valid_block: ValidSignedBlock) -> Self {
+        let ValidSignedBlock {
             header,
             rejected_transactions,
             transactions,
@@ -745,14 +751,14 @@ impl From<ValidBlock> for CandidateBlock {
                 .into_iter()
                 .map(VersionedSignedTransaction::from)
                 .collect(),
-            signatures: signatures.into_iter().map(SignatureOf::transmute).collect(),
+            signatures: signatures.transmute(),
             event_recommendations,
         }
     }
 }
 
-impl From<ValidBlock> for VersionedCandidateBlock {
-    fn from(valid_block: ValidBlock) -> Self {
+impl From<ValidSignedBlock> for VersionedCandidateBlock {
+    fn from(valid_block: ValidSignedBlock) -> Self {
         CandidateBlock::from(valid_block).into()
     }
 }
@@ -837,7 +843,7 @@ impl VersionedCommittedBlock {
     }
 }
 
-/// When Kura receives `ValidBlock`, the block is stored and
+/// When Kura receives `ValidSignedBlock`, the block is stored and
 /// then sent to later stage of the pipeline as `CommittedBlock`.
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
@@ -867,7 +873,7 @@ impl CommittedBlock {
     }
 }
 
-impl From<CommittedBlock> for ValidBlock {
+impl From<CommittedBlock> for ValidSignedBlock {
     fn from(
         CommittedBlock {
             header,
@@ -882,7 +888,7 @@ impl From<CommittedBlock> for ValidBlock {
             rejected_transactions,
             transactions,
             event_recommendations,
-            signatures: signatures.transmute().into(),
+            signatures: signatures.transmute(),
         }
     }
 }
@@ -908,7 +914,7 @@ impl From<CommittedBlock> for CandidateBlock {
                 .map(VersionedSignedTransaction::from)
                 .collect(),
             event_recommendations,
-            signatures: signatures.transmute().into(),
+            signatures: signatures.transmute(),
         }
     }
 }
@@ -1052,7 +1058,7 @@ mod tests {
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
-        let valid_block = ValidBlock::new_dummy();
+        let valid_block = ValidSignedBlock::new_dummy();
         let committed_block = valid_block.clone().commit();
 
         assert_eq!(*valid_block.hash(), *committed_block.hash())
@@ -1063,7 +1069,7 @@ mod tests {
         const BLOCK_COUNT: usize = 10;
         let chain = Chain::new();
 
-        let mut block = ValidBlock::new_dummy().commit();
+        let mut block = ValidSignedBlock::new_dummy().commit();
 
         for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
@@ -1090,7 +1096,7 @@ mod tests {
         const BLOCK_COUNT: usize = 10;
         let chain = Chain::new();
 
-        let mut block = ValidBlock::new_dummy().commit();
+        let mut block = ValidSignedBlock::new_dummy().commit();
 
         for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;

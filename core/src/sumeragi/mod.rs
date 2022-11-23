@@ -353,13 +353,13 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Duration,
     /// Valid Block
-    pub block: ValidBlock,
+    pub block: ValidSignedBlock,
 }
 
 impl VotingBlock {
     /// Constructs new `VotingBlock.`
     #[allow(clippy::expect_used)]
-    pub fn new(block: ValidBlock) -> VotingBlock {
+    pub fn new(block: ValidSignedBlock) -> VotingBlock {
         VotingBlock {
             voted_at: current_time(),
             block,

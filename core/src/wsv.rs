@@ -1067,7 +1067,7 @@ mod tests {
     fn get_blocks_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = ValidBlock::new_dummy().commit();
+        let mut block = ValidSignedBlock::new_dummy().commit();
         let wsv = WorldStateView::default();
 
         let mut block_hashes = vec![];
@@ -1092,7 +1092,7 @@ mod tests {
     fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = ValidBlock::new_dummy().commit();
+        let mut block = ValidSignedBlock::new_dummy().commit();
         let wsv = WorldStateView::default();
 
         for i in 1..=BLOCK_CNT {

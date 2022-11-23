@@ -26,6 +26,13 @@
       "sorted_by_key": true
     }
   },
+  "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>": {
+    "Map": {
+      "key": "iroha_crypto::PublicKey",
+      "value": "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>",
+      "sorted_by_key": true
+    }
+  },
   "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>": {
     "Map": {
       "key": "iroha_crypto::PublicKey",
@@ -132,12 +139,6 @@
     "Vec": {
       "ty": "iroha_crypto::hash::Hash",
       "sorted": false
-    }
-  },
-  "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>": {
-    "Vec": {
-      "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>",
-      "sorted": true
     }
   },
   "Vec<iroha_crypto::signature::SignatureOf<iroha_data_model::transaction::Payload>>": {
@@ -302,7 +303,7 @@
         },
         {
           "name": "signatures",
-          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>"
+          "ty": "iroha_crypto::signature::SignaturesOf<iroha_core::block::CandidateBlock>"
         },
         {
           "name": "event_recommendations",
@@ -628,6 +629,16 @@
     "Tuple": {
       "types": [
         "iroha_crypto::signature::Signature"
+      ]
+    }
+  },
+  "iroha_crypto::signature::SignaturesOf<iroha_core::block::CandidateBlock>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "signatures",
+          "ty": "Map<iroha_crypto::PublicKey, iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>"
+        }
       ]
     }
   },

@@ -390,6 +390,14 @@ impl<T> TryFrom<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
     }
 }
 
+impl<A> From<SignatureOf<A>> for SignaturesOf<A> {
+    fn from(signature: SignatureOf<A>) -> Self {
+        Self {
+            signatures: [(signature.public_key().clone(), signature)].into(),
+        }
+    }
+}
+
 impl<A> FromIterator<SignatureOf<A>> for Result<SignaturesOf<A>, Error> {
     fn from_iter<T: IntoIterator<Item = SignatureOf<A>>>(iter: T) -> Self {
         let signatures: btree_set::BTreeSet<_> = iter.into_iter().collect();
@@ -470,7 +478,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        [SignatureOf::new(key_pair, value)?].into_iter().collect()
+        SignatureOf::new(key_pair, value).map(SignaturesOf::from)
     }
 
     /// Verifies all signatures
