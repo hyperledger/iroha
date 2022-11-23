@@ -3,6 +3,7 @@ ARG     TAG=dev
 FROM    archlinux:base-devel AS base
 
 ENV     NIGHTLY=nightly-2022-08-15
+COPY    ./rust-toolchain.toml .
 RUN     set -eux && \
         pacman -Syu rustup mold musl rust-musl --noconfirm && \
         # toolchain: ./rust-toolchain.toml
@@ -21,5 +22,6 @@ FROM    base
 
 WORKDIR /iroha
 COPY    . .
+RUN     rm -f rust-toolchain.toml
 RUN     cargo chef prepare --recipe-path recipe.json
 RUN     cargo chef cook --profile deploy --target x86_64-unknown-linux-musl --features vendored --recipe-path recipe.json

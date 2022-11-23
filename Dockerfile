@@ -1,4 +1,11 @@
+# builder stage
 ARG  TAG=dev
+FROM hyperledger/iroha2-ci:$TAG AS builder
+
+COPY . .
+RUN  mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
+
+# final stage
 FROM alpine:3.17
 
 ARG  STORAGE=/storage
@@ -16,8 +23,8 @@ RUN  set -ex && \
      mkdir $STORAGE && \
      chown iroha:iroha $STORAGE
 
-COPY  $TARGET_DIR/iroha $BIN_PATH
-COPY  $TARGET_DIR/iroha_client_cli $BIN_PATH
-COPY  $TARGET_DIR/kagami $BIN_PATH
+COPY  --from=builder $TARGET_DIR/iroha $BIN_PATH
+COPY  --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
+COPY  --from=builder $TARGET_DIR/kagami $BIN_PATH
 USER  iroha
 CMD   iroha

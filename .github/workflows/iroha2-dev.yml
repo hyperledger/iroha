@@ -14,12 +14,8 @@ env:
 jobs:
   dockerhub:
     runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:dev
     steps:
       - uses: actions/checkout@v3
-      - name: Iroha2:dev build
-        run: mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
       - uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -34,14 +30,16 @@ jobs:
           file: Dockerfile
           # This context specification is required!
           context: .
+      - uses: shrink/actions-docker-extract@v1
+        id: extract
+        with:
+          image: hyperledger/iroha2:dev
+          path: ${{ env.TARGET_DIR }}/.
       - name: Upload iroha2:dev binaries artifacts
         uses: actions/upload-artifact@v3
         with:
           name: iroha2-dev-artifacts
-          path: |
-            ${{ env.TARGET_DIR}}/iroha
-            ${{ env.TARGET_DIR}}/iroha_client_cli
-            ${{ env.TARGET_DIR}}/kagami
+          path: ${{ steps.extract.outputs.destination }}
 
   load-rs:
     runs-on: ubuntu-latest

@@ -11,8 +11,6 @@ env:
 jobs:
   registry:
     runs-on: ubuntu-latest
-    container:
-      image: hyperledger/i2-ci:dev
     steps:
       - uses: actions/checkout@v3
       - name: Get tag from branch name
@@ -21,8 +19,6 @@ jobs:
           PREFIX='iroha2-'
           TAG=${BRANCH#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
-      - name: Iroha2 build
-        run: mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
@@ -46,14 +42,16 @@ jobs:
           file: Dockerfile
           # This context specification is required
           context: .
+      - uses: shrink/actions-docker-extract@v1
+        id: extract
+        with:
+          image: hyperledger/iroha2:${{ env.TAG }}
+          path: ${{ env.TARGET_DIR }}/.
       - name: Upload iroha2 binaries artifacts
         uses: actions/upload-artifact@v3
         with:
           name: iroha2-${{ env.TAG }}-artifacts
-          path: |
-            ${{ env.TARGET_DIR}}/iroha
-            ${{ env.TARGET_DIR}}/iroha_client_cli
-            ${{ env.TARGET_DIR}}/kagami
+          path: ${{ steps.extract.outputs.destination }}
 
   load-rs:
     runs-on: ubuntu-latest

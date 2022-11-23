@@ -47,4 +47,3 @@ cmake-build*
 /test/
 /iroha-java/
 /lcov.info
-rust-toolchain.toml
