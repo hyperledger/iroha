@@ -42,7 +42,7 @@ mod partially_tagged;
 ///
 ///     #[inline]
 ///     fn id(&self) -> &Self::Id {
-///         &self.field
+///         &self.id
 ///     }
 /// }
 ///

@@ -22,6 +22,7 @@ mod queries;
 mod query_errors;
 mod restart_peer;
 mod roles;
+mod set_parameter;
 mod sorting;
 mod transfer_asset;
 mod triggers;

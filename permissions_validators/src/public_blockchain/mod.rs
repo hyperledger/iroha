@@ -11,6 +11,7 @@ use super::*;
 pub mod burn;
 pub mod key_value;
 pub mod mint;
+pub mod set_parameter;
 pub mod transfer;
 pub mod unregister;
 
@@ -148,6 +149,10 @@ pub fn default_permissions() -> InstructionJudgeBoxed {
             .with_recursive_validator(
                 key_value::AssetDefinitionRemoveOnlyForSignerAccount
                     .or(key_value::RemoveGrantedByAssetDefinitionOwner.into_validator()),
+            )
+            .with_recursive_validator(
+                set_parameter::ChangeParametersOnlyForSignerAccount
+                    .or(set_parameter::GrantedChangeConfigParameters.into_validator()),
             )
             .no_denies()
             .at_least_one_allow()

@@ -368,8 +368,53 @@ pub mod isi {
             })
         }
     }
+
+    impl Execute for SetParameter<Parameter, Account> {
+        type Error = Error;
+
+        #[metrics(+"set_parameter")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let SetParameter { parameter, .. } = self;
+
+            wsv.modify_world(|world| {
+                if world.parameters.remove(&parameter).is_some() {
+                    world.parameters.insert(parameter.clone());
+                    Ok(ConfigurationEvent::Changed(parameter.id().clone()).into())
+                } else {
+                    Err(FindError::Parameter(parameter).into())
+                }
+            })
+        }
+    }
 }
 
+impl Execute for NewParameter<Parameter, Account> {
+    type Error = Error;
+
+    #[metrics(+"new_parameter")]
+    fn execute(
+        self,
+        _authority: <Account as Identifiable>::Id,
+        wsv: &WorldStateView,
+    ) -> Result<(), Self::Error> {
+        let NewParameter { parameter, .. } = self;
+
+        wsv.modify_world(|world| {
+            if world.parameters.insert(parameter.clone()) {
+                Ok(ConfigurationEvent::Created(parameter.id().clone()).into())
+            } else {
+                Err(Error::Repetition(
+                    InstructionType::NewParameter,
+                    IdBox::ParameterId(parameter.id().clone()),
+                ))
+            }
+        })
+    }
+}
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
     use eyre::Result;
@@ -436,6 +481,13 @@ pub mod query {
                 // `dashmap::mapref::multiple::RefMulti`, not a vanilla Rust reference
                 .map(|token_definition| token_definition.clone())
                 .collect())
+        }
+    }
+
+    impl ValidQuery for FindAllParameters {
+        #[metrics("find_all_parameters")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            Ok(wsv.parameters())
         }
     }
 }

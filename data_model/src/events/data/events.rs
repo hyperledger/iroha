@@ -562,6 +562,44 @@ mod trigger {
     }
 }
 
+mod config {
+    use super::*;
+
+    /// Config Event
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Filter,
+    )]
+    #[non_exhaustive]
+    #[allow(missing_docs)]
+    pub enum ConfigurationEvent {
+        Changed(ParameterId),
+        Created(ParameterId),
+        Deleted(ParameterId),
+    }
+
+    impl HasOrigin for ConfigurationEvent {
+        type Origin = Parameter;
+
+        fn origin_id(&self) -> &<Parameter as Identifiable>::Id {
+            match self {
+                Self::Changed(id) | Self::Created(id) | Self::Deleted(id) => id,
+            }
+        }
+    }
+}
+
 /// Trait for events originating from [`HasOrigin::Origin`].
 pub trait HasOrigin {
     /// Type of the origin.
@@ -584,6 +622,7 @@ pub enum WorldEvent {
     Trigger(trigger::TriggerEvent),
     PermissionToken(permission::PermissionTokenEvent),
     PermissionValidator(permission::PermissionValidatorEvent),
+    Configuration(config::ConfigurationEvent),
 }
 
 impl WorldEvent {
@@ -622,6 +661,9 @@ impl WorldEvent {
             }
             WorldEvent::PermissionValidator(validator_event) => {
                 events.push(DataEvent::PermissionValidator(validator_event));
+            }
+            WorldEvent::Configuration(config_event) => {
+                events.push(DataEvent::Configuration(config_event));
             }
         }
 
@@ -662,6 +704,8 @@ pub enum Event {
     PermissionToken(permission::PermissionTokenEvent),
     /// Permission validator event
     PermissionValidator(permission::PermissionValidatorEvent),
+    /// Configuration event
+    Configuration(config::ConfigurationEvent),
 }
 
 impl Event {
@@ -674,6 +718,7 @@ impl Event {
             Self::Asset(event) => Some(&event.origin_id().definition_id.domain_id),
             Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
             Self::Peer(_)
+            | Self::Configuration(_)
             | Self::Role(_)
             | Self::PermissionToken(_)
             | Self::PermissionValidator(_) => None,
@@ -691,6 +736,7 @@ pub mod prelude {
             AssetChanged, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
             AssetDefinitionTotalQuantityChanged, AssetEvent, AssetEventFilter, AssetFilter,
         },
+        config::ConfigurationEvent,
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::{PermissionTokenEvent, PermissionValidatorEvent},

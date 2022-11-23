@@ -122,9 +122,29 @@ impl TestGenesis for GenesisNetwork {
         genesis.transactions[0].isi.push(
             MintBox::new(
                 13_u32.to_value(),
-                IdBox::AssetId(AssetId::new(rose_definition_id, alice_id)),
+                IdBox::AssetId(AssetId::new(rose_definition_id, alice_id.clone())),
             )
             .into(),
+        );
+
+        // TODO add more parameters?
+        genesis.transactions[0].isi.extend(
+            [
+                Parameter::from_str("?BlockSyncGossipPeriod=10000")
+                    .expect("Invalid parameter string"),
+                Parameter::from_str("?NetworkActorChannelCapacity=100")
+                    .expect("Invalid parameter string"),
+                Parameter::from_str("?MaxTransactionsInBlock=512")
+                    .expect("Invalid parameter string"),
+                Parameter::from_str("?MaxTransactionsInQueue=65536")
+                    .expect("Invalid parameter string"),
+                Parameter::from_str("?TransactionTimeToLive=86400000")
+                    .expect("Invalid parameter string"),
+            ]
+            .into_iter()
+            .map(|param| NewParameterBox::new(param, alice_id.clone()))
+            .map(Instruction::NewParameter)
+            .map(Into::into),
         );
 
         GenesisNetwork::from_configuration(

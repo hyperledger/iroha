@@ -192,6 +192,7 @@ mod genesis {
     use iroha_permissions_validators::public_blockchain::{
         self,
         key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
+        set_parameter::CanChangeConfigParameters,
     };
 
     use super::*;
@@ -286,15 +287,48 @@ mod genesis {
             RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
 
         let register_user_metadata_access = RegisterBox::new(
-            Role::new("USER_METADATA_ACCESS".parse()?)
+            Role::new("CONFIG_AND_USER_METADATA_ACCESS".parse()?)
                 .add_permission(CanSetKeyValueInUserMetadata::new(
                     "alice@wonderland".parse()?,
                 ))
                 .add_permission(CanRemoveKeyValueInUserMetadata::new(
                     "alice@wonderland".parse()?,
-                )),
+                ))
+                .add_permission(CanChangeConfigParameters::new("alice@wonderland".parse()?)),
         );
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+
+        let parameter_defaults = vec![
+            Parameter::from_str("?BlockSyncGossipPeriod=10000")?,
+            Parameter::from_str("?NetworkActorChannelCapacity=100")?,
+            Parameter::from_str("?MaxTransactionsInBlock=512")?,
+            Parameter::from_str("?MaxTransactionsInQueue=65536")?,
+            Parameter::from_str("?TransactionTimeToLive=86400000")?,
+            Parameter::from_str("?FutureThreshold=1000")?,
+            Parameter::from_str("?BlockTime=1000")?,
+            Parameter::from_str("?BlockSyncActorChannelCapacity=100")?,
+            Parameter::from_str("?CommitTimeLimit=2000")?,
+            Parameter::from_str("?TransactionLimits=4096,4194304_TL")?,
+            Parameter::from_str("?GossipBatchSize=500")?,
+            Parameter::from_str("?SumeragiGossipPeriod=1000")?,
+            Parameter::from_str("?SumeragiActorChannelCapacity=100")?,
+            Parameter::from_str("?MaxTransactionSize=32768")?,
+            Parameter::from_str("?MaxContentLen=16384000")?,
+            Parameter::from_str("?WSVAssetMetadataLimits=1048576,4096_ML")?,
+            Parameter::from_str("?WSVAssetDefinitionMetadataLimits=1048576,4096_ML")?,
+            Parameter::from_str("?WSVAccountMetadataLimits=1048576,4096_ML")?,
+            Parameter::from_str("?WSVDomainMetadataLimits=1048576,4096_ML")?,
+            Parameter::from_str("?WSVIdentLengthLimits=1,128_LL")?,
+            Parameter::from_str("?WASMFuelLimit=1000000")?,
+            Parameter::from_str("?WASMMaxMemory=524288000")?,
+        ]
+        .into_iter()
+        .map(|param| NewParameterBox::new(param, alice_id.clone()))
+        .map(Instruction::NewParameter)
+        .collect();
+
+        let param_seq = SequenceBox::new(parameter_defaults);
+
         let grant_permission = GrantBox::new(token, alice_id.clone());
         let grant_role = GrantBox::new(role_id, alice_id);
 
@@ -312,6 +346,7 @@ mod genesis {
         result.transactions[0].isi.push(grant_permission.into());
         result.transactions[0].isi.push(register_role.into());
         result.transactions[0].isi.push(grant_role.into());
+        result.transactions[0].isi.push(param_seq.into());
         Ok(result)
     }
 

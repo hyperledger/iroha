@@ -104,11 +104,11 @@ pub mod error {
     pub enum InstructionType {
         /// Mint
         Mint,
-        /// Register.
+        /// Register
         Register,
-        /// Set key-value pair.
+        /// Set key-value pair
         SetKeyValue,
-        /// Remove key-value pair.
+        /// Remove key-value pair
         RemoveKeyValue,
         /// Grant
         Grant,
@@ -116,10 +116,14 @@ pub mod error {
         Transfer,
         /// Burn
         Burn,
-        /// Un-register.
+        /// Un-register
         Unregister,
         /// Revoke
         Revoke,
+        /// Set a chain-wide config parameter
+        SetParameter,
+        /// New chain-wide config parameter
+        NewParameter,
     }
 
     /// Type assertion error
@@ -164,6 +168,9 @@ pub mod error {
         /// Failed to find [`Validator`](permission::Validator) by id.
         #[error("Failed to find permission validator by id: `{0}`")]
         Validator(permission::validator::Id),
+        /// Failed to find specified [`Parameter`] variant.
+        #[error("Failed to find specified parameter variant: `{0}`")]
+        Parameter(Parameter),
     }
 
     /// Generic structure used to represent a mismatch
@@ -182,10 +189,13 @@ pub mod error {
     pub enum TypeError {
         /// Asset type assertion error
         #[error("Asset Ids correspond to assets with different underlying types. {0}")]
-        UnderlyingType(#[from] Mismatch<AssetValueType>),
+        AssetValueType(#[from] Mismatch<AssetValueType>),
+        /// Parameter type assertion error
+        #[error("Value passed to the parameter doesn't have the right type. {0}")]
+        ParameterValueType(#[from] Mismatch<Value>),
         /// Asset Id mismatch
-        #[error("Asset Ids don't match. {0}")]
-        DefinitionId(#[from] Box<Mismatch<<AssetDefinition as Identifiable>::Id>>),
+        #[error("AssetDefinition Ids don't match. {0}")]
+        AssetDefinitionId(#[from] Box<Mismatch<<AssetDefinition as Identifiable>::Id>>),
     }
 
     /// Math error, which occurs during instruction execution
@@ -254,6 +264,8 @@ impl Execute for Instruction {
             Grant(grant_box) => grant_box.execute(authority, wsv),
             Revoke(revoke_box) => revoke_box.execute(authority, wsv),
             ExecuteTrigger(execute_trigger) => execute_trigger.execute(authority, wsv),
+            SetParameter(parameter_box) => parameter_box.execute(authority, wsv),
+            NewParameter(parameter_box) => parameter_box.execute(authority, wsv),
         }
     }
 }
@@ -323,6 +335,7 @@ impl Execute for UnregisterBox {
                 Unregister::<iroha_data_model::permission::Validator>::new(validator_id)
                     .execute(authority, wsv)
             }
+            IdBox::ParameterId(_) => Err(Error::Unsupported(InstructionType::SetParameter)),
         }
     }
 }
@@ -609,6 +622,40 @@ impl Execute for RevokeBox {
                 Revoke::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
             _ => Err(Error::Unsupported(InstructionType::Revoke)),
+        }
+    }
+}
+
+impl Execute for SetParameterBox {
+    type Error = Error;
+
+    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        let context = Context::new();
+        let parameter = self.parameter.evaluate(wsv, &context)?;
+        match self.source_id.evaluate(wsv, &context)? {
+            IdBox::AccountId(account_id) => {
+                iroha_logger::trace!(?parameter, %authority);
+                SetParameter::<Parameter, Account>::new(parameter, account_id)
+                    .execute(authority, wsv)
+            }
+            _ => Err(Error::Unsupported(InstructionType::SetParameter)),
+        }
+    }
+}
+
+impl Execute for NewParameterBox {
+    type Error = Error;
+
+    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        let context = Context::new();
+        let parameter = self.parameter.evaluate(wsv, &context)?;
+        match self.source_id.evaluate(wsv, &context)? {
+            IdBox::AccountId(account_id) => {
+                iroha_logger::trace!(?parameter, %authority);
+                NewParameter::<Parameter, Account>::new(parameter, account_id)
+                    .execute(authority, wsv)
+            }
+            _ => Err(Error::Unsupported(InstructionType::SetParameter)),
         }
     }
 }

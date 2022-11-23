@@ -294,6 +294,18 @@ pub fn check_query_in_instruction(
                     check_query_in_instruction(authority, this_instruction, wsv, query_judge)
                 })
         }
+        Instruction::SetParameter(parameter_box) => check_query_in_expression(
+            authority,
+            &parameter_box.parameter.expression,
+            wsv,
+            query_judge,
+        ),
+        Instruction::NewParameter(parameter_box) => check_query_in_expression(
+            authority,
+            &parameter_box.parameter.expression,
+            wsv,
+            query_judge,
+        ),
         Instruction::Fail(_) | Instruction::ExecuteTrigger(_) => Ok(()),
     }
 }

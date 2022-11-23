@@ -19,8 +19,24 @@ use crate::{Name, Value};
 pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
 
 /// Limits for [`Metadata`].
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
-#[display(fmt = "{max_len}L, {max_entry_byte_size}B")]
+#[derive(
+    Debug,
+    Display,
+    Clone,
+    Copy,
+    Hash,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    FfiType,
+)]
+#[display(fmt = "{max_len},{max_entry_byte_size}ML")]
 pub struct Limits {
     /// Maximum number of entries
     pub max_len: u32,

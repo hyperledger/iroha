@@ -223,12 +223,39 @@ impl Payload {
 }
 
 /// Container for limits that transactions must obey.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Display,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FfiType,
+    IntoSchema,
+)]
+#[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}TL")]
 pub struct TransactionLimits {
     /// Maximum number of instructions per transaction
     pub max_instruction_number: u64,
     /// Maximum size of wasm binary
     pub max_wasm_size_bytes: u64,
+}
+
+impl TransactionLimits {
+    /// Constructs new [`TransactionLimits`] with passed values.
+    pub const fn new(max_instruction_number: u64, max_wasm_size_bytes: u64) -> Self {
+        Self {
+            max_instruction_number,
+            max_wasm_size_bytes,
+        }
+    }
 }
 
 declare_versioned!(
@@ -769,6 +796,8 @@ impl Display for InstructionExecutionFail {
             Grant(_) => "grant",
             Revoke(_) => "revoke",
             ExecuteTrigger(_) => "execute trigger",
+            SetParameter(_) => "set parameter",
+            NewParameter(_) => "new parameter",
         };
         write!(
             f,

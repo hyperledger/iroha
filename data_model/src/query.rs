@@ -119,6 +119,8 @@ pub enum QueryBox {
     FindRoleByRoleId(FindRoleByRoleId),
     /// [`FindRolesByAccountId`] variant.
     FindRolesByAccountId(FindRolesByAccountId),
+    /// [`FindAllParameters`] variant.
+    FindAllParameters(FindAllParameters),
 }
 
 /// Trait for typesafe query output
@@ -1360,7 +1362,6 @@ pub mod peer {
     }
 
     /// [`FindAllParameters`] Iroha Query finds all [`Peer`]s parameters.
-    // TODO: Unused query. Remove?
     #[derive(
         Debug,
         Display,
@@ -1369,6 +1370,7 @@ pub mod peer {
         Default,
         PartialEq,
         Eq,
+        Hash,
         Decode,
         Encode,
         Deserialize,

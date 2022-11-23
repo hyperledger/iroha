@@ -50,6 +50,7 @@ impl IsAllowed for OnlyAccountsDomain {
             }
             FindAllPeers(_) => Allow, // Can be obtained in other ways, so why hide it.
             FindAllActiveTriggerIds(_) => Allow,
+            FindAllParameters(_) => Allow,
             // Private blockchains should have debugging too, hence
             // all accounts should also be
             FindTriggerById(query) => {
@@ -321,6 +322,7 @@ impl IsAllowed for OnlyAccountsData {
             FindAllPeers(_) => {
                 Deny("Only the access to the local data of your account is permitted.".to_owned())
             }
+            FindAllParameters(_) => Allow,
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
                 let id = try_evaluate_or_deny!(query.id, wsv);
@@ -355,7 +357,7 @@ impl IsAllowed for OnlyAccountsData {
                     ))
                 }
             }
-            FindAccountKeyValueByIdAndKey(query) => {
+           FindAccountKeyValueByIdAndKey(query) => {
                 let account_id = try_evaluate_or_deny!(query.id, wsv);
                 if &account_id == authority {
                     Allow

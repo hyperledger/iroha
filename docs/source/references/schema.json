@@ -487,6 +487,11 @@
           "name": "Validator",
           "discriminant": 12,
           "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "Parameter",
+          "discriminant": 13,
+          "ty": "iroha_data_model::Parameter"
         }
       ]
     }
@@ -669,6 +674,16 @@
       ]
     }
   },
+  "iroha_data_model::Id": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "name",
+          "ty": "iroha_data_model::name::Name"
+        }
+      ]
+    }
+  },
   "iroha_data_model::IdBox": {
     "Enum": {
       "variants": [
@@ -716,6 +731,11 @@
           "name": "ValidatorId",
           "discriminant": 8,
           "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "ParameterId",
+          "discriminant": 9,
+          "ty": "iroha_data_model::Id"
         }
       ]
     }
@@ -787,6 +807,25 @@
           "name": "Validator",
           "discriminant": 12,
           "ty": "iroha_data_model::permission::validator::Validator"
+        },
+        {
+          "name": "Parameter",
+          "discriminant": 13,
+          "ty": "iroha_data_model::Parameter"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::LengthLimits": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "min",
+          "ty": "u32"
+        },
+        {
+          "name": "max",
+          "ty": "u32"
         }
       ]
     }
@@ -800,40 +839,33 @@
           "ty": "u32"
         },
         {
-          "name": "U128",
+          "name": "U64",
           "discriminant": 1,
+          "ty": "u64"
+        },
+        {
+          "name": "U128",
+          "discriminant": 2,
           "ty": "u128"
         },
         {
           "name": "Fixed",
-          "discriminant": 2,
+          "discriminant": 3,
           "ty": "iroha_primitives::fixed::Fixed"
         }
       ]
     }
   },
   "iroha_data_model::Parameter": {
-    "Enum": {
-      "variants": [
+    "Struct": {
+      "declarations": [
         {
-          "name": "MaximumFaultyPeersAmount",
-          "discriminant": 0,
-          "ty": "u32"
+          "name": "id",
+          "ty": "iroha_data_model::Id"
         },
         {
-          "name": "BlockTime",
-          "discriminant": 1,
-          "ty": "u128"
-        },
-        {
-          "name": "CommitTime",
-          "discriminant": 2,
-          "ty": "u128"
-        },
-        {
-          "name": "TransactionReceiptTime",
-          "discriminant": 3,
-          "ty": "u128"
+          "name": "val",
+          "ty": "iroha_data_model::Value"
         }
       ]
     }
@@ -918,73 +950,83 @@
           "ty": "iroha_data_model::metadata::Metadata"
         },
         {
-          "name": "Id",
+          "name": "MetadataLimits",
           "discriminant": 5,
+          "ty": "iroha_data_model::metadata::Limits"
+        },
+        {
+          "name": "TransactionLimits",
+          "discriminant": 6,
+          "ty": "iroha_data_model::transaction::TransactionLimits"
+        },
+        {
+          "name": "LengthLimits",
+          "discriminant": 7,
+          "ty": "iroha_data_model::LengthLimits"
+        },
+        {
+          "name": "Id",
+          "discriminant": 8,
           "ty": "iroha_data_model::IdBox"
         },
         {
           "name": "Identifiable",
-          "discriminant": 6,
+          "discriminant": 9,
           "ty": "iroha_data_model::IdentifiableBox"
         },
         {
           "name": "PublicKey",
-          "discriminant": 7,
+          "discriminant": 10,
           "ty": "iroha_crypto::PublicKey"
         },
         {
-          "name": "Parameter",
-          "discriminant": 8,
-          "ty": "iroha_data_model::Parameter"
-        },
-        {
           "name": "SignatureCheckCondition",
-          "discriminant": 9,
+          "discriminant": 11,
           "ty": "iroha_data_model::account::SignatureCheckCondition"
         },
         {
           "name": "TransactionValue",
-          "discriminant": 10,
+          "discriminant": 12,
           "ty": "iroha_data_model::transaction::TransactionValue"
         },
         {
           "name": "TransactionQueryResult",
-          "discriminant": 11,
+          "discriminant": 13,
           "ty": "iroha_data_model::transaction::TransactionQueryResult"
         },
         {
           "name": "PermissionToken",
-          "discriminant": 12,
+          "discriminant": 14,
           "ty": "iroha_data_model::permission::token::Token"
         },
         {
           "name": "Hash",
-          "discriminant": 13,
+          "discriminant": 15,
           "ty": "iroha_crypto::hash::Hash"
         },
         {
           "name": "Block",
-          "discriminant": 14,
+          "discriminant": 16,
           "ty": "iroha_data_model::block_value::BlockValue"
         },
         {
           "name": "BlockHeader",
-          "discriminant": 15,
+          "discriminant": 17,
           "ty": "iroha_data_model::block_value::BlockHeaderValue"
         },
         {
           "name": "Ipv4Addr",
-          "discriminant": 16,
+          "discriminant": 18,
           "ty": "iroha_primitives::addr::Ipv4Addr"
         },
         {
           "name": "Ipv6Addr",
-          "discriminant": 17,
+          "discriminant": 19,
           "ty": "iroha_primitives::addr::Ipv6Addr"
         },
         {
           "name": "Numeric",
-          "discriminant": 18,
+          "discriminant": 20,
           "ty": "iroha_data_model::NumericValue"
         }
       ]
@@ -1019,73 +1061,83 @@
           "ty": null
         },
         {
-          "name": "Id",
+          "name": "MetadataLimits",
           "discriminant": 5,
           "ty": null
         },
         {
-          "name": "Identifiable",
+          "name": "TransactionLimits",
           "discriminant": 6,
           "ty": null
         },
         {
-          "name": "PublicKey",
+          "name": "LengthLimits",
           "discriminant": 7,
           "ty": null
         },
         {
-          "name": "Parameter",
+          "name": "Id",
           "discriminant": 8,
           "ty": null
         },
         {
-          "name": "SignatureCheckCondition",
+          "name": "Identifiable",
           "discriminant": 9,
           "ty": null
         },
         {
-          "name": "TransactionValue",
+          "name": "PublicKey",
           "discriminant": 10,
           "ty": null
         },
         {
-          "name": "TransactionQueryResult",
+          "name": "SignatureCheckCondition",
           "discriminant": 11,
           "ty": null
         },
         {
-          "name": "PermissionToken",
+          "name": "TransactionValue",
           "discriminant": 12,
           "ty": null
         },
         {
-          "name": "Hash",
+          "name": "TransactionQueryResult",
           "discriminant": 13,
           "ty": null
         },
         {
-          "name": "Block",
+          "name": "PermissionToken",
           "discriminant": 14,
           "ty": null
         },
         {
-          "name": "BlockHeader",
+          "name": "Hash",
           "discriminant": 15,
           "ty": null
         },
         {
-          "name": "Ipv4Addr",
+          "name": "Block",
           "discriminant": 16,
           "ty": null
         },
         {
-          "name": "Ipv6Addr",
+          "name": "BlockHeader",
           "discriminant": 17,
           "ty": null
         },
         {
-          "name": "Numeric",
+          "name": "Ipv4Addr",
           "discriminant": 18,
+          "ty": null
+        },
+        {
+          "name": "Ipv6Addr",
+          "discriminant": 19,
+          "ty": null
+        },
+        {
+          "name": "Numeric",
+          "discriminant": 20,
           "ty": null
         }
       ]
@@ -1589,6 +1641,11 @@
           "name": "PermissionValidator",
           "discriminant": 8,
           "ty": "iroha_data_model::events::data::events::permission::PermissionValidatorEvent"
+        },
+        {
+          "name": "Configuration",
+          "discriminant": 9,
+          "ty": "iroha_data_model::events::data::events::config::ConfigurationEvent"
         }
       ]
     }
@@ -2025,6 +2082,27 @@
         {
           "name": "event_filter",
           "ty": "iroha_data_model::events::data::filters::FilterOpt<iroha_data_model::events::data::events::asset::AssetEventFilter>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::config::ConfigurationEvent": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Changed",
+          "discriminant": 0,
+          "ty": "iroha_data_model::Id"
+        },
+        {
+          "name": "Created",
+          "discriminant": 1,
+          "ty": "iroha_data_model::Id"
+        },
+        {
+          "name": "Deleted",
+          "discriminant": 2,
+          "ty": "iroha_data_model::Id"
         }
       ]
     }
@@ -3130,6 +3208,16 @@
       ]
     }
   },
+  "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Parameter>": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "expression",
+          "ty": "iroha_data_model::expression::Expression"
+        }
+      ]
+    }
+  },
   "iroha_data_model::expression::EvaluatesTo<iroha_data_model::RegistrableBox>": {
     "Struct": {
       "declarations": [
@@ -3604,6 +3692,16 @@
           "name": "ExecuteTrigger",
           "discriminant": 13,
           "ty": "iroha_data_model::isi::ExecuteTriggerBox"
+        },
+        {
+          "name": "SetParameter",
+          "discriminant": 14,
+          "ty": "iroha_data_model::isi::SetParameterBox"
+        },
+        {
+          "name": "NewParameter",
+          "discriminant": 15,
+          "ty": "iroha_data_model::isi::NewParameterBox"
         }
       ]
     }
@@ -3617,6 +3715,20 @@
         },
         {
           "name": "destination_id",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::isi::NewParameterBox": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "parameter",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Parameter>"
+        },
+        {
+          "name": "source_id",
           "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>"
         }
       ]
@@ -3702,6 +3814,20 @@
       ]
     }
   },
+  "iroha_data_model::isi::SetParameterBox": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "parameter",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Parameter>"
+        },
+        {
+          "name": "source_id",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>"
+        }
+      ]
+    }
+  },
   "iroha_data_model::isi::TransferBox": {
     "Struct": {
       "declarations": [
@@ -3726,6 +3852,20 @@
         {
           "name": "object_id",
           "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::metadata::Limits": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "max_len",
+          "ty": "u32"
+        },
+        {
+          "name": "max_entry_byte_size",
+          "ty": "u32"
         }
       ]
     }
@@ -4395,6 +4535,11 @@
           "name": "FindRolesByAccountId",
           "discriminant": 38,
           "ty": "iroha_data_model::query::role::FindRolesByAccountId"
+        },
+        {
+          "name": "FindAllParameters",
+          "discriminant": 39,
+          "ty": "iroha_data_model::query::peer::FindAllParameters"
         }
       ]
     }
@@ -4680,6 +4825,11 @@
           "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::name::Name>"
         }
       ]
+    }
+  },
+  "iroha_data_model::query::peer::FindAllParameters": {
+    "Tuple": {
+      "types": []
     }
   },
   "iroha_data_model::query::peer::FindAllPeers": {
@@ -4973,6 +5123,20 @@
     "Tuple": {
       "types": [
         "String"
+      ]
+    }
+  },
+  "iroha_data_model::transaction::TransactionLimits": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "max_instruction_number",
+          "ty": "u64"
+        },
+        {
+          "name": "max_wasm_size_bytes",
+          "ty": "u64"
+        }
       ]
     }
   },

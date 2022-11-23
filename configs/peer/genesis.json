@@ -233,8 +233,16 @@
         {
           "Register": {
             "NewRole": {
-              "id": "USER_METADATA_ACCESS",
+              "id": "CONFIG_AND_USER_METADATA_ACCESS",
               "permissions": [
+                {
+                  "definition_id": "can_change_config_parameters",
+                  "params": {
+                    "account_id": {
+                      "AccountId": "alice@wonderland"
+                    }
+                  }
+                },
                 {
                   "definition_id": "can_remove_key_value_in_user_metadata",
                   "params": {
@@ -285,6 +293,188 @@
             "destination_id": {
               "AccountId": "alice@wonderland"
             }
+          }
+        },
+        {
+          "Sequence": {
+            "instructions": [
+              {
+                "NewParameter": {
+                  "Parameter": "?BlockSyncGossipPeriod=10000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?NetworkActorChannelCapacity=100",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?MaxTransactionsInBlock=512",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?MaxTransactionsInQueue=65536",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?TransactionTimeToLive=86400000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?FutureThreshold=1000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?BlockTime=1000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?BlockSyncActorChannelCapacity=100",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?CommitTimeLimit=2000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?TransactionLimits=4096,4194304TL",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?GossipBatchSize=500",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?SumeragiGossipPeriod=1000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?SumeragiActorChannelCapacity=100",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?MaxTransactionSize=32768",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?MaxContentLen=16384000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WSVAssetMetadataLimits=1048576,4096ML",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096ML",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WSVAccountMetadataLimits=1048576,4096ML",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WSVDomainMetadataLimits=1048576,4096ML",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WSVIdentLengthLimits=1,128LL",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WASMFuelLimit=1000000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              },
+              {
+                "NewParameter": {
+                  "Parameter": "?WASMMaxMemory=524288000",
+                  "source_id": {
+                    "AccountId": "alice@wonderland"
+                  }
+                }
+              }
+            ]
           }
         }
       ]

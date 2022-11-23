@@ -33,6 +33,9 @@ pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 /// Ids of peers.
 pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
 
+/// Parameters set.
+pub type Parameters = DashSet<Parameter>;
+
 /// API to work with collections of [`DomainId`] : [`Domain`] mappings.
 pub type DomainsMap = DashMap<<Domain as Identifiable>::Id, Domain>;
 
