@@ -13,13 +13,14 @@ use std::{
     fmt::Debug,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::HashOf;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
+use parking_lot::Mutex;
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
 use crate::{block::VersionedCommittedBlock, handler::ThreadHandler};
@@ -128,7 +129,7 @@ impl Kura {
     pub fn init(&self) -> Result<Vec<VersionedCommittedBlock>> {
         let mut blocks = Vec::new();
 
-        let block_store = self.block_store.lock().expect("lock block store");
+        let block_store = self.block_store.lock();
 
         let block_index_count: usize = block_store
             .read_index_count()?
@@ -168,10 +169,7 @@ impl Kura {
 
         let hash_array = blocks.iter().map(VersionedCommittedBlock::hash).collect();
 
-        let mut guard = self
-            .block_hash_array
-            .lock()
-            .expect("lock on block hash array");
+        let mut guard = self.block_hash_array.lock();
         *guard = hash_array;
 
         Ok(blocks)
@@ -182,10 +180,7 @@ impl Kura {
         kura: &Kura,
         mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     ) {
-        let mut block_reciever_guard = kura
-            .block_reciever
-            .lock()
-            .expect("able to lock kura recieve block mutex");
+        let mut block_reciever_guard = kura.block_reciever.lock();
         let mut is_closed = false;
         loop {
             // If kura receive shutdown then close block channel and write remaining blocks to the storage
@@ -222,14 +217,10 @@ impl Kura {
                     match kura
                         .block_store
                         .lock()
-                        .expect("lock on block store")
                         .append_block_to_chain(&serialized_block)
                     {
                         Ok(()) => {
-                            kura.block_hash_array
-                                .lock()
-                                .expect("lock on block hash array")
-                                .push(block_hash);
+                            kura.block_hash_array.lock().push(block_hash);
                         }
                         Err(error) => {
                             error!("Failed to store block, ERROR = {}", error);
@@ -245,7 +236,7 @@ impl Kura {
     /// Get the hash of the block at the provided height.
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<VersionedCommittedBlock>> {
-        let hash_array_guard = self.block_hash_array.lock().expect("access hash array");
+        let hash_array_guard = self.block_hash_array.lock();
         if block_height == 0 || block_height > hash_array_guard.len() as u64 {
             return None;
         }
