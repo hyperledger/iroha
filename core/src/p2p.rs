@@ -102,6 +102,7 @@ impl std::fmt::Debug for P2PSystem {
 
 #[allow(clippy::expect_used)]
 impl P2PSystem {
+    #[inline]
     /// Constructor for [`Self`]
     pub fn new(listen_addr: String, public_key: PublicKey) -> P2PSystem {
         P2PSystem {
@@ -119,7 +120,17 @@ impl P2PSystem {
 
     #[allow(clippy::unwrap_in_result)]
     fn try_resolve_address(&self) -> Option<std::net::SocketAddr> {
-        let connected_to_peer_keys = self.get_connected_to_peer_keys();
+        let connected_to_peer_keys = {
+            let mut keys = Vec::new();
+            let mut connected_to_peers = self
+                .connected_to_peers
+                .lock()
+                .expect("Mutex poisoned. Aborting");
+            for (public_key, _) in connected_to_peers.iter_mut() {
+                keys.push(public_key.clone());
+            }
+            keys
+        };
         let target_addrs: Vec<String> = self
             .connect_peer_target
             .lock()
@@ -308,20 +319,6 @@ impl P2PSystem {
         self.post_to_network(&ConnectionCheckAck(42), &send_connection_ack_keys);
 
         received
-    }
-
-    pub(crate) fn get_connected_to_peer_keys(&self) -> Vec<PublicKey> {
-        // This function is a code smell, indicating an AtomicCell might be better suited.
-        // TODO: Consider rewriting with `AtomicPtr`
-        let mut keys = Vec::new();
-        let mut connected_to_peers = self
-            .connected_to_peers
-            .lock()
-            .expect("Mutex poisoned. Aborting");
-        for (public_key, _) in connected_to_peers.iter_mut() {
-            keys.push(public_key.clone());
-        }
-        keys
     }
 
     pub(crate) fn update_peer_target(&self, new_target: &[PeerId]) {
@@ -629,13 +626,13 @@ where
     E: Encryptor + Send + 'static,
 {
     /// Private key belonging to and identifying this peer on the network.
-    pub secret_key: UrsaPrivateKey,
+    secret_key: UrsaPrivateKey,
     /// Public key belonging to and identifying this peer on the network.
-    pub public_key: UrsaPublicKey,
+    public_key: UrsaPublicKey,
     /// Public key belonging to and identifying another peer on the network that is connected to this peer.
-    pub other_public_key: Option<UrsaPublicKey>,
+    other_public_key: Option<UrsaPublicKey>,
     /// Encryptor created from session key, that we got by Diffie-Hellman scheme.
-    pub cipher: Option<SymmetricEncryptor<E>>,
+    cipher: Option<SymmetricEncryptor<E>>,
     _key_exchange: PhantomData<K>,
 }
 
@@ -648,7 +645,7 @@ where
     ///
     /// # Panics
     /// If key exchange fails to produce keypair (extremely rare)
-    pub fn default() -> Result<Self, CryptoError> {
+    fn default() -> Result<Self, CryptoError> {
         let key_exchange = K::new();
         let (public_key, secret_key) = key_exchange.keypair(None)?;
         Ok(Self {
@@ -664,7 +661,7 @@ where
     ///
     /// # Errors
     /// Forwards [`SymmetricEncryptor::decrypt_easy`] error
-    pub fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
             Some(cipher) => Ok(cipher
@@ -677,7 +674,7 @@ where
     ///
     /// # Errors
     /// Forwards [`SymmetricEncryptor::decrypt_easy`] error
-    pub fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
             Some(cipher) => Ok(cipher
@@ -696,7 +693,7 @@ where
     /// infallible. We still forward the error, so that any changes to
     /// the URSA API which make this operation fallible don't break
     /// ours.
-    pub fn derive_shared_key(&mut self, public_key: &UrsaPublicKey) -> Result<&Self, Error> {
+    fn derive_shared_key(&mut self, public_key: &UrsaPublicKey) -> Result<&Self, Error> {
         let dh = K::new();
         let shared = dh
             .compute_shared_secret(&self.secret_key, public_key)
@@ -745,21 +742,21 @@ struct Garbage {
 }
 
 impl Garbage {
-    pub fn generate() -> Self {
+    fn generate() -> Self {
         let rng = &mut rand::thread_rng();
         let mut garbage = vec![0_u8; rng.gen_range(64..256)];
         rng.fill_bytes(&mut garbage);
         Self { garbage }
     }
 
-    pub fn write(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+    fn write(&self, stream: &mut TcpStream) -> std::io::Result<()> {
         #[allow(clippy::cast_possible_truncation)]
         stream.write_all(std::slice::from_ref(&(self.garbage.len() as u8)))?;
         stream.write_all(self.garbage.as_slice())?;
         Ok(())
     }
 
-    pub fn read(stream: &mut TcpStream) -> Result<Self, Error> {
+    fn read(stream: &mut TcpStream) -> Result<Self, Error> {
         let mut size: u8 = 0;
         stream.read_exact(std::slice::from_mut(&mut size))?;
         let size = size as usize;

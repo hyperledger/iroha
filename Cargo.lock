@@ -1245,12 +1245,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fixedbitset"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
-
-[[package]]
 name = "fixnum"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1798,7 +1792,6 @@ dependencies = [
  "color-eyre",
  "eyre",
  "futures",
- "iroha_actor",
  "iroha_cli_derive",
  "iroha_config",
  "iroha_core",
@@ -1819,35 +1812,6 @@ dependencies = [
  "tokio",
  "vergen",
  "warp",
-]
-
-[[package]]
-name = "iroha_actor"
-version = "2.0.0-pre-rc.9"
-dependencies = [
- "async-trait",
- "dashmap",
- "derive_more",
- "futures",
- "iroha_actor_derive",
- "iroha_logger",
- "iroha_primitives",
- "once_cell",
- "petgraph",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "iroha_actor_derive"
-version = "2.0.0-pre-rc.9"
-dependencies = [
- "iroha_actor",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
- "trybuild",
 ]
 
 [[package]]
@@ -1970,11 +1934,9 @@ dependencies = [
  "futures",
  "getset",
  "hex",
- "iroha_actor",
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_futures",
  "iroha_logger",
  "iroha_macro",
  "iroha_primitives",
@@ -2787,16 +2749,6 @@ name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
-
-[[package]]
-name = "petgraph"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6d5014253a1331579ce62aa67443b4a658c5e7dd03d4bc6d302b94474888143"
-dependencies = [
- "fixedbitset",
- "indexmap",
-]
 
 [[package]]
 name = "pin-project"
@@ -3817,7 +3769,6 @@ dependencies = [
  "eyre",
  "futures",
  "iroha",
- "iroha_actor",
  "iroha_client",
  "iroha_config",
  "iroha_core",

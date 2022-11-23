@@ -48,7 +48,7 @@ pub type PermissionTokenDefinitionsMap =
 pub type EventsSender = broadcast::Sender<Event>;
 
 /// The network message
-#[derive(Clone, Debug, Encode, Decode, iroha_actor::Message)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub enum NetworkMessage {
     /// Blockchain message
     SumeragiPacket(Box<SumeragiPacket>),
