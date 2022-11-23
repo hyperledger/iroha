@@ -313,6 +313,7 @@ pub fn generate_map() -> DumpDecodedMap {
         Vec<PeerId>,
         Vec<PermissionToken>,
         Vec<SignatureOf<block::CandidateBlock>>,
+        Vec<SignatureOf<block::CommittedBlock>>,
         Vec<SignatureOf<transaction::Payload>>,
         Vec<Value>,
         Vec<events::Event>,
