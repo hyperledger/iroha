@@ -4,7 +4,7 @@ The library crate that is used for writing Iroha-compliant smart contracts in Ru
 
 ## Usage
 
-Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/advanced/wasm.html) for a detailed guide.
+Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/wasm.html) for a detailed guide.
 
 ## Running tests
 
