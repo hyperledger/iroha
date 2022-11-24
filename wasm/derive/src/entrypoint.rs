@@ -12,6 +12,7 @@ mod kw {
     pub mod param_types {
         syn::custom_keyword!(authority);
         syn::custom_keyword!(triggering_event);
+        syn::custom_keyword!(unix_timestamp_millis);
     }
 }
 
@@ -79,6 +80,7 @@ impl syn::parse::Parse for Params {
 enum ParamType {
     Authority,
     TriggeringEvent,
+    UnixTimestamp,
 }
 
 impl syn::parse::Parse for ParamType {
@@ -87,6 +89,11 @@ impl syn::parse::Parse for ParamType {
             Ok(ParamType::Authority)
         } else if input.parse::<kw::param_types::triggering_event>().is_ok() {
             Ok(ParamType::TriggeringEvent)
+        } else if input
+            .parse::<kw::param_types::unix_timestamp_millis>()
+            .is_ok()
+        {
+            Ok(ParamType::UnixTimestamp)
         } else {
             Err(input.error("expected `authority` or `triggering_event`"))
         }
@@ -145,6 +152,11 @@ fn construct_args(
                 ParamType::Authority => {
                     parse_quote! {
                         ::iroha_wasm::query_authority()
+                    }
+                }
+                ParamType::UnixTimestamp => {
+                    parse_quote! {
+                        ::iroha_wasm::query_unix_timestamp_millis()
                     }
                 }
                 ParamType::TriggeringEvent => {

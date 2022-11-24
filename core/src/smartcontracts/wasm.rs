@@ -54,6 +54,8 @@ pub mod import {
     /// Name of the imported function to execute queries
     pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
     /// Name of the imported function to query trigger authority
+    pub const QUERY_UNIX_TIMESTAMP_MILLIS_FN_NAME: &str = "query_unix_timestamp_millis";
+    /// Name of the imported function to query trigger authority
     pub const QUERY_AUTHORITY_FN_NAME: &str = "query_authority";
     /// Name of the imported function to query event that triggered the smart contract execution
     pub const QUERY_TRIGGERING_EVENT_FN_NAME: &str = "query_triggering_event";
@@ -165,6 +167,8 @@ impl Validator {
 
 struct State<'wrld> {
     account_id: AccountId,
+    /// Start timestamp of trigger execution
+    unix_timestamp_millis: u64,
     /// Ensures smartcontract adheres to limits
     validator: Option<Validator>,
     store_limits: StoreLimits,
@@ -177,9 +181,16 @@ struct State<'wrld> {
 
 impl<'wrld> State<'wrld> {
     fn new(wsv: &'wrld WorldStateView, account_id: AccountId, config: Configuration) -> Self {
+        #[allow(clippy::expect_used)]
+        let unix_timestamp_millis = current_time()
+            .as_millis()
+            .try_into()
+            .expect("Timestamp millis should fit into u64");
+
         Self {
             wsv,
             account_id,
+            unix_timestamp_millis,
             validator: None,
             triggering_event: None,
             operation_to_validate: None,
@@ -390,6 +401,11 @@ impl<'wrld> Runtime<'wrld> {
         Ok(authority_offset)
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    fn query_unix_timestamp_millis(caller: Caller<State>) -> u64 {
+        caller.data().unix_timestamp_millis
+    }
+
     fn query_triggering_event(mut caller: Caller<State>) -> Result<WasmUsize, Trap> {
         let memory = Self::get_memory(&mut caller)?;
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
@@ -474,6 +490,13 @@ impl<'wrld> Runtime<'wrld> {
                     "iroha",
                     import::QUERY_AUTHORITY_FN_NAME,
                     Self::query_authority,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    "iroha",
+                    import::QUERY_UNIX_TIMESTAMP_MILLIS_FN_NAME,
+                    Self::query_unix_timestamp_millis,
                 )
             })
             .and_then(|l| {
@@ -573,7 +596,6 @@ impl<'wrld> Runtime<'wrld> {
     /// - if unable to construct wasm module or instance of wasm module
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
-    #[allow(unsafe_code)]
     pub fn execute_permission_validator(
         &mut self,
         wsv: &WorldStateView,

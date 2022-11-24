@@ -15,18 +15,19 @@ mod validator;
 /// `#[iroha_wasm::entrypoint(params = "[<type>,*]")]`, where `<type>` is one of:
 /// - `authority` is an account id of the smart contract authority
 /// - `triggering_event` is an event that triggers the execution of the smart contract
+/// - `unix_timestamp_millis` is start time of the trigger execution
 ///
 /// None, one or both parameters in any order can be specified.
 /// Parameters will be passed to the entrypoint function in the order they are specified.
 ///
 /// ## Authority
 ///
-/// A real function parameter type corresponding to the `authority` should have
+/// A function parameter type corresponding to the `authority` should have
 /// `iroha_wasm::iroha_data_model::prelude::AccountId` type.
 ///
 /// ## Triggering event
 ///
-/// A real function parameter type corresponding to the `triggering_event` should have
+/// A function parameter type corresponding to the `triggering_event` should have
 /// type implementing `TryFrom<iroha_data_model::prelude::Event>`.
 ///
 /// So any subtype of `Event` can be specified, i.e. `TimeEvent` or `DataEvent`.
@@ -34,6 +35,10 @@ mod validator;
 ///
 /// If conversion will fail in runtime then an error message will be printed,
 /// if `debug` feature is enabled.
+///
+/// ## Unix timestamp millis
+///
+/// A function parameter type corresponding to the `unix_timestamp_millis` should have `u64` type
 ///
 /// # Panics
 ///

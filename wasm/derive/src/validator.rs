@@ -51,7 +51,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#arg);
             let bytes_box = ::core::mem::ManuallyDrop::new(
-                ::iroha_wasm::encode_with_length_prefix(&verdict).into_boxed_slice()
+                ::iroha_wasm::encode_with_length_prefix(&verdict)
             );
 
             bytes_box.as_ptr()

@@ -147,6 +147,17 @@ impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
     }
 }
 
+/// Query the unix timestamp of the trigger execution start
+pub fn query_unix_timestamp_millis() -> u64 {
+    #[cfg(not(test))]
+    use host::query_unix_timestamp_millis as host_query_unix_timestamp_millis;
+    #[cfg(test)]
+    use tests::_iroha_wasm_query_unix_timestamp_millis_mock as host_query_unix_timestamp_millis;
+
+    // Safety: Calling extern functions is unsafe
+    unsafe { host_query_unix_timestamp_millis() }
+}
+
 /// Query the authority of the smart contract, trigger or permission validator
 pub fn query_authority() -> <Account as Identifiable>::Id {
     #[cfg(not(test))]
@@ -162,7 +173,7 @@ pub fn query_authority() -> <Account as Identifiable>::Id {
 ///
 /// # Traps
 ///
-/// Host side will generate a trap if this function was called not from a trigger.
+/// Host side will generate a trap if this function was not called from a trigger.
 pub fn query_triggering_event() -> Event {
     #[cfg(not(test))]
     use host::query_triggering_event as host_query_triggering_event;
@@ -210,6 +221,9 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: *const u8, len: usize);
+
+        /// Get unix timestamp of the trigger execution start
+        pub(super) fn query_unix_timestamp_millis() -> u64;
 
         /// Get the authority account id
         ///
@@ -337,7 +351,7 @@ unsafe fn encode_and_execute<T: Encode, O>(
 /// Encode the given `val` as a vector of bytes with the size of the object at the beginning
 //
 // TODO: Write a separate crate for codec/protocol between Iroha and smartcontract
-pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {
+pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
     let len_size_bytes = core::mem::size_of::<usize>();
 
     let mut r = Vec::with_capacity(
@@ -354,7 +368,7 @@ pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Vec<u8> {
     let len = r.len();
     r[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
 
-    r
+    r.into_boxed_slice()
 }
 
 /// Most used items
@@ -374,7 +388,7 @@ mod tests {
     use super::*;
 
     const QUERY_RESULT: Value = Value::Numeric(NumericValue::U32(1234_u32));
-    const EXPRESSION_RESULT: Value = Value::Numeric(NumericValue::U32(5_u32));
+    const EXPRESSION_RESULT: NumericValue = NumericValue::U32(5_u32);
 
     fn get_test_instruction() -> Instruction {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
@@ -386,8 +400,30 @@ mod tests {
         let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
         FindAccountById::new(account_id).into()
     }
-    fn get_test_expression() -> ExpressionBox {
+    fn get_test_authority() -> <Account as Identifiable>::Id {
+        "alice@wonderland".parse().expect("Valid")
+    }
+    fn get_test_expression() -> EvaluatesTo<NumericValue> {
         Add::new(1_u32, 2_u32).into()
+    }
+    fn get_test_event() -> Event {
+        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
+            "rose#wonderland".parse().expect("Valid");
+        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
+        DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(AssetChanged {
+            asset_id: alice_rose_id,
+            amount: 0u32.into(),
+        })))
+        .into()
+    }
+    fn get_test_operation() -> NeedsPermissionBox {
+        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
+            "rose#wonderland".parse().expect("Valid");
+        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
+
+        NeedsPermissionBox::Instruction(MintBox::new(1u32, alice_rose_id).into())
     }
 
     #[no_mangle]
@@ -406,61 +442,85 @@ mod tests {
         let query = QueryBox::decode_all(&mut &*bytes).unwrap();
         assert_eq!(query, get_test_query());
 
-        ManuallyDrop::new(encode_with_length_prefix(&QUERY_RESULT).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&QUERY_RESULT)).as_ptr()
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn _iroha_wasm_query_unix_timestamp_millis_mock() -> u64 {
+        u64::MAX / 2
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
-        let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-
-        ManuallyDrop::new(encode_with_length_prefix(&account_id).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&get_test_authority())).as_ptr()
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_query_triggering_event_mock() -> *const u8 {
-        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
-            "rose#wonderland".parse().expect("Valid");
-        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
-        let event: Event =
-            DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(AssetChanged {
-                asset_id: alice_rose_id,
-                amount: 0u32.into(),
-            })))
-            .into();
-
-        ManuallyDrop::new(encode_with_length_prefix(&event).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&get_test_event())).as_ptr()
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_query_operation_to_validate_mock() -> *const u8 {
-        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
-            "rose#wonderland".parse().expect("Valid");
-        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
-
-        let instruction = MintBox::new(1u32, alice_rose_id);
-        ManuallyDrop::new(encode_with_length_prefix(&instruction).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&get_test_operation())).as_ptr()
     }
 
+    #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_evaluate_on_host_mock(
         ptr: *const u8,
         len: usize,
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
         let expression = ExpressionBox::decode_all(&mut &*bytes).unwrap();
-        assert_eq!(expression, get_test_expression());
+        assert_eq!(expression, get_test_expression().expression);
 
-        ManuallyDrop::new(encode_with_length_prefix(&EXPRESSION_RESULT).into_boxed_slice()).as_ptr()
+        ManuallyDrop::new(encode_with_length_prefix(&Value::from(EXPRESSION_RESULT))).as_ptr()
     }
 
     #[webassembly_test]
-    fn execute_instruction_test() {
+    fn execute_instruction() {
         get_test_instruction().execute()
     }
 
     #[webassembly_test]
-    fn execute_query_test() {
+    fn execute_query() {
         assert_eq!(get_test_query().execute(), QUERY_RESULT);
+    }
+
+    #[webassembly_test]
+    fn evaluate_expression() {
+        assert_eq!(
+            get_test_expression().evaluate_on_host(),
+            Ok(EXPRESSION_RESULT)
+        );
+    }
+
+    #[webassembly_test]
+    fn get_authority() {
+        assert_eq!(query_authority(), get_test_authority());
+    }
+
+    #[webassembly_test]
+    fn get_unix_timestamp_millis() {
+        assert_eq!(query_unix_timestamp_millis(), u64::MAX / 2);
+    }
+
+    #[webassembly_test]
+    fn get_trigger_event() {
+        assert_eq!(query_triggering_event(), get_test_event());
+    }
+
+    #[webassembly_test]
+    fn get_operation_to_validate() -> Result<(), ()> {
+        use NeedsPermissionBox::*;
+
+        if let (Instruction(res), Instruction(expected)) =
+            (query_operation_to_validate(), get_test_operation())
+        {
+            assert_eq!(res, expected);
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
