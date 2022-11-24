@@ -223,7 +223,7 @@ We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
 * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary.html)
 * [Configuration](./docs/source/references/config.md)
-* [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/advanced/isi.html)
+* [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions.html)
 * [API specification](./docs/source/references/api_spec.md)
 
 Iroha SDKs:
