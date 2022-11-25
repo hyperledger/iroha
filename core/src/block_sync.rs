@@ -102,7 +102,8 @@ fn block_sync_read_loop(
         if last_requested_blocks.elapsed() > block_sync.gossip_period {
             last_requested_blocks = Instant::now();
             let peers: Vec<PublicKey> = {
-                block_sync.p2p
+                block_sync
+                    .p2p
                     .connected_to_peers
                     .lock()
                     .expect("Mutex poisoned. Aborting")
@@ -224,7 +225,9 @@ pub mod message {
                 Message::GetBlocksAfter(get_blocks_after) => get_blocks_after.handle(block_sync),
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
                     use crate::sumeragi::message::{BlockCommitted, Message, MessagePacket};
-                    let mut guard = block_sync.p2p.packet_buffers
+                    let mut guard = block_sync
+                        .p2p
+                        .packet_buffers
                         .lock()
                         .expect("Mutex poisoned. Aborting");
                     for block in blocks {
@@ -235,11 +238,9 @@ pub mod message {
                                     block: block.clone().into(),
                                 }),
                             )
-                                .into(),
+                            .into(),
                         );
-                        guard
-                            .sumeragi_packets
-                            .push(*sumeragi_packet);
+                        guard.sumeragi_packets.push(*sumeragi_packet);
                     }
                 }
             }

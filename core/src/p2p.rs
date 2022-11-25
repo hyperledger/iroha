@@ -6,10 +6,8 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
-    sync::{
-        Arc, Mutex,
-    },
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use eyre::WrapErr as _;
@@ -22,10 +20,9 @@ use iroha_crypto::{
     },
     PublicKey,
 };
-use iroha_logger::{error, info, trace, debug};
+use iroha_logger::{debug, error, info, trace};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
-use std::time::Instant;
 use thiserror::Error;
 
 use crate::{handler::ThreadHandler, NetworkMessage, NetworkMessage::*, PeerId};
@@ -219,6 +216,7 @@ impl P2PSystem {
 
         let mut send_connection_ack_keys = Vec::new();
         let mut to_disconnect_keys = Vec::new();
+        let mut received = None;
 
         for _ in 0..values.len() {
             let (
@@ -237,7 +235,8 @@ impl P2PSystem {
 
             match crypto.read_from_socket(stream) {
                 Err(_) | Ok(Health) => (),
-                Ok(NetworkMessage::SumeragiPacket(_)) => {
+                Ok(NetworkMessage::SumeragiPacket(packet)) => {
+                    received = Some(*packet);
                     break;
                 }
                 Ok(NetworkMessage::BlockSync(message)) => {
@@ -255,7 +254,7 @@ impl P2PSystem {
         self.disconnect_peers(to_disconnect_keys);
         self.post_to_network(&ConnectionCheckAck(42), &send_connection_ack_keys);
 
-        None
+        received
     }
 
     #[allow(clippy::unwrap_in_result)]
@@ -278,6 +277,7 @@ impl P2PSystem {
         let mut values: Vec<_> = connected_to_peers.iter_mut().collect();
         let value_len = values.len();
 
+        // This option should not  be removed. 
         let mut received = None;
         let mut send_connection_ack_keys = Vec::new();
         let mut to_disconnect_keys = Vec::new();
@@ -372,16 +372,16 @@ impl P2PSystem {
                 Ok(new_con) => new_con,
                 Err(e) => {
                     debug!(?e);
-                    continue
-                },
+                    continue;
+                }
             };
 
             let (stream, crypto, other) = match self.perform_handshake(stream) {
                 Ok(tuple) => tuple,
                 Err(e) => {
                     debug!(?e);
-                    continue
-                },
+                    continue;
+                }
             };
 
             if !self
@@ -400,10 +400,7 @@ impl P2PSystem {
                 .lock()
                 .expect("Mutex poisoned. Aborting");
 
-            if connected_to_peers
-                .keys()
-                .any(|key| *key == other)
-            {
+            if connected_to_peers.keys().any(|key| *key == other) {
                 trace!(%other, "Dropping because already connected.");
             } else if let Err(e) =
                 finish_connection(crypto, stream, &mut connected_to_peers, &other)

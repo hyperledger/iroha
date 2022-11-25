@@ -69,7 +69,7 @@ fn unstable_network(
 
         configuration.logger.max_log_level = Level::TRACE.into();
         configuration.sumeragi.block_time_ms = 100;
-        configuration.sumeragi.commit_time_limit_ms = 800;        
+        configuration.sumeragi.commit_time_limit_ms = 800;
         let network =
             <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers)
                 .await

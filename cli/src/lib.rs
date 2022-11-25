@@ -129,14 +129,7 @@ impl Iroha {
             None
         };
 
-        Self::with_genesis(
-            genesis,
-            config,
-            instruction_judge,
-            query_judge,
-            telemetry,
-        )
-        .await
+        Self::with_genesis(genesis, config, instruction_judge, query_judge, telemetry).await
     }
 
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
@@ -226,17 +219,15 @@ impl Iroha {
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
-        let sumeragi = Arc::new(
-            Sumeragi::new(
-                &config.sumeragi,
-                events_sender.clone(),
-                wsv,
-                transaction_validator,
-                Arc::clone(&queue),
-                Arc::clone(&p2p),
-                Arc::clone(&kura),
-            ),
-        );
+        let sumeragi = Arc::new(Sumeragi::new(
+            &config.sumeragi,
+            events_sender.clone(),
+            wsv,
+            transaction_validator,
+            Arc::clone(&queue),
+            Arc::clone(&p2p),
+            Arc::clone(&kura),
+        ));
 
         let sumeragi_thread_handler =
             Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis);
