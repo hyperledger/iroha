@@ -265,7 +265,7 @@ impl PendingBlock {
 /// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct ChainedBlock {
-    /// Header
+    /// Block header
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
@@ -355,7 +355,7 @@ impl ChainedBlock {
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
 #[derive(Debug, Clone)]
 pub struct ValidBlock {
-    /// Header
+    /// Block header
     pub header: BlockHeader,
     /// Array of rejected transactions.
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
@@ -367,6 +367,7 @@ pub struct ValidBlock {
 
 impl ValidBlock {
     /// Calculate hash of the current block.
+    #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
@@ -374,10 +375,10 @@ impl ValidBlock {
     /// Sign this block and get `ValidSignedBlock`.
     ///
     /// # Errors
-    /// Fails if generating signature fails
+    /// Fails if signature generation fails
     pub fn sign(self, key_pair: KeyPair) -> Result<ValidSignedBlock> {
         let signature = SignatureOf::from_hash(key_pair, &self.hash().transmute())
-            .wrap_err("Failed to sign block")?;
+            .wrap_err(format!("Failed to sign block with hash {}", self.hash()))?;
         let signatures = SignaturesOf::from(signature);
         Ok(ValidSignedBlock {
             header: self.header,
@@ -389,14 +390,14 @@ impl ValidBlock {
     }
 }
 
-/// After receiving first signature `ValidBlock` can transform into `ValidSignedBlock`.
+/// After receiving first signature, `ValidBlock` can transform into `ValidSignedBlock`.
 #[derive(Debug, Clone)]
 pub struct ValidSignedBlock {
-    /// Header
+    /// Block header
     pub header: BlockHeader,
-    /// Array of rejected transactions.
+    /// Array of all rejected transactions in this block.
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
-    /// Array of transactions.
+    /// Array of all valid transactions in this block.
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
     pub signatures: SignaturesOf<Self>,
@@ -406,6 +407,7 @@ pub struct ValidSignedBlock {
 
 impl ValidSignedBlock {
     /// Commit block to the store.
+    #[inline]
     pub fn commit(self) -> CommittedBlock {
         let Self {
             header,
@@ -432,15 +434,18 @@ impl ValidSignedBlock {
     /// Add additional signatures for `ValidSignedBlock`.
     ///
     /// # Errors
-    /// Fails if generating signature fails
+    /// Fails if signature generation fails
     pub fn sign(mut self, key_pair: KeyPair) -> Result<Self> {
-        self.signatures.insert(
-            SignatureOf::from_hash(key_pair, &self.hash()).wrap_err("Failed to sign block")?,
-        );
-        Ok(self)
+        SignatureOf::from_hash(key_pair, &self.hash())
+            .wrap_err(format!("Failed to sign block with hash {}", self.hash()))
+            .map(|signature| {
+                self.signatures.insert(signature);
+                self
+            })
     }
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.signatures.verified_by_hash(self.hash())
     }
@@ -530,16 +535,19 @@ impl VersionedCandidateBlock {
     }
 
     /// Return the header of a valid block
+    #[inline]
     pub const fn header(&self) -> &BlockHeader {
         &self.as_v1().header
     }
 
     /// Calculate the hash of the current block.
+    #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         self.as_v1().hash().transmute()
     }
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.as_v1()
             .verified_signatures()
@@ -550,6 +558,7 @@ impl VersionedCandidateBlock {
     ///
     /// # Errors
     /// Forward errors from [`CandidateBlock::revalidate`]
+    #[inline]
     pub fn revalidate(
         self,
         transaction_validator: &TransactionValidator,
@@ -566,7 +575,7 @@ impl VersionedCandidateBlock {
 #[version_with_scale(n = 1, versioned = "VersionedCandidateBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct CandidateBlock {
-    /// Header
+    /// Block header
     pub header: BlockHeader,
     /// Array of rejected transactions.
     pub rejected_transactions: Vec<VersionedSignedTransaction>,
@@ -580,16 +589,19 @@ pub struct CandidateBlock {
 
 impl CandidateBlock {
     /// Calculate the hash of the current block.
+    #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.signatures.verified_by_hash(self.hash())
     }
 
     /// Check if there are no transactions in this block.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.transactions.is_empty() && self.rejected_transactions.is_empty()
     }
@@ -766,6 +778,7 @@ declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_
 
 impl VersionedCommittedBlock {
     /// Converts from `&VersionedCommittedBlock` to V1 reference
+    #[inline]
     pub const fn as_v1(&self) -> &CommittedBlock {
         match self {
             Self::V1(v1) => v1,
@@ -773,6 +786,7 @@ impl VersionedCommittedBlock {
     }
 
     /// Converts from `&mut VersionedCommittedBlock` to V1 mutable reference
+    #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CommittedBlock {
         match self {
             Self::V1(v1) => v1,
@@ -780,6 +794,7 @@ impl VersionedCommittedBlock {
     }
 
     /// Performs the conversion from `VersionedCommittedBlock` to V1
+    #[inline]
     pub fn into_v1(self) -> CommittedBlock {
         match self {
             Self::V1(v1) => v1,
@@ -788,16 +803,19 @@ impl VersionedCommittedBlock {
 
     /// Calculate the hash of the current block.
     /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
+    #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         self.as_v1().hash().transmute()
     }
 
     /// Returns the header of a valid block
+    #[inline]
     pub const fn header(&self) -> &BlockHeader {
         &self.as_v1().header
     }
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.as_v1()
             .verified_signatures()
@@ -848,7 +866,7 @@ impl VersionedCommittedBlock {
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
 pub struct CommittedBlock {
-    /// Header
+    /// Block header
     pub header: BlockHeader,
     /// Array of rejected transactions.
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
@@ -863,17 +881,20 @@ pub struct CommittedBlock {
 impl CommittedBlock {
     /// Calculate the hash of the current block.
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
+    #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
 
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.signatures.verified_by_hash(self.hash())
     }
 }
 
 impl From<CommittedBlock> for ValidSignedBlock {
+    #[inline]
     fn from(
         CommittedBlock {
             header,

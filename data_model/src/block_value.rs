@@ -62,7 +62,7 @@ impl Ord for BlockHeaderValue {
 )]
 #[display(fmt = "({})", header)]
 pub struct BlockValue {
-    /// Header
+    /// Block header
     pub header: BlockHeaderValue,
     /// Array of transactions
     pub transactions: Vec<VersionedValidTransaction>,

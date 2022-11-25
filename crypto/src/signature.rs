@@ -263,10 +263,9 @@ impl<T: Encode> SignatureOf<T> {
     }
 }
 
-/// Wrapper around [`SignatureOf`] used to reimplement [`Eq`], [`Ord`]
-/// to compare signatures only by there [`PublicKey`].
-#[allow(clippy::derive_hash_xor_eq)]
-#[derive(Deref, DerefMut, Hash, Encode, Decode, Serialize, Deserialize)]
+/// Wrapper around [`SignatureOf`] used to reimplement [`Eq`], [`Ord`], [`Hash`]
+/// to compare signatures only by their [`PublicKey`].
+#[derive(Deref, DerefMut, Encode, Decode, Serialize, Deserialize)]
 #[serde(transparent)]
 #[repr(transparent)]
 pub struct SignatureWrapperOf<T>(
@@ -313,7 +312,14 @@ impl<T> Clone for SignatureWrapperOf<T> {
     }
 }
 
-// No need to show this type in the schema
+// Implement `Hash` manually to be consistent with `Ord`
+impl<T> core::hash::Hash for SignatureWrapperOf<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.0.public_key.hash(state);
+    }
+}
+
+// Wrapper is transparent, so forward to the inner type and exclude from schema.
 impl<T: IntoSchema> IntoSchema for SignatureWrapperOf<T> {
     fn schema(metamap: &mut MetaMap) {
         SignatureOf::<T>::schema(metamap)
@@ -326,8 +332,8 @@ impl<T: IntoSchema> IntoSchema for SignatureWrapperOf<T> {
 
 /// Container for multiple signatures, each corresponding to a different public key.
 ///
-/// If signature is added which conflicts with a signature already present in the
-/// container, new one will replace old signature.
+/// If the public key of the added signature is already in the set,
+/// the associated signature will be replaced with the new one.
 ///
 /// GUARANTEE 1: This container always contains at least 1 signature
 /// GUARANTEE 2: Each signature corresponds to a different public key
@@ -450,12 +456,7 @@ impl<A> FromIterator<SignatureOf<A>> for Result<SignaturesOf<A>, Error> {
     fn from_iter<T: IntoIterator<Item = SignatureOf<A>>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
         iter.next()
-            .ok_or_else(|| {
-                Error::Other(format!(
-                    "{} must contain at least one signature",
-                    core::any::type_name::<Self>()
-                ))
-            })
+            .ok_or(Error::EmptySignatureIter)
             .map(move |first_signature| core::iter::once(first_signature).chain(iter))
             .map(|signatures| signatures.map(SignatureWrapperOf).collect())
             .map(|signatures| SignaturesOf { signatures })
@@ -687,7 +688,6 @@ mod tests {
     #[test]
     #[cfg(feature = "std")]
     fn signatures_of_deduplication_by_public_key() {
-        // Create to different signatures signed with same public key
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
             SignatureOf::new(key_pair.clone(), &1).expect("Failed to sign"),
@@ -700,5 +700,37 @@ mod tests {
             .expect("One signature must stay");
         // Signatures with the same public key was deduplicated
         assert_eq!(signatures.len(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn signature_wrapper_btree_and_hash_sets_consistent_results() {
+        use std::collections::{BTreeSet, HashSet};
+
+        let keys = 5;
+        let signatures_per_key = 10;
+        let signatures =
+            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate keys"))
+                .take(keys)
+                .flat_map(|key| {
+                    core::iter::repeat_with(move || key.clone())
+                        .zip(0..)
+                        .map(|(key, i)| SignatureOf::new(key, &i).expect("Failed to sign"))
+                        .take(signatures_per_key)
+                })
+                .map(SignatureWrapperOf)
+                .collect::<Vec<_>>();
+        let hash_set: HashSet<_> = signatures.clone().into_iter().collect();
+        let btree_set: BTreeSet<_> = signatures.into_iter().collect();
+
+        // Check that `hash_set` is subset of `btree_set`
+        for signature in &hash_set {
+            assert!(btree_set.contains(signature));
+        }
+        // Check that `btree_set` is subset `hash_set`
+        for signature in &btree_set {
+            assert!(hash_set.contains(signature));
+        }
+        // From the above we can conclude that `SignatureWrapperOf` have consistent behavior for `HashSet` and `BTreeSet`
     }
 }
