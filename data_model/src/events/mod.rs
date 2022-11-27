@@ -127,17 +127,15 @@ pub trait Filter {
     /// Returns a number of times trigger should be executed for
     ///
     /// Used for time-triggers
+    #[inline]
     fn count_matches(&self, event: &Self::Event) -> u32 {
-        if self.matches(event) {
-            1
-        } else {
-            0
-        }
+        u32::from(self.matches(event))
     }
 
     /// Check if filter is mintable.
     ///
     /// Returns `true` by default. Used for time-triggers
+    #[inline]
     fn mintable(&self) -> bool {
         true
     }
@@ -177,12 +175,10 @@ impl Filter for FilterBox {
     /// Apply filter to event.
     fn matches(&self, event: &Event) -> bool {
         match (event, self) {
-            (Event::Pipeline(event), FilterBox::Pipeline(filter)) => filter.matches(event),
-            (Event::Data(event), FilterBox::Data(filter)) => filter.matches(event),
-            (Event::Time(event), FilterBox::Time(filter)) => filter.matches(event),
-            (Event::ExecuteTrigger(event), FilterBox::ExecuteTrigger(filter)) => {
-                filter.matches(event)
-            }
+            (Event::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
+            (Event::Data(event), Self::Data(filter)) => filter.matches(event),
+            (Event::Time(event), Self::Time(filter)) => filter.matches(event),
+            (Event::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => filter.matches(event),
             _ => false,
         }
     }

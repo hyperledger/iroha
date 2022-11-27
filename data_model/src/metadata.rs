@@ -58,13 +58,14 @@ pub enum Error {
     InvalidSegment(Name),
 }
 
+#[allow(clippy::std_instead_of_core)]
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
 impl Limits {
     /// Constructor.
     pub const fn new(max_len: u32, max_entry_byte_size: u32) -> Limits {
-        Limits {
+        Self {
             max_len,
             max_entry_byte_size,
         }
@@ -113,6 +114,7 @@ impl Metadata {
 
     /// Get the (expensive) cumulative length of all [`Value`]s housed
     /// in this map.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn nested_len(&self) -> usize {
         self.map.iter().map(|(_, v)| 1 + v.len()).sum()
     }
@@ -121,6 +123,7 @@ impl Metadata {
     /// incorrect (if e.g. any of interior path segments are not
     /// [`Metadata`] instances return `None`. Else borrow the value
     /// corresponding to that path.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn nested_get(&self, path: &Path) -> Option<&Value> {
         let key = path.last()?;
         let mut map = &self.map;
@@ -160,6 +163,7 @@ impl Metadata {
     /// - If the path is empty.
     /// - If one of the intermediate keys is absent.
     /// - If some intermediate key is a leaf node.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn nested_insert_with_limits(
         &mut self,
         path: &Path,
@@ -226,6 +230,7 @@ impl Metadata {
     /// malformed, or incorrect (if e.g. any of interior path segments
     /// are not [`Metadata`] instances) return `None`. Else return the
     /// owned value corresponding to that path.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn nested_remove(&mut self, path: &Path) -> Option<Value> {
         let key = path.last()?;
         let mut map = &mut self.map;

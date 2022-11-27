@@ -1,4 +1,4 @@
-#![allow(clippy::restriction, clippy::expect_used)]
+#![allow(clippy::restriction)]
 
 use iroha_config::base::proxy::Builder;
 use iroha_logger::{init, ConfigurationProxy};

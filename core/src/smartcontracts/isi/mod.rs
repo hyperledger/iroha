@@ -1,11 +1,7 @@
 //! This module contains enumeration of all possible Iroha Special
 //! Instructions `Instruction`, generic instruction types and related
 //! implementations.
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 pub mod account;
 pub mod asset;
 pub mod block;
@@ -26,6 +22,7 @@ use iroha_primitives::fixed::Fixed;
 use super::{Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldStateView};
 
+#[allow(clippy::module_name_repetitions)]
 pub mod error {
     //! Errors used in Iroha special instructions and
     //! queries. Instruction execution should fail with a specific

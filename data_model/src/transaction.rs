@@ -62,7 +62,6 @@ pub trait Txn {
     ///
     /// Fails if number of instructions or wasm size exceeds maximum
     #[inline]
-    #[allow(clippy::expect_used)]
     fn check_limits(&self, limits: &TransactionLimits) -> Result<(), TransactionLimitError> {
         match &self.payload().instructions {
             Executable::Instructions(instructions) => {

@@ -3,7 +3,6 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic,
     clippy::expect_used
 )]
 
@@ -318,9 +317,7 @@ mod tests {
             .expect("Failed to accept Transaction.")
     }
 
-    pub fn world_with_test_domains(
-        signatures: impl IntoIterator<Item = iroha_crypto::PublicKey>,
-    ) -> World {
+    pub fn world_with_test_domains(signatures: impl IntoIterator<Item = PublicKey>) -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build();
@@ -670,7 +667,8 @@ mod tests {
         get_txs_handle.join().unwrap();
 
         // Last update for queue to drop invalid txs.
-        let _ = queue.get_transactions_for_block(&wsv);
+        // TODO: Check if we need to drop later.
+        drop(queue.get_transactions_for_block(&wsv));
 
         // Validate the queue state.
         let array_queue: Vec<_> = core::iter::repeat_with(|| queue.queue.pop())

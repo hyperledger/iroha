@@ -1,8 +1,4 @@
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr as _, sync::mpsc, thread, time};
 
 use eyre::{Result, WrapErr};
@@ -73,7 +69,7 @@ impl Config {
         let mut handles = Vec::new();
         for unit in &units {
             let handle = unit.spawn_event_counter();
-            handles.push(handle)
+            handles.push(handle);
         }
         // Sleep to let the blocks produced by units to be committed on all peers
         thread::sleep(core::time::Duration::from_secs(1));

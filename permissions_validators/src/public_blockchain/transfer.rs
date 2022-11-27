@@ -119,7 +119,6 @@ pub struct ExecutionCountFitsInLimit;
 impl IsAllowed for ExecutionCountFitsInLimit {
     type Operation = Instruction;
 
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn check(
         &self,
         authority: &AccountId,

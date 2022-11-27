@@ -56,7 +56,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GenericPredicateBox::And(predicates) => {
+            Self::And(predicates) => {
                 write!(f, "AND(")?;
                 predicates.head.fmt(f)?;
                 for predicate in &predicates.tail {
@@ -64,7 +64,7 @@ where
                 }
                 write!(f, ")")
             }
-            GenericPredicateBox::Or(predicates) => {
+            Self::Or(predicates) => {
                 write!(f, "OR(")?;
                 predicates.head.fmt(f)?;
                 for predicate in &predicates.tail {
@@ -72,8 +72,8 @@ where
                 }
                 write!(f, ")")
             }
-            GenericPredicateBox::Not(predicate) => write!(f, "NOT({})", predicate),
-            GenericPredicateBox::Raw(predicate) => predicate.fmt(f),
+            Self::Not(predicate) => write!(f, "NOT({})", predicate),
+            Self::Raw(predicate) => predicate.fmt(f),
         }
     }
 }
@@ -200,7 +200,7 @@ impl PredicateBox {
 
 impl Default for PredicateBox {
     fn default() -> Self {
-        PredicateBox::Raw(value::Predicate::Pass)
+        Self::Raw(value::Predicate::Pass)
     }
 }
 
@@ -315,10 +315,10 @@ pub mod string {
         #[inline] // Jump table. Needs inline.
         fn applies(&self, input: &T) -> Self::EvaluatesTo {
             match self {
-                Predicate::Contains(content) => input.as_ref().contains(content),
-                Predicate::StartsWith(content) => input.as_ref().starts_with(content),
-                Predicate::EndsWith(content) => input.as_ref().ends_with(content),
-                Predicate::Is(content) => *(input.as_ref()) == *content,
+                Self::Contains(content) => input.as_ref().contains(content),
+                Self::StartsWith(content) => input.as_ref().starts_with(content),
+                Self::EndsWith(content) => input.as_ref().ends_with(content),
+                Self::Is(content) => *(input.as_ref()) == *content,
             }
         }
     }
@@ -344,7 +344,6 @@ pub mod string {
 
     #[cfg(test)]
     mod tests {
-        #![allow(clippy::expect_used)]
 
         use super::*;
 
@@ -654,23 +653,23 @@ pub mod numerical {
     }
 
     impl UnsignedMarker for u8 {
-        const MAX: Self = u8::MAX;
+        const MAX: Self = Self::MAX;
         const ZERO: Self = 0_u8;
     }
 
     impl UnsignedMarker for u32 {
-        const MAX: Self = u32::MAX;
+        const MAX: Self = Self::MAX;
         const ZERO: Self = 0_u32;
     }
 
     impl UnsignedMarker for u128 {
-        const MAX: Self = u128::MAX;
+        const MAX: Self = Self::MAX;
         const ZERO: Self = 0_u128;
     }
 
     impl UnsignedMarker for Fixed {
-        const MAX: Self = Fixed::MAX; // Inherent impl
-        const ZERO: Self = Fixed::ZERO; // Inherent impl
+        const MAX: Self = Self::MAX; // Inherent impl
+        const ZERO: Self = Self::ZERO; // Inherent impl
     }
 
     impl<T: Copy + Ord + UnsignedMarker> SemiInterval<T> {
@@ -1128,7 +1127,7 @@ pub mod value {
     }
 
     #[cfg(test)]
-    #[allow(clippy::print_stdout, clippy::use_debug, clippy::expect_used)]
+    #[allow(clippy::print_stdout, clippy::use_debug)]
     mod test {
         use peer::Peer;
         use prelude::Metadata;

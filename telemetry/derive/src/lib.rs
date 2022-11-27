@@ -30,7 +30,6 @@ fn type_has_metrics_field(ty: &Type) -> bool {
         // more than one way.
         Type::Path(pth) => {
             let Path { segments, .. } = pth.path.clone();
-            #[allow(clippy::expect_used)]
             let type_name = &segments
                 .last()
                 .expect("Should have at least one segment")
@@ -54,18 +53,22 @@ fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuat
                 syn::Type::Reference(typ) => type_has_metrics_field(&typ.elem),
                 _ => false,
             },
-            _ => false,
+            FnArg::Receiver(_) => false,
         })
         .and_then(|arg| match arg {
             FnArg::Typed(typ) => match *typ.pat.clone() {
                 syn::Pat::Ident(ident) => Some(ident.ident),
                 _ => None,
             },
-            _ => None,
+            FnArg::Receiver(_) => None,
         })
         .ok_or(input)
 }
 
+#[cfg_attr(
+    not(feature = "metric-instrumentation"),
+    allow(unused_tuple_struct_fields)
+)]
 struct MetricSpecs(Vec<MetricSpec>); // `HashSet` — idiomatic; slow
 
 impl Parse for MetricSpecs {
@@ -113,7 +116,7 @@ impl Parse for MetricSpec {
 
 impl ToTokens for MetricSpec {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        self.metric_name.to_tokens(tokens)
+        self.metric_name.to_tokens(tokens);
     }
 }
 
@@ -171,7 +174,6 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         syn::ReturnType::Type(_, typ) => match *typ {
             Type::Path(pth) => {
                 let Path { segments, .. } = pth.path;
-                #[allow(clippy::expect_used)]
                 let type_name = &segments.last().expect("non-empty path").ident;
                 if *type_name != "Result" {
                     abort!(

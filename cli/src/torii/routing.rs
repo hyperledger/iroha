@@ -151,9 +151,9 @@ pub(crate) async fn handle_queries(
     let result = QueryResult(result);
     let paginated_result = PaginatedQueryResult {
         result,
+        filter,
         pagination,
         sorting,
-        filter,
         total,
     };
     Ok(Scale(paginated_result.into()))
@@ -302,7 +302,6 @@ async fn stream_blocks(
     blocks: Vec<VersionedCommittedBlock>,
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
-    #[allow(clippy::expect_used)]
     for block in blocks {
         stream
             .send(VersionedBlockMessage::from(BlockMessage(block)))
@@ -413,9 +412,9 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)] // TODO: remove after https://github.com/rust-lang/rust-clippy/issues/9359
-async fn handle_metrics(sumeragi: Arc<Sumeragi>, _: usize) -> Result<String> {
+async fn handle_metrics(sumeragi: Arc<Sumeragi>) -> Result<String> {
     if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
+        iroha_logger::error!(?error, "Error while calling sumeragi::update_metrics.");
     }
     sumeragi
         .metrics_mutex_access()
@@ -425,9 +424,9 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _: usize) -> Result<String> {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)] // TODO: remove after https://github.com/rust-lang/rust-clippy/issues/9359
-async fn handle_status(sumeragi: Arc<Sumeragi>, _: usize) -> Result<Json> {
+async fn handle_status(sumeragi: Arc<Sumeragi>) -> Result<Json> {
     if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
+        iroha_logger::error!(?error, "Error while calling `sumeragi::update_metrics`.");
     }
     let status = Status::from(&sumeragi.metrics_mutex_access());
     Ok(reply::json(&status))
@@ -445,9 +444,9 @@ impl Torii {
     ) -> Self {
         Self {
             iroha_cfg,
+            queue,
             events,
             query_judge,
-            queue,
             notify_shutdown,
             sumeragi,
         }
@@ -455,17 +454,22 @@ impl Torii {
 
     #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
-    fn create_telemetry_router(
-        &self,
-    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
-        let get_router_status = endpoint2(
-            handle_status,
-            warp::path(uri::STATUS).and(add_state!(self.sumeragi, 0)),
-        );
-        let get_router_metrics = endpoint2(
-            handle_metrics,
-            warp::path(uri::METRICS).and(add_state!(self.sumeragi, 0)),
-        );
+    fn create_telemetry_router(&self) -> impl warp::Filter<Extract = impl Reply> + Clone + Send {
+        // let get_router_status = endpoint2(
+        //     handle_status,
+        //     warp::path(uri::STATUS).and(add_state!(self.sumeragi, 0)),
+        // );
+        let get_router_status = warp::path(uri::STATUS)
+            .and(add_state!(self.sumeragi))
+            .and_then(|sumeragi: Arc<_>| async {
+                Ok::<_, Infallible>(WarpResult(handle_status(sumeragi).await))
+            });
+        let get_router_metrics = warp::path(uri::METRICS)
+            .and(add_state!(self.sumeragi))
+            .and_then(|sumeragi: Arc<_>| async {
+                Ok::<_, Infallible>(WarpResult(handle_metrics(sumeragi).await))
+            });
+
         let get_api_version = warp::path(uri::API_VERSION)
             .and(add_state!(self.sumeragi))
             .and_then(|sumeragi: Arc<_>| async {
@@ -482,7 +486,7 @@ impl Torii {
     /// Helper function to create router. This router can tested without starting up an HTTP server
     pub(crate) fn create_api_router(
         &self,
-    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
+    ) -> impl warp::Filter<Extract = impl Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
             .or(endpoint3(

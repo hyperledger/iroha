@@ -1,5 +1,5 @@
 //! This module contains `EventFilter` and entities for filter
-
+#![allow(unused_qualifications)]
 use core::{fmt::Debug, hash::Hash};
 
 use super::*;
@@ -216,7 +216,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn entity_scope() {
         let domain_name = "wonderland".parse().expect("Valid");
         let account_name = "alice".parse().expect("Valid");

@@ -191,12 +191,13 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(mint.object)
                     .ok_or(MathError::Overflow)?;
-                #[allow(clippy::float_arithmetic)]
-                wsv.metric_tx_amounts
-                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
-                wsv.metric_tx_amounts_counter
-                    .set(wsv.metric_tx_amounts_counter.get() + 1);
-
+                #[allow(clippy::float_arithmetic, clippy::arithmetic_side_effects)]
+                {
+                    wsv.metric_tx_amounts
+                        .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
+                    wsv.metric_tx_amounts_counter
+                        .set(wsv.metric_tx_amounts_counter.get() + 1);
+                }
                 Ok(AssetEvent::Added(AssetChanged {
                     asset_id: asset_id.clone(),
                     amount: mint.object.into(),
@@ -240,11 +241,13 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(burn.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                #[allow(clippy::float_arithmetic)]
-                wsv.metric_tx_amounts
-                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
-                wsv.metric_tx_amounts_counter
-                    .set(wsv.metric_tx_amounts_counter.get() + 1);
+                #[allow(clippy::float_arithmetic, clippy::arithmetic_side_effects)]
+                {
+                    wsv.metric_tx_amounts
+                        .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
+                    wsv.metric_tx_amounts_counter
+                        .set(wsv.metric_tx_amounts_counter.get() + 1);
+                }
 
                 Ok(AssetEvent::Removed(AssetChanged {
                     asset_id: asset_id.clone(),
@@ -305,12 +308,13 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(transfer.object)
                     .ok_or(MathError::Overflow)?;
-                #[allow(clippy::float_arithmetic)]
-                wsv.metric_tx_amounts
-                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
-                wsv.metric_tx_amounts_counter
-                    .set(wsv.metric_tx_amounts_counter.get() + 1);
-
+                #[allow(clippy::float_arithmetic, clippy::arithmetic_side_effects)]
+                {
+                    wsv.metric_tx_amounts
+                        .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
+                    wsv.metric_tx_amounts_counter
+                        .set(wsv.metric_tx_amounts_counter.get() + 1);
+                }
                 Ok(AssetEvent::Added(AssetChanged {
                     asset_id: transfer.destination_id.clone(),
                     amount: transfer.object.into(),

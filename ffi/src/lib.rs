@@ -1,4 +1,4 @@
-#![allow(unsafe_code)]
+#![allow(unsafe_code, clippy::module_name_repetitions)]
 #![no_std]
 
 //! Structures and macros related to FFI and generation of FFI bindings. Any type that implements

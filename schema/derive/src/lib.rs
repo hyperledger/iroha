@@ -1,12 +1,6 @@
 //! Crate with derive `IntoSchema` macro
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unimplemented,
-    clippy::arithmetic
-)]
+#![allow(clippy::panic, clippy::unimplemented, clippy::indexing_slicing)]
 
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
@@ -20,15 +14,18 @@ use syn::{
 /// Check out docs in `iroha_schema` crate
 #[proc_macro_derive(IntoSchema)]
 pub fn schema_derive(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
+    let mut parsed_input = parse_macro_input!(input as DeriveInput);
 
-    input.generics.type_params_mut().for_each(|ty_param| {
-        ty_param
-            .bounds
-            .push(parse_quote! {iroha_schema::IntoSchema})
-    });
+    parsed_input
+        .generics
+        .type_params_mut()
+        .for_each(|ty_param| {
+            ty_param
+                .bounds
+                .push(parse_quote! {iroha_schema::IntoSchema});
+        });
 
-    impl_schema(&input).into()
+    impl_schema(&parsed_input).into()
 }
 
 fn impl_schema(input: &DeriveInput) -> TokenStream2 {
@@ -53,8 +50,9 @@ fn impl_schema(input: &DeriveInput) -> TokenStream2 {
 }
 
 /// Body of method `type_name`
+#[allow(clippy::arithmetic_side_effects)]
 fn type_name_body(name: &Ident, generics: &Generics) -> TokenStream2 {
-    let generics = &generics
+    let filtered_generics = &generics
         .params
         .iter()
         .filter_map(|param| match param {
@@ -64,27 +62,27 @@ fn type_name_body(name: &Ident, generics: &Generics) -> TokenStream2 {
         .collect::<Vec<_>>();
     let name = LitStr::new(&name.to_string(), Span::call_site());
 
-    if generics.is_empty() {
+    if filtered_generics.is_empty() {
         return quote! { format!("{}::{}", module_path!(), #name) };
     }
 
     let mut format_str = "{}::{}<".to_owned();
     format_str.push_str(
-        &generics
+        &filtered_generics
             .iter()
             .map(|_| "{}".to_owned())
             .collect::<Vec<_>>()
             .join(", "),
     );
     format_str.push('>');
-    let format_str = LitStr::new(&format_str, Span::mixed_site());
+    let format_lit_str = LitStr::new(&format_str, Span::mixed_site());
 
     quote! {
         format!(
-            #format_str,
+            #format_lit_str,
             module_path!(),
             #name,
-            #(<#generics as iroha_schema::IntoSchema>::type_name()),*
+            #(<#filtered_generics as iroha_schema::IntoSchema>::type_name()),*
         )
     }
 }
@@ -152,9 +150,11 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
 
 /// Returns types for which schema should be called and metadata for struct
 fn metadata_for_structs(fields: &FieldsNamed) -> (Vec<Type>, Expr) {
-    let fields = fields.named.iter().filter_map(filter_map_fields_types);
-    let declarations = fields.clone().map(|field| field_to_declaration(&field));
-    let fields_ty = fields.map(|field| field.ty).collect();
+    let processed_fields = fields.named.iter().filter_map(filter_map_fields_types);
+    let declarations = processed_fields
+        .clone()
+        .map(|field| field_to_declaration(&field));
+    let fields_ty = processed_fields.map(|field| field.ty).collect();
     let expr = syn::parse2(quote! {
         iroha_schema::Metadata::Struct(
             iroha_schema::NamedFieldsMeta {
@@ -193,7 +193,7 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
         .enumerate()
         .filter(|(_, variant)| !should_skip(&variant.attrs))
         .map(|(discriminant, variant)| {
-            let discriminant = variant_index(variant, discriminant);
+            let discrim = variant_index(variant, discriminant);
             let name = &variant.ident;
             let ty = variant_field(&variant.fields).map_or_else(
                 || quote! { None },
@@ -202,7 +202,7 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             quote! {
                 iroha_schema::EnumVariant {
                     name: String::from(stringify!(#name)),
-                    discriminant: #discriminant,
+                    discriminant: #discrim,
                     ty: #ty,
                 }
             }
@@ -323,10 +323,10 @@ fn filter_map_fields_types(field: &Field) -> Option<Field> {
     }
     if is_compact(field) {
         let ty = &field.ty;
-        let mut field = field.clone();
-        field.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> })
+        let mut field_clone = field.clone();
+        field_clone.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> })
             .expect("Failed to parse compact schema variant");
-        Some(field)
+        Some(field_clone)
     } else {
         Some(field.clone())
     }

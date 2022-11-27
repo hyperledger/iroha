@@ -470,7 +470,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        [SignatureOf::new(key_pair, value)?].into_iter().collect()
+        std::iter::once(SignatureOf::new(key_pair, value)?).collect()
     }
 
     /// Verifies all signatures
@@ -551,7 +551,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert_eq!(signature.public_key(), key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert_eq!(signature.public_key(), key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]
@@ -579,7 +579,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert_eq!(signature.public_key(), key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]
@@ -593,7 +593,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert_eq!(signature.public_key(), key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]

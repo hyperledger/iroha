@@ -18,12 +18,14 @@ pub struct AtomicU32(core_atomic::AtomicU32);
 impl AtomicU32 {
     /// Create new [`AtomicU32`] instance
     #[inline]
+    #[must_use]
     pub const fn new(num: u32) -> AtomicU32 {
         Self(core_atomic::AtomicU32::new(num))
     }
 
     /// Get atomic value
     #[inline]
+    #[must_use]
     pub fn get(&self) -> u32 {
         self.0.load(core_atomic::Ordering::Acquire)
     }
@@ -31,12 +33,13 @@ impl AtomicU32 {
     /// Set atomic value
     #[inline]
     pub fn set(&self, num: u32) {
-        self.0.store(num, core_atomic::Ordering::Release)
+        self.0.store(num, core_atomic::Ordering::Release);
     }
 }
 
 impl Clone for AtomicU32 {
     #[inline]
+    #[must_use]
     fn clone(&self) -> Self {
         Self(core_atomic::AtomicU32::new(self.get()))
     }
@@ -44,6 +47,7 @@ impl Clone for AtomicU32 {
 
 impl PartialOrd for AtomicU32 {
     #[inline]
+    #[must_use]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
@@ -51,6 +55,7 @@ impl PartialOrd for AtomicU32 {
 
 impl Ord for AtomicU32 {
     #[inline]
+    #[must_use]
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.get().cmp(&other.get())
     }
@@ -73,7 +78,7 @@ impl Encode for AtomicU32 {
 
     #[inline]
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
-        self.get().encode_to(dest)
+        self.get().encode_to(dest);
     }
 
     #[inline]

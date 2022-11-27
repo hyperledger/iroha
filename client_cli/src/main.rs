@@ -1,13 +1,11 @@
 //! iroha client command line
 #![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
-#![allow(
     missing_docs,
     clippy::print_stdout,
     clippy::use_debug,
+    clippy::arithmetic_side_effects,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
     clippy::print_stderr
 )]
 

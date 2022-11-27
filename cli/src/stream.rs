@@ -45,7 +45,7 @@ where
 }
 
 /// Represents message used by the stream
-pub trait StreamMessage {
+pub trait Message {
     /// Construct new binary message
     fn binary(source: Vec<u8>) -> Self;
 
@@ -69,7 +69,7 @@ where
     type Err: std::error::Error + Send + Sync + 'static;
 
     /// Message type used by the underlying sink
-    type Message: StreamMessage + Send;
+    type Message: Message + Send;
 
     /// Encoded message and sends it to the stream
     async fn send(&mut self, message: S) -> Result<(), Error<Self::Err>> {
@@ -89,13 +89,13 @@ where
 /// Trait for reading custom messages from stream
 #[async_trait::async_trait]
 pub trait Stream<R: DecodeVersioned>:
-    StreamExt<Item = std::result::Result<Self::Message, Self::Err>> + Unpin
+    StreamExt<Item = Result<Self::Message, Self::Err>> + Unpin
 {
     /// Error type returned by the stream
     type Err: std::error::Error + Send + Sync + 'static;
 
     /// Message type used by the underlying stream
-    type Message: StreamMessage;
+    type Message: Message;
 
     /// Receives and decodes message from the stream
     async fn recv(&mut self) -> Result<R, Error<Self::Err>> {
@@ -120,7 +120,7 @@ pub trait Stream<R: DecodeVersioned>:
     }
 }
 
-impl StreamMessage for warp::ws::Message {
+impl Message for warp::ws::Message {
     fn binary(source: Vec<u8>) -> Self {
         warp::ws::Message::binary(source)
     }

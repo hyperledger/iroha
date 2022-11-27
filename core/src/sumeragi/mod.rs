@@ -2,10 +2,13 @@
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 #![allow(
-    clippy::arithmetic,
+    clippy::cognitive_complexity,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
+
 use std::{
     collections::HashSet,
     fmt::{self, Debug, Formatter},
@@ -127,10 +130,9 @@ impl Sumeragi {
     /// # Panics
     /// - If either mutex is poisoned
     #[allow(
-        clippy::expect_used,
         clippy::unwrap_in_result,
         clippy::float_arithmetic,
-        clippy::mutex_integer
+        clippy::arithmetic_side_effects
     )]
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
@@ -142,7 +144,7 @@ impl Sumeragi {
             .len()
             .try_into()
             .expect("Cast usize to u64");
-        
+
         let wsv_guard = self.internal.wsv.lock();
 
         let metrics_guard = self.metrics_mutex.lock();
@@ -211,19 +213,20 @@ impl Sumeragi {
     }
 
     /// Access node metrics.
-    #[allow(clippy::expect_used)]
+    #[inline]
     pub fn metrics_mutex_access(&self) -> MutexGuard<Metrics> {
         self.metrics_mutex.lock()
     }
 
     /// Get latest block hash for use by the block synchronization subsystem.
-    #[allow(clippy::expect_used)]
+    #[inline]
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
         *self.internal.latest_block_hash.lock()
     }
 
     /// Get an array of blocks after the block identified by `block_hash`. Returns
     /// an empty array if the specified block could not be found.
+    #[inline]
     pub fn blocks_after_hash(
         &self,
         block_hash: HashOf<VersionedCommittedBlock>,
@@ -232,6 +235,7 @@ impl Sumeragi {
     }
 
     /// Get an array of blocks from `block_height`. (`blocks[block_height]`, `blocks[block_height + 1]` etc.)
+    #[inline]
     pub fn blocks_from_height(&self, block_height: usize) -> Vec<VersionedCommittedBlock> {
         self.wsv_mutex_access().blocks_from_height(block_height)
     }
@@ -241,7 +245,7 @@ impl Sumeragi {
     /// and release the lock. This is because no blocks can be produced
     /// while this lock is held.
     // TODO: Return result.
-    #[allow(clippy::expect_used)]
+    #[inline]
     pub fn wsv_mutex_access(&self) -> MutexGuard<WorldStateView> {
         self.internal.wsv.lock()
     }
@@ -252,7 +256,6 @@ impl Sumeragi {
     /// - If either mutex is poisoned.
     /// - If topology was built wrong (programmer error)
     /// - Sumeragi thread failed to spawn.
-    #[allow(clippy::expect_used)]
     pub fn initialize_and_start_thread(
         sumeragi: Arc<Self>,
         genesis_network: Option<GenesisNetwork>,
@@ -330,7 +333,6 @@ pub struct VotingBlock {
 
 impl VotingBlock {
     /// Constructs new `VotingBlock.`
-    #[allow(clippy::expect_used)]
     pub fn new(block: ValidBlock) -> VotingBlock {
         VotingBlock {
             voted_at: current_time(),

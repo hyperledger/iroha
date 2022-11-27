@@ -4,6 +4,7 @@
 
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 use std::{
+    cmp::{Eq, PartialEq},
     collections::{HashMap, HashSet},
     sync::Arc,
     thread,
@@ -251,7 +252,6 @@ impl Network {
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> Result<Self> {
-        #[allow(clippy::expect_used)]
         let mut builders = core::iter::repeat_with(PeerBuilder::new)
             .enumerate()
             .map(|(n, builder)| {
@@ -343,15 +343,16 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     for _ in 0..MAX_RETRIES {
         thread::sleep(POLL_PERIOD);
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
-            if let Ok(status) = client.get_status() {
-                if status.blocks < 1 {
-                    acc + 1
-                } else {
-                    acc
-                }
-            } else {
-                acc + 1
-            }
+            client.get_status().map_or(
+                acc + 1,
+                |status| {
+                    if status.blocks < 1 {
+                        acc + 1
+                    } else {
+                        acc
+                    }
+                },
+            )
         });
         if without_genesis_peers <= offline_peers {
             return;
@@ -392,13 +393,13 @@ impl From<Peer> for Box<iroha_core::tx::Peer> {
     }
 }
 
-impl std::cmp::PartialEq for Peer {
+impl PartialEq for Peer {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl std::cmp::Eq for Peer {}
+impl Eq for Peer {}
 
 impl Drop for Peer {
     fn drop(&mut self) {
@@ -526,7 +527,7 @@ impl Peer {
 /// Options for setting up the genesis network for `PeerBuilder`.
 pub enum WithGenesis {
     /// Use the default genesis network.
-    Default,
+    DefaultNetwork,
     /// Do not use any genesis networks.
     None,
     /// Use the given genesis network.
@@ -534,17 +535,16 @@ pub enum WithGenesis {
 }
 
 impl Default for WithGenesis {
+    #[inline]
     fn default() -> Self {
-        Self::Default
+        Self::DefaultNetwork
     }
 }
 
 impl From<Option<GenesisNetwork>> for WithGenesis {
+    #[inline]
     fn from(x: Option<GenesisNetwork>) -> Self {
-        match x {
-            None => Self::None,
-            Some(genesis) => Self::Has(genesis),
-        }
+        x.map_or(Self::None, Self::Has)
     }
 }
 
@@ -653,7 +653,7 @@ impl PeerBuilder {
             config
         });
         let genesis = match self.genesis {
-            WithGenesis::Default => GenesisNetwork::test(true),
+            WithGenesis::DefaultNetwork => GenesisNetwork::test(true),
             WithGenesis::None => None,
             WithGenesis::Has(genesis) => Some(genesis),
         };
@@ -770,7 +770,7 @@ pub trait TestClient: Sized {
         instruction: impl Into<Instruction> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    ) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -785,7 +785,7 @@ pub trait TestClient: Sized {
         instructions: Vec<Instruction>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    ) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -795,11 +795,7 @@ pub trait TestClient: Sized {
     ///
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
-    fn poll_request<R>(
-        &mut self,
-        request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -815,7 +811,7 @@ pub trait TestClient: Sized {
         period: Duration,
         max_attempts: u32,
         f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    ) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -935,7 +931,7 @@ impl TestClient for Client {
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")
         {
-            f(event_result)
+            f(event_result);
         }
     }
 
@@ -944,7 +940,7 @@ impl TestClient for Client {
         instruction: impl Into<Instruction> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    ) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -960,7 +956,7 @@ impl TestClient for Client {
         instructions: Vec<Instruction>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    ) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -977,7 +973,7 @@ impl TestClient for Client {
         period: Duration,
         max_attempts: u32,
         f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    ) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -994,11 +990,7 @@ impl TestClient for Client {
         Err(eyre::eyre!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result))
     }
 
-    fn poll_request<R>(
-        &mut self,
-        request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> Result<R::Output>
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,

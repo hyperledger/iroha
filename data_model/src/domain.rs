@@ -57,7 +57,6 @@ impl From<GenesisDomain> for Domain {
         #[cfg(feature = "std")]
         use std::collections::btree_map;
 
-        #[allow(clippy::expect_used)]
         Self {
             id: Id::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
             accounts: core::iter::once((
@@ -118,7 +117,7 @@ impl crate::Registrable for NewDomain {
 
 impl HasMetadata for NewDomain {
     #[inline]
-    fn metadata(&self) -> &crate::metadata::Metadata {
+    fn metadata(&self) -> &Metadata {
         &self.metadata
     }
 }
@@ -196,7 +195,7 @@ declare_item! {
 
 impl HasMetadata for Domain {
     #[inline]
-    fn metadata(&self) -> &crate::metadata::Metadata {
+    fn metadata(&self) -> &Metadata {
         &self.metadata
     }
 }
@@ -528,7 +527,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn test_valid_ipfs_path() {
         // Valid paths
         IpfsPath::from_str("QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")

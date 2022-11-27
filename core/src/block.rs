@@ -7,7 +7,7 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 
 use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
@@ -120,6 +120,7 @@ impl<'itm> ChainIterator<'itm> {
     }
 }
 
+#[allow(clippy::arithmetic_side_effects)] // We will run out of RAM long before these are a problem.
 impl<'itm> Iterator for ChainIterator<'itm> {
     type Item = MapRef<'itm, u64, VersionedCommittedBlock>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -143,18 +144,19 @@ impl<'itm> Iterator for ChainIterator<'itm> {
 
     fn count(self) -> usize {
         #[allow(clippy::cast_possible_truncation)]
-        let count = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
+        let count = ((self.chain.len() as u64).saturating_sub(self.pos_front - 1)) as usize;
         count
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         #[allow(clippy::cast_possible_truncation)]
-        let height = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
+        let height = ((self.chain.len() as u64).saturating_sub(self.pos_front - 1)) as usize;
         (height, Some(height))
     }
 }
 
-impl<'itm> DoubleEndedIterator for ChainIterator<'itm> {
+impl DoubleEndedIterator for ChainIterator<'_> {
+    #[allow(clippy::arithmetic_side_effects)]
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_back);
@@ -165,7 +167,10 @@ impl<'itm> DoubleEndedIterator for ChainIterator<'itm> {
     }
 
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        self.pos_back -= n as u64;
+        self.pos_back = usize::try_from(self.pos_back)
+            .expect("don't fit into `usize`")
+            .checked_sub(n)
+            .expect("Out of bounds") as u64;
         self.next_back()
     }
 }
@@ -320,7 +325,7 @@ impl ChainedBlock {
                         caused_by = ?tx.as_v1().rejection_reason.source(),
                         "Transaction validation failed",
                     );
-                    rejected.push(tx)
+                    rejected.push(tx);
                 }
             }
         }

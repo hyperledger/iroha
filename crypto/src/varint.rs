@@ -28,7 +28,7 @@ impl std::error::Error for ConvertError {}
 macro_rules! try_from_var_uint(
     { $( $ty:ty ),* } => {
         $(
-            #[allow(trivial_numeric_casts)]
+            #[allow(trivial_numeric_casts, clippy::arithmetic_side_effects)]
             impl TryFrom<VarUint> for $ty {
                 type Error = ConvertError;
 
@@ -69,7 +69,7 @@ impl AsRef<[u8]> for VarUint {
 macro_rules! from_uint(
     { $( $ty:ty ),* } => {
         $(
-            #[allow(trivial_numeric_casts)]
+            #[allow(trivial_numeric_casts, clippy::arithmetic_side_effects)]
             impl From<$ty> for VarUint {
                 fn from(n: $ty) -> Self {
                     let zeros = n.leading_zeros();
@@ -92,6 +92,7 @@ from_uint!(u8, u16, u32, u64, u128);
 
 impl VarUint {
     /// Construct `VarUint`.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn new(bytes: impl AsRef<[u8]>) -> Result<Self, ConvertError> {
         let idx = bytes
             .as_ref()
@@ -138,7 +139,7 @@ mod tests {
 
     #[test]
     fn test_basic_from() {
-        let n_should: u64 = VarUint::new(&[0b1000_0000, 0b1000_0000, 0b0000_0001])
+        let n_should: u64 = VarUint::new([0b1000_0000, 0b1000_0000, 0b0000_0001])
             .unwrap()
             .try_into()
             .unwrap();

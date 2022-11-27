@@ -1,9 +1,5 @@
 //! This module contains permissions related Iroha functionality.
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 #![allow(clippy::module_name_repetitions)]
 
 use core::{
@@ -206,7 +202,7 @@ impl Not for ValidatorVerdict {
         match &self {
             ValidatorVerdict::Deny(_) => ValidatorVerdict::Allow,
             ValidatorVerdict::Skip => ValidatorVerdict::Skip,
-            _ => ValidatorVerdict::Deny("Negated Allow verdict".to_owned()),
+            ValidatorVerdict::Allow => ValidatorVerdict::Deny("Negated Allow verdict".to_owned()),
         }
     }
 }

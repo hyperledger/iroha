@@ -41,7 +41,7 @@ impl core::ops::Index<usize> for Ipv4Addr {
 
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+        self.0.index(index)
     }
 }
 
@@ -90,10 +90,11 @@ impl core::ops::Index<usize> for Ipv6Addr {
 
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+        self.0.index(index)
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 impl core::fmt::Display for Ipv6Addr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // TODO: Implement omission of zeroes.
@@ -124,7 +125,7 @@ mod std_compat {
         #[inline]
         fn from(other: Ipv4Addr) -> Self {
             let Ipv4Addr([a, b, c, d]) = other;
-            std::net::Ipv4Addr::new(a, b, c, d)
+            Self::new(a, b, c, d)
         }
     }
 

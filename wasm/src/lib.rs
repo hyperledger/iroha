@@ -263,7 +263,6 @@ mod host {
 unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: *const u8) -> T {
     let len_size_bytes = core::mem::size_of::<usize>();
 
-    #[allow(clippy::expect_used)]
     let len = usize::from_le_bytes(
         core::slice::from_raw_parts(ptr, len_size_bytes)
             .try_into()
@@ -304,7 +303,6 @@ unsafe fn _decode_from_raw_in_range<T: Decode>(
 ) -> T {
     let bytes = Box::from_raw(core::slice::from_raw_parts_mut(ptr as *mut _, len));
 
-    #[allow(clippy::expect_used, clippy::expect_fun_call)]
     T::decode(&mut &bytes[range]).expect(
         format!(
             "Decoding of {} failed. This is a bug",

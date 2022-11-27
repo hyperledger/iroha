@@ -37,7 +37,8 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), [])).into();
 
-    let _ = submit_and_get(&mut client, [register_bob]);
+    // TODO: investigate
+    drop(submit_and_get(&mut client, [register_bob]));
     let mut keys_count = bob_keys_count(&mut client);
     assert_eq!(keys_count, 0);
 
@@ -46,7 +47,8 @@ fn public_keys_cannot_be_burned_to_nothing() {
         MintBox::new(public_key, bob_id.clone()).into()
     });
 
-    let _ = submit_and_get(&mut client, mint_keys);
+    // TODO: Check if preferable to drop at end of scope.
+    drop(submit_and_get(&mut client, mint_keys));
     keys_count = bob_keys_count(&mut client);
     assert_eq!(keys_count, KEYS_COUNT);
 

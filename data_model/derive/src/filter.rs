@@ -1,9 +1,4 @@
-#![allow(
-    clippy::expect_used,
-    clippy::mixed_read_write_in_expression,
-    clippy::unwrap_in_result,
-    clippy::arithmetic
-)]
+#![allow(clippy::mixed_read_write_in_expression, clippy::unwrap_in_result)]
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
@@ -124,7 +119,7 @@ impl Parse for EventEnum {
         let _brace_token = syn::braced!(content in input);
         let variants = content.parse_terminated(EventVariant::parse)?;
         if ident.to_string().ends_with("Event") {
-            Ok(EventEnum {
+            Ok(Self {
                 vis,
                 ident,
                 generics,
@@ -156,12 +151,12 @@ impl Parse for EventVariant {
                 .expect("Should be an ident-convertible path");
 
             if field_ident.to_string().ends_with("Event") {
-                Ok(EventVariant::EventField {
+                Ok(Self::EventField {
                     variant: variant_ident,
                     field: field_ident.clone(),
                 })
             } else {
-                Ok(EventVariant::IdField(variant_ident))
+                Ok(Self::IdField(variant_ident))
             }
         } else {
             Err(syn::Error::new_spanned(

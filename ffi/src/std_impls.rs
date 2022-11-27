@@ -1,12 +1,12 @@
 // Triggered by `&mut str` expansion
-#![allow(clippy::mut_mut)]
+#![allow(clippy::mut_mut, single_use_lifetimes)]
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     string::String,
     vec::Vec,
 };
-use core::mem::ManuallyDrop;
+use core::{mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{ffi_type, ir::InfallibleTransmute, ReprC};
 
@@ -19,8 +19,8 @@ ffi_type! {unsafe impl Transparent for String[Vec<u8>] validated with {|target| 
 ffi_type! {unsafe impl<'slice> Transparent for &'slice str[&'slice [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
 #[cfg(feature = "non_robust_ref_mut")]
 ffi_type! {unsafe impl<'slice> Transparent for &'slice mut str[&'slice mut [u8]] validated with {|target| core::str::from_utf8(target).is_ok()} }
-ffi_type! {unsafe impl<T> Transparent for core::mem::ManuallyDrop<T>[T] validated with {|_| true} }
-ffi_type! {unsafe impl<T> Transparent for core::ptr::NonNull<T>[*mut T] validated with {|target: &*mut T| target.is_null()} }
+ffi_type! {unsafe impl<T> Transparent for ManuallyDrop<T>[T] validated with {|_| true} }
+ffi_type! {unsafe impl<T> Transparent for NonNull<T>[*mut T] validated with {|target: &*mut T| target.is_null()} }
 ffi_type! {impl<K, V> Opaque for BTreeMap<K, V> }
 ffi_type! {impl<K> Opaque for BTreeSet<K> }
 

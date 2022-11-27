@@ -1,4 +1,8 @@
-#![allow(trivial_casts, clippy::undocumented_unsafe_blocks)]
+#![allow(
+    trivial_casts,
+    clippy::undocumented_unsafe_blocks,
+    clippy::option_if_let_else
+)]
 
 //! Logic related to the conversion of IR types to equivalent robust C types. Most of the
 //! types that implement [`Ir`], i.e. provide conversion into IR, will get an automatic
@@ -386,7 +390,7 @@ impl<R: ReprC + Ir<Type = Robust>> CType<Box<Robust>> for Box<R> {
     type ReprC = *mut R;
 }
 impl<R: ReprC + Ir<Type = Robust> + Default> CTypeConvert<'_, Box<Robust>, *mut R> for Box<R> {
-    type RustStore = Box<R>;
+    type RustStore = Self;
     type FfiStore = ();
 
     fn into_repr_c(self, store: &mut Self::RustStore) -> *mut R {
@@ -439,7 +443,7 @@ impl<R: ReprC + Ir<Type = Robust>> CType<Vec<Robust>> for Vec<R> {
     type ReprC = SliceMut<R>;
 }
 impl<R: ReprC + Ir<Type = Robust>> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> for Vec<R> {
-    type RustStore = Vec<R>;
+    type RustStore = Self;
     type FfiStore = ();
 
     fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<R> {

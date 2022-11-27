@@ -44,6 +44,8 @@ pub mod body {
     use super::*;
 
     #[derive(Debug)]
+    // TODO: This is not a false-positive.
+    #[allow(unused_tuple_struct_fields)]
     pub struct WarpQueryError(QueryError);
 
     impl From<QueryError> for WarpQueryError {
@@ -54,7 +56,7 @@ pub mod body {
 
     impl warp::reject::Reject for WarpQueryError {}
 
-    impl TryFrom<&Bytes> for super::VerifiedQueryRequest {
+    impl TryFrom<&Bytes> for VerifiedQueryRequest {
         type Error = WarpQueryError;
 
         fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
@@ -81,10 +83,10 @@ pub mod body {
 }
 
 /// Warp result response type
-pub struct WarpResult<O, E>(Result<O, E>);
+pub struct WarpResult<O, E>(pub(crate) Result<O, E>);
 
 impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
-    fn into_response(self) -> warp::reply::Response {
+    fn into_response(self) -> Response {
         match self {
             Self(Ok(ok)) => ok.into_response(),
             Self(Err(err)) => err.into_response(),

@@ -1,5 +1,5 @@
 //! Retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_core)]
 use iroha_config::telemetry::retry_period::{
     DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
 };
@@ -30,7 +30,7 @@ impl RetryPeriod {
     /// Increases the exponent if it isn't at its maximum
     pub fn increase_exponent(&mut self) {
         if self.exponent < self.max_exponent {
-            self.exponent += 1;
+            self.exponent = self.exponent.saturating_add(1);
         }
     }
 

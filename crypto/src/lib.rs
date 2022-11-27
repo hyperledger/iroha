@@ -1,6 +1,7 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_alloc, clippy::module_name_repetitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(feature = "std", allow(clippy::std_instead_of_core))]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -84,7 +85,7 @@ ffi::ffi_item! {
 
 impl Default for Algorithm {
     fn default() -> Self {
-        Algorithm::Ed25519
+        Self::Ed25519
     }
 }
 
@@ -93,10 +94,10 @@ impl FromStr for Algorithm {
 
     fn from_str(algorithm: &str) -> Result<Self, Self::Err> {
         match algorithm {
-            ED_25519 => Ok(Algorithm::Ed25519),
-            SECP_256_K1 => Ok(Algorithm::Secp256k1),
-            BLS_NORMAL => Ok(Algorithm::BlsNormal),
-            BLS_SMALL => Ok(Algorithm::BlsSmall),
+            ED_25519 => Ok(Self::Ed25519),
+            SECP_256_K1 => Ok(Self::Secp256k1),
+            BLS_NORMAL => Ok(Self::BlsNormal),
+            BLS_SMALL => Ok(Self::BlsSmall),
             _ => Err(Self::Err {}),
         }
     }
@@ -117,7 +118,7 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
 
     fn try_from(key_gen_option: KeyGenOption) -> Result<Self, Self::Error> {
         match key_gen_option {
-            KeyGenOption::UseSeed(seed) => Ok(UrsaKeyGenOption::UseSeed(seed)),
+            KeyGenOption::UseSeed(seed) => Ok(Self::UseSeed(seed)),
             KeyGenOption::FromPrivateKey(key) => {
                 let algorithm = key.digest_function();
 
@@ -387,7 +388,6 @@ impl PublicKey {
     }
 
     /// Digest function
-    #[allow(clippy::expect_used)]
     pub fn digest_function(&self) -> Algorithm {
         self.digest_function.parse().expect("Valid")
     }
@@ -406,7 +406,6 @@ impl FromStr for PublicKey {
 }
 
 impl fmt::Display for PublicKey {
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let multihash: &Multihash = &self
             .clone()
@@ -441,7 +440,6 @@ impl From<Multihash> for PublicKey {
 
 #[cfg(feature = "std")]
 impl From<PrivateKey> for PublicKey {
-    #[allow(clippy::expect_used)]
     fn from(private_key: PrivateKey) -> Self {
         let digest_function = private_key.digest_function();
         let key_gen_option = Some(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(
@@ -454,7 +452,7 @@ impl From<PrivateKey> for PublicKey {
             Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
         }
         .expect("can't fail for valid `PrivateKey`");
-        PublicKey {
+        Self {
             digest_function: private_key.digest_function,
             payload: core::mem::take(&mut public_key.0),
         }
@@ -500,7 +498,7 @@ impl<'de> Deserialize<'de> for PublicKey {
         use serde::de::Error as _;
 
         let public_key_str = <Cow<str>>::deserialize(deserializer)?;
-        PublicKey::from_str(&public_key_str).map_err(D::Error::custom)
+        Self::from_str(&public_key_str).map_err(D::Error::custom)
     }
 }
 
@@ -541,12 +539,14 @@ ffi::ffi_item! {
 #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl PrivateKey {
     /// Key payload
+    #[inline]
+    #[must_use]
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }
 
     /// Digest function
-    #[allow(clippy::expect_used)]
+    #[must_use]
     pub fn digest_function(&self) -> Algorithm {
         self.digest_function.parse().expect("Valid")
     }

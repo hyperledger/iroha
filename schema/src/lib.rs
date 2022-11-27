@@ -27,6 +27,7 @@ pub trait IntoSchema {
     fn type_name() -> String;
 
     /// Returns info about current type. Will return map from type names to its metadata
+    #[must_use]
     fn get_schema() -> MetaMap {
         let mut map = MetaMap::new();
         Self::schema(&mut map);
@@ -225,7 +226,7 @@ impl DecimalPlacesAware for fixnum::typenum::U9 {
 
 impl IntoSchema for String {
     fn type_name() -> String {
-        String::from("String")
+        Self::from("String")
     }
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert(Metadata::String);
@@ -278,7 +279,7 @@ impl<T: IntoSchema> IntoSchema for Box<T> {
     }
 
     fn schema(map: &mut MetaMap) {
-        T::schema(map)
+        T::schema(map);
     }
 }
 
@@ -336,7 +337,7 @@ impl<K: IntoSchema> IntoSchema for BTreeSet<K> {
             })
         });
         if !map.contains_key(&K::type_name()) {
-            K::schema(map)
+            K::schema(map);
         }
     }
 }
@@ -366,7 +367,6 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
 
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
-            #[allow(clippy::expect_used)]
             Metadata::Array(ArrayMeta {
                 ty: T::type_name(),
                 len: L.try_into().expect("usize should always fit in u64"),

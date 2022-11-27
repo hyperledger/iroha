@@ -98,7 +98,6 @@ fn get_id_type(input: &syn::ItemStruct) -> (TokenStream, TokenStream) {
             for field in &named.named {
                 let field_ty = &field.ty;
 
-                #[allow(clippy::expect_used)]
                 if field.ident.as_ref().expect("Field must be named") == "id" {
                     return (quote! {#field_ty}, quote! {&self.id});
                 }

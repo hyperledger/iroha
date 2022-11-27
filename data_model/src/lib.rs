@@ -5,7 +5,7 @@
     clippy::module_name_repetitions,
     clippy::unwrap_in_result,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic,
+    clippy::std_instead_of_core,
     clippy::trait_duplication_in_bounds,
     clippy::extra_unused_lifetimes // Thanks to `EnumKind` not knowing how to write a derive macro.
 )]
@@ -690,6 +690,7 @@ impl fmt::Display for Value {
 #[allow(clippy::len_without_is_empty)]
 impl Value {
     /// Number of underneath expressions.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         use Value::*;
 
@@ -1382,10 +1383,10 @@ pub trait PredicateTrait<T: ?Sized + Copy> {
 
 /// Get the current system time as `Duration` since the unix epoch.
 #[cfg(feature = "std")]
+#[must_use]
 pub fn current_time() -> core::time::Duration {
     use std::time::SystemTime;
 
-    #[allow(clippy::expect_used)]
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("Failed to get the current system time")

@@ -81,7 +81,7 @@ fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &mut Generics) -> Tok
     }
 }
 
-fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenStream {
+fn derive_ffi_type_for_transparent_item(input: &mut DeriveInput) -> TokenStream {
     let name = &input.ident;
 
     // TODO: We don't check to find which field is not a ZST.
@@ -221,7 +221,6 @@ fn derive_ffi_type_for_data_carrying_enum(
         })
         .collect::<Vec<_>>();
 
-    #[allow(clippy::expect_used)]
     let variants_into_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
         let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let payload_name = gen_repr_c_enum_payload_name(enum_name);
@@ -250,7 +249,6 @@ fn derive_ffi_type_for_data_carrying_enum(
         )
     });
 
-    #[allow(clippy::expect_used)]
     let variants_try_from_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
         let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let variant_name = &variant.ident;
@@ -529,7 +527,7 @@ fn is_robust(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|a| *a == robust_attr)
 }
 
-fn is_owning(attrs: &[syn::Attribute], data: &syn::Data) -> bool {
+fn is_owning(attrs: &[syn::Attribute], data: &Data) -> bool {
     // TODO: The type is sure to be "non-owning" if it implements `Copy`
     let non_owning = parse_quote! {#[ffi_type(unsafe {non_owning})]};
 
@@ -553,7 +551,7 @@ fn is_non_local(attrs: &[syn::Attribute]) -> bool {
     !attrs.iter().any(|attr| *attr == local)
 }
 
-fn contains_ptr(data: &syn::Data) -> bool {
+fn contains_ptr(data: &Data) -> bool {
     use syn::visit::Visit;
 
     struct PtrVistor(bool);

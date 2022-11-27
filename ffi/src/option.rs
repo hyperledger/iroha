@@ -14,14 +14,14 @@ pub trait Niche: FfiType {
     const NICHE_VALUE: Self::ReprC;
 }
 
-impl<'itm, R, C> Niche for &'itm R
+impl<R, C> Niche for &R
 where
     Self: FfiType<ReprC = *const C>,
 {
     const NICHE_VALUE: Self::ReprC = core::ptr::null();
 }
 
-impl<'itm, R, C> Niche for &'itm mut R
+impl<R, C> Niche for &mut R
 where
     Self: FfiType<ReprC = *mut C>,
 {
@@ -29,7 +29,7 @@ where
 }
 
 impl<R: Niche> Ir for Option<R> {
-    type Type = Option<R>;
+    type Type = Self;
 }
 
 impl<R: Niche> CType<Option<R>> for Option<R> {

@@ -111,6 +111,7 @@ impl Default for ConfigurationProxy {
 const TTL_TOO_SMALL_THRESHOLD: u64 = 500;
 const WASM_SIZE_TOO_SMALL_THRESHOLD: u64 = 2_u64.pow(10); // 1 KiB
 
+#[allow(clippy::indexing_slicing)]
 impl ConfigurationProxy {
     /// Finalise Iroha client config proxy by checking that certain fields identify reasonable limits or
     /// are well formatted.

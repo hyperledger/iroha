@@ -67,7 +67,7 @@ impl GenesisAccount {
     /// Returns `GenesisAccount` instance.
     #[must_use]
     pub const fn new(public_key: PublicKey) -> Self {
-        GenesisAccount { public_key }
+        Self { public_key }
     }
 }
 
@@ -75,7 +75,7 @@ impl GenesisAccount {
 impl From<GenesisAccount> for Account {
     #[inline]
     fn from(account: GenesisAccount) -> Self {
-        Account::new(Id::genesis(), [account.public_key]).build()
+        Self::new(Id::genesis(), [account.public_key]).build()
     }
 }
 
@@ -111,7 +111,7 @@ impl SignatureCheckCondition {
 impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
     #[inline]
     fn from(condition: EvaluatesTo<bool>) -> Self {
-        SignatureCheckCondition(condition)
+        Self(condition)
     }
 }
 
@@ -409,7 +409,6 @@ impl Id {
     #[inline]
     #[must_use]
     pub fn genesis() -> Self {
-        #[allow(clippy::expect_used)]
         Self {
             name: Name::from_str(GENESIS_ACCOUNT_NAME).expect("Valid"),
             domain_id: DomainId::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
@@ -436,8 +435,8 @@ impl FromStr for Id {
             });
         }
         Ok(Self {
-            name: Name::from_str(vector[0])?,
-            domain_id: DomainId::from_str(vector[1])?,
+            name: Name::from_str(vector.first().expect("Already checked."))?,
+            domain_id: DomainId::from_str(vector.get(1).expect("Already checked"))?,
         })
     }
 }

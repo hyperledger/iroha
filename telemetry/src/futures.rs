@@ -11,8 +11,6 @@ use tokio_stream::{Stream, StreamExt};
 pub mod post_process {
     //! Module with telemetry post processing
 
-    #![allow(clippy::unwrap_used, clippy::fallible_impl_from)]
-
     use super::*;
 
     /// Post processed info of function
@@ -41,13 +39,13 @@ pub mod post_process {
                 .flat_map(IntoIterator::into_iter)
                 .map(Duration::as_secs_f64);
             let minmax = iter.clone().collect::<stats::MinMax<f64>>();
-
             let mean = stats::mean(iter.clone());
-            let median = stats::median(iter.clone()).unwrap();
             let variance = stats::variance(iter.clone());
             let stddev = stats::stddev(iter.clone());
-            let min = *minmax.min().unwrap();
-            let max = *minmax.max().unwrap();
+            // 0 duration is a problem. Should be obvious when analysing, but should not cause a panic
+            let median = stats::median(iter.clone()).unwrap_or(0_f64);
+            let min = *minmax.min().unwrap_or(&0_f64);
+            let max = *minmax.max().unwrap_or(&f64::MAX);
 
             Self {
                 name,

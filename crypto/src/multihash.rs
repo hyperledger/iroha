@@ -51,10 +51,10 @@ impl core::str::FromStr for DigestFunction {
 
     fn from_str(source: &str) -> Result<Self, Self::Err> {
         match source {
-            ED_25519_PUB_STR => Ok(DigestFunction::Ed25519Pub),
-            SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
-            BLS12_381_G1_PUB => Ok(DigestFunction::Bls12381G1Pub),
-            BLS12_381_G2_PUB => Ok(DigestFunction::Bls12381G2Pub),
+            ED_25519_PUB_STR => Ok(Self::Ed25519Pub),
+            SECP_256_K1_PUB_STR => Ok(Self::Secp256k1Pub),
+            BLS12_381_G1_PUB => Ok(Self::Bls12381G1Pub),
+            BLS12_381_G2_PUB => Ok(Self::Bls12381G2Pub),
             _ => Err(Self::Err {}),
         }
     }
@@ -65,18 +65,10 @@ impl TryFrom<u64> for DigestFunction {
 
     fn try_from(variant: u64) -> Result<Self, Self::Error> {
         match variant {
-            variant if variant == DigestFunction::Ed25519Pub as u64 => {
-                Ok(DigestFunction::Ed25519Pub)
-            }
-            variant if variant == DigestFunction::Secp256k1Pub as u64 => {
-                Ok(DigestFunction::Secp256k1Pub)
-            }
-            variant if variant == DigestFunction::Bls12381G1Pub as u64 => {
-                Ok(DigestFunction::Bls12381G1Pub)
-            }
-            variant if variant == DigestFunction::Bls12381G2Pub as u64 => {
-                Ok(DigestFunction::Bls12381G2Pub)
-            }
+            variant if variant == Self::Ed25519Pub as u64 => Ok(Self::Ed25519Pub),
+            variant if variant == Self::Secp256k1Pub as u64 => Ok(Self::Secp256k1Pub),
+            variant if variant == Self::Bls12381G1Pub as u64 => Ok(Self::Bls12381G1Pub),
+            variant if variant == Self::Bls12381G2Pub as u64 => Ok(Self::Bls12381G2Pub),
             _ => Err(Self::Error {}),
         }
     }
@@ -84,7 +76,7 @@ impl TryFrom<u64> for DigestFunction {
 
 impl From<DigestFunction> for u64 {
     fn from(digest_function: DigestFunction) -> Self {
-        digest_function as u64
+        digest_function as Self
     }
 }
 
@@ -123,6 +115,7 @@ pub struct Multihash {
 impl TryFrom<Vec<u8>> for Multihash {
     type Error = ConvertError;
 
+    #[allow(clippy::arithmetic_side_effects)]
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let idx = bytes
             .iter()
@@ -205,7 +198,7 @@ mod tests {
             hex::decode("ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
                 .expect("Failed to decode"),
             bytes
-        )
+        );
     }
 
     #[test]
@@ -221,7 +214,7 @@ mod tests {
             hex::decode("ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
                 .expect("Failed to decode");
         let multihash_decoded: Multihash = bytes.try_into().expect("Failed to decode.");
-        assert_eq!(multihash, multihash_decoded)
+        assert_eq!(multihash, multihash_decoded);
     }
 
     #[test]

@@ -1,10 +1,6 @@
 //! Structures related to proofs and reasons of view changes.
 //! Where view change is a process of changing topology due to some faulty network behavior.
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::collections::HashSet;
 
 use eyre::Result;
@@ -76,10 +72,7 @@ impl Proof {
             .count();
 
         // See Whitepaper for the information on this limit.
-        #[allow(clippy::int_plus_one)]
-        {
-            valid_count >= max_faults + 1
-        }
+        valid_count > max_faults
     }
 }
 
@@ -138,7 +131,7 @@ impl ProofChain for Vec<Proof> {
         self.truncate(valid_count);
     }
 
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    #[allow(clippy::unwrap_in_result, clippy::arithmetic_side_effects)]
     fn insert_proof(
         &mut self,
         peers: &HashSet<PeerId>,

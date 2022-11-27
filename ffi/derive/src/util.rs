@@ -48,7 +48,6 @@ pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
     }
 }
 
-#[allow(clippy::expect_used)]
 pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
     let ffi_type = arg.ffi_type_resolved(is_output);
@@ -126,7 +125,7 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
                             return None;
                         }
                     }
-                    _ => abort!(item, "Unsupported getset attribute"),
+                    syn::Meta::List(_) => abort!(item, "Unsupported getset attribute"),
                 }
             }
 
@@ -134,7 +133,6 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
         })
 }
 
-#[allow(clippy::expect_used)]
 fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> FnDescriptor {
     let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
     let field_name = field.ident.as_ref().expect_or_abort("Defined").clone();
@@ -179,7 +177,6 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
     }
 }
 
-#[allow(clippy::expect_used)]
 fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature {
     let field_name = field.ident.as_ref().expect("Field name not defined");
     let field_ty = &field.ty;

@@ -47,6 +47,7 @@ mod small_string {
             Self(SmallString::from_str(other))
         }
 
+        #[must_use]
         #[inline]
         /// Checks if the specified pattern is the prefix of given string.
         pub fn starts_with(&self, pattern: &str) -> bool {
@@ -61,9 +62,13 @@ mod small_string {
     }
 
     impl IntoSchema for SmallStr {
+        #[must_use]
+        #[inline]
         fn type_name() -> String {
             String::type_name()
         }
+
+        #[inline]
         fn schema(map: &mut MetaMap) {
             String::schema(map);
         }
@@ -71,6 +76,8 @@ mod small_string {
 }
 
 mod small_vector {
+    use smallvec::Array;
+
     use super::*;
 
     /// Wrapper struct around [`smallvec::SmallVec`] type. Keeps `N`
@@ -178,7 +185,7 @@ mod small_vector {
         /// Append an item to the vector.
         #[inline]
         pub fn push(&mut self, value: A::Item) {
-            self.0.push(value)
+            self.0.push(value);
         }
 
         /// Remove and return the element at position `index`, shifting all elements after it to the
@@ -206,7 +213,7 @@ mod small_vector {
     }
 
     impl<A: Array> IntoIterator for SmallVec<A> {
-        type Item = <A as smallvec::Array>::Item;
+        type Item = <A as Array>::Item;
 
         type IntoIter = <smallvec::SmallVec<A> as IntoIterator>::IntoIter;
 
@@ -215,19 +222,19 @@ mod small_vector {
         }
     }
 
-    impl<T: IntoSchema, A: smallvec::Array<Item = T>> IntoSchema for SmallVec<A> {
+    impl<T: IntoSchema, A: Array<Item = T>> IntoSchema for SmallVec<A> {
         fn type_name() -> String {
             Vec::<T>::type_name()
         }
 
         fn schema(map: &mut MetaMap) {
-            Vec::<T>::schema(map)
+            Vec::<T>::schema(map);
         }
     }
 
-    impl<A: smallvec::Array> Extend<A::Item> for SmallVec<A> {
+    impl<A: Array> Extend<A::Item> for SmallVec<A> {
         fn extend<T: IntoIterator<Item = A::Item>>(&mut self, iter: T) {
-            self.0.extend(iter)
+            self.0.extend(iter);
         }
     }
 

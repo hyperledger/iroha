@@ -56,12 +56,11 @@ impl Hash {
     #[must_use]
     // TODO: It would be best if all uses of zeroed hash could be replaced with Option<Hash>
     pub const fn zeroed() -> Self {
-        Hash::prehashed([0; Hash::LENGTH])
+        Self::prehashed([0; Self::LENGTH])
     }
 
     /// Hash the given bytes.
     #[cfg(feature = "std")]
-    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn new(bytes: impl AsRef<[u8]>) -> Self {
         let vec_hash = VarBlake2b::new(Self::LENGTH)
@@ -70,7 +69,7 @@ impl Hash {
             .finalize_boxed();
         let mut hash = [0; Self::LENGTH];
         hash.copy_from_slice(&vec_hash);
-        Hash::prehashed(hash)
+        Self::prehashed(hash)
     }
 
     /// Adds type information to the hash. Be careful about using this function
@@ -144,7 +143,7 @@ impl<T> Ord for HashOf<T> {
 
 impl<T> hash::Hash for HashOf<T> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
+        self.0.hash(state);
     }
 }
 
@@ -208,6 +207,6 @@ mod tests {
                 res[..],
                 hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
             );
-        })
+        });
     }
 }

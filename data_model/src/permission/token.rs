@@ -152,7 +152,7 @@ declare_item! {
         /// Parameters and their types that every
         /// [`Token`] with this definition should have
         #[getset(skip)]
-        params: btree_map::BTreeMap<Name, crate::ValueKind>,
+        params: btree_map::BTreeMap<Name, ValueKind>,
     }
 }
 
@@ -173,10 +173,7 @@ impl Definition {
     /// Add parameters to the [`Definition`] replacing any parameters previously defined
     #[inline]
     #[must_use]
-    pub fn with_params(
-        mut self,
-        params: impl IntoIterator<Item = (Name, crate::ValueKind)>,
-    ) -> Self {
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, ValueKind)>) -> Self {
         self.params = params.into_iter().collect();
         self
     }
@@ -185,7 +182,7 @@ impl Definition {
     ///
     /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]
-    pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &crate::ValueKind)> {
+    pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &ValueKind)> {
         self.params.iter()
     }
 }

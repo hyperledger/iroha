@@ -45,13 +45,13 @@ pub struct Fixed(FixNum);
 
 impl Fixed {
     /// Constant, representing zero value
-    pub const ZERO: Fixed = Fixed(FixNum::ZERO);
+    pub const ZERO: Self = Self(FixNum::ZERO);
 
     /// The minimum value that can be stored in this type.
-    pub const MIN: Self = Fixed(<FixNum as Bounded>::MIN);
+    pub const MIN: Self = Self(<FixNum as Bounded>::MIN);
 
     /// The maximum value that can be stored in this type.
-    pub const MAX: Self = Fixed(<FixNum as Bounded>::MAX);
+    pub const MAX: Self = Self(<FixNum as Bounded>::MAX);
 
     /// Return the only possible negative [`Fixed`] value. Only used for tests.
     ///
@@ -66,6 +66,7 @@ impl Fixed {
 
     /// Checks if this instance is zero
     #[inline]
+    #[must_use]
     pub const fn is_zero(self) -> bool {
         *self.0.as_bits() == Base::ZERO
     }
@@ -86,7 +87,7 @@ impl Fixed {
     #[inline]
     pub fn checked_add(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
         match self.valid()?.0.cadd(rhs.valid()?.0) {
-            Ok(n) => Ok(Fixed(n)),
+            Ok(n) => Ok(Self(n)),
             Err(e) => Err(e.into()),
         }
     }
@@ -98,7 +99,7 @@ impl Fixed {
     #[inline]
     pub fn checked_sub(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
         match self.valid()?.0.csub(rhs.valid()?.0) {
-            Ok(n) => Fixed(n).valid(),
+            Ok(n) => Self(n).valid(),
             Err(e) => Err(e.into()),
         }
     }
@@ -116,7 +117,7 @@ impl Fixed {
             .0
             .rmul(rhs.valid()?.0, fixnum::ops::RoundMode::Nearest)
         {
-            Ok(n) => Ok(Fixed(n)),
+            Ok(n) => Ok(Self(n)),
             Err(e) => Err(e.into()),
         }
     }
@@ -134,7 +135,7 @@ impl Fixed {
             .0
             .rdiv(rhs.valid()?.0, fixnum::ops::RoundMode::Nearest)
         {
-            Ok(n) => Ok(Fixed(n)),
+            Ok(n) => Ok(Self(n)),
             Err(e) => Err(e.into()),
         }
     }
@@ -183,7 +184,7 @@ impl TryFrom<f64> for Fixed {
     #[inline]
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         match FixNum::try_from(value) {
-            Ok(n) => Fixed(n).valid(),
+            Ok(n) => Self(n).valid(),
             Err(e) => Err(FixedPointOperationError::Conversion(e)),
         }
     }
@@ -204,7 +205,7 @@ impl<'de> Deserialize<'de> for Fixed {
     {
         FixNum::deserialize(deserializer)
             .map(Self)
-            .map(Fixed::valid)
+            .map(Self::valid)
             .and_then(|fixed| fixed.map_err(serde::de::Error::custom))
     }
 }
@@ -215,7 +216,7 @@ impl Decode for Fixed {
     ) -> Result<Self, parity_scale_codec::Error> {
         FixNum::decode(input)
             .map(Self)
-            .map(Fixed::valid)
+            .map(Self::valid)
             .and_then(|fixed| {
                 fixed.map_err(|err| {
                     parity_scale_codec::Error::from("Failed to Decode Fixed").chain(err.to_string())
@@ -281,7 +282,7 @@ mod tests {
         assert_eq!(
             result.unwrap_err().to_string(),
             "-1.0: negative value not allowed"
-        )
+        );
     }
 
     #[test]
@@ -370,7 +371,7 @@ mod tests {
             accumulator = accumulator.checked_add(inexact).unwrap();
         }
         assert_eq!(
-            Fixed::try_from(0.6_f64 * (10_f64.powf(9_f64))).unwrap(),
+            Fixed::try_from(0.6_f64 * (10_f64.powi(9_i32))).unwrap(),
             accumulator
         );
     }

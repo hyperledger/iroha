@@ -1,9 +1,5 @@
 //! Contains functions to check permission
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use super::{judge::Judge, *};
 
 /// Verify that the given `instruction` is allowed to be executed
@@ -268,12 +264,12 @@ pub fn check_query_in_instruction(
         }
         Instruction::If(if_box) => {
             check_query_in_instruction(authority, &if_box.then, wsv, query_judge).and_then(|_| {
-                match &if_box.otherwise {
-                    Some(this_instruction) => {
+                if_box
+                    .otherwise
+                    .as_ref()
+                    .map_or(Ok(()), |this_instruction| {
                         check_query_in_instruction(authority, this_instruction, wsv, query_judge)
-                    }
-                    None => Ok(()),
-                }
+                    })
             })
         }
         Instruction::Pair(pair_box) => {

@@ -1,5 +1,5 @@
 //! `Sumeragi` configuration. Contains both block commit and Gossip-related configuration.
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_core)]
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
@@ -90,6 +90,7 @@ impl Configuration {
     /// a block on all peers for the "sunny day" scenario.
     #[inline]
     #[must_use]
+    #[allow(clippy::arithmetic_side_effects)]
     pub const fn pipeline_time_ms(&self) -> u64 {
         self.block_time_ms + self.commit_time_limit_ms
     }

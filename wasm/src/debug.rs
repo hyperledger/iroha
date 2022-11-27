@@ -125,7 +125,6 @@ impl<T, E: Debug> DebugExpectExt for Result<T, E> {
     #[allow(clippy::panic)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
-        #[allow(clippy::expect_used)]
         return self.expect(msg);
 
         #[cfg(feature = "debug")]
@@ -147,7 +146,6 @@ impl<T> DebugExpectExt for Option<T> {
     #[allow(clippy::panic)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
-        #[allow(clippy::expect_used)]
         return self.expect(msg);
 
         #[cfg(feature = "debug")]

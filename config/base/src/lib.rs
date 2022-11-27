@@ -339,12 +339,15 @@ pub mod derive {
 
     impl Error {
         /// Construct a field error
+        #[must_use]
+        #[inline]
         pub const fn field_error(field: &'static str, error: serde_json::Error) -> Self {
             Self::FieldError(FieldError { field, error })
         }
 
         /// To be used for [`Self::UnknownField`] variant construction.
         #[inline]
+        #[must_use]
         pub fn concat_error_string(field: &[String]) -> String {
             field.join(".")
         }
@@ -353,6 +356,7 @@ pub mod derive {
 
 pub mod runtime_upgrades;
 
+#[allow(clippy::module_name_repetitions)]
 pub mod view {
     //! Module for view related traits and structs
 
@@ -420,6 +424,7 @@ pub mod proxy {
         ///
         /// # Errors
         /// Fails if field was unknown
+        #[allow(single_use_lifetimes)]
         fn get_doc_recursive<'tl>(
             field: impl AsRef<[&'tl str]>,
         ) -> Result<Option<String>, Self::Error>;

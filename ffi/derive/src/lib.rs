@@ -1,8 +1,9 @@
 #![allow(
     clippy::str_to_string,
     missing_docs,
-    clippy::arithmetic,
-    clippy::std_instead_of_core
+    clippy::arithmetic_side_effects,
+    clippy::std_instead_of_core,
+    clippy::indexing_slicing
 )]
 
 use impl_visitor::{FnDescriptor, ImplDescriptor};
@@ -36,7 +37,7 @@ impl syn::parse::Parse for FfiItems {
 impl quote::ToTokens for FfiItems {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let items = &self.0;
-        tokens.extend(quote! {#(#items)*})
+        tokens.extend(quote! {#(#items)*});
     }
 }
 

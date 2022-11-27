@@ -2,7 +2,7 @@
 #![allow(
     clippy::std_instead_of_core,
     clippy::undocumented_unsafe_blocks,
-    clippy::arithmetic
+    clippy::indexing_slicing
 )]
 
 #[cfg(not(feature = "std"))]
@@ -21,9 +21,10 @@ use core::{
     ops::Deref,
     ptr::NonNull,
     slice::{from_raw_parts, from_raw_parts_mut},
+    str::from_utf8_unchecked,
 };
 #[cfg(feature = "std")]
-use std::{borrow::Borrow, str::from_utf8_unchecked};
+use std::borrow::Borrow;
 
 use derive_more::{DebugCustom, Display};
 use iroha_ffi::FfiType;
@@ -66,6 +67,7 @@ pub union ConstString {
 impl ConstString {
     /// Return the length of this [`Self`], in bytes.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         if self.is_inlined() {
             self.inlined().len()
@@ -76,12 +78,14 @@ impl ConstString {
 
     /// Return `true` if [`Self`] is empty.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Construct empty [`Self`].
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             inlined: InlinedString::new(),
@@ -90,6 +94,7 @@ impl ConstString {
 
     /// Return `true` if [`Self`] is inlined.
     #[inline]
+    #[must_use]
     pub const fn is_inlined(&self) -> bool {
         // SAFETY: access to the MSB is always safe regardless of the correct variant.
         self.inlined().is_inlined()
@@ -97,6 +102,7 @@ impl ConstString {
 
     #[allow(unsafe_code)]
     #[inline]
+    #[must_use]
     const fn inlined(&self) -> &InlinedString {
         // SAFETY: safe to access if `is_inlined` == `true`.
         unsafe { &self.inlined }
@@ -104,6 +110,7 @@ impl ConstString {
 
     #[allow(unsafe_code)]
     #[inline]
+    #[must_use]
     fn boxed(&self) -> &BoxedString {
         // SAFETY: safe to access if `is_inlined` == `false`.
         unsafe { &self.boxed }
@@ -143,7 +150,7 @@ impl Borrow<str> for ConstString {
 impl Hash for ConstString {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (**self).hash(state)
+        (**self).hash(state);
     }
 }
 
@@ -255,10 +262,10 @@ impl<'de> Deserialize<'de> for ConstString {
 
 struct ConstStringVisitor;
 
-impl<'de> Visitor<'de> for ConstStringVisitor {
+impl Visitor<'_> for ConstStringVisitor {
     type Value = ConstString;
 
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("a string")
     }
 
@@ -410,13 +417,15 @@ struct InlinedString {
 
 impl InlinedString {
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     const fn len(self) -> usize {
-        (self.len - 128) as usize
+        // MSB is always 1.
+        (self.len - (1_u8 << 7_u8)) as usize
     }
 
     #[inline]
     const fn is_inlined(self) -> bool {
-        self.len >= 128
+        self.len >= (1_u8 << 7_u8)
     }
 
     #[inline]
@@ -424,7 +433,7 @@ impl InlinedString {
         Self {
             payload: [0; MAX_INLINED_STRING_LEN],
             // Set MSB to mark inlined variant.
-            len: 128,
+            len: (1_u8 << 7_u8),
         }
     }
 }
@@ -434,14 +443,14 @@ impl AsRef<str> for InlinedString {
     #[inline]
     fn as_ref(&self) -> &str {
         // SAFETY: created from valid utf-8.
-        unsafe { core::str::from_utf8_unchecked(&self.payload[..self.len()]) }
+        unsafe { from_utf8_unchecked(&self.payload[..self.len()]) }
     }
 }
 
 impl<'value> TryFrom<&'value str> for InlinedString {
     type Error = &'value str;
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
     #[inline]
     fn try_from(value: &'value str) -> Result<Self, Self::Error> {
         let len = value.len();
@@ -450,8 +459,10 @@ impl<'value> TryFrom<&'value str> for InlinedString {
         }
         let mut inlined = Self::new();
         inlined.payload.as_mut()[..len].copy_from_slice(value.as_bytes());
-        // Truncation won't happen because we checked that the length shorter than `MAX_INLINED_STRING_LEN`.
-        // Addition here because we set MSB of len field in `Self::new` to mark inlined variant.
+        // Truncation won't happen because we checked that the length
+        // shorter than `MAX_INLINED_STRING_LEN`.  Addition here
+        // because we set MSB of len field in `Self::new` to mark
+        // inlined variant.
         inlined.len += len as u8;
         Ok(inlined)
     }
@@ -461,6 +472,7 @@ impl TryFrom<String> for InlinedString {
     type Error = String;
 
     #[inline]
+    #[allow(clippy::option_if_let_else)]
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match Self::try_from(value.as_str()) {
             Ok(inlined) => Ok(inlined),
@@ -811,6 +823,6 @@ mod tests {
         ]
         .into_iter()
         .map(str::to_owned)
-        .for_each(f)
+        .for_each(f);
     }
 }

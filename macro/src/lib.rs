@@ -7,6 +7,7 @@ pub use iroha_derive::*;
 
 /// Crate with errors
 pub mod error {
+    #![allow(clippy::std_instead_of_core)]
     use core::{any::type_name, fmt, marker::PhantomData};
 
     /// Error which happens if `TryFrom` from enum variant fails

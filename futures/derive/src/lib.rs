@@ -1,9 +1,9 @@
 //! Crate with derive macros for futures
 
 #![allow(
-    clippy::expect_used,
     clippy::str_to_string,
-    clippy::std_instead_of_core
+    clippy::std_instead_of_core,
+    clippy::shadow_reuse
 )]
 
 use proc_macro::TokenStream;

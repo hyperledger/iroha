@@ -1,8 +1,8 @@
 //! Out of box implementations for common permission checks.
 #![allow(
-    clippy::arithmetic,
     clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
+    clippy::std_instead_of_alloc,
+    unused_qualifications
 )]
 use std::collections::BTreeMap;
 

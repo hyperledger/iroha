@@ -1,9 +1,9 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
 #![allow(
-    clippy::arithmetic,
     clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
+    clippy::std_instead_of_alloc,
+    clippy::module_name_repetitions
 )]
 use std::{collections::HashMap, fmt::Debug, marker::PhantomData, thread, time::Duration};
 
@@ -243,10 +243,10 @@ where
 
         Ok(Self {
             output,
+            filter,
             pagination,
             sorting,
             total,
-            filter,
         })
     }
 }
@@ -484,6 +484,7 @@ impl Client {
         init_sender: tokio::sync::oneshot::Sender<bool>,
         hash: HashOf<SignedTransaction>,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
+        #[allow(clippy::arithmetic_side_effects)]
         let deadline = tokio::time::Instant::now() + self.transaction_status_timeout;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1091,7 +1092,7 @@ pub mod stream_api {
         /// - `connect` failed
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
-        /// - Message is an error   
+        /// - Message is an error
         pub fn new<I: Init<DefaultWebSocketRequestBuilder>>(
             handler: I,
         ) -> Result<SyncIterator<I::Next>> {
@@ -1099,14 +1100,17 @@ pub mod stream_api {
             let InitData {
                 first_message,
                 req,
-                next: handler,
-            } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+                next: next_handler,
+            } = Init::<DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect()?;
             stream.write_message(WebSocketMessage::Binary(first_message))?;
 
             trace!("`SyncIterator` created successfully");
-            Ok(SyncIterator { stream, handler })
+            Ok(SyncIterator {
+                stream,
+                handler: next_handler,
+            })
         }
     }
 
@@ -1131,7 +1135,7 @@ pub mod stream_api {
 
     impl<E> Drop for SyncIterator<E> {
         fn drop(&mut self) {
-            let mut close = || -> eyre::Result<()> {
+            let mut close = || -> Result<()> {
                 self.stream.close(None)?;
                 let mes = self.stream.read_message()?;
                 if !mes.is_close() {
@@ -1143,7 +1147,7 @@ pub mod stream_api {
             };
 
             trace!("Closing WebSocket connection");
-            let _ = close().map_err(|e| error!(%e));
+            close().unwrap_or_else(|e| error!(?e));
             trace!("WebSocket connection closed");
         }
     }
@@ -1162,7 +1166,7 @@ pub mod stream_api {
         /// - `connect_async` failed
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
-        /// - Message is an error   
+        /// - Message is an error
         pub async fn new<I>(handler: I) -> Result<AsyncStream<I::Next>>
         where
             I: Init<DefaultWebSocketRequestBuilder> + Send,
@@ -1172,14 +1176,17 @@ pub mod stream_api {
             let InitData {
                 first_message,
                 req,
-                next: handler,
-            } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+                next: next_handler,
+            } = Init::<DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect_async().await?;
             stream.send(WebSocketMessage::Binary(first_message)).await?;
 
             trace!("`AsyncStream` created successfully");
-            Ok(AsyncStream { stream, handler })
+            Ok(AsyncStream {
+                stream,
+                handler: next_handler,
+            })
         }
     }
 
@@ -1200,7 +1207,7 @@ pub mod stream_api {
             };
 
             trace!("Closing WebSocket connection");
-            let _ = close.await.map_err(|e| error!(%e));
+            close.await.unwrap_or_else(|e| error!(?e));
             trace!("WebSocket connection closed");
         }
     }
@@ -1288,7 +1295,7 @@ pub mod events_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::prelude::Event;
+            type Event = Event;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message =
@@ -1373,7 +1380,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_core::prelude::VersionedCommittedBlock;
+            type Event = VersionedCommittedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let block_socket_message =

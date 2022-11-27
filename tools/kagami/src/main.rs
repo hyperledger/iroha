@@ -2,7 +2,7 @@
 //! cryptographic key pairs. To be used with all compliant Iroha
 //! installations.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -172,6 +172,7 @@ mod schema {
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 mod genesis {
     use clap::{Parser, Subcommand};
     use iroha_core::{
@@ -240,14 +241,14 @@ mod genesis {
             .domain_with_metadata("wonderland".parse()?, meta.clone())
             .account_with_metadata(
                 "alice".parse()?,
-                crate::DEFAULT_PUBLIC_KEY.parse()?,
+                DEFAULT_PUBLIC_KEY.parse()?,
                 meta.clone(),
             )
-            .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta) // TODO: This should fail under SS58
+            .account_with_metadata("bob".parse()?, DEFAULT_PUBLIC_KEY.parse()?, meta) // TODO: This should fail under SS58
             .asset("rose".parse()?, AssetValueType::Quantity)
             .finish_domain()
             .domain("garden_of_live_flowers".parse()?)
-            .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+            .account("carpenter".parse()?, DEFAULT_PUBLIC_KEY.parse()?)
             .asset("cabbage".parse()?, AssetValueType::Quantity)
             .finish_domain()
             .build();
@@ -311,7 +312,7 @@ mod genesis {
         // Add default `Domain` and `Account` to still be able to query
         let mut builder = RawGenesisBlockBuilder::new()
             .domain("wonderland".parse()?)
-            .account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+            .account("alice".parse()?, DEFAULT_PUBLIC_KEY.parse()?)
             .finish_domain();
 
         for domain in 0..domains {
@@ -405,9 +406,8 @@ mod client {
 }
 
 mod docs {
-    #![allow(clippy::panic_in_result_fn, clippy::expect_used)]
     #![allow(
-        clippy::arithmetic,
+        clippy::panic_in_result_fn,
         clippy::std_instead_of_core,
         clippy::std_instead_of_alloc
     )]
@@ -419,18 +419,18 @@ mod docs {
 
     use super::*;
 
-    impl<E: Debug, C: Documented<Error = E> + Send + Sync + Default> PrintDocs for C {}
+    impl<E: Debug, C: Documented<Error = E> + Send + Sync + Default> PrintMarkdown for C {}
 
     #[derive(StructOpt, Debug, Clone, Copy)]
     pub struct Args;
 
     impl<T: Write> RunArgs<T> for Args {
-        fn run(self, writer: &mut BufWriter<T>) -> crate::Outcome {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
             ConfigurationProxy::get_markdown(writer).wrap_err("Failed to generate documentation")
         }
     }
 
-    pub trait PrintDocs: Documented + Send + Sync + Default
+    pub trait PrintMarkdown: Documented + Send + Sync + Default
     where
         Self::Error: Debug,
     {
@@ -487,6 +487,7 @@ mod docs {
             Ok(())
         }
 
+        #[allow(clippy::indexing_slicing)]
         fn get_markdown_with_depth<W: Write>(
             writer: &mut W,
             docs: &serde_json::Map<String, Value>,

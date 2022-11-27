@@ -13,7 +13,7 @@ use getset::{Getters, MutGetters};
 use iroha_data_model_derive::IdOrdEqHash;
 use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
-use iroha_primitives::{fixed, fixed::Fixed};
+use iroha_primitives::fixed::Fixed;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,7 @@ pub enum MintabilityError {
     ForbidMintOnMintable,
 }
 
+#[allow(clippy::std_instead_of_core)]
 #[cfg(feature = "std")]
 impl std::error::Error for MintabilityError {}
 
@@ -286,7 +287,7 @@ pub enum AssetValue {
     BigQuantity(u128),
     /// Asset's Decimal Quantity.
     #[display(fmt = "{_0}f")]
-    Fixed(fixed::Fixed),
+    Fixed(Fixed),
     /// Asset's key-value structured data.
     Store(Metadata),
 }
@@ -352,10 +353,10 @@ impl TryFrom<AssetValue> for NumericValue {
 
     fn try_from(value: AssetValue) -> Result<Self, Self::Error> {
         match value {
-            AssetValue::Quantity(value) => Ok(NumericValue::U32(value)),
-            AssetValue::BigQuantity(value) => Ok(NumericValue::U128(value)),
-            AssetValue::Fixed(value) => Ok(NumericValue::Fixed(value)),
-            _ => Err(crate::ErrorTryFromEnum::default()),
+            AssetValue::Quantity(value) => Ok(Self::U32(value)),
+            AssetValue::BigQuantity(value) => Ok(Self::U128(value)),
+            AssetValue::Fixed(value) => Ok(Self::Fixed(value)),
+            AssetValue::Store(_) => Err(crate::ErrorTryFromEnum::default()),
         }
     }
 }

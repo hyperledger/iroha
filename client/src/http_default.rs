@@ -1,10 +1,7 @@
 //! Defaults for various items used in communication over http(s).
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
-use std::{net::TcpStream, str::FromStr};
+#![allow(clippy::std_instead_of_alloc)]
+use core::str::FromStr as _;
+use std::net::TcpStream;
 
 use attohttpc::{
     body as atto_body, RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
@@ -44,10 +41,7 @@ impl DefaultRequestBuilder {
     /// Consumes itself to build request.
     pub fn build(self) -> Result<DefaultRequest> {
         self.inner.map(|b| {
-            let body = match self.body {
-                Some(vec) => vec,
-                None => Vec::new(),
-            };
+            let body = self.body.map_or_else(Vec::new, |vec| vec);
             DefaultRequest(b.bytes(body))
         })
     }

@@ -1,6 +1,5 @@
 #![allow(
     clippy::str_to_string,
-    clippy::expect_used,
     clippy::mixed_read_write_in_expression,
     clippy::unwrap_in_result
 )]
@@ -42,7 +41,7 @@ impl Parse for PartiallyTaggedEnum {
         let _brace_token = syn::braced!(content in input);
         let variants = content.parse_terminated(PartiallyTaggedVariant::parse)?;
         attrs.retain(is_serde_attr);
-        Ok(PartiallyTaggedEnum {
+        Ok(Self {
             attrs,
             ident,
             variants,
@@ -70,7 +69,7 @@ impl Parse for PartiallyTaggedVariant {
         let ty = field.ty;
         let is_untagged = attrs.iter().any(is_untagged_attr);
         attrs.retain(is_serde_attr);
-        Ok(PartiallyTaggedVariant {
+        Ok(Self {
             attrs,
             ident,
             ty,

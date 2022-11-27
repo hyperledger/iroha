@@ -22,7 +22,7 @@ mod kw {
 pub trait AttrParser<Inner: Parse> {
     const IDENT: &'static str;
 
-    fn parse(attr: &syn::Attribute) -> syn::Result<Inner> {
+    fn parse(attr: &Attribute) -> syn::Result<Inner> {
         attr.path
             .is_ident(&<Self as AttrParser<_>>::IDENT)
             .then(|| attr.parse_args::<Inner>())
@@ -66,8 +66,8 @@ macro_rules! attr_struct {
             ),*
         }
 
-        impl syn::parse::Parse for $name {
-            fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        impl Parse for $name {
+            fn parse(input: ParseStream) -> syn::Result<Self> {
                 Ok(Self {
                     $(
                         $field_name: input.parse()?,
@@ -171,7 +171,7 @@ impl StructField {
             .ident
             .expect("Already checked for named fields at parsing");
         let (lvalue_read, lvalue_write) = gen_lvalue(&field.ty, &field_ident);
-        StructField {
+        Self {
             has_inner: field
                 .attrs
                 .iter()
@@ -194,7 +194,7 @@ impl StructField {
 
 impl ToTokens for StructField {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let StructField {
+        let Self {
             attrs,
             ty,
             ident,
@@ -250,8 +250,8 @@ impl Parse for StructWithFields {
 }
 
 impl ToTokens for StructWithFields {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let StructWithFields {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
             attrs,
             vis,
             ident,
@@ -285,7 +285,7 @@ pub fn extract_field_types(fields: &[StructField]) -> Vec<Type> {
         .collect::<Vec<_>>()
 }
 
-pub fn get_type_argument<'sl, 'tl>(s: &'sl str, ty: &'tl Type) -> Option<&'tl GenericArgument> {
+pub fn get_type_argument<'tl>(s: &str, ty: &'tl Type) -> Option<&'tl GenericArgument> {
     let path = if let Type::Path(r#type) = ty {
         r#type
     } else {
@@ -304,7 +304,7 @@ pub fn get_type_argument<'sl, 'tl>(s: &'sl str, ty: &'tl Type) -> Option<&'tl Ge
     None
 }
 
-pub fn get_inner_type<'tl, 'sl>(outer_ty_ident: &'sl str, ty: &'tl Type) -> &'tl Type {
+pub fn get_inner_type<'tl>(outer_ty_ident: &str, ty: &'tl Type) -> &'tl Type {
     #[allow(clippy::shadow_unrelated)]
     get_type_argument(outer_ty_ident, ty)
         .and_then(|ty| {
@@ -331,7 +331,7 @@ pub fn is_option_type(ty: &Type) -> bool {
 pub fn remove_attr_from_struct(ast: &mut StructWithFields, attr_ident: &str) {
     let StructWithFields { attrs, fields, .. } = ast;
     for field in fields {
-        remove_attr(&mut field.attrs, attr_ident)
+        remove_attr(&mut field.attrs, attr_ident);
     }
     remove_attr(attrs, attr_ident);
 }
@@ -360,7 +360,7 @@ pub fn keep_derive_attr(ast: &mut StructWithFields, kept_attrs: &[&str]) {
                     .collect();
                 *attr = syn::parse_quote!(
                     #[derive(#(#items),*)]
-                )
+                );
             }
         });
 }

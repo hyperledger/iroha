@@ -262,7 +262,7 @@ pub mod action {
     }
 
     impl<F: Filter> HasMetadata for Action<F> {
-        fn metadata(&self) -> &crate::metadata::Metadata {
+        fn metadata(&self) -> &Metadata {
             &self.metadata
         }
     }
@@ -350,7 +350,6 @@ pub mod action {
         }
     }
 
-    #[allow(clippy::expect_used)]
     impl<F: Filter + Eq> Ord for Action<F> {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
             self.partial_cmp(other)

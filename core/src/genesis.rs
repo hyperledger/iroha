@@ -4,8 +4,7 @@
     clippy::module_name_repetitions,
     clippy::new_without_default,
     clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::std_instead_of_alloc
 )]
 
 use std::{fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
@@ -70,8 +69,6 @@ impl GenesisNetworkTrait for GenesisNetwork {
         genesis_config: Option<&Configuration>,
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
-        #![allow(clippy::unwrap_in_result)]
-        #![allow(clippy::expect_used)]
         if !submit_genesis {
             iroha_logger::debug!("Not submitting genesis");
             return Ok(None);
@@ -330,12 +327,12 @@ impl RawGenesisDomainBuilder {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
     use iroha_config::{base::proxy::Builder, genesis::ConfigurationProxy};
 
     use super::*;
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn load_default_genesis_block() -> Result<()> {
         let (public_key, private_key) = KeyPair::generate()?.into();
         let tx_limits = TransactionLimits {
@@ -359,7 +356,6 @@ mod tests {
         Ok(())
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn genesis_block_builder_example() {
         let public_key = "ed0120204e9593c3ffaf4464a6189233811c297dd4ce73aba167867e4fbd4f8c450acb";

@@ -241,7 +241,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
             .into_iter()
             .filter(|asset| {
                 let s = asset.id().definition_id.to_string();
-                s.starts_with(&start_pattern) && s.ends_with(&end_pattern)
+                s.starts_with(start_pattern) && s.ends_with(&end_pattern)
             })
             .count()
             .try_into()

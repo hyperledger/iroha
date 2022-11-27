@@ -5,7 +5,7 @@
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -152,10 +152,10 @@ impl Iroha {
                 "unspecified"
             };
 
-            let location = match info.location() {
-                Some(location) => format!("{}:{}", location.file(), location.line()),
-                None => "unspecified".to_owned(),
-            };
+            let location = info.location().map_or_else(
+                || "unspecified".to_owned(),
+                |location| format!("{}:{}", location.file(), location.line()),
+            );
 
             iroha_logger::error!(%panic_message, %location, "A panic occured, shutting down");
 
@@ -217,9 +217,9 @@ impl Iroha {
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
         if Self::start_telemetry(telemetry, &config).await? {
-            iroha_logger::info!("Telemetry started")
+            iroha_logger::info!("Telemetry started");
         } else {
-            iroha_logger::error!("Telemetry did not start")
+            iroha_logger::error!("Telemetry did not start");
         }
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
@@ -237,12 +237,12 @@ impl Iroha {
         let sumeragi_thread_handler =
             Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis);
 
-        let block_sync = BlockSynchronizer::from_configuration(
+        let block_sync = Arc::new(BlockSynchronizer::from_configuration(
             &config.block_sync,
             Arc::clone(&sumeragi),
             Arc::clone(&p2p),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
-        );
+        ));
         let block_sync_thread_handler =
             iroha_core::block_sync::start_read_loop(Arc::clone(&block_sync));
 
@@ -298,7 +298,7 @@ impl Iroha {
     /// # Errors
     /// - Forwards initialisation error.
     #[cfg(feature = "test-network")]
-    pub fn start_as_task(&mut self) -> Result<tokio::task::JoinHandle<eyre::Result<()>>> {
+    pub fn start_as_task(&mut self) -> Result<task::JoinHandle<Result<()>>> {
         iroha_logger::info!("Starting Iroha as task");
         let torii = self
             .torii
@@ -386,6 +386,7 @@ mod tests {
     use serial_test::serial;
 
     use super::*;
+    use crate::Iroha;
 
     #[allow(clippy::panic, clippy::print_stdout)]
     #[tokio::test]
@@ -393,7 +394,7 @@ mod tests {
     async fn iroha_should_notify_on_panic() {
         let notify = Arc::new(Notify::new());
         let hook = panic::take_hook();
-        <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
+        <Iroha>::prepare_panic_hook(Arc::clone(&notify));
         let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
         let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
         thread::spawn(move || {

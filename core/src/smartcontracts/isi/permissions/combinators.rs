@@ -41,11 +41,16 @@ impl<V: IsAllowed<Operation = Instruction>> IsAllowed for CheckNested<V> {
             | Instruction::Revoke(_)
             | Instruction::Fail(_)
             | Instruction::ExecuteTrigger(_) => self.validator.check(authority, instruction, wsv),
+
             Instruction::If(if_box) => self
                 .check(authority, &if_box.then, wsv)
-                .least_permissive_with(|| match &if_box.otherwise {
-                    Some(otherwise) => self.check(authority, otherwise, wsv),
-                    None => ValidatorVerdict::Skip,
+                .least_permissive_with(|| {
+                    if_box
+                        .otherwise
+                        .as_ref()
+                        .map_or(ValidatorVerdict::Skip, |otherwise| {
+                            self.check(authority, otherwise, wsv)
+                        })
                 }),
             Instruction::Pair(pair_box) => self
                 .check(authority, &pair_box.left_instruction, wsv)

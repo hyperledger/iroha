@@ -10,8 +10,7 @@
 #![allow(
     clippy::new_without_default,
     clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::std_instead_of_alloc
 )]
 use std::sync::Arc;
 

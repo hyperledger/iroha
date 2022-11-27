@@ -9,7 +9,6 @@
 //! trigger hooks.
 #![allow(clippy::std_instead_of_core)]
 #![cfg(feature = "std")]
-#![allow(clippy::expect_used)]
 
 use core::{cmp::min, result::Result};
 use std::sync::RwLock;
@@ -256,7 +255,9 @@ impl Set {
                     atomic.set(new_repeats);
                     Ok(())
                 }
-                _ => Err(ModRepeatsError::RepeatsOverflow(RepeatsOverflowError)),
+                Repeats::Indefinitely => {
+                    Err(ModRepeatsError::RepeatsOverflow(RepeatsOverflowError))
+                }
             })
             .ok_or_else(|| ModRepeatsError::NotFound(id.clone()));
         // .flatten() -- unstable
@@ -379,20 +380,13 @@ impl Set {
     /// Repeats count of failed actions won't be decreased.
     pub fn inspect_matched<F, E>(&self, f: F) -> Result<(), Vec<E>>
     where
-        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
+        F: Fn(&dyn ActionTrait, Event) -> Result<(), E> + Copy,
     {
         let (succeed, res) = self.map_matched(f);
 
         for id in &succeed {
             // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
-            let _mod_repeats_res = self.mod_repeats(id, |n| {
-                if n == 0 {
-                    // Possible i.e. if one trigger burned it-self or another trigger, cause we
-                    // decrease the number of execution after successful execution
-                    return Ok(0);
-                }
-                Ok(n - 1)
-            });
+            let _mod_repeats_res = self.mod_repeats(id, |n| Ok(n.saturating_sub(1)));
         }
 
         self.remove_zeros(&self.data_triggers);
@@ -409,7 +403,7 @@ impl Set {
     /// and result with errors vector if there are some
     fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, Result<(), Vec<E>>)
     where
-        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
+        F: Fn(&dyn ActionTrait, Event) -> Result<(), E> + Copy,
     {
         let mut succeed = Vec::new();
         let mut errors = Vec::new();

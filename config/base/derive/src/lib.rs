@@ -1,6 +1,11 @@
 //! Contains various configuration related macro definitions.
 
-#![allow(clippy::arithmetic, clippy::std_instead_of_core)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::std_instead_of_core,
+    clippy::module_name_repetitions,
+    clippy::indexing_slicing
+)]
 
 use proc_macro::TokenStream;
 

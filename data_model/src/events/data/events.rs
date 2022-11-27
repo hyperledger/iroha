@@ -3,6 +3,15 @@
 use iroha_data_model_derive::Filter;
 use iroha_primitives::small::SmallVec;
 
+use self::{
+    account::AccountEvent,
+    asset::{AssetDefinitionEvent, AssetEvent},
+    domain::DomainEvent,
+    peer::PeerEvent,
+    permission::{PermissionTokenEvent, PermissionValidatorEvent},
+    role::RoleEvent,
+    trigger::TriggerEvent,
+};
 use super::*;
 
 /// Generic [`MetadataChanged`] struct.
@@ -575,12 +584,12 @@ pub trait HasOrigin {
 )]
 #[allow(missing_docs)]
 pub enum WorldEvent {
-    Peer(peer::PeerEvent),
-    Domain(domain::DomainEvent),
-    Role(role::RoleEvent),
-    Trigger(trigger::TriggerEvent),
-    PermissionToken(permission::PermissionTokenEvent),
-    PermissionValidator(permission::PermissionValidatorEvent),
+    Peer(PeerEvent),
+    Domain(DomainEvent),
+    Role(RoleEvent),
+    Trigger(TriggerEvent),
+    PermissionToken(PermissionTokenEvent),
+    PermissionValidator(PermissionValidatorEvent),
 }
 
 impl WorldEvent {
@@ -590,7 +599,7 @@ impl WorldEvent {
         let mut events = SmallVec::new();
 
         match self {
-            WorldEvent::Domain(domain_event) => {
+            Self::Domain(domain_event) => {
                 match &domain_event {
                     DomainEvent::Account(account_event) => {
                         if let AccountEvent::Asset(asset_event) = account_event {
@@ -605,19 +614,19 @@ impl WorldEvent {
                 }
                 events.push(DataEvent::Domain(domain_event));
             }
-            WorldEvent::Peer(peer_event) => {
+            Self::Peer(peer_event) => {
                 events.push(DataEvent::Peer(peer_event));
             }
-            WorldEvent::Role(role_event) => {
+            Self::Role(role_event) => {
                 events.push(DataEvent::Role(role_event));
             }
-            WorldEvent::Trigger(trigger_event) => {
+            Self::Trigger(trigger_event) => {
                 events.push(DataEvent::Trigger(trigger_event));
             }
-            WorldEvent::PermissionToken(token_event) => {
+            Self::PermissionToken(token_event) => {
                 events.push(DataEvent::PermissionToken(token_event));
             }
-            WorldEvent::PermissionValidator(validator_event) => {
+            Self::PermissionValidator(validator_event) => {
                 events.push(DataEvent::PermissionValidator(validator_event));
             }
         }
@@ -642,23 +651,23 @@ impl WorldEvent {
 )]
 pub enum Event {
     /// Peer event
-    Peer(peer::PeerEvent),
+    Peer(PeerEvent),
     /// Domain event
-    Domain(domain::DomainEvent),
+    Domain(DomainEvent),
     /// Account event
-    Account(account::AccountEvent),
+    Account(AccountEvent),
     /// Asset definition event
-    AssetDefinition(asset::AssetDefinitionEvent),
+    AssetDefinition(AssetDefinitionEvent),
     /// Asset event
-    Asset(asset::AssetEvent),
+    Asset(AssetEvent),
     /// Trigger event
-    Trigger(trigger::TriggerEvent),
+    Trigger(TriggerEvent),
     /// Role event
-    Role(role::RoleEvent),
+    Role(RoleEvent),
     /// Permission token event
-    PermissionToken(permission::PermissionTokenEvent),
+    PermissionToken(PermissionTokenEvent),
     /// Permission validator event
-    PermissionValidator(permission::PermissionValidatorEvent),
+    PermissionValidator(PermissionValidatorEvent),
 }
 
 impl Event {

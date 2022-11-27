@@ -1,9 +1,5 @@
 //! Module with [`Judge`] trait and its implementations
-#![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{fmt::Display, sync::Arc};
 
 use super::*;

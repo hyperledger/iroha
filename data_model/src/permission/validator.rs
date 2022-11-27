@@ -189,10 +189,10 @@ pub enum NeedsPermissionBox {
 impl NeedsPermission for NeedsPermissionBox {
     fn required_validator_type(&self) -> Type {
         match self {
-            NeedsPermissionBox::Transaction(_) => Type::Transaction,
-            NeedsPermissionBox::Instruction(_) => Type::Instruction,
-            NeedsPermissionBox::Query(_) => Type::Query,
-            NeedsPermissionBox::Expression(_) => Type::Expression,
+            Self::Transaction(_) => Type::Transaction,
+            Self::Instruction(_) => Type::Instruction,
+            Self::Query(_) => Type::Query,
+            Self::Expression(_) => Type::Expression,
         }
     }
 }

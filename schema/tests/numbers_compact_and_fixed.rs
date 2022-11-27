@@ -30,11 +30,11 @@ fn compact() {
     use Metadata::*;
 
     let expected = vec![
-        ("Compact<u128>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u16>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u32>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u64>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u8>".to_owned(), Int(IntMode::Compact)),
+        ("Compact<u128>".to_owned(), Int(Compact)),
+        ("Compact<u16>".to_owned(), Int(Compact)),
+        ("Compact<u32>".to_owned(), Int(Compact)),
+        ("Compact<u64>".to_owned(), Int(Compact)),
+        ("Compact<u8>".to_owned(), Int(Compact)),
         (
             "numbers_compact_and_fixed::Foo".to_owned(),
             Struct(NamedFieldsMeta {

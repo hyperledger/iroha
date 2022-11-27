@@ -1,5 +1,5 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_core)]
 
 use std::{
     ops::Deref,
@@ -82,7 +82,6 @@ pub struct Metrics {
 
 impl Default for Metrics {
     // The constructors either always fail, or never.
-    #[allow(clippy::expect_used)]
     fn default() -> Self {
         let txs = IntCounterVec::new(Opts::new("txs", "Transactions committed"), &["type"])
             .expect("Infallible");
@@ -154,13 +153,13 @@ impl Default for Metrics {
             block_height,
             connected_peers,
             uptime_since_genesis_ms,
-            registry,
             domains,
             accounts,
             tx_amounts,
             isi,
             isi_times,
             view_changes,
+            registry,
         }
     }
 }
@@ -183,7 +182,7 @@ impl Metrics {
     ///
     /// # Panics
     /// Never
-    #[allow(clippy::unused_self, clippy::expect_used)]
+    #[allow(clippy::unused_self)]
     pub fn current_time(&self) -> Duration {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

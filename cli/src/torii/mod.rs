@@ -97,9 +97,7 @@ impl Reply for Error {
     fn into_response(self) -> Response {
         use Error::*;
         match self {
-            Query(err) => {
-                reply::with_status(utils::Scale(&err), query_status_code(&err)).into_response()
-            }
+            Query(err) => reply::with_status(Scale(&err), query_status_code(&err)).into_response(),
             // TODO Have a type-preserved response body instead of a stringified one #2279
             VersionedSignedTransaction(err)
             | DecodeRequestPendingTransactions(err)

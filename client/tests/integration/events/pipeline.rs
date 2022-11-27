@@ -58,7 +58,7 @@ fn test_with_instruction_and_status_and_port(
     thread::sleep(pipeline_time * 2);
     // Then
     for handle in handles {
-        handle.join().expect("Thread panicked")
+        handle.join().expect("Thread panicked");
     }
     Ok(())
 }

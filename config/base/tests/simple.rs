@@ -137,7 +137,7 @@ fn test_can_load_inner_without_the_wrapping_config() {
     std::env::remove_var("CONF_OPTIONAL_INNER");
     let config = ConfigurationProxy::new_with_placeholders();
     let env_config = ConfigurationProxy::from_env();
-    assert_eq!(&env_config.optional_inner, &config.optional_inner)
+    assert_eq!(&env_config.optional_inner, &config.optional_inner);
 }
 
 #[test]

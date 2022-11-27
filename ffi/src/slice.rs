@@ -39,26 +39,35 @@ impl<T> Clone for SliceMut<T> {
 
 impl<T> SliceRef<T> {
     /// Forms a slice from a data pointer and a length.
+    #[must_use]
+    #[inline]
     pub fn from_raw_parts(ptr: *const T, len: usize) -> Self {
         Self(ptr, len)
     }
 
     /// Returns a raw pointer to the slice's buffer.
+    #[must_use]
+    #[inline]
     pub fn as_ptr(&self) -> *const T {
         self.0
     }
 
     /// Returns `true` if the slice contains no elements.
+    #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the number of elements in the slice.
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.1
     }
 
     /// Create [`Self`] from shared slice
+    #[must_use]
     pub const fn from_slice(slice: &[T]) -> Self {
         Self(slice.as_ptr(), slice.len())
     }
@@ -68,6 +77,7 @@ impl<T> SliceRef<T> {
     /// # Safety
     ///
     /// Data pointer must point to a valid memory
+    #[must_use]
     pub unsafe fn into_rust<'slice>(self) -> Option<&'slice [T]> {
         if self.is_null() {
             return None;
@@ -76,32 +86,43 @@ impl<T> SliceRef<T> {
         Some(core::slice::from_raw_parts(self.0, self.1))
     }
 
+    #[must_use]
     pub(crate) fn is_null(&self) -> bool {
         self.0.is_null()
     }
 }
 impl<T> SliceMut<T> {
     /// Forms a slice from a data pointer and a length.
+    #[must_use]
+    #[inline]
     pub fn from_raw_parts_mut(ptr: *mut T, len: usize) -> Self {
         Self(ptr, len)
     }
 
     /// Returns a raw pointer to the slice's buffer.
+    #[must_use]
+    #[inline]
     pub fn as_mut_ptr(&self) -> *mut T {
         self.0
     }
 
     /// Returns `true` if the slice contains no elements.
+    #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the number of elements in the slice.
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.1
     }
 
     /// Create [`Self`] from mutable slice
+    #[must_use]
+    #[inline]
     pub fn from_slice(slice: &mut [T]) -> Self {
         Self(slice.as_mut_ptr(), slice.len())
     }
@@ -111,6 +132,7 @@ impl<T> SliceMut<T> {
     /// # Safety
     ///
     /// Data pointer must point to a valid memory
+    #[must_use]
     pub unsafe fn into_rust<'slice>(self) -> Option<&'slice mut [T]> {
         if self.is_null() {
             return None;
@@ -119,6 +141,7 @@ impl<T> SliceMut<T> {
         Some(core::slice::from_raw_parts_mut(self.0, self.1))
     }
 
+    #[must_use]
     pub(crate) fn is_null(&self) -> bool {
         self.0.is_null()
     }
@@ -175,7 +198,6 @@ impl<T: ReprC> OutPtrOf<SliceMut<T>> for OutBoxedSlice<T> {
         }
 
         // slice len is never larger than `isize::MAX`
-        #[allow(clippy::expect_used)]
         source.into_rust().map_or_else(
             || self.write_none(),
             |slice| {

@@ -1,5 +1,5 @@
 //! Merkle tree implementation.
-#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_alloc, clippy::arithmetic_side_effects)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
@@ -164,13 +164,14 @@ impl<T> MerkleTree<T> {
     #[cfg(feature = "std")]
     pub fn add(&mut self, hash: HashOf<T>) {
         // If the tree is perfect, increment its height to double the leaf capacity.
+
         if self.max_nodes_at_height() == self.len() {
             let mut new_array = vec![None];
             let mut array = self.0.clone();
             for depth in 0..self.height() {
                 let capacity_at_depth = 2_usize.pow(depth);
                 let tail = array.split_off(capacity_at_depth);
-                array.extend([None].iter().cycle().take(capacity_at_depth));
+                array.extend(core::iter::once(&None).cycle().take(capacity_at_depth));
                 new_array.append(&mut array);
                 array = tail;
             }
@@ -179,11 +180,10 @@ impl<T> MerkleTree<T> {
         }
 
         self.0.push(Some(hash));
-        self.update(self.len().saturating_sub(1))
+        self.update(self.len().saturating_sub(1));
     }
 
     #[cfg(feature = "std")]
-    #[allow(clippy::expect_used)]
     fn update(&mut self, idx: usize) {
         let mut node = match self.get(idx) {
             Some(node) => *node,
@@ -197,12 +197,11 @@ impl<T> MerkleTree<T> {
                     Some(&node),
                 ),
                 1 => (&node, self.get_r_child(parent_idx)),
-                _ => unreachable!(),
+                _ => unreachable!("Modulo is always either 0 or 1"),
             };
-            let parent_node = match r_node_opt {
-                Some(r_node) => Self::nodes_pair_hash(l_node.as_ref(), r_node.as_ref()),
-                None => *l_node,
-            };
+            let parent_node = r_node_opt.map_or(*l_node, |r_node| {
+                Self::nodes_pair_hash(l_node.as_ref(), r_node.as_ref())
+            });
             let parent_mut = self.0.get_mut(parent_idx).expect("Infallible");
             *parent_mut = parent_node;
             idx = parent_idx;
@@ -215,10 +214,13 @@ impl<T> MerkleTree<T> {
         l_node: Option<&HashOf<T>>,
         r_node: Option<&HashOf<T>>,
     ) -> Option<HashOf<T>> {
+        #[allow(clippy::unreachable)]
         let (l_hash, r_hash) = match (l_node, r_node) {
             (Some(l_hash), Some(r_hash)) => (l_hash, r_hash),
             (Some(l_hash), None) => return Some(*l_hash),
-            (None, Some(_)) => unreachable!(),
+            (None, Some(_)) => unreachable!(
+                "The right subtree is never populated unless the left one is also populated"
+            ),
             (None, None) => return None,
         };
         let sum: Vec<_> = l_hash
@@ -293,7 +295,7 @@ mod tests {
         let tree = hashes.clone().into_iter().collect::<MerkleTree<_>>();
 
         for i in 0..N_LEAVES as usize * 2 {
-            assert_eq!(tree.get_leaf_hash(i).as_ref(), hashes.get(i))
+            assert_eq!(tree.get_leaf_hash(i).as_ref(), hashes.get(i));
         }
         for (testee_hash, tester_hash) in tree.into_iter().zip(hashes) {
             assert_eq!(testee_hash, tester_hash);

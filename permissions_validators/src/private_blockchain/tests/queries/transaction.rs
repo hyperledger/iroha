@@ -118,7 +118,7 @@ fn find_transaction_by_hash() {
     } = TestEnv::new();
 
     let find_alice_transaction =
-        QueryBox::FindTransactionByHash(FindTransactionByHash::new(Hash::new(&[])));
+        QueryBox::FindTransactionByHash(FindTransactionByHash::new(Hash::new([])));
 
     {
         let only_accounts_domain = query::OnlyAccountsDomain;

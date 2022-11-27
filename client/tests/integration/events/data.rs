@@ -108,7 +108,7 @@ fn transaction_execution_should_produce_events(executable: Executable, port: u16
         let event_iterator = listener.listen_for_events(event_filter)?;
         init_sender.send(())?;
         for event in event_iterator {
-            event_sender.send(event)?
+            event_sender.send(event)?;
         }
         Ok(())
     });
@@ -146,7 +146,7 @@ fn produce_multiple_events() -> Result<()> {
         let event_iterator = listener.listen_for_events(event_filter)?;
         init_sender.send(())?;
         for event in event_iterator {
-            event_sender.send(event)?
+            event_sender.send(event)?;
         }
         Ok(())
     });

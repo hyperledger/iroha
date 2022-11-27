@@ -6,8 +6,8 @@
 //! `Encode` and `Decode` trait implementations, you should add the
 //! wrapper as a submodule to this crate, rather than into
 //! `iroha_data_model` directly.
-
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(clippy::module_name_repetitions)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;

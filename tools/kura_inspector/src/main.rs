@@ -1,6 +1,7 @@
 //! Kura inspector binary. For usage run with `--help`.
 #![allow(
-    clippy::arithmetic,
+    clippy::use_debug,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -38,18 +39,16 @@ enum Command {
     },
 }
 
-#[allow(clippy::use_debug, clippy::print_stderr, clippy::panic)]
+#[allow(clippy::print_stderr, clippy::panic)]
 fn main() {
     let args = Args::parse();
 
-    let from_height = match args.from {
-        Some(height) => {
-            assert!(height != 0, "The genesis block has the height 1. Therefore, the \"from height\" you specify must not be 0.");
-            // Kura starts counting blocks from 0 like an array while the outside world counts the first block as number 1.
-            Some(height - 1)
-        }
-        None => None,
-    };
+    let from_height = args.from.map(|height| {
+        // Kura starts counting blocks from 0 like an array while
+        // the outside world counts the first block as number 1.
+        height.checked_sub(1)
+            .expect("The genesis block has the height 1. Therefore, the \"from height\" you specify must not be 0.")
+    });
 
     match args.command {
         Command::Print { length } => print_blockchain(
@@ -60,12 +59,7 @@ fn main() {
     }
 }
 
-#[allow(
-    clippy::print_stdout,
-    clippy::use_debug,
-    clippy::expect_used,
-    clippy::expect_fun_call
-)]
+#[allow(clippy::print_stdout, clippy::expect_fun_call)]
 fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64) {
     let mut block_store_path: std::borrow::Cow<'_, Path> = block_store_path.into();
 
@@ -124,9 +118,11 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
         from_height + block_count
     );
 
+    // TODO: refactor this
+    #[allow(clippy::indexing_slicing)]
     for i in 0..block_count {
         let (index_start, index_len) =
-            block_indices[usize::try_from(i).expect("i didn't fit in 32-bits")];
+            block_indices[usize::try_from(i).expect("`i` didn't fit in 32-bits")];
         let index_index = from_height + i;
 
         println!(

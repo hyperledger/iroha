@@ -1,5 +1,5 @@
 //! Time event and filter
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_core)]
 
 use core::{ops::Range, time::Duration};
 
@@ -62,6 +62,7 @@ impl Filter for EventFilter {
         self.count_matches(event) > 0
     }
 
+    #[allow(clippy::arithmetic_side_effects)]
     fn count_matches(&self, event: &Event) -> u32 {
         match &self.0 {
             ExecutionTime::PreCommit => 1,
@@ -86,14 +87,17 @@ impl Filter for EventFilter {
 }
 
 /// Count something with the `schedule` within the `interval`
-#[allow(clippy::expect_used)]
+#[allow(clippy::arithmetic_side_effects)]
 fn count_matches_in_interval(schedule: &Schedule, interval: &Interval) -> u32 {
     schedule.period.map_or_else(
         || u32::from(Range::from(*interval).contains(&schedule.start)),
         |period| {
             #[allow(clippy::integer_division)]
             let k = interval.since.saturating_sub(schedule.start).as_millis() / period.as_millis();
-            let start = schedule.start + multiply_duration_by_u128(period, k);
+            let start = schedule
+                .start
+                .checked_add(multiply_duration_by_u128(period, k))
+                .expect("Overflow. Check for unreasonably high multipliers in `period` and `k`");
             let range = Range::from(*interval);
             (0..)
                 .map(|i| start + period * i)
@@ -113,19 +117,27 @@ fn count_matches_in_interval(schedule: &Schedule, interval: &Interval) -> u32 {
 ///
 /// # Panics
 /// Panics if resulting number in seconds can't be represented as `u64`
-#[allow(clippy::expect_used, clippy::integer_division)]
+#[allow(
+    clippy::panic,
+    clippy::integer_division,
+    clippy::arithmetic_side_effects
+)]
 fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
     if let Ok(n) = u32::try_from(n) {
         return duration * n;
     }
 
-    let new_ms = duration.as_millis() * n;
+    let dur = duration.as_millis();
+    let new_ms = dur
+        .checked_mul(n)
+        .unwrap_or_else(|| panic!("Overflow. {dur} * {n}"));
     if let Ok(ms) = u64::try_from(new_ms) {
         return Duration::from_millis(ms);
     }
 
-    let new_secs = u64::try_from(new_ms / 1000)
-        .expect("Overflow. Resulting number in seconds can't be represented as `u64`");
+    let new_secs = u64::try_from(new_ms / 1000).unwrap_or_else(|e| {
+        panic!("{e:?}. Resulting number in seconds {new_ms} can't be represented as `u64`")
+    });
     Duration::from_secs(new_secs)
 }
 
@@ -230,6 +242,7 @@ impl Interval {
 
 impl From<Interval> for Range<Duration> {
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     fn from(interval: Interval) -> Self {
         interval.since..interval.since + interval.length
     }

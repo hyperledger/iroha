@@ -1,5 +1,4 @@
 //! Structures and traits related to pagination.
-#![allow(clippy::expect_used)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{
@@ -56,10 +55,7 @@ impl<I: Iterator> Iterator for Paginated<I> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(limit) = self.pagination.limit.as_mut() {
-            if *limit == 0 {
-                return None;
-            }
-            *limit -= 1
+            *limit = limit.checked_sub(1)?;
         }
 
         #[allow(clippy::option_if_let_else)]

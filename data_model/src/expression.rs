@@ -6,7 +6,9 @@
     // Because of length on instructions and expressions (can't be 0)
     clippy::len_without_is_empty,
     // Because of length on instructions and expressions (XXX: Should it be trait?)
-    clippy::unused_self
+    clippy::unused_self,
+    // Because all instances of arithmetic are far from the numerical bounds
+    clippy::arithmetic_side_effects
 )]
 
 #[cfg(not(feature = "std"))]
@@ -815,7 +817,7 @@ pub struct IfBuilder {
 impl IfBuilder {
     /// Sets the `condition`.
     pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
-        IfBuilder {
+        Self {
             condition: condition.into(),
             then_expression: None,
             else_expression: None,
@@ -824,7 +826,7 @@ impl IfBuilder {
 
     /// Sets `then_expression`.
     pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        IfBuilder {
+        Self {
             then_expression: Some(expression.into()),
             ..self
         }
@@ -832,7 +834,7 @@ impl IfBuilder {
 
     /// Sets `else_expression`.
     pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        IfBuilder {
+        Self {
             else_expression: Some(expression.into()),
             ..self
         }
@@ -1069,6 +1071,7 @@ impl Where {
     /// Number of underneath expressions.
     #[must_use]
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
     }

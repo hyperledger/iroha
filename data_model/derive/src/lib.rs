@@ -1,5 +1,9 @@
 //! A crate containing various derive macros for `data_model`
-#![allow(clippy::std_instead_of_core)]
+#![allow(
+    clippy::std_instead_of_core,
+    clippy::arithmetic_side_effects,
+    clippy::module_name_repetitions
+)]
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;

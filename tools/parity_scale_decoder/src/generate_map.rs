@@ -453,9 +453,9 @@ mod tests {
         // These types **shouldn't** implement `Decode`. As such we need to make an exception.
         let exceptions = HashSet::from(type_names_arr![
             Vec<iroha_core::genesis::GenesisTransaction>,
-            iroha_core::genesis::GenesisTransaction,
-            iroha_core::genesis::RawGenesisBlock,
-            iroha_crypto::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>,
+            genesis::GenesisTransaction,
+            genesis::RawGenesisBlock,
+            MerkleTree<VersionedSignedTransaction>,
             TransactionQueryResult,
         ]);
 

@@ -1,10 +1,11 @@
 //! Parity Scale decoder tool for Iroha data types. For usage run with `--help`
 #![allow(
-    clippy::arithmetic,
+    clippy::print_stdout,
+    clippy::use_debug,
+    clippy::unnecessary_wraps,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-#![allow(clippy::print_stdout, clippy::use_debug, clippy::unnecessary_wraps)]
 
 use std::{collections::BTreeMap, fmt::Debug, fs, io, path::PathBuf};
 
@@ -156,8 +157,6 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
-
     use std::str::FromStr as _;
 
     use iroha_data_model::{domain::IpfsPath, prelude::*};

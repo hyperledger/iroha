@@ -1,11 +1,10 @@
 //! This module contains logic related to executing smartcontracts via
 //! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
 //! to wasm format and submitted in a transaction
-#![allow(clippy::expect_used, clippy::doc_link_with_quotes)]
 #![allow(
-    clippy::arithmetic,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
+    clippy::doc_link_with_quotes,
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing
 )]
 
 use anyhow::anyhow;
@@ -663,7 +662,7 @@ impl<'wrld> Runtime<'wrld> {
         T: Decode + std::fmt::Debug,
     >(
         memory: &wasmtime::Memory,
-        dealloc_fn: &wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>,
+        dealloc_fn: &TypedFunc<(WasmUsize, WasmUsize), ()>,
         mut context: &mut C,
         offset: WasmUsize,
     ) -> Result<T, Error> {
@@ -699,7 +698,7 @@ impl<'wrld> Runtime<'wrld> {
     fn encode_bytes_into_memory(
         bytes: &[u8],
         memory: &wasmtime::Memory,
-        alloc_fn: &wasmtime::TypedFunc<WasmUsize, WasmUsize>,
+        alloc_fn: &TypedFunc<WasmUsize, WasmUsize>,
         mut context: impl wasmtime::AsContextMut,
     ) -> Result<WasmUsize, Trap> {
         let mut encode = || -> eyre::Result<WasmUsize> {
@@ -720,28 +719,31 @@ impl<'wrld> Runtime<'wrld> {
         encode().map_err(|error| Trap::new(error.to_string()))
     }
 
-    /// Encode the given object but also add it's length in front of it. This can be considered
-    /// a custom encoding format
+    /// Encode the given object but also add it's length in front of
+    /// it. This can be considered a custom encoding format
     ///
-    /// Usually, to retrieve the encoded object both pointer and the length of the allocation
-    /// are provided. However, due to the lack of support for multivalue return values in stable
-    /// `WebAssembly` it's not possible to return two values from a wasm function without some
-    /// shenanignas. In those cases, only one value is sent which is pointer to the allocation
-    /// with the first element being the length of the encoded object following it.
+    /// Usually, to retrieve the encoded object both pointer and the
+    /// length of the allocation are provided. However, due to the
+    /// lack of support for multivalue return values in stable
+    /// `WebAssembly` it's not possible to return two values from a
+    /// wasm function without some shenanignas. In those cases, only
+    /// one value is sent which is pointer to the allocation with the
+    /// first element being the length of the encoded object following
+    /// it.
     fn encode_with_length_prefix<T: Encode>(obj: &T) -> Result<Vec<u8>, Trap> {
         let len_size_bytes = core::mem::size_of::<WasmUsize>();
 
-        let mut r = Vec::with_capacity(len_size_bytes + obj.size_hint());
+        let mut result = Vec::with_capacity(len_size_bytes + obj.size_hint());
 
         // Reserve space for length
-        r.resize(len_size_bytes, 0);
-        obj.encode_to(&mut r);
+        result.resize(len_size_bytes, 0);
+        obj.encode_to(&mut result);
 
         // Store length as byte array in front of encoding
-        let len = &WasmUsize::try_from(r.len()).map_err(|e| Trap::new(e.to_string()))?;
-        r[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
+        let len = &WasmUsize::try_from(result.len()).map_err(|e| Trap::new(e.to_string()))?;
+        result[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
 
-        Ok(r)
+        Ok(result)
     }
 }
 
@@ -751,7 +753,7 @@ trait GetExport {
 }
 
 #[allow(clippy::single_char_lifetime_names)]
-impl<'a, T> GetExport for Caller<'a, T> {
+impl<T> GetExport for Caller<'_, T> {
     fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern> {
         Self::get_export(self, name)
     }

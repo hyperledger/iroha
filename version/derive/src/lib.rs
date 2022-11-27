@@ -1,9 +1,8 @@
 #![allow(
     clippy::module_name_repetitions,
     missing_docs,
-    clippy::shadow_reuse,
     clippy::str_to_string,
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core
 )]
 
@@ -27,13 +26,18 @@ const VERSIONED_STRUCT_ARG_NAME: &str = "versioned";
 const VERSION_FIELD_NAME: &str = "version";
 const CONTENT_FIELD_NAME: &str = "content";
 
-/// Used to declare that this struct represents a particular version as a part of the versioned container.
+/// Used to declare that this `struct` represents a particular version
+/// as a part of the versioned container.
 ///
-/// Adds support for both scale codec and json serialization. To declare only with json support, use [`version_with_json()`], for scale — [`version_with_scale()`].
+/// Adds support for both SCALE codec and JSON serialization. To
+/// declare only with JSON support, use [`version_with_json()`], for
+/// scale — [`version_with_scale()`].
 ///
 /// ### Arguments
 /// - named `n: u8`: what version this particular struct represents.
-/// - named `versioned: String`: to which versioned container to link this struct. Versioned containers are created with [`declare_versioned`](`declare_versioned()`).
+/// - named `versioned: String`: to which versioned container to link
+/// this struct. Versioned containers are created with
+/// [`declare_versioned`](`declare_versioned()`).
 ///
 /// ### Examples
 /// See [`declare_versioned`](`declare_versioned()`).
@@ -60,9 +64,14 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
     impl_version(args, item).into()
 }
 
-/// Used to generate a versioned container with the given name and given range of supported versions.
+/// Used to generate a versioned container with the given name and
+/// given range of supported versions.
 ///
-/// Adds support for both scale codec and json serialization. To declare only with json support, use [`declare_versioned_with_json`](`declare_versioned_with_json()`), for scale — [`declare_versioned_with_scale`](`declare_versioned_with_json()`).
+/// Adds support for both scale codec and json serialization. To
+/// declare only with json support, use
+/// [`declare_versioned_with_json`](`declare_versioned_with_json()`),
+/// for scale —
+/// [`declare_versioned_with_scale`](`declare_versioned_with_json()`).
 ///
 /// It's a user responsibility to export `Box` so that this macro works properly
 ///

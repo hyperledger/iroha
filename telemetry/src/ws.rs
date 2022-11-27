@@ -161,7 +161,10 @@ where
         let sender = self.internal_sender.clone();
         tokio::task::spawn(async move {
             tokio::time::sleep(Duration::from_secs(period)).await;
-            let _ = sender.send(InternalMessage::Reconnect).await;
+            sender
+                .send(InternalMessage::Reconnect)
+                .await
+                .unwrap_or_else(|e| iroha_logger::debug!(?e));
         });
     }
 }
@@ -260,7 +263,7 @@ impl SinkFactory for WebsocketSinkFactory {
     }
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[allow(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use std::{
@@ -435,23 +438,27 @@ mod tests {
             ..
         } = suite;
 
-        // The first message is `initialization`
         telemetry_sender
             .send(system_connected_telemetry())
             .await
-            .unwrap();
+            .expect("The first message is `initialization`");
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
-            let msg = message_receiver.next().await.unwrap();
+            let msg = message_receiver.next().await.expect("Nothing we can do");
             let bytes = if let Message::Binary(bytes) = msg {
                 bytes
             } else {
                 panic!()
             };
-            let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
+            let map: Map<String, Value> =
+                serde_json::from_slice(&bytes).expect("Violation of compile time invariant");
             assert_eq!(map.get("id"), Some(&Value::Number(0_i32.into())));
             assert!(map.contains_key("ts"));
-            let payload = map.get("payload").unwrap().as_object().unwrap();
+            let payload = map
+                .get("payload")
+                .expect("Nonempty payload")
+                .as_object()
+                .expect("Object conversion infallible");
             assert_eq!(
                 payload.get("msg"),
                 Some(&Value::String("system.connected".to_owned()))
@@ -471,24 +478,31 @@ mod tests {
             assert!(payload.contains_key("network_id"));
         }
 
-        // The second message is `update`
         telemetry_sender
             .send(system_interval_telemetry(2))
             .await
-            .unwrap();
+            .expect("The second message is `update`");
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
-            let msg = message_receiver.next().await.unwrap();
+            let msg = message_receiver
+                .next()
+                .await
+                .expect("The second message is nonempty");
             let bytes = if let Message::Binary(bytes) = msg {
                 bytes
             } else {
-                panic!()
+                panic!("Binary message expected")
             };
-            let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
+            let map: Map<String, Value> =
+                serde_json::from_slice(&bytes).expect("Violation of compile time invariant.");
             assert_eq!(map.get("id"), Some(&Value::Number(0_i32.into())));
             assert!(map.contains_key("ts"));
             assert!(map.contains_key("payload"));
-            let payload = map.get("payload").unwrap().as_object().unwrap();
+            let payload = map
+                .get("payload")
+                .expect("Payload is guaranteed to exist.")
+                .as_object()
+                .expect("Object conversions is infallible");
             assert_eq!(
                 payload.get("msg"),
                 Some(&Value::String("system.interval".to_owned()))
@@ -497,6 +511,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::unwrap_used)]
     async fn reconnect_fails_with_suite(suite: Suite) {
         let Suite {
             fail_send,
@@ -505,36 +520,33 @@ mod tests {
             mut message_receiver,
         } = suite;
 
-        // Fail sending the first message
         fail_send.store(true, Ordering::Release);
         telemetry_sender
             .send(system_connected_telemetry())
             .await
-            .unwrap();
+            .expect("Fail sending the first message");
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // The second message is not sent because the sink is reset
         fail_send.store(false, Ordering::Release);
         telemetry_sender
             .send(system_interval_telemetry(1))
             .await
-            .unwrap();
+            .expect("The second message is not sent because the sink is reset");
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Fail the reconnection
         fail_factory_create.store(true, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        // The third message is not sent because the sink is not created yet
         telemetry_sender
             .send(system_interval_telemetry(1))
             .await
-            .unwrap();
+            .expect("The third message is not sent because the sink is not created yet");
         message_receiver.try_next().unwrap_err();
     }
 
+    #[allow(clippy::unwrap_used)]
     async fn send_after_reconnect_fails_with_suite(suite: Suite) {
         let Suite {
             fail_send,
@@ -543,33 +555,29 @@ mod tests {
             ..
         } = suite;
 
-        // Fail sending the first message
         fail_send.store(true, Ordering::Release);
         telemetry_sender
             .send(system_connected_telemetry())
             .await
-            .unwrap();
+            .expect("Fail sending the first message");
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // The second message is not sent because the sink is reset
         fail_send.store(false, Ordering::Release);
         telemetry_sender
             .send(system_interval_telemetry(1))
             .await
-            .unwrap();
+            .expect("The second message is not sent because the sink is reset");
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Fail sending the first message after reconnect
         fail_send.store(true, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
         message_receiver.try_next().unwrap_err();
 
-        // The message is sent
         fail_send.store(false, Ordering::Release);
         tokio::time::sleep(Duration::from_secs(1)).await;
-        message_receiver.try_next().unwrap();
+        message_receiver.try_next().expect("The message is sent");
     }
 
     macro_rules! test_with_suite {

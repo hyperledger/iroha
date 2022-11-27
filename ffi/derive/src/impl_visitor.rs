@@ -110,7 +110,7 @@ impl ImplDescriptor {
         let mut visitor = ImplVisitor::new();
         visitor.visit_item_impl(node);
 
-        ImplDescriptor::from_visitor(visitor)
+        Self::from_visitor(visitor)
     }
 
     fn from_visitor(visitor: ImplVisitor) -> Self {
@@ -127,7 +127,7 @@ impl FnDescriptor {
         let mut visitor = FnVisitor::new(Some(self_ty), trait_name);
 
         visitor.visit_impl_item_method(node);
-        FnDescriptor::from_visitor(visitor)
+        Self::from_visitor(visitor)
     }
 
     pub fn from_fn(node: &syn::ItemFn) -> Self {
@@ -415,7 +415,6 @@ impl VisitMut for SelfResolver<'_> {
         }
 
         if node.segments[0].ident == "Self" {
-            #[allow(clippy::expect_used)]
             let mut node_segments = self.self_ty.segments.clone();
 
             for segment in core::mem::take(&mut node.segments).into_iter().skip(1) {

@@ -93,7 +93,7 @@ fn mint(
 #[allow(clippy::expect_used)]
 fn init() -> Result<(
     tokio::runtime::Runtime,
-    test_network::Network,
+    Network,
     iroha_client::client::Client,
     std::time::Duration,
     AccountId,

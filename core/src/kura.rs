@@ -6,8 +6,8 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic,
-    clippy::significant_drop_in_scrutinee
+    clippy::significant_drop_in_scrutinee,
+    clippy::arithmetic_side_effects
 )]
 use std::{
     fmt::Debug,
@@ -240,13 +240,14 @@ impl Kura {
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<VersionedCommittedBlock>> {
         let hash_array_guard = self.block_hash_array.lock();
+        // TODO: Do we really need this check if we use `get`?
         if block_height == 0 || block_height > hash_array_guard.len() as u64 {
             return None;
         }
         let index: usize = (block_height - 1)
             .try_into()
             .expect("block_height fits in 32 bits or we are running on a 64 bit machine");
-        Some(hash_array_guard[index])
+        hash_array_guard.get(index).copied()
     }
 
     /// Put a block in the queue to be stored by Kura. If the queue is
@@ -411,8 +412,8 @@ impl StdFileBlockStore {
 impl BlockStoreTrait for StdFileBlockStore {
     #[allow(
         clippy::needless_range_loop,
-        clippy::unwrap_used,
-        clippy::unwrap_in_result
+        clippy::unwrap_in_result,
+        clippy::indexing_slicing
     )]
     fn read_block_indices(
         &self,
@@ -434,7 +435,9 @@ impl BlockStoreTrait for StdFileBlockStore {
         let mut buffer = [0; core::mem::size_of::<u64>()];
         // (start, length), (start,length) ...
         for i in 0..block_count {
-            let index: usize = i.try_into().unwrap();
+            let index: usize = i
+                .try_into()
+                .expect("`u64` failed to get converted into a `usize`");
             dest_buffer[index] = (
                 {
                     index_file.read_exact(&mut buffer)?;

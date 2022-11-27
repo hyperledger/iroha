@@ -27,6 +27,8 @@ def_ffi_fn! {Ord: FfiStruct1, FfiStruct2}
 #[ffi_export]
 impl FfiStruct1 {
     /// New
+    #[must_use]
+    #[inline]
     pub fn new(name: String) -> Self {
         Self { name }
     }

@@ -131,7 +131,7 @@ pub struct Event {
 impl Event {
     /// Construct [`Event`].
     pub const fn new(entity_kind: EntityKind, status: Status, hash: Hash) -> Self {
-        Event {
+        Self {
             entity_kind,
             status,
             hash,

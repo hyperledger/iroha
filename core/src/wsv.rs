@@ -3,8 +3,7 @@
 #![allow(
     clippy::new_without_default,
     clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::std_instead_of_alloc
 )]
 
 use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
@@ -75,8 +74,8 @@ impl World {
             .collect();
         let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
         World {
-            domains,
             trusted_peers_ids,
+            domains,
             ..World::new()
         }
     }
@@ -127,7 +126,6 @@ impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
-    #[allow(clippy::expect_used)]
     pub fn new(world: World) -> Self {
         // Added to remain backward compatible with other code primary in tests
         let config = ConfigurationProxy::default()
@@ -515,18 +513,20 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain
-    #[allow(clippy::panic_in_result_fn)]
+    ///
+    /// # Panics
+    /// If `Infallible` is returned. This means your closure is buggy.
+    #[allow(clippy::panic)]
     pub fn map_domain<T>(
         &self,
         id: &<Domain as Identifiable>::Id,
         f: impl FnOnce(&Domain) -> Result<T, Infallible>,
     ) -> Result<T, FindError> {
         let domain = self.domain(id)?;
-        let value = match f(domain.value()) {
-            Ok(value) => value,
-            Err(_) => unreachable!("Returning `Infallible` should not be possible"),
-        };
-        Ok(value)
+        f(domain.value()).map_or_else(
+            |e| panic!("Returning `Infallible` should not be possible, yet got {e:?}"),
+            Ok,
+        )
     }
 
     /// The same as [`Self::modify_domain_multiple_events`] except closure `f` returns a single [`DomainEvent`].
@@ -609,7 +609,6 @@ impl WorldStateView {
     }
 
     /// Initializes WSV with the blocks from block storage.
-    #[allow(clippy::expect_used)]
     pub fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
         for block in blocks {
             // TODO: If we cannot apply the block, it is preferred to
@@ -801,7 +800,6 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
                 .asset_total_quantity_mut(definition_id)
@@ -841,7 +839,6 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
                 .asset_total_quantity_mut(definition_id)
@@ -929,8 +926,8 @@ impl WorldStateView {
     #[cfg(test)]
     pub fn transactions_number(&self) -> u64 {
         self.blocks.iter().fold(0_u64, |acc, block| {
-            acc + block.as_v1().transactions.len() as u64
-                + block.as_v1().rejected_transactions.len() as u64
+            acc.saturating_add(block.as_v1().transactions.len() as u64)
+                .saturating_add(block.as_v1().rejected_transactions.len() as u64)
         })
     }
 

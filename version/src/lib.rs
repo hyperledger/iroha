@@ -116,6 +116,7 @@ pub mod error {
     impl Error {
         /// Returns status code for this error
         #[allow(clippy::unused_self)]
+        #[must_use]
         pub const fn status_code(&self) -> warp::http::StatusCode {
             warp::http::StatusCode::BAD_REQUEST
         }
@@ -179,6 +180,7 @@ impl UnsupportedVersion {
     }
 
     /// Expected version
+    #[must_use]
     pub const fn expected_version() -> u8 {
         1
     }

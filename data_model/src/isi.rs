@@ -448,7 +448,7 @@ where
 {
     /// Construct [`Set`].
     pub fn new(object: O) -> Self {
-        Set { object }
+        Self { object }
     }
 }
 
@@ -458,7 +458,7 @@ where
 {
     /// Construct [`Register`].
     pub fn new(object: O::With) -> Self {
-        Register { object }
+        Self { object }
     }
 }
 
@@ -468,7 +468,7 @@ where
 {
     /// Construct [`Register`].
     pub fn new(object_id: O::Id) -> Self {
-        Unregister { object_id }
+        Self { object_id }
     }
 }
 
@@ -479,7 +479,7 @@ where
 {
     /// Construct [`Mint`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
-        Mint {
+        Self {
             object,
             destination_id,
         }
@@ -493,7 +493,7 @@ where
 {
     /// Construct [`Burn`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
-        Burn {
+        Self {
             object,
             destination_id,
         }
@@ -508,7 +508,7 @@ where
 {
     /// Construct [`Transfer`].
     pub fn new(source_id: S::Id, object: O, destination_id: D::Id) -> Self {
-        Transfer {
+        Self {
             source_id,
             object,
             destination_id,
@@ -549,6 +549,7 @@ where
 impl RevokeBox {
     /// Compute the number of contained instructions and expressions.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.object.len() + self.destination_id.len() + 1
     }
@@ -567,6 +568,7 @@ impl RevokeBox {
 
 impl GrantBox {
     /// Compute the number of contained instructions and expressions.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.object.len() + self.destination_id.len() + 1
     }
@@ -586,6 +588,7 @@ impl GrantBox {
 impl SetKeyValueBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + self.value.len() + 1
     }
@@ -611,6 +614,7 @@ impl SetKeyValueBox {
 impl RemoveKeyValueBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + 1
     }
@@ -630,6 +634,7 @@ impl RemoveKeyValueBox {
 impl RegisterBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.object.len() + 1
     }
@@ -645,6 +650,7 @@ impl RegisterBox {
 impl UnregisterBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.object_id.len() + 1
     }
@@ -660,6 +666,7 @@ impl UnregisterBox {
 impl MintBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + 1
     }
@@ -679,6 +686,7 @@ impl MintBox {
 impl BurnBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + 1
     }
@@ -698,6 +706,7 @@ impl BurnBox {
 impl TransferBox {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + self.source_id.len() + 1
     }
@@ -723,6 +732,7 @@ impl TransferBox {
 impl Pair {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.left_instruction.len() + self.right_instruction.len() + 1
     }
@@ -732,7 +742,7 @@ impl Pair {
         left_instruction: LI,
         right_instruction: RI,
     ) -> Self {
-        Pair {
+        Self {
             left_instruction: left_instruction.into(),
             right_instruction: right_instruction.into(),
         }
@@ -741,6 +751,7 @@ impl Pair {
 
 impl SequenceBox {
     /// Length of contained instructions and queries.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         self.instructions
             .iter()
@@ -758,6 +769,7 @@ impl SequenceBox {
 impl If {
     /// Length of contained instructions and queries.
     #[inline]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn len(&self) -> usize {
         let otherwise = self.otherwise.as_ref().map_or(0, Instruction::len);
         self.condition.len() + self.then.len() + otherwise + 1
@@ -765,7 +777,7 @@ impl If {
 
     /// Construct [`If`].
     pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<Instruction>>(condition: C, then: T) -> Self {
-        If {
+        Self {
             condition: condition.into(),
             then: then.into(),
             otherwise: None,
@@ -781,7 +793,7 @@ impl If {
         then: T,
         otherwise: O,
     ) -> Self {
-        If {
+        Self {
             condition: condition.into(),
             then: then.into(),
             otherwise: Some(otherwise.into()),
