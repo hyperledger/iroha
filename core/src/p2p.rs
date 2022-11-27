@@ -1,16 +1,19 @@
 //! handshake and connection logic.
-#![allow(clippy::significant_drop_in_scrutinee)]
+#![allow(
+    clippy::significant_drop_in_scrutinee,
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing
+)]
 
 use core::marker::PhantomData;
 use std::{
     collections::HashMap,
     io::{Read, Write},
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs},
+    result::Result,
     sync::Arc,
     time::{Duration, Instant},
 };
-
-use parking_lot::Mutex;
 
 use eyre::WrapErr as _;
 use iroha_crypto::{
@@ -24,6 +27,7 @@ use iroha_crypto::{
 };
 use iroha_logger::{debug, error, info, trace};
 use parity_scale_codec::{Decode, Encode};
+use parking_lot::Mutex;
 use rand::{Rng, RngCore};
 use thiserror::Error;
 
@@ -86,6 +90,7 @@ pub(crate) struct ReadThreadData {
     pub(crate) packet_cache: Vec<Option<NetworkMessage>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NetworkMessageVariant {
     Sumeragi,
     BlockSync,
@@ -99,7 +104,7 @@ pub(crate) struct PeerConnection {
 }
 
 impl std::fmt::Debug for P2PSystem {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "P2PSystem")
     }
 }
@@ -121,13 +126,10 @@ impl P2PSystem {
         }
     }
 
-    #[allow(clippy::unwrap_in_result)]
     fn try_resolve_address(&self) -> Option<std::net::SocketAddr> {
         let connected_to_peer_keys = {
             let mut keys = Vec::new();
-            let mut connected_to_peers = self
-                .connected_to_peers
-                .lock();
+            let mut connected_to_peers = self.connected_to_peers.lock();
             for (public_key, _) in connected_to_peers.iter_mut() {
                 keys.push(public_key.clone());
             }
@@ -147,7 +149,8 @@ impl P2PSystem {
         if target_addrs.is_empty() {
             None
         } else {
-            let address_candidate = &target_addrs[rand::random::<usize>() % target_addrs.len()];
+            let address_candidate =
+                &target_addrs[rand::random::<usize>().wrapping_rem(target_addrs.len())];
             // to_socket_addrs enables dns look-ups.
             let maybe_addr = address_candidate
                 .to_socket_addrs()
@@ -166,9 +169,7 @@ impl P2PSystem {
     pub(crate) fn post_to_network(&self, message: &NetworkMessage, recipients: &[PublicKey]) {
         let mut to_disconnect_keys = Vec::new();
 
-        let mut connected_to_peers = self
-            .connected_to_peers
-            .lock();
+        let mut connected_to_peers = self.connected_to_peers.lock();
         for public_key in recipients.iter() {
             if let Some(PeerConnection { stream, crypto, .. }) =
                 connected_to_peers.get_mut(public_key)
@@ -195,8 +196,8 @@ impl P2PSystem {
     }
 
     #[allow(
-        clippy::unwrap_in_result,
         clippy::redundant_else,
+        clippy::arithmetic_side_effects,
         clippy::cognitive_complexity,
         clippy::needless_pass_by_value
     )]
@@ -207,16 +208,14 @@ impl P2PSystem {
         let ReadThreadData {
             ref mut poll_network_index,
             ref mut packet_cache,
-        } = *self
-            .read_thread_data
-            .lock();
+        } = *self.read_thread_data.lock();
 
         let mut insert_index = 0;
         for i in 0..packet_cache.len() {
             if let Some(content) = packet_cache[i].take() {
                 match content {
                     SumeragiPacket(internal) => {
-                        if matches!(variant, NetworkMessageVariant::Sumeragi) {
+                        if variant == NetworkMessageVariant::Sumeragi {
                             iroha_logger::trace!("Early return.");
                             return Some(SumeragiPacket(internal));
                         } else {
@@ -225,7 +224,7 @@ impl P2PSystem {
                         }
                     }
                     BlockSync(internal) => {
-                        if matches!(variant, NetworkMessageVariant::BlockSync) {
+                        if variant == NetworkMessageVariant::BlockSync {
                             iroha_logger::trace!("Early return.");
                             return Some(BlockSync(internal));
                         } else {
@@ -239,9 +238,7 @@ impl P2PSystem {
         }
         packet_cache.truncate(insert_index);
 
-        let mut connected_to_peers = self
-            .connected_to_peers
-            .lock();
+        let mut connected_to_peers = self.connected_to_peers.lock();
         let mut values: Vec<_> = connected_to_peers.iter_mut().collect();
         let value_len = values.len();
 
@@ -267,7 +264,7 @@ impl P2PSystem {
             match crypto.read_from_socket(stream) {
                 Err(_) | Ok(Health) => (),
                 Ok(NetworkMessage::SumeragiPacket(internal)) => {
-                    if matches!(variant, NetworkMessageVariant::Sumeragi) {
+                    if NetworkMessageVariant::Sumeragi == variant {
                         recieved = Some(SumeragiPacket(internal));
                     } else {
                         packet_cache.push(Some(SumeragiPacket(internal)));
@@ -275,7 +272,7 @@ impl P2PSystem {
                     break;
                 }
                 Ok(NetworkMessage::BlockSync(internal)) => {
-                    if matches!(variant, NetworkMessageVariant::BlockSync) {
+                    if variant == NetworkMessageVariant::BlockSync {
                         recieved = Some(BlockSync(internal));
                     } else {
                         packet_cache.push(Some(BlockSync(internal)));
@@ -297,9 +294,7 @@ impl P2PSystem {
     }
 
     pub(crate) fn update_peer_target(&self, new_target: &[PeerId]) {
-        let mut target = self
-            .connect_peer_target
-            .lock();
+        let mut target = self.connect_peer_target.lock();
         target.clear();
         target.extend_from_slice(new_target);
         if let Some(index) = target
@@ -310,11 +305,7 @@ impl P2PSystem {
         }
         let target = target.clone();
         let mut to_disconnect_keys = Vec::new();
-        for public_key in self
-            .connected_to_peers
-            .lock()
-            .keys()
-        {
+        for public_key in self.connected_to_peers.lock().keys() {
             if !target.iter().any(|id| id.public_key == *public_key) {
                 to_disconnect_keys.push(public_key.clone());
             }
@@ -367,9 +358,7 @@ impl P2PSystem {
                 continue;
             }
 
-            let mut connected_to_peers = self
-                .connected_to_peers
-                .lock();
+            let mut connected_to_peers = self.connected_to_peers.lock();
 
             if connected_to_peers.keys().any(|key| *key == other) {
                 trace!(%other, "Dropping because already connected.");
@@ -377,8 +366,8 @@ impl P2PSystem {
                 finish_connection(crypto, stream, &mut connected_to_peers, &other)
             {
                 error!(?e,
-                    %other,
-                    "Connecting to peer failed in final step."
+                       %other,
+                       "Connecting to peer failed in final step."
                 );
             }
         }
@@ -386,9 +375,7 @@ impl P2PSystem {
 
     fn check_connection(&self, instant_last_sent_connection_check: &mut Instant) {
         if instant_last_sent_connection_check.elapsed().as_secs() > 2 {
-            let target = self
-                .connect_peer_target
-                .lock();
+            let target = self.connect_peer_target.lock();
             self.post_to_network(
                 &NetworkMessage::ConnectionCheck(42),
                 &target
@@ -455,25 +442,26 @@ impl P2PSystem {
             incoming_connection
         };
 
-        match maybe_incoming_connection {
-            Some(con) => Ok(con),
-            None => self
-                .try_resolve_address()
-                .map_or(Err(Error::Resolve), |addr| {
-                    TcpStream::connect_timeout(&addr, ESTABLISH_CONNECTION_TIME_SLICE * 40)
-                        .map(|stream| {
-                            info!("Outgoing p2p connection to {}", &addr);
-                            stream
-                                .set_read_timeout(Some(P2P_TCP_TIMEOUT))
-                                .expect("Could not set read timeout on socket.");
-                            stream
-                                .set_write_timeout(Some(P2P_TCP_TIMEOUT))
-                                .expect("Could not set write timeout on socket.");
-                            stream
-                        })
-                        .map_err(Error::Io)
-                }),
-        }
+        maybe_incoming_connection.map_or_else(
+            || {
+                self.try_resolve_address()
+                    .map_or(Err(Error::Resolve), |addr| {
+                        TcpStream::connect_timeout(&addr, ESTABLISH_CONNECTION_TIME_SLICE * 40)
+                            .map(|stream| {
+                                info!("Outgoing p2p connection to {}", &addr);
+                                stream
+                                    .set_read_timeout(Some(P2P_TCP_TIMEOUT))
+                                    .expect("Could not set read timeout on socket.");
+                                stream
+                                    .set_write_timeout(Some(P2P_TCP_TIMEOUT))
+                                    .expect("Could not set write timeout on socket.");
+                                stream
+                            })
+                            .map_err(Error::Io)
+                    })
+            },
+            Ok,
+        )
     }
 
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
@@ -537,9 +525,10 @@ fn finish_connection(
     let mut buf = vec![0_u8; packet_size as usize];
     stream.read_exact(&mut buf)?;
     let data = crypto.decrypt(buf)?;
-    if let ConnectionCheck(_) = Decode::decode(&mut data.as_slice())? {}
-    else {
-        error!("Actually not established connection to peer {other_public_key}."); // Rust errors are dumb, TODO invent an error type for this case.
+    if let ConnectionCheck(_) = Decode::decode(&mut data.as_slice())? {
+    } else {
+        error!("Actually not established connection to peer {other_public_key}.");
+        // Rust errors are dumb, TODO invent an error type for this case.
     }
 
     info!("Established connection to peer {other_public_key}.");
@@ -586,7 +575,11 @@ const ESTABLISH_CONNECTION_TIME_SLICE: Duration = Duration::from_millis(25);
 
 type Cryptographer = GenericCryptographer<X25519Sha256, ChaCha20Poly1305>;
 
-impl std::fmt::Debug for Cryptographer { fn fmt(&self, _: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> { Ok(()) } }
+impl std::fmt::Debug for Cryptographer {
+    fn fmt(&self, _: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        Ok(())
+    }
+}
 
 /// Cryptographic primitive
 struct GenericCryptographer<K, E>

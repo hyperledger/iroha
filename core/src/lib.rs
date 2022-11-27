@@ -1,4 +1,5 @@
 //! Iroha — A simple, enterprise-grade decentralized ledger.
+#![allow(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
 
 pub mod block;
 pub mod block_sync;
@@ -57,10 +58,10 @@ pub enum NetworkMessage {
     /// Health check message
     Health,
     /// Connection check message variant. It contains the size of the
-    /// message.
+    /// message. **DO NOT REMOVE `SIZE`**.
     ConnectionCheck(u64),
     /// Connection check acknowledgement message. Contains the size of
-    /// the message that was suppsoed to be
+    /// the message that was suppsoed to be acknowledged.
     ConnectionCheckAck(u64),
 }
 
@@ -71,8 +72,8 @@ pub trait IsInBlockchain {
 }
 
 /// Module constaining [`ThreadHandler`]
+#[allow(clippy::module_name_repetitions)]
 pub mod handler {
-    #![allow(clippy::expect_used)]
     use std::thread::JoinHandle;
 
     /// Call shutdown function and join thread on drop

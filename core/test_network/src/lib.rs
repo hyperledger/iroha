@@ -376,8 +376,6 @@ pub struct Peer {
     pub telemetry_address: String,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
-    // /// Broker
-    // pub broker: Broker,
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
     /// Iroha itself
@@ -516,7 +514,6 @@ impl Peer {
             telemetry_address,
             shutdown,
             iroha: None,
-            // broker: Broker::new(),
             temp_dir: None,
         })
     }

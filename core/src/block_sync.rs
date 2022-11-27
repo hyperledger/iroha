@@ -1,9 +1,5 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
-#![allow(
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic
-)]
+#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{
     fmt::Debug,
     sync::Arc,
@@ -42,14 +38,14 @@ impl BlockSynchronizer {
         sumeragi: Arc<Sumeragi>,
         p2p: Arc<P2PSystem>,
         peer_id: PeerId,
-    ) -> Arc<Self> {
-        Arc::new(Self {
+    ) -> Self {
+        Self {
             peer_id,
             sumeragi,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             p2p,
-        })
+        }
     }
 }
 
@@ -60,7 +56,6 @@ impl BlockSynchronizer {
 /// If thread wasn't spawned
 #[allow(clippy::expect_used)]
 pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
-    // Oneshot channel to allow forcefully stopping the thread.
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let thread_handle = std::thread::Builder::new()
@@ -68,7 +63,7 @@ pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
         .spawn(move || {
             block_sync_read_loop(&block_sync, shutdown_receiver);
         })
-        .expect("Failed to spawn read loop thread handle. You might be hitting up against `ulimits`. Consider increasing the RAM");
+        .expect("Failed to spawn read loop thread handle. You might be hitting up against `ulimits`. If you checked and it's not the `ulimits`, consider increasing the RAM");
 
     let shutdown = move || {
         let _result = shutdown_sender.send(());
@@ -77,6 +72,7 @@ pub fn start_read_loop(block_sync: Arc<BlockSynchronizer>) -> ThreadHandler {
     ThreadHandler::new(Box::new(shutdown), thread_handle)
 }
 
+#[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 fn block_sync_read_loop(
     block_sync: &BlockSynchronizer,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
@@ -84,9 +80,8 @@ fn block_sync_read_loop(
     let mut last_requested_blocks = Instant::now();
     let mut request_blocks_peer_index = 0_usize;
     loop {
-        // We have no obligations to network delivery so we simply exit on shutdown signal.
         if shutdown_receiver.try_recv().is_ok() {
-            iroha_logger::debug!("P2P thread is being shut down");
+            iroha_logger::debug!("P2P thread shutting down.");
             return;
         }
         block_sync
@@ -96,17 +91,17 @@ fn block_sync_read_loop(
                 || {
                     std::thread::sleep(Duration::from_millis(10));
                 },
-                |message| match message {
-                    NetworkMessage::BlockSync(message) => {
+                |message| {
+                    if let NetworkMessage::BlockSync(message) = message {
                         message.into_v1().handle_message(block_sync);
-                    }
-                    #[allow(clippy::restriction)]
-                    _ => {
-                        panic!("Above call to poll_network_for_packet returned wrong packet type.")
+                    } else {
+                        iroha_logger::debug!(
+                            ?message,
+                            "Unexpected message. Should be of type `BlockSync`"
+                        );
                     }
                 },
             );
-        #[allow(clippy::expect_used)]
         if last_requested_blocks.elapsed() > block_sync.gossip_period {
             last_requested_blocks = Instant::now();
             let peers: Vec<PublicKey> = {
@@ -232,10 +227,7 @@ pub mod message {
                 Message::GetBlocksAfter(get_blocks_after) => get_blocks_after.handle(block_sync),
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
                     use crate::sumeragi::message::{BlockCommitted, Message, MessagePacket};
-                    let mut guard = block_sync
-                        .p2p
-                        .read_thread_data
-                        .lock();
+                    let mut guard = block_sync.p2p.read_thread_data.lock();
                     for block in blocks {
                         let sumeragi_packet = NetworkMessage::SumeragiPacket(Box::new(
                             MessagePacket::new(

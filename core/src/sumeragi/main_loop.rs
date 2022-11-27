@@ -1,7 +1,6 @@
 //! Fault injection for tests. Almost all structs from this module
 //! should be reserved for testing, and only [`NoFault`], should be
 //! used in code.
-#![allow(clippy::cognitive_complexity)]
 
 use iroha_primitives::must_use::MustUse;
 use parking_lot::Mutex;
@@ -154,7 +153,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value, single_use_lifetimes)]
     fn broadcast_packet_to<'peer_id>(
         &self,
         msg: MessagePacket,
@@ -174,7 +173,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     /// The maximum time a sumeragi round can take to produce a block when
     /// there are no faulty peers in the a set.
     pub fn pipeline_time(&self) -> Duration {
-        self.block_time + self.commit_time
+        self.block_time.saturating_add(self.commit_time)
     }
 }
 
@@ -303,32 +302,34 @@ fn receive_network_packet(
     assert!(maybe_incoming_message.is_none(),"If there is a message available it must be consumed within one loop cycle. A in house rule in place to stop one from implementing bugs that render a node not responding.");
 
     *maybe_incoming_message = match p2p.poll_network_for_packet(NetworkMessageVariant::Sumeragi) {
-        Some(packet) => match packet {
-            NetworkMessage::SumeragiPacket(packet) => {
-                let packet = packet.into_v1();
-                let peer_list = state
-                    .current_topology
-                    .sorted_peers()
-                    .iter()
-                    .cloned()
-                    .collect();
+        Some(NetworkMessage::SumeragiPacket(packet)) => {
+            let packet = packet.into_v1();
+            let peer_list = state
+                .current_topology
+                .sorted_peers()
+                .iter()
+                .cloned()
+                .collect();
 
-                for proof in packet.view_change_proofs {
-                    let _ = view_change_proof_chain.insert_proof(
+            for proof in packet.view_change_proofs {
+                view_change_proof_chain
+                    .insert_proof(
                         &peer_list,
                         state.current_topology.max_faults(),
                         &state.latest_block_hash,
                         &proof,
-                    );
-                }
-                Some(packet.message)
+                    )
+                    .unwrap_or_else(|error| {
+                        iroha_logger::debug!(error, "error in inserting proof");
+                    });
             }
-            _ => panic!("Above call to poll_network_for_packet returned wrong packet type."),
-        },
+            Some(packet.message)
+        }
         None => {
             *should_sleep = true;
             None
         }
+        _ => panic!("Above call to poll_network_for_packet returned wrong packet type."),
     };
 }
 
@@ -436,23 +437,22 @@ fn handle_role_agnostic_messages<F>(
                     && state.latest_block_hash == block.header().previous_block_hash
                 {
                     // TODO: don't need to revalidate here instead send only hash and signatures in `BlockCommitted` message (#2955)
-                        let span = span!(
-                            Level::TRACE,
-                            "Sumeragi Validating Peer is revalidating the block."
-                        );
-                        let _enter = span.enter();
-                        match block.revalidate(
-                            &sumeragi.transaction_validator,
-                            &state.wsv,
-                            &state.latest_block_hash,
-                            state.latest_block_height,
-                        ) {
-                            Ok(block) => commit_block(sumeragi, block, state),
-                            Err(err) => {
-                                warn!(%err);
-                            }
+                    let span = span!(
+                        Level::TRACE,
+                        "Sumeragi Validating Peer is revalidating the block."
+                    );
+                    let _enter = span.enter();
+                    match block.revalidate(
+                        &sumeragi.transaction_validator,
+                        &state.wsv,
+                        &state.latest_block_hash,
+                        state.latest_block_height,
+                    ) {
+                        Ok(block) => commit_block(sumeragi, block, state),
+                        Err(err) => {
+                            warn!(%err);
                         }
-                    
+                    }
                 }
             }
             Message::ViewChangeSuggested => {
@@ -663,7 +663,7 @@ pub fn run<F>(
                             view_change_proof_chain.clone(),
                             crate::sumeragi::TransactionForwarded::new(tx).into(),
                         ),
-                        [state.current_topology.leader()].into_iter(),
+                        std::iter::once(state.current_topology.leader()),
                     );
                     has_sent_transactions = true;
                     sent_transaction_time = Instant::now();
@@ -864,7 +864,7 @@ pub fn run<F>(
                                 view_change_proof_chain.clone(),
                                 BlockSigned::new(signed_block).into(),
                             ),
-                            [state.current_topology.proxy_tail()].into_iter(),
+                            std::iter::once(state.current_topology.proxy_tail()),
                         );
                         info!(
                             peer_role = ?state.current_topology.role(&sumeragi.peer_id),
@@ -1148,7 +1148,7 @@ fn early_return(
     }
 }
 
-#[allow(clippy::expect_used, clippy::panic, clippy::panic_in_result_fn)]
+#[allow(clippy::panic, clippy::panic_in_result_fn, clippy::single_match)] // TODO: Fix
 fn sumeragi_init_listen_for_genesis<F>(
     sumeragi: &SumeragiWithFault<F>,
     state: &mut State,
@@ -1199,7 +1199,7 @@ where
                                     ) {
                                         Ok(block) => block,
                                         Err(err) => {
-                                            warn!(%err);
+                                            warn!(?err);
                                             continue;
                                         }
                                     }

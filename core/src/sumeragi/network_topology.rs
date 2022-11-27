@@ -3,7 +3,7 @@
     clippy::new_without_default,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 use std::{collections::HashSet, iter};
 
@@ -44,7 +44,6 @@ fn sort_peers_by_hash_and_counter(
 }
 
 /// Shifts `sorted_peers` by one to the right.
-#[allow(clippy::expect_used)]
 pub fn shift_peers_by_one(mut peers: Vec<PeerId>) -> Vec<PeerId> {
     let last_element = peers.pop().expect("No elements found in sorted peers.");
     peers.insert(0, last_element);
@@ -116,16 +115,16 @@ impl GenesisBuilder {
         let mut set_b = field_is_some_or_err!(self.set_b)?;
         let max_faults_rem = (set_a.len() - 1) % 2;
         if max_faults_rem > 0 {
-            return Err(eyre!("Could not deduce max faults. As given: 2f+1=set_a.len() We get a non integer f. f should be an integer."));
+            eyre::bail!("Could not deduce max faults. As given: 2f+1=set_a.len() We get a non integer f. f should be an integer.");
         }
         #[allow(clippy::integer_division)]
         let max_faults = (set_a.len() - 1_usize) / 2_usize;
         if set_b.len() < max_faults {
-            return Err(eyre!(
-                    "Not enough peers to be Byzantine fault tolerant. Expected least {} peers in `set_b`, got {}",
-                    max_faults,
-                    set_b.len(),
-                ));
+            eyre::bail!(
+                "Not enough peers to be Byzantine fault tolerant. Expected least {} peers in `set_b`, got {}",
+                max_faults,
+                set_b.len(),
+            );
         }
         let _ = set_a.remove(&leader);
         let _ = set_b.remove(&leader);
@@ -221,7 +220,6 @@ impl Topology {
     }
 
     /// Apply new committed block hash.
-    #[allow(clippy::expect_used)]
     pub fn refresh_at_new_block(&mut self, block: HashOf<VersionedCommittedBlock>) {
         *self = self
             .clone()
@@ -231,8 +229,8 @@ impl Topology {
             .expect("Topology was invalid.");
     }
 
-    /// Apply a `view change`, i.e. change the topology in case there were faults in the consensus round.
-    #[allow(clippy::expect_used)]
+    /// Apply a `view change`, i.e. change the topology in case there
+    /// were faults in the consensus round.
     pub fn rebuild_with_new_view_change_count(&mut self, view_change_count: u64) {
         *self = self.clone().into_builder().build(view_change_count).expect(
             "Invalid topology. At this stage the error is unrecoverable. Please restart the peer.",
@@ -249,7 +247,8 @@ impl Topology {
         2 * self.max_faults() + 1
     }
 
-    /// The minimum number of signatures needed to perform a view change (change leader, proxy, etc.)
+    /// The minimum number of signatures needed to perform a view
+    /// change (change leader, proxy, etc.)
     pub fn min_votes_for_view_change(&self) -> usize {
         self.max_faults() + 1
     }
@@ -267,7 +266,6 @@ impl Topology {
     }
 
     /// The leader of the current round.
-    #[allow(clippy::expect_used)]
     pub fn leader(&self) -> &PeerId {
         self.peers_set_a()
             .first()
@@ -275,12 +273,12 @@ impl Topology {
     }
 
     /// The proxy tail of the current round.
-    #[allow(clippy::expect_used)]
     pub fn proxy_tail(&self) -> &PeerId {
         self.peers_set_a().last().expect("Failed to get last peer.")
     }
 
-    /// The peers that validate the block in discussion this round and vote for it to be accepted by the blockchain.
+    /// The peers that validate the block in discussion this round and
+    /// vote for it to be accepted by the blockchain.
     pub fn validating_peers(&self) -> &[PeerId] {
         let a_set = self.peers_set_a();
         if a_set.len() > 1 {
@@ -303,10 +301,12 @@ impl Topology {
         }
     }
 
-    /// Verifies that this `message` was signed by the `signature` of a peer with specified `role`.
+    /// Verifies that this `message` was signed by the `signature` of
+    /// a peer with specified `role`.
     ///
     /// # Errors
-    /// Fails if there are no such peer with this key and if signature verification fails
+    /// Fails if there are no such peer with this key and if signature
+    /// verification fails
     pub fn verify_signature_with_role(
         &self,
         signature: &SignatureOf<VersionedSignedTransaction>,
@@ -366,7 +366,6 @@ impl Topology {
 
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
     /// Updates it only if there is a change in WSV peers, otherwise leaves the order unchanged.
-    #[allow(clippy::expect_used)]
     pub fn update_network_topology(&mut self, wsv: &WorldStateView) {
         let wsv_peers: HashSet<_> = wsv
             .trusted_peers_ids()
@@ -412,7 +411,7 @@ impl Role {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    #![allow(clippy::restriction)]
 
     use iroha_crypto::KeyPair;
 
@@ -467,7 +466,6 @@ mod tests {
             .expect("Failed to create topology.");
     }
 
-    #[allow(clippy::expect_used)]
     fn topology_test_peers() -> HashSet<PeerId> {
         vec![
             PeerId {
