@@ -1,6 +1,6 @@
 [package]
 name = "iroha_data_model"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "Iroha uses a simple data model made up of domains, peers, accounts, assets, signatories, and permissions. This library contains basic data model structures."
@@ -31,13 +31,13 @@ ffi_export = ["std", "iroha_crypto/ffi_export"]
 mutable_api = []
 
 [dependencies]
-iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.9", default-features = false }
-iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.9" }
-iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.9", default-features = false }
-iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.9", default-features = false }
-iroha_version = { path = "../version", version = "=2.0.0-pre-rc.9", default-features = false, features = ["derive", "json", "scale"] }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.9" }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.9" }
+iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.11", default-features = false }
+iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.11" }
+iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.11", default-features = false }
+iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.11", default-features = false }
+iroha_version = { path = "../version", version = "=2.0.0-pre-rc.11", default-features = false, features = ["derive", "json", "scale"] }
+iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.11" }
+iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.11" }
 
 dashmap = { version = "5.3.4", optional = true }
 tokio = { version = "1.20.1", features = ["sync", "rt-multi-thread"], optional = true }
@@ -54,11 +54,11 @@ base64 = { version = "0.13.0", default-features = false, features = ["alloc"]}
 enum-kinds = { version = "0.5.1", default-features = false, features = ["no-stdlib"] }
 
 [dev-dependencies]
-iroha_core = { path = "../core", version = "=2.0.0-pre-rc.9" }
-iroha_client = { path = "../client", version = "=2.0.0-pre-rc.9" }
+iroha_core = { path = "../core", version = "=2.0.0-pre-rc.11" }
+iroha_client = { path = "../client", version = "=2.0.0-pre-rc.11" }
 iroha = { path = "../cli" }
 
-test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.9" }
+test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.11" }
 
 tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread"] }
 trybuild = "1.0.64"
