@@ -7,28 +7,69 @@ use core::{fmt::Display, ops::Not};
 use super::*;
 use crate::{IdBox, Name, Value};
 
-/// Struct representing sequence of non-zero length
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
-pub struct NonEmpty<T> {
-    head: Box<T>,
-    tail: Vec<T>,
-}
+mod nontrivial {
+    #![allow(clippy::expect_used)]
+    use super::*;
+    /// Struct representing a sequence with at least three elements.
+    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    pub struct NonTrivial<T>(Vec<T>);
 
-impl<T> NonEmpty<T> {
-    /// Extend sequence with elements of another non-empty sequence
-    #[inline]
-    fn extend(&mut self, other: Self) {
-        self.tail.push(*other.head);
-        self.tail.extend(other.tail);
+    impl<T> NonTrivial<T> {
+        /// Constructor
+        #[inline]
+        pub fn new(first: T, second: T) -> Self {
+            Self(vec![first, second])
+        }
+
+        /// Extend the sequence with elements of another non-empty sequence
+        #[inline]
+        pub fn extend(&mut self, other: Self) {
+            self.0.extend(other.0)
+        }
+
+        /// Append `value` to the end of the sequence
+        #[inline]
+        pub fn push(&mut self, value: T) {
+            self.0.push(value)
+        }
+
+        /// Apply the provided function to every element of the sequence
+        #[must_use]
+        #[inline]
+        pub fn map<U>(self, f: impl FnMut(T) -> U) -> NonTrivial<U> {
+            NonTrivial(self.0.into_iter().map(f).collect())
+        }
+
+        /// Get reference to first element of the sequence
+        #[inline]
+        pub fn head(&self) -> &T {
+            self.0.first().expect("Shouldn't be empty by construction")
+        }
+
+        /// Produce an iterator over the sequence
+        #[inline]
+        pub fn iter(&self) -> impl Iterator<Item = &T> {
+            self.0.iter()
+        }
+    }
+
+    impl<'item, T> IntoIterator for &'item NonTrivial<T> {
+        type Item = &'item T;
+
+        type IntoIter = <&'item Vec<T> as IntoIterator>::IntoIter;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.0.iter()
+        }
     }
 }
+pub use nontrivial::NonTrivial;
 
-macro_rules! nonempty {
-    ($h:expr, $( $t:expr ),*) => {{
-        NonEmpty {
-            head: Box::new($h),
-            tail: vec![$($t),*],
-        }
+macro_rules! nontrivial {
+    ($first:expr, $second:expr $(, $( $t:expr ),*)? ) => {{
+        let res = NonTrivial::new(($first), ($second));
+        $({ res.push($t); })*
+        res
     }};
 }
 
@@ -41,9 +82,9 @@ macro_rules! nonempty {
 // references (e.g. &Value).
 pub enum GenericPredicateBox<P> {
     /// Logically `&&` the results of applying the predicates.
-    And(NonEmpty<Self>),
+    And(NonTrivial<Self>),
     /// Logically `||` the results of applying the predicates.
-    Or(NonEmpty<Self>),
+    Or(NonTrivial<Self>),
     /// Negate the result of applying the predicate.
     Not(Box<Self>),
     /// The raw predicate that must be applied.
@@ -58,16 +99,14 @@ where
         match self {
             GenericPredicateBox::And(predicates) => {
                 write!(f, "AND(")?;
-                predicates.head.fmt(f)?;
-                for predicate in &predicates.tail {
+                for predicate in predicates {
                     predicate.fmt(f)?;
                 }
                 write!(f, ")")
             }
             GenericPredicateBox::Or(predicates) => {
                 write!(f, "OR(")?;
-                predicates.head.fmt(f)?;
-                for predicate in &predicates.tail {
+                for predicate in predicates {
                     predicate.fmt(f)?;
                 }
                 write!(f, ")")
@@ -98,10 +137,10 @@ impl<P> GenericPredicateBox<P> {
                 Self::And(left)
             }
             (Self::And(mut and), other) => {
-                and.tail.push(other);
+                and.push(other);
                 Self::And(and)
             }
-            (left, right) => Self::And(nonempty![left, right]),
+            (left, right) => Self::And(nontrivial![left, right]),
         }
     }
 
@@ -114,10 +153,10 @@ impl<P> GenericPredicateBox<P> {
                 Self::Or(left)
             }
             (Self::Or(mut and), other) => {
-                and.tail.push(other);
+                and.push(other);
                 Self::Or(and)
             }
-            (left, right) => Self::Or(nonempty![left, right]),
+            (left, right) => Self::Or(nontrivial![left, right]),
         }
     }
 
@@ -126,14 +165,8 @@ impl<P> GenericPredicateBox<P> {
     #[inline]
     pub fn negate(self) -> Self {
         match self {
-            Self::And(preds) => Self::Or(NonEmpty {
-                head: Box::new(preds.head.negate()),
-                tail: preds.tail.into_iter().map(Self::negate).collect(),
-            }),
-            Self::Or(preds) => Self::And(NonEmpty {
-                head: Box::new(preds.head.negate()),
-                tail: preds.tail.into_iter().map(Self::negate).collect(),
-            }),
+            Self::And(preds) => Self::Or(preds.map(Self::negate)),
+            Self::Or(preds) => Self::And(preds.map(Self::negate)),
             Self::Not(pred) => *pred, // TODO: should we recursively simplify?
             Self::Raw(pred) => Self::Not(Box::new(Self::Raw(pred))),
         }
@@ -152,20 +185,20 @@ where
         match self {
             Self::Raw(predicate) => predicate.applies(input),
             Self::And(predicates) => {
-                let initial = predicates.head.applies(input);
+                let initial = predicates.head().applies(input);
                 let mut operands = predicates
-                    .tail
                     .iter()
+                    .skip(1)
                     .map(|predicate| predicate.applies(input));
                 match operands.try_fold(initial, PredicateSymbol::and) {
                     ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
                 }
             }
             Self::Or(predicates) => {
-                let initial = predicates.head.applies(input);
+                let initial = predicates.head().applies(input);
                 let mut operands = predicates
-                    .tail
                     .iter()
+                    .skip(1)
                     .map(|predicate| predicate.applies(input));
                 match operands.try_fold(initial, PredicateSymbol::or) {
                     ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
