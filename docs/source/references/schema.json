@@ -3871,12 +3871,12 @@
         {
           "name": "And",
           "discriminant": 0,
-          "ty": "iroha_data_model::predicate::NonEmpty<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
+          "ty": "iroha_data_model::predicate::nontrivial::NonTrivial<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
         },
         {
           "name": "Or",
           "discriminant": 1,
-          "ty": "iroha_data_model::predicate::NonEmpty<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
+          "ty": "iroha_data_model::predicate::nontrivial::NonTrivial<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
         },
         {
           "name": "Not",
@@ -3887,20 +3887,6 @@
           "name": "Raw",
           "discriminant": 3,
           "ty": "iroha_data_model::predicate::value::Predicate"
-        }
-      ]
-    }
-  },
-  "iroha_data_model::predicate::NonEmpty<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "head",
-          "ty": "iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>"
-        },
-        {
-          "name": "tail",
-          "ty": "Vec<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
         }
       ]
     }
@@ -3916,6 +3902,13 @@
     "Tuple": {
       "types": [
         "[iroha_data_model::predicate::numerical::Interval<u16>; 8]"
+      ]
+    }
+  },
+  "iroha_data_model::predicate::nontrivial::NonTrivial<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>": {
+    "Tuple": {
+      "types": [
+        "Vec<iroha_data_model::predicate::GenericPredicateBox<iroha_data_model::predicate::value::Predicate>>"
       ]
     }
   },

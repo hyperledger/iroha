@@ -391,7 +391,7 @@ pub fn generate_map() -> DumpDecodedMap {
         permission::token::Id,
         permission::validator::Id,
         permission::validator::Type,
-        predicate::NonEmpty<predicate::PredicateBox>,
+        predicate::NonTrivial<predicate::PredicateBox>,
         predicate::PredicateBox,
         predicate::ip_addr::Ipv4Predicate,
         predicate::ip_addr::Ipv6Predicate,
