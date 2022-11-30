@@ -13,7 +13,10 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
-use crate::{block::ValidSignedBlock, VersionedAcceptedTransaction, VersionedCandidateBlock};
+use crate::{
+    block::{SignedBlock, VersionedCandidateCommittedBlock},
+    VersionedAcceptedTransaction, VersionedCandidateBlock,
+};
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
@@ -64,17 +67,19 @@ impl MessagePacket {
 /// Message's variants that are used by peers to communicate in the process of consensus.
 #[derive(Debug, Clone, Decode, Encode, FromVariant)]
 pub enum Message {
-    /// Is sent by leader to all validating peers, when a new block is created.
+    /// This message is sent by leader to all validating peers, when a new block is created.
     BlockCreated(BlockCreated),
-    /// Is sent by validating peers to proxy tail and observing peers when they have signed this block.
+    /// This message is sent by validating peers to proxy tail and observing peers when they have signed this block.
     BlockSigned(BlockSigned),
-    /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
+    /// This message is sent by proxy tail to validating peers and to leader, when the block is committed.
     BlockCommitted(BlockCommitted),
+    /// This message is sent by `BlockSync` when new block is received
+    BlockSyncUpdate(BlockSyncUpdate),
     /// Tx forwarded from client by a peer to a leader.
     TransactionForwarded(TransactionForwarded),
     /// View change is suggested due to some faulty peer or general fault in consensus.
     ViewChangeSuggested,
-    /// Is sent by all peers during gossiping.
+    /// This message is sent by all peers during gossiping.
     TransactionGossip(TransactionGossip),
 }
 
@@ -107,13 +112,13 @@ impl From<VersionedCandidateBlock> for BlockCreated {
 #[non_exhaustive]
 pub struct BlockSigned {
     /// Hash of the block being signed.
-    pub hash: HashOf<ValidSignedBlock>,
+    pub hash: HashOf<SignedBlock>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<ValidSignedBlock>,
+    pub signatures: SignaturesOf<SignedBlock>,
 }
 
-impl From<ValidSignedBlock> for BlockSigned {
-    fn from(block: ValidSignedBlock) -> Self {
+impl From<SignedBlock> for BlockSigned {
+    fn from(block: SignedBlock) -> Self {
         Self {
             hash: block.hash(),
             signatures: block.signatures,
@@ -125,22 +130,31 @@ impl From<ValidSignedBlock> for BlockSigned {
 #[derive(Debug, Clone, Decode, Encode)]
 #[non_exhaustive]
 pub struct BlockCommitted {
-    /// The corresponding block.
-    pub block: VersionedCandidateBlock,
+    /// Hash of the block being signed.
+    pub hash: HashOf<SignedBlock>,
+    /// Set of signatures.
+    pub signatures: SignaturesOf<SignedBlock>,
 }
 
-impl BlockCommitted {
-    /// Construct [`Self`]
-    #[inline]
-    pub fn new(block: impl Into<VersionedCandidateBlock>) -> Self {
+impl From<SignedBlock> for BlockCommitted {
+    fn from(block: SignedBlock) -> Self {
         Self {
-            block: block.into(),
+            hash: block.hash().transmute(),
+            signatures: block.signatures,
         }
     }
 }
 
-impl From<VersionedCandidateBlock> for BlockCommitted {
-    fn from(block: VersionedCandidateBlock) -> Self {
+/// `BlockSyncUpdate` message structure
+#[derive(Debug, Clone, Decode, Encode)]
+#[non_exhaustive]
+pub struct BlockSyncUpdate {
+    /// The corresponding block.
+    pub block: VersionedCandidateCommittedBlock,
+}
+
+impl From<VersionedCandidateCommittedBlock> for BlockSyncUpdate {
+    fn from(block: VersionedCandidateCommittedBlock) -> Self {
         Self { block }
     }
 }

@@ -29,7 +29,7 @@ use serde::Serialize;
 
 use crate::{
     prelude::*,
-    sumeragi::network_topology::Topology,
+    sumeragi::network_topology::{Role, Topology},
     tx::{TransactionValidator, VersionedAcceptedTransaction},
 };
 
@@ -372,15 +372,15 @@ impl ValidBlock {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Sign this block and get `ValidSignedBlock`.
+    /// Sign this block and get `SignedBlock`.
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign(self, key_pair: KeyPair) -> Result<ValidSignedBlock> {
+    pub fn sign(self, key_pair: KeyPair) -> Result<SignedBlock> {
         let signature = SignatureOf::from_hash(key_pair, &self.hash().transmute())
             .wrap_err(format!("Failed to sign block with hash {}", self.hash()))?;
         let signatures = SignaturesOf::from(signature);
-        Ok(ValidSignedBlock {
+        Ok(SignedBlock {
             header: self.header,
             rejected_transactions: self.rejected_transactions,
             transactions: self.transactions,
@@ -390,9 +390,9 @@ impl ValidBlock {
     }
 }
 
-/// After receiving first signature, `ValidBlock` can transform into `ValidSignedBlock`.
+/// After receiving first signature, `ValidBlock` can transform into `SignedBlock`.
 #[derive(Debug, Clone)]
-pub struct ValidSignedBlock {
+pub struct SignedBlock {
     /// Block header
     pub header: BlockHeader,
     /// Array of all rejected transactions in this block.
@@ -405,10 +405,12 @@ pub struct ValidSignedBlock {
     pub event_recommendations: Vec<Event>,
 }
 
-impl ValidSignedBlock {
+impl SignedBlock {
     /// Commit block to the store.
+    /// When calling this function, the user is responsible for the validity of the block signatures.
+    /// Preference should be given to [`Self::commit`], where signature verification is built in.
     #[inline]
-    pub fn commit(self) -> CommittedBlock {
+    pub fn commit_unchecked(self) -> CommittedBlock {
         let Self {
             header,
             rejected_transactions,
@@ -426,12 +428,38 @@ impl ValidSignedBlock {
         }
     }
 
+    /// Verify signatures and commit block to the store.
+    ///
+    /// # Errors
+    /// - If signatures verification fails
+    #[inline]
+    pub fn commit(self, topology: &Topology) -> Result<CommittedBlock, eyre::Report> {
+        topology
+            .filter_signatures_by_roles(
+                &[
+                    Role::ValidatingPeer,
+                    Role::Leader,
+                    Role::ProxyTail,
+                    Role::ObservingPeer,
+                ],
+                self.verified_signatures(),
+            )
+            .len()
+            .ge(&topology.min_votes_for_commit())
+            .then_some(())
+            .ok_or_else(|| {
+                eyre!("The block doesn't have enough valid signatures to be committed.")
+            })?;
+
+        Ok(self.commit_unchecked())
+    }
+
     /// Calculate the hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Add additional signatures for `ValidSignedBlock`.
+    /// Add additional signatures for `SignedBlock`.
     ///
     /// # Errors
     /// Fails if signature generation fails
@@ -476,8 +504,8 @@ impl ValidSignedBlock {
     }
 }
 
-impl From<&ValidSignedBlock> for Vec<Event> {
-    fn from(block: &ValidSignedBlock) -> Self {
+impl From<&SignedBlock> for Vec<Event> {
+    fn from(block: &SignedBlock) -> Self {
         block
             .transactions
             .iter()
@@ -565,7 +593,7 @@ impl VersionedCandidateBlock {
         wsv: &WorldStateView,
         latest_block: &HashOf<VersionedCommittedBlock>,
         block_height: u64,
-    ) -> Result<ValidSignedBlock, eyre::Report> {
+    ) -> Result<SignedBlock, eyre::Report> {
         self.into_v1()
             .revalidate(transaction_validator, wsv, latest_block, block_height)
     }
@@ -632,7 +660,7 @@ impl CandidateBlock {
         wsv: &WorldStateView,
         latest_block: &HashOf<VersionedCommittedBlock>,
         block_height: u64,
-    ) -> Result<ValidSignedBlock, eyre::Report> {
+    ) -> Result<SignedBlock, eyre::Report> {
         if self.is_empty() {
             bail!("Block is empty");
         }
@@ -643,7 +671,7 @@ impl CandidateBlock {
 
         if latest_block != &self.header.previous_block_hash {
             bail!(
-                "Latest block hash mismatch. Expected: {}, actual: {}",
+                "Mismatch between the actual and expected hashes of the latest block. Expected: {}, actual: {}",
                 latest_block,
                 &self.header.previous_block_hash
             );
@@ -651,7 +679,7 @@ impl CandidateBlock {
 
         if block_height + 1 != self.header.height {
             bail!(
-                "Block heights are in an inconsistent state. Expected: {}, actual: {}",
+                "Mismatch between the actual and expected heights of the block. Expected: {}, actual: {}",
                 block_height + 1,
                 self.header.height
             );
@@ -675,7 +703,7 @@ impl CandidateBlock {
             .eq(&header.transactions_hash)
             .then_some(())
             .ok_or_else(|| {
-                eyre!("Block header transactions hash does not match actual transactions hash")
+                eyre!("The transaction hash stored in the block header does not match the actual transaction hash.")
             })?;
 
         rejected_transactions
@@ -686,7 +714,7 @@ impl CandidateBlock {
             .unwrap_or(Hash::zeroed().typed())
             .eq(&header.rejected_transactions_hash)
             .then_some(())
-            .ok_or_else(|| eyre!("Block header rejected transactions hash does not match actual rejected transaction hash"))?;
+            .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;
 
         // Check that valid transactions are still valid
         let transactions = transactions
@@ -734,7 +762,7 @@ impl CandidateBlock {
             })
             .wrap_err("Error during transaction revalidation")?;
 
-        Ok(ValidSignedBlock {
+        Ok(SignedBlock {
             header,
             transactions,
             rejected_transactions,
@@ -744,9 +772,9 @@ impl CandidateBlock {
     }
 }
 
-impl From<ValidSignedBlock> for CandidateBlock {
-    fn from(valid_block: ValidSignedBlock) -> Self {
-        let ValidSignedBlock {
+impl From<SignedBlock> for CandidateBlock {
+    fn from(valid_block: SignedBlock) -> Self {
+        let SignedBlock {
             header,
             rejected_transactions,
             transactions,
@@ -769,15 +797,16 @@ impl From<ValidSignedBlock> for CandidateBlock {
     }
 }
 
-impl From<ValidSignedBlock> for VersionedCandidateBlock {
-    fn from(valid_block: ValidSignedBlock) -> Self {
+impl From<SignedBlock> for VersionedCandidateBlock {
+    fn from(valid_block: SignedBlock) -> Self {
         CandidateBlock::from(valid_block).into()
     }
 }
+
 declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCommittedBlock {
-    /// Converts from `&VersionedCommittedBlock` to V1 reference
+    /// Convert from `&VersionedCommittedBlock` to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &CommittedBlock {
         match self {
@@ -785,7 +814,7 @@ impl VersionedCommittedBlock {
         }
     }
 
-    /// Converts from `&mut VersionedCommittedBlock` to V1 mutable reference
+    /// Convert from `&mut VersionedCommittedBlock` to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CommittedBlock {
         match self {
@@ -822,7 +851,7 @@ impl VersionedCommittedBlock {
             .map(SignatureOf::transmute_ref)
     }
 
-    /// Converts block to [`iroha_data_model`] representation for use in e.g. queries.
+    /// Convert block to [`iroha_data_model`] representation for use in e.g. queries.
     pub fn into_value(self) -> BlockValue {
         let current_block_hash = self.hash();
 
@@ -861,8 +890,7 @@ impl VersionedCommittedBlock {
     }
 }
 
-/// When Kura receives `ValidSignedBlock`, the block is stored and
-/// then sent to later stage of the pipeline as `CommittedBlock`.
+/// The `CommittedBlock` struct represents a block accepted by consensus
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
 pub struct CommittedBlock {
@@ -893,8 +921,7 @@ impl CommittedBlock {
     }
 }
 
-impl From<CommittedBlock> for ValidSignedBlock {
-    #[inline]
+impl From<CommittedBlock> for CandidateCommittedBlock {
     fn from(
         CommittedBlock {
             header,
@@ -914,36 +941,10 @@ impl From<CommittedBlock> for ValidSignedBlock {
     }
 }
 
-impl From<CommittedBlock> for CandidateBlock {
-    fn from(
-        CommittedBlock {
-            header,
-            rejected_transactions,
-            transactions,
-            signatures,
-            event_recommendations,
-        }: CommittedBlock,
-    ) -> Self {
-        Self {
-            header,
-            rejected_transactions: rejected_transactions
-                .into_iter()
-                .map(VersionedSignedTransaction::from)
-                .collect(),
-            transactions: transactions
-                .into_iter()
-                .map(VersionedSignedTransaction::from)
-                .collect(),
-            event_recommendations,
-            signatures: signatures.transmute(),
-        }
-    }
-}
-
-impl From<VersionedCommittedBlock> for VersionedCandidateBlock {
+impl From<VersionedCommittedBlock> for VersionedCandidateCommittedBlock {
     #[inline]
     fn from(block: VersionedCommittedBlock) -> Self {
-        CandidateBlock::from(block.into_v1()).into()
+        CandidateCommittedBlock::from(block.into_v1()).into()
     }
 }
 
@@ -989,6 +990,180 @@ impl From<&CommittedBlock> for Vec<Event> {
     }
 }
 
+declare_versioned_with_scale!(VersionedCandidateCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
+
+impl VersionedCandidateCommittedBlock {
+    /// Convert from `&VersionedCandidateCommittedBlock` to V1 reference
+    #[inline]
+    pub const fn as_v1(&self) -> &CandidateCommittedBlock {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Convert from `&mut VersionedCandidateCommittedBlock` to V1 mutable reference
+    #[inline]
+    pub fn as_mut_v1(&mut self) -> &mut CandidateCommittedBlock {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Performs the conversion from `VersionedCandidateCommittedBlock` to V1
+    #[inline]
+    pub fn into_v1(self) -> CandidateCommittedBlock {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Calculate the hash of the current block.
+    /// `VersionedCandidateCommittedBlock` should have the same hash as `VersionedCommittedBlock`.
+    #[inline]
+    pub fn hash(&self) -> HashOf<Self> {
+        self.as_v1().hash().transmute()
+    }
+
+    /// Returns the header of a valid block
+    #[inline]
+    pub const fn header(&self) -> &BlockHeader {
+        &self.as_v1().header
+    }
+
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.as_v1()
+            .verified_signatures()
+            .map(SignatureOf::transmute_ref)
+    }
+
+    /// Revalidate transaction hashes, verify signatures and produce [`VersionedCommittedBlock`]
+    ///
+    /// # Errors
+    /// - If transaction hashes don't match the hashes stored in the block header
+    /// - If signatures verification fails
+    pub fn revalidate(self, topology: &Topology) -> Result<VersionedCommittedBlock, eyre::Report> {
+        self.into_v1()
+            .revalidate(topology)
+            .map(VersionedCommittedBlock::from)
+    }
+
+    /// Revalidate transaction hashes and produce [`VersionedCommittedBlock`]
+    ///
+    /// # Errors
+    /// - If transaction hashes don't match the hashes stored in the block header
+    pub fn revalidate_hashes(self) -> Result<VersionedCommittedBlock, eyre::Report> {
+        self.into_v1()
+            .revalidate_hashes()
+            .map(VersionedCommittedBlock::from)
+    }
+}
+
+/// Block state used to transfer accepted by consensus block through network to the other peers.
+/// This block state is not entirely trusted and require hash revalidation to obtain `CommittedBlock`.
+#[version_with_scale(n = 1, versioned = "VersionedCandidateCommittedBlock")]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
+pub struct CandidateCommittedBlock {
+    /// Block header
+    pub header: BlockHeader,
+    /// Array of rejected transactions.
+    pub rejected_transactions: Vec<VersionedRejectedTransaction>,
+    /// Array of transactions, which successfully passed validation and consensus step.
+    pub transactions: Vec<VersionedValidTransaction>,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
+    /// Signatures of peers which approved this block
+    pub signatures: SignaturesOf<Self>,
+}
+
+impl CandidateCommittedBlock {
+    /// Calculate the hash of the current block.
+    /// `CommitedBlock` should have the same hash as `ValidBlock`.
+    #[inline]
+    pub fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.header).transmute()
+    }
+
+    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    #[inline]
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.signatures.verified_by_hash(self.hash())
+    }
+
+    /// Revalidate transaction hashes, verify signatures and produce [`CommittedBlock`]
+    ///
+    /// # Errors
+    /// - If transaction hashes don't match the hashes stored in the block header
+    /// - If signatures verification fails
+    pub fn revalidate(self, topology: &Topology) -> Result<CommittedBlock, eyre::Report> {
+        topology
+            .filter_signatures_by_roles(
+                &[
+                    Role::ValidatingPeer,
+                    Role::Leader,
+                    Role::ProxyTail,
+                    Role::ObservingPeer,
+                ],
+                self.verified_signatures(),
+            )
+            .len()
+            .ge(&topology.min_votes_for_commit())
+            .then_some(())
+            .ok_or_else(|| {
+                eyre!("The block doesn't have enough valid signatures to be committed.")
+            })?;
+        self.revalidate_hashes()
+    }
+
+    /// Revalidate transaction hashes and produce [`CommittedBlock`]
+    ///
+    /// When calling this function, the user is responsible for the validity of the block signatures.
+    /// Preference should be given to [`Self::revalidate`], where signature verification is built in.
+    ///
+    /// # Errors
+    /// - If transaction hashes don't match the hashes stored in the block header
+    pub fn revalidate_hashes(self) -> Result<CommittedBlock, eyre::Report> {
+        let Self {
+            header,
+            rejected_transactions,
+            transactions,
+            event_recommendations,
+            signatures,
+        } = self;
+
+        transactions
+            .iter()
+            .map(VersionedValidTransaction::hash)
+            .collect::<MerkleTree<_>>()
+            .hash()
+            .unwrap_or(Hash::zeroed().typed())
+            .eq(&header.transactions_hash)
+            .then_some(())
+            .ok_or_else(|| {
+                eyre!("The transaction hash stored in the block header does not match the actual transaction hash.")
+            })?;
+
+        rejected_transactions
+            .iter()
+            .map(VersionedRejectedTransaction::hash)
+            .collect::<MerkleTree<_>>()
+            .hash()
+            .unwrap_or(Hash::zeroed().typed())
+            .eq(&header.rejected_transactions_hash)
+            .then_some(())
+            .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;
+
+        Ok(CommittedBlock {
+            header,
+            rejected_transactions,
+            transactions,
+            event_recommendations,
+            signatures: signatures.transmute(),
+        })
+    }
+}
+
 // TODO: Move to data_model after release
 pub mod stream {
     //! Blocks for streaming API.
@@ -1003,14 +1178,14 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockMessage {
-        /// Converts from `&VersionedBlockPublisherMessage` to V1 reference
+        /// Convert from `&VersionedBlockPublisherMessage` to V1 reference
         pub const fn as_v1(&self) -> &BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Converts from `&mut VersionedBlockPublisherMessage` to V1 mutable reference
+        /// Convert from `&mut VersionedBlockPublisherMessage` to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut BlockMessage {
             match self {
                 Self::V1(v1) => v1,
@@ -1034,14 +1209,14 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockSubscriptionRequest {
-        /// Converts from `&VersionedBlockSubscriberMessage` to V1 reference
+        /// Convert from `&VersionedBlockSubscriberMessage` to V1 reference
         pub const fn as_v1(&self) -> &BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Converts from `&mut VersionedBlockSubscriberMessage` to V1 mutable reference
+        /// Convert from `&mut VersionedBlockSubscriberMessage` to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
@@ -1079,8 +1254,8 @@ mod tests {
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
-        let valid_block = ValidSignedBlock::new_dummy();
-        let committed_block = valid_block.clone().commit();
+        let valid_block = SignedBlock::new_dummy();
+        let committed_block = valid_block.clone().commit_unchecked();
 
         assert_eq!(*valid_block.hash(), *committed_block.hash())
     }
@@ -1090,7 +1265,7 @@ mod tests {
         const BLOCK_COUNT: usize = 10;
         let chain = Chain::new();
 
-        let mut block = ValidSignedBlock::new_dummy().commit();
+        let mut block = SignedBlock::new_dummy().commit_unchecked();
 
         for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
@@ -1117,7 +1292,7 @@ mod tests {
         const BLOCK_COUNT: usize = 10;
         let chain = Chain::new();
 
-        let mut block = ValidSignedBlock::new_dummy().commit();
+        let mut block = SignedBlock::new_dummy().commit_unchecked();
 
         for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
