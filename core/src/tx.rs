@@ -265,14 +265,14 @@ impl TransactionValidator {
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, Serialize);
 
 impl VersionedAcceptedTransaction {
-    /// Converts from `&VersionedAcceptedTransaction` to V1 reference
+    /// Convert from `&VersionedAcceptedTransaction` to V1 reference
     pub const fn as_v1(&self) -> &AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1,
         }
     }
 
-    /// Converts from `&mut VersionedAcceptedTransaction` to V1 mutable reference
+    /// Convert from `&mut VersionedAcceptedTransaction` to V1 mutable reference
     pub fn as_mut_v1(&mut self) -> &mut AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1,

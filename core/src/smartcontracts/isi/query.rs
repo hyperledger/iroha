@@ -250,7 +250,7 @@ mod tests {
             )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
-            .commit()
+            .commit_unchecked()
             .into();
 
         let mut curr_hash = first_block.hash();
@@ -270,7 +270,7 @@ mod tests {
                 )
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
-                .commit()
+                .commit_unchecked()
                 .into();
             curr_hash = block.hash();
             wsv.apply(block)?;
@@ -407,7 +407,7 @@ mod tests {
             )
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
-            .commit()
+            .commit_unchecked()
             .into();
         wsv.apply(vcb)?;
 

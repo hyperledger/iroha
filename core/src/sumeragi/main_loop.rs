@@ -10,10 +10,7 @@ use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
 use super::*;
-use crate::{
-    genesis::GenesisNetwork,
-    sumeragi::{tracing::instrument, Message::TransactionForwarded},
-};
+use crate::{genesis::GenesisNetwork, sumeragi::tracing::instrument};
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {
@@ -282,11 +279,13 @@ fn gossip_transactions<F>(
 }
 
 #[allow(clippy::expect_used)]
-fn commit_block<F>(sumeragi: &SumeragiWithFault<F>, block: ValidSignedBlock, state: &mut State)
-where
+fn commit_block<F>(
+    sumeragi: &SumeragiWithFault<F>,
+    block: VersionedCommittedBlock,
+    state: &mut State,
+) where
     F: FaultInjection,
 {
-    let block: VersionedCommittedBlock = block.commit().into();
     let block_hash = block.hash();
 
     state
@@ -304,12 +303,8 @@ where
 
     for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
         trace!(?event);
-        sumeragi
-            .events_sender
-            .send(event)
-            .map_err(|e| error!(%e, "Some events failed to be sent"))
-            .unwrap_or(0);
-        // Essentially log and ignore.
+        // Ignoring error is fine here because lack of event consumer is not an error
+        sumeragi.events_sender.send(event).unwrap_or(0);
     }
 
     state.latest_block_height = block.header().height;
@@ -453,10 +448,12 @@ fn prune_view_change_proofs_and_calculate_current_index(
     ) as u64
 }
 
+#[allow(clippy::expect_used)]
 fn handle_role_agnostic_messages<F>(
     sumeragi: &SumeragiWithFault<F>,
     state: &mut State,
     maybe_incoming_message: &mut Option<Message>,
+    voting_block_option: &mut Option<VotingBlock>,
 ) where
     F: FaultInjection,
 {
@@ -481,6 +478,63 @@ fn handle_role_agnostic_messages<F>(
             Message::ViewChangeSuggested => {
                 trace!("Received view change suggestion.");
             }
+            Message::BlockSyncUpdate(BlockSyncUpdate { block }) => {
+                let block = match block.revalidate(&state.current_topology) {
+                    Ok(block) => block,
+                    Err(err) => {
+                        warn!(?err);
+                        return;
+                    }
+                };
+                if state.latest_block_hash != block.header().previous_block_hash {
+                    warn!(
+                        expected = %state.latest_block_hash,
+                        actual = %block.header().previous_block_hash,
+                        "Mismatch between the actual and expected hashes of the latest block."
+                    );
+                    return;
+                }
+                if state.latest_block_height + 1 != block.header().height {
+                    warn!(
+                        expected = state.latest_block_height + 1,
+                        actual = block.header().height,
+                        "Mismatch between the actual and expected height of the block."
+                    );
+                    return;
+                }
+
+                commit_block(sumeragi, block, state);
+            }
+            Message::BlockCommitted(BlockCommitted { hash, signatures }) => {
+                let block = if voting_block_option.is_some()
+                    && hash
+                        == voting_block_option
+                            .as_ref()
+                            .expect("Voting block is `Some`")
+                            .block
+                            .hash()
+                {
+                    let mut block = voting_block_option
+                        .take()
+                        .expect("Voting block is `Some`")
+                        .block;
+                    block.signatures.extend(signatures);
+                    block
+                } else {
+                    error!("The hash of the committed block does not match the hash of the block stored by the peer.");
+                    return;
+                };
+
+                let block = match block.commit(&state.current_topology) {
+                    Ok(block) => block.into(),
+                    Err(err) => {
+                        warn!(?err);
+                        return;
+                    }
+                };
+
+                commit_block(sumeragi, block, state);
+            }
             other => *maybe_incoming_message = Some(other),
         }
     }
@@ -496,7 +550,7 @@ fn compare_view_change_index_and_block_height_to_old<F>(
     // below is the state that gets reset.
     current_topology: &mut Topology,
     voting_block_option: &mut Option<VotingBlock>,
-    block_signature_acc: &mut Vec<(HashOf<ValidSignedBlock>, SignatureOf<ValidSignedBlock>)>,
+    block_signature_acc: &mut Vec<(HashOf<SignedBlock>, SignatureOf<SignedBlock>)>,
     has_sent_transactions: &mut bool,
     instant_when_we_should_create_a_block: &mut Instant,
 ) where
@@ -520,7 +574,10 @@ fn compare_view_change_index_and_block_height_to_old<F>(
         *has_sent_transactions = false;
 
         *old_view_change_index = current_view_change_index;
-        trace!("View change to attempt #{}", current_view_change_index);
+        error!(
+            %current_view_change_index,
+            "No consensus: the peers failed to agreed on the block. Updating view change to try again",
+        );
     }
 }
 
@@ -652,7 +709,12 @@ pub fn run<F>(
             &mut instant_when_we_should_create_a_block,
         );
 
-        handle_role_agnostic_messages(sumeragi, &mut state, &mut maybe_incoming_message);
+        handle_role_agnostic_messages(
+            sumeragi,
+            &mut state,
+            &mut maybe_incoming_message,
+            &mut voting_block_option,
+        );
 
         if state.current_topology.role(&sumeragi.peer_id) != Role::Leader {
             if !state.transaction_cache.is_empty() && !has_sent_transactions {
@@ -699,113 +761,86 @@ pub fn run<F>(
         }
 
         if state.current_topology.role(&sumeragi.peer_id) == Role::ObservingPeer {
-            if maybe_incoming_message.is_some() {
-                let incoming_message = maybe_incoming_message
-                    .take()
-                    .expect("Message must have been `Some` at this point");
-                match incoming_message {
-                    Message::BlockCreated(_) => {}
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
+            match maybe_incoming_message.take() {
+                Some(Message::BlockCreated(BlockCreated { block })) => {
+                    if voting_block_option.is_some() {
+                        warn!("Sumeragi Observing Peer already has a block. Ignoring.");
+                        continue;
+                    }
 
-                        let network_topology = state.current_topology.clone();
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = network_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
+                    trace!("Sumeragi Observing Peer received a block.");
+
+                    if state
+                        .current_topology
+                        .filter_signatures_by_roles(&[Role::Leader], block.verified_signatures())
+                        .is_empty()
+                    {
+                        error!(
+                            role = ?state.current_topology.role(&sumeragi.peer_id),
+                            "The block is rejected as it is not signed by the leader.",
                         );
-                        let proxy_tail_signatures = network_topology
-                            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-                        if valid_signatures.len() >= network_topology.min_votes_for_commit()
-                            && proxy_tail_signatures.len() == 1
-                        {
-                            // TODO: An observing peer should not validate, yet we will do so
-                            // in order to preserve old behaviour. This should be changed.
-                            // Tracking issue : https://github.com/hyperledger/iroha/issues/2635
-                            let block = match block.revalidate(
-                                &sumeragi.transaction_validator,
-                                &state.wsv,
-                                &state.latest_block_hash,
-                                state.latest_block_height,
-                            ) {
-                                Ok(block) => block,
-                                Err(err) => {
-                                    warn!(%err);
-                                    continue;
-                                }
-                            };
-                            for event in Vec::<Event>::from(&block) {
-                                trace!(?event);
-                                sumeragi.events_sender.send(event).unwrap_or(0);
+                        continue;
+                    }
+
+                    let block = {
+                        let span = span!(
+                            Level::TRACE,
+                            "Sumeragi Observing Peer is revalidating the block."
+                        );
+                        let _enter = span.enter();
+                        match block.revalidate(
+                            &sumeragi.transaction_validator,
+                            &state.wsv,
+                            &state.latest_block_hash,
+                            state.latest_block_height,
+                        ) {
+                            Ok(block) => block,
+                            Err(err) => {
+                                warn!(%err);
+                                continue;
                             }
-                            commit_block(sumeragi, block, &mut state);
                         }
+                    };
+
+                    for event in Vec::<Event>::from(&block) {
+                        trace!(?event);
+                        sumeragi.events_sender.send(event).unwrap_or(0);
                     }
-                    _ => {
-                        trace!("Observing peer not handling message {:?}", incoming_message);
-                    }
+
+                    let block_clone = block.clone();
+                    let key_pair_clone = sumeragi.key_pair.clone();
+                    let signed_block = block_clone
+                        .sign(key_pair_clone)
+                        .expect("maybe we should handle this error");
+
+                    let voting_block = VotingBlock::new(signed_block.clone());
+                    voting_block_option = Some(voting_block);
                 }
-            } else {
-                should_sleep = true;
+                Some(msg) => {
+                    trace!(?msg, "Sumeragi Observing Peer is not handling the message");
+                }
+                None => should_sleep = true,
             }
         } else if state.current_topology.role(&sumeragi.peer_id) == Role::Leader {
-            if maybe_incoming_message.is_some() {
-                let msg = maybe_incoming_message.take().expect("Valid");
-                match msg {
-                    TransactionForwarded(transaction_forwarded) => {
-                        let transaction_maybe = VersionedAcceptedTransaction::from_transaction(
-                            transaction_forwarded.transaction.clone().into_v1(),
-                            &sumeragi.transaction_limits,
-                        );
-                        if transaction_maybe.is_ok() {
-                            let transaction = transaction_maybe.expect("Valid");
-                            match sumeragi.queue.push(transaction, &state.wsv) {
-                                Err((_, crate::queue::Error::InBlockchain)) | Ok(_) => (),
-                                Err((_, err)) => {
-                                    error!(%err, "Error while pushing transaction into queue?");
-                                }
+            match maybe_incoming_message.take() {
+                Some(Message::TransactionForwarded(TransactionForwarded { transaction })) => {
+                    match VersionedAcceptedTransaction::from_transaction(
+                        transaction.into_v1(),
+                        &sumeragi.transaction_limits,
+                    ) {
+                        Ok(transaction) => match sumeragi.queue.push(transaction, &state.wsv) {
+                            Err((_, crate::queue::Error::InBlockchain)) | Ok(_) => (),
+                            Err((_, err)) => {
+                                error!(%err, "Error while pushing transaction into queue.");
                             }
-                        } else {
-                            error!("Recieved transaction that did not pass transaction limits.");
+                        },
+                        Err(err) => {
+                            error!(%err, "Received a transaction that exceeds transaction limits.");
                         }
-                    }
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-
-                        let network_topology = state.current_topology.clone();
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = network_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        let proxy_tail_signatures = network_topology
-                            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-                        if valid_signatures.len() >= network_topology.min_votes_for_commit()
-                            && proxy_tail_signatures.len() == 1
-                        {
-                            let block = match block.revalidate(
-                                &sumeragi.transaction_validator,
-                                &state.wsv,
-                                &state.latest_block_hash,
-                                state.latest_block_height,
-                            ) {
-                                Ok(block) => block,
-                                Err(err) => {
-                                    warn!(%err);
-                                    continue;
-                                }
-                            };
-                            commit_block(sumeragi, block, &mut state);
-                        }
-                    }
-                    _ => {
-                        trace!("Leader not handling message, {:?}", msg);
                     }
                 }
-            } else {
-                should_sleep = true;
+                Some(msg) => trace!(?msg, "Sumeragi Leader Peer is not handling the message"),
+                None => should_sleep = true,
             }
 
             if voting_block_option.is_none() {
@@ -850,12 +885,19 @@ pub fn run<F>(
                             sumeragi.broadcast_packet(
                                 MessagePacket::new(
                                     view_change_proof_chain.clone(),
-                                    BlockCommitted::new(signed_block.clone()).into(),
+                                    BlockCommitted::from(signed_block.clone()).into(),
                                 ),
                                 &state.current_topology,
                             );
-
-                            commit_block(sumeragi, signed_block, &mut state);
+                            let committed_block = match signed_block.commit(&state.current_topology)
+                            {
+                                Ok(committed_block) => committed_block.into(),
+                                Err(err) => {
+                                    warn!(?err);
+                                    continue;
+                                }
+                            };
+                            commit_block(sumeragi, committed_block, &mut state);
                             has_sent_transactions = false;
                             voting_block_option = None;
                             old_view_change_index = 0;
@@ -879,7 +921,7 @@ pub fn run<F>(
                     }
                 }
             } else if Instant::now() > instant_at_which_we_should_have_committed {
-                trace!("Suspecting validating peers and proxy tail for not comitting the block.");
+                trace!("Suspecting validating peers and proxy tail for not committing the block.");
                 request_view_change(
                     sumeragi,
                     &mut state,
@@ -889,229 +931,171 @@ pub fn run<F>(
                 instant_at_which_we_should_have_committed += sumeragi.commit_time;
             }
         } else if state.current_topology.role(&sumeragi.peer_id) == Role::ValidatingPeer {
-            if let Some(incoming_message) = maybe_incoming_message.take() {
-                match incoming_message {
-                    Message::BlockCreated(block_created) => {
-                        let block = block_created.block;
+            match maybe_incoming_message.take() {
+                Some(Message::BlockCreated(BlockCreated { block })) => {
+                    if voting_block_option.is_some() {
+                        warn!("Sumeragi Validating Peer already has a block. Ignoring.");
+                        continue;
+                    }
 
-                        if voting_block_option.is_some() {
-                            warn!("Already have block, ignoring.");
-                            continue;
-                        }
+                    trace!("Sumeragi Validating Peer received a block.");
 
-                        trace!("I, a validating peer, have received a block.");
+                    if state
+                        .current_topology
+                        .filter_signatures_by_roles(&[Role::Leader], block.verified_signatures())
+                        .is_empty()
+                    {
+                        error!(
+                            role = ?state.current_topology.role(&sumeragi.peer_id),
+                            "The block is rejected as it is not signed by the leader.",
+                        );
+                        continue;
+                    }
 
-                        if state
-                            .current_topology
-                            .filter_signatures_by_roles(
-                                &[Role::Leader],
-                                block.verified_signatures(),
-                            )
-                            .is_empty()
-                        {
-                            error!(
-                                role = ?state.current_topology.role(&sumeragi.peer_id),
-                                "Rejecting Block as it is not signed by leader.",
-                            );
-                            continue;
-                        }
-
-                        let block = {
-                            let span = span!(
-                                Level::TRACE,
-                                "Sumeragi Validating Peer is revalidating the block."
-                            );
-                            let _enter = span.enter();
-                            match block.revalidate(
-                                &sumeragi.transaction_validator,
-                                &state.wsv,
-                                &state.latest_block_hash,
-                                state.latest_block_height,
-                            ) {
-                                Ok(block) => block,
-                                Err(err) => {
-                                    warn!(%err);
-                                    continue;
-                                }
+                    let block = {
+                        let span = span!(
+                            Level::TRACE,
+                            "Sumeragi Validating Peer is revalidating the block."
+                        );
+                        let _enter = span.enter();
+                        match block.revalidate(
+                            &sumeragi.transaction_validator,
+                            &state.wsv,
+                            &state.latest_block_hash,
+                            state.latest_block_height,
+                        ) {
+                            Ok(block) => block,
+                            Err(err) => {
+                                warn!(%err);
+                                continue;
                             }
-                        };
-
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
+                    };
 
-                        let block_clone = block.clone();
-                        let key_pair_clone = sumeragi.key_pair.clone();
-                        let signed_block = block_clone
-                            .sign(key_pair_clone)
-                            .expect("maybe we should handle this error");
+                    for event in Vec::<Event>::from(&block) {
+                        trace!(?event);
+                        sumeragi.events_sender.send(event).unwrap_or(0);
+                    }
 
-                        sumeragi.broadcast_packet_to(
-                            MessagePacket::new(
-                                view_change_proof_chain.clone(),
-                                BlockSigned::from(signed_block).into(),
-                            ),
-                            [state.current_topology.proxy_tail()].into_iter(),
-                        );
-                        info!(
-                            peer_role = ?state.current_topology.role(&sumeragi.peer_id),
-                            block_hash = %block.hash(),
-                            "Signed block candidate",
-                        );
+                    let block_clone = block.clone();
+                    let key_pair_clone = sumeragi.key_pair.clone();
+                    let signed_block = block_clone
+                        .sign(key_pair_clone)
+                        .expect("maybe we should handle this error");
 
-                        let voting_block = VotingBlock::new(block.clone());
-                        voting_block_option = Some(voting_block);
-                    }
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        if valid_signatures.len() >= state.current_topology.min_votes_for_commit()
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            // TODO: don't need to revalidate here instead send only hash and signatures in `BlockCommitted` message (#2955)
-                            let block = {
-                                let span = span!(
-                                    Level::TRACE,
-                                    "Sumeragi Validating Peer is revalidating the block."
-                                );
-                                let _enter = span.enter();
-                                match block.revalidate(
-                                    &sumeragi.transaction_validator,
-                                    &state.wsv,
-                                    &state.latest_block_hash,
-                                    state.latest_block_height,
-                                ) {
-                                    Ok(block) => block,
-                                    Err(err) => {
-                                        warn!(%err);
-                                        continue;
-                                    }
-                                }
-                            };
-                            commit_block(sumeragi, block, &mut state);
-                        }
-                    }
-                    _ => {
-                        trace!("Not handling message {:?}", incoming_message);
-                    }
+                    sumeragi.broadcast_packet_to(
+                        MessagePacket::new(
+                            view_change_proof_chain.clone(),
+                            BlockSigned::from(signed_block.clone()).into(),
+                        ),
+                        [state.current_topology.proxy_tail()].into_iter(),
+                    );
+                    info!(
+                        peer_role = ?state.current_topology.role(&sumeragi.peer_id),
+                        block_hash = %block.hash(),
+                        "Signed block candidate",
+                    );
+
+                    let voting_block = VotingBlock::new(signed_block);
+                    voting_block_option = Some(voting_block);
                 }
-            } else {
-                // if there is no message sleep
-                should_sleep = true;
+                Some(msg) => {
+                    trace!(?msg, "Sumeragi Validating Peer is not handling the message");
+                }
+                None => should_sleep = true,
             }
         } else if state.current_topology.role(&sumeragi.peer_id) == Role::ProxyTail {
-            if maybe_incoming_message.is_some() {
-                let incoming_message = maybe_incoming_message.take().expect(
-                    "Incoming message is some in this `if` block. This is a hardware error.",
-                );
+            match maybe_incoming_message.take() {
+                Some(Message::BlockCreated(BlockCreated { block })) => {
+                    if voting_block_option.is_some() {
+                        warn!("Sumeragi Proxy Tail Peer already has a block. Ignoring.");
+                        continue;
+                    }
 
-                match incoming_message {
-                    Message::BlockCreated(block_created) => {
-                        let block = block_created.block;
+                    trace!("Sumeragi Proxy Tail received a block.");
 
-                        if voting_block_option.is_some() {
-                            warn!("Already have block, ignoring.");
-                            continue;
-                        }
+                    if block.header().is_genesis() {
+                        warn!("The block is rejected because it is the genesis block.");
+                        continue;
+                    }
 
-                        trace!("I, the proxy tail, have received a block.");
+                    if state
+                        .current_topology
+                        .filter_signatures_by_roles(&[Role::Leader], block.verified_signatures())
+                        .is_empty()
+                    {
+                        error!(
+                            role = ?state.current_topology.role(&sumeragi.peer_id),
+                            "The block is rejected as it is not signed by the leader.",
+                        );
+                        continue;
+                    }
 
-                        if block.header().is_genesis() {
-                            warn!("Rejecting block because it is genesis.");
-                            continue;
-                        }
-
-                        if state
-                            .current_topology
-                            .filter_signatures_by_roles(
-                                &[Role::Leader],
-                                block.verified_signatures(),
-                            )
-                            .is_empty()
-                        {
-                            error!(
-                                role = ?state.current_topology.role(&sumeragi.peer_id),
-                                "Rejecting Block as it is not signed by leader.",
-                            );
-                            continue;
-                        }
-
-                        let block = {
-                            let span = span!(
-                                Level::TRACE,
-                                "Sumeragi Proxy Tail is revalidating the block."
-                            );
-                            let _enter = span.enter();
-                            match block.revalidate(
-                                &sumeragi.transaction_validator,
-                                &state.wsv,
-                                &state.latest_block_hash,
-                                state.latest_block_height,
-                            ) {
-                                Ok(block) => block,
-                                Err(err) => {
-                                    warn!(%err);
-                                    continue;
-                                }
+                    let block = {
+                        let span = span!(
+                            Level::TRACE,
+                            "Sumeragi Proxy Tail is revalidating the block."
+                        );
+                        let _enter = span.enter();
+                        match block.revalidate(
+                            &sumeragi.transaction_validator,
+                            &state.wsv,
+                            &state.latest_block_hash,
+                            state.latest_block_height,
+                        ) {
+                            Ok(block) => block,
+                            Err(err) => {
+                                warn!(%err);
+                                continue;
                             }
-                        };
-
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
                         }
+                    };
 
-                        let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader],
-                            block.verified_signatures(),
-                        );
-                        for sig in &valid_signatures {
-                            block_signature_acc.push((block.hash(), sig.clone()));
-                        }
-
-                        let voting_block = VotingBlock::new(block.clone());
-                        voting_block_option = Some(voting_block);
-
-                        instant_at_which_we_should_have_committed =
-                            Instant::now() + sumeragi.commit_time;
+                    for event in Vec::<Event>::from(&block) {
+                        trace!(?event);
+                        sumeragi.events_sender.send(event).unwrap_or(0);
                     }
-                    Message::BlockSigned(block_signed) => {
-                        let BlockSigned { hash, signatures } = block_signed;
 
-                        if voting_block_option.is_some()
-                            && hash
-                                != voting_block_option
-                                    .as_ref()
-                                    .expect("Voting block is `Some`")
-                                    .block
-                                    .hash()
-                        {
-                            error!("block signed is not relevant block");
-                            continue;
-                        }
-
-                        let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader],
-                            signatures.verified_by_hash(hash),
-                        );
-
-                        for sig in valid_signatures {
-                            block_signature_acc.push((hash, sig));
-                        }
+                    let valid_signatures = state.current_topology.filter_signatures_by_roles(
+                        &[Role::ValidatingPeer, Role::Leader],
+                        block.verified_signatures(),
+                    );
+                    for sig in &valid_signatures {
+                        block_signature_acc.push((block.hash(), sig.clone()));
                     }
-                    _ => {
-                        trace!("Not handling message {:?}", incoming_message);
+
+                    let voting_block = VotingBlock::new(block.clone());
+                    voting_block_option = Some(voting_block);
+
+                    instant_at_which_we_should_have_committed =
+                        Instant::now() + sumeragi.commit_time;
+                }
+                Some(Message::BlockSigned(BlockSigned { hash, signatures })) => {
+                    if voting_block_option.is_none()
+                        || hash
+                            != voting_block_option
+                                .as_ref()
+                                .expect("Voting block is `Some`")
+                                .block
+                                .hash()
+                    {
+                        error!("block signed is not relevant block");
+                        continue;
+                    }
+
+                    let valid_signatures = state.current_topology.filter_signatures_by_roles(
+                        &[Role::ValidatingPeer, Role::Leader],
+                        signatures.verified_by_hash(hash),
+                    );
+
+                    for sig in valid_signatures {
+                        block_signature_acc.push((hash, sig));
                     }
                 }
-            } else {
-                // if there is no message — sleep
-                should_sleep = true;
+                Some(msg) => {
+                    trace!(?msg, "Sumeragi Proxy Tail is not handling the message");
+                }
+                None => should_sleep = true,
             }
 
             if voting_block_option.is_some() {
@@ -1150,18 +1134,22 @@ pub fn run<F>(
                 vote_count += 1; // We are also voting for this block.
                 if vote_count >= state.current_topology.min_votes_for_commit() {
                     let block = voting_block_option
+                        .take()
                         .expect("Voting block should have been `Some`")
                         .block;
-                    voting_block_option = None;
 
                     let mut block = block
                         .sign(sumeragi.key_pair.clone())
                         .expect("Signing can only fail if the Key-Pair failed. This is mainly caused by hardware failure");
                     block.signatures.extend(peer_signatures);
 
-                    assert!(
-                        block.signatures.len() >= state.current_topology.min_votes_for_commit()
-                    );
+                    let committed_block = match block.clone().commit(&state.current_topology) {
+                        Ok(committed_block) => committed_block.into(),
+                        Err(err) => {
+                            warn!(?err);
+                            continue;
+                        }
+                    };
 
                     info!(
                         %voting_block_hash,
@@ -1171,11 +1159,11 @@ pub fn run<F>(
                     sumeragi.broadcast_packet(
                         MessagePacket::new(
                             view_change_proof_chain.clone(),
-                            BlockCommitted::new(block.clone()).into(),
+                            BlockCommitted::from(block).into(),
                         ),
                         &state.current_topology,
                     );
-                    commit_block(sumeragi, block, &mut state);
+                    commit_block(sumeragi, committed_block, &mut state);
                 }
 
                 if Instant::now() > instant_at_which_we_should_have_committed {
@@ -1239,10 +1227,11 @@ fn sumeragi_init_commit_genesis<F>(
 
         {
             sumeragi.broadcast_packet(
-                MessagePacket::new(Vec::new(), BlockCommitted::new(signed_block.clone()).into()),
+                MessagePacket::new(Vec::new(), BlockCreated::new(signed_block.clone()).into()),
                 &state.current_topology,
             );
-            commit_block(sumeragi, signed_block, state);
+            // Omit signature verification during genesis round
+            commit_block(sumeragi, signed_block.commit_unchecked().into(), state);
         }
     }
 }
@@ -1294,50 +1283,65 @@ where
         // we must connect to peers so that our block_sync can find us
         // the genesis block.
         match incoming_message_receiver.try_recv() {
-            Ok(packet) => match packet.message {
-                Message::BlockCommitted(block_committed) => {
-                    // If we receive a committed genesis block that is
-                    // valid, use it without question.  During the
-                    // genesis round we blindly take on the network
-                    // topology described in the provided genesis
-                    // block.
-                    let block = {
-                        let span = span!(
-                            Level::TRACE,
-                            "Genesis Round Peer is revalidating the block."
-                        );
-                        let _enter = span.enter();
-                        match block_committed.block.revalidate(
-                            &sumeragi.transaction_validator,
-                            &state.wsv,
-                            &state.latest_block_hash,
-                            state.latest_block_height,
-                        ) {
+            Ok(packet) => {
+                let block = match packet.message {
+                    Message::BlockCreated(BlockCreated { block }) => {
+                        // If we receive a committed genesis block that is
+                        // valid, use it without question.  During the
+                        // genesis round we blindly take on the network
+                        // topology described in the provided genesis
+                        // block.
+                        let block = {
+                            let span = span!(
+                                Level::TRACE,
+                                "Genesis Round Peer is revalidating the block."
+                            );
+                            let _enter = span.enter();
+                            match block.revalidate(
+                                &sumeragi.transaction_validator,
+                                &state.wsv,
+                                &state.latest_block_hash,
+                                state.latest_block_height,
+                            ) {
+                                Ok(block) => block,
+                                Err(err) => {
+                                    warn!(%err);
+                                    continue;
+                                }
+                            }
+                        };
+                        // Omit signature verification during genesis round
+                        block.commit_unchecked().into()
+                    }
+                    Message::BlockSyncUpdate(BlockSyncUpdate { block }) => {
+                        // Omit signature verification during genesis round
+                        match block.revalidate_hashes() {
                             Ok(block) => block,
                             Err(err) => {
                                 warn!(%err);
                                 continue;
                             }
                         }
-                    };
-                    if block.header.is_genesis() && block.header.genesis_topology.is_some() {
-                        info!("Using network topology from genesis block");
-                        state.current_topology = block
-                            .header
-                            .genesis_topology
-                            .clone()
-                            .take()
-                            .expect("We just checked that it is some");
-                        commit_block(sumeragi, block, state);
-                        info!("Genesis block received and committed.");
-                        return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
-                    debug!("Received block that was not genesis.");
+                    msg => {
+                        trace!(?msg, "Not handling the message, waiting for genesis.");
+                        continue;
+                    }
+                };
+                if block.header().is_genesis() && block.header().genesis_topology.is_some() {
+                    info!("Using network topology from genesis block");
+                    state.current_topology = block
+                        .header()
+                        .genesis_topology
+                        .clone()
+                        .take()
+                        .expect("We just checked that it is some");
+                    commit_block(sumeragi, block, state);
+                    info!("Genesis block received and committed.");
+                    return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                 }
-                msg => {
-                    trace!(?msg, "Not handling message, waiting genesis.");
-                }
-            },
+                debug!("Received a block that was not genesis.");
+            }
             Err(mpsc::TryRecvError::Disconnected) => return Err(EarlyReturn::Disconnected),
             _ => (),
         }

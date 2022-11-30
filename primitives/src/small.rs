@@ -233,7 +233,7 @@ mod small_vector {
 
     impl<A: Array> WrapperTypeEncode for SmallVec<A> {}
 
-    // Decodes into Vec and then converts into SmallVec.
+    // Decode into Vec and then convert into SmallVec.
     // TODO: Maybe this conversion can be optimized?
     impl<A: Array> WrapperTypeDecode for SmallVec<A> {
         type Wrapped = Vec<A::Item>;

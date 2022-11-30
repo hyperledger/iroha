@@ -59,7 +59,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
             .sign(KeyPair::generate().expect("Failed to generate KeyPair."))
             .unwrap();
     }
-    let block: VersionedCommittedBlock = block.commit().into();
+    let block: VersionedCommittedBlock = block.commit_unchecked().into();
     let mut block_store = StdFileBlockStore::new(dir.path());
     block_store.create_files_if_they_do_not_exist().unwrap();
 

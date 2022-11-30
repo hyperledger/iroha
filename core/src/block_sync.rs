@@ -93,6 +93,7 @@ pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
 
     use super::*;
+    use crate::block::VersionedCandidateCommittedBlock;
 
     /// Message to initiate receiving of latest blocks from other peers
     ///
@@ -103,14 +104,14 @@ pub mod message {
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
     impl VersionedMessage {
-        /// Converts from `&VersionedMessage` to V1 reference
+        /// Convert from `&VersionedMessage` to V1 reference
         pub const fn as_v1(&self) -> &Message {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Converts from `&mut VersionedMessage` to V1 mutable reference
+        /// Convert from `&mut VersionedMessage` to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut Message {
             match self {
                 Self::V1(v1) => v1,
@@ -145,14 +146,14 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
-        pub blocks: Vec<VersionedCommittedBlock>,
+        pub blocks: Vec<VersionedCandidateCommittedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
-        pub const fn new(blocks: Vec<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
+        pub const fn new(blocks: Vec<VersionedCandidateCommittedBlock>, peer_id: PeerId) -> Self {
             Self { blocks, peer_id }
         }
     }
@@ -181,8 +182,13 @@ pub mod message {
                         return;
                     }
 
-                    let mut blocks = block_sync.sumeragi.blocks_after_hash(*hash);
-                    blocks.truncate(block_sync.block_batch_size as usize);
+                    let blocks = block_sync
+                        .sumeragi
+                        .blocks_after_hash(*hash)
+                        .into_iter()
+                        .map(VersionedCandidateCommittedBlock::from)
+                        .take(block_sync.block_batch_size as usize)
+                        .collect::<Vec<_>>();
 
                     if blocks.is_empty() {
                         warn!(%hash, "Block hash not found");
@@ -194,13 +200,11 @@ pub mod message {
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
-                    use crate::sumeragi::message::{BlockCommitted, Message, MessagePacket};
+                    use crate::sumeragi::message::{BlockSyncUpdate, Message, MessagePacket};
                     for block in blocks {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
                             Vec::new(),
-                            Message::BlockCommitted(BlockCommitted {
-                                block: block.clone().into(),
-                            }),
+                            Message::BlockSyncUpdate(BlockSyncUpdate::from(block.clone())),
                         ));
                     }
                 }
