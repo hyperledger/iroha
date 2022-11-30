@@ -242,14 +242,14 @@ declare_versioned!(
 );
 
 impl VersionedSignedTransaction {
-    /// Converts from `&VersionedSignedTransaction` to V1 reference
+    /// Convert from `&VersionedSignedTransaction` to V1 reference
     pub const fn as_v1(&self) -> &SignedTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Converts from `&mut VersionedSignedTransaction` to V1 mutable reference
+    /// Convert from `&mut VersionedSignedTransaction` to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut SignedTransaction {
         match self {
@@ -450,7 +450,7 @@ impl Txn for SignedTransaction {
 declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant);
 
 impl VersionedPendingTransactions {
-    /// Converts from `&VersionedPendingTransactions` to V1 reference
+    /// Convert from `&VersionedPendingTransactions` to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &PendingTransactions {
         match self {
@@ -458,7 +458,7 @@ impl VersionedPendingTransactions {
         }
     }
 
-    /// Converts from `&mut VersionedPendingTransactions` to V1 mutable reference
+    /// Convert from `&mut VersionedPendingTransactions` to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut PendingTransactions {
         match self {
@@ -596,7 +596,7 @@ impl PartialOrd for TransactionQueryResult {
 declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
-    /// Converts from `&VersionedValidTransaction` to V1 reference
+    /// Convert from `&VersionedValidTransaction` to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &ValidTransaction {
         match self {
@@ -604,7 +604,7 @@ impl VersionedValidTransaction {
         }
     }
 
-    /// Converts from `&mut VersionedValidTransaction` to V1 mutable reference
+    /// Convert from `&mut VersionedValidTransaction` to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut ValidTransaction {
         match self {
@@ -652,7 +652,7 @@ impl Txn for ValidTransaction {
 declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, FfiType, IntoSchema);
 
 impl VersionedRejectedTransaction {
-    /// Converts from `&VersionedRejectedTransaction` to V1 reference
+    /// Convert from `&VersionedRejectedTransaction` to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &RejectedTransaction {
         match self {
@@ -660,7 +660,7 @@ impl VersionedRejectedTransaction {
         }
     }
 
-    /// Converts from `&mut VersionedRejectedTransaction` to V1 mutable reference
+    /// Convert from `&mut VersionedRejectedTransaction` to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut RejectedTransaction {
         match self {
