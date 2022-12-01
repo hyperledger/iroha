@@ -571,6 +571,8 @@ ffi::declare_item! {
     #[from(forward)]
     #[repr(transparent)]
     #[serde(transparent)]
+    // SAFETY: BlockValueWrapper has no trap representations in Box<BlockValue>
+    #[ffi_type(unsafe {robust})]
     pub struct BlockValueWrapper(Box<BlockValue>);
 }
 
