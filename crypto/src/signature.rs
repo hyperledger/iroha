@@ -598,6 +598,8 @@ impl<T> std::error::Error for SignatureVerificationFail<T> {}
 mod tests {
     #![allow(clippy::restriction)]
 
+    use parity_scale_codec::DecodeAll;
+
     #[cfg(feature = "std")]
     use super::*;
     #[cfg(feature = "std")]
@@ -667,7 +669,7 @@ mod tests {
         };
         let bytes = no_signatures.encode();
 
-        let signatures = SignaturesOf::<i32>::decode(&mut &bytes[..]);
+        let signatures = SignaturesOf::<i32>::decode_all(&mut &bytes[..]);
         assert!(signatures.is_err());
     }
 

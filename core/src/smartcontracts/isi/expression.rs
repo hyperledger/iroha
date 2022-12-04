@@ -501,7 +501,7 @@ mod tests {
     use iroha_crypto::KeyPair;
     use iroha_data_model::val_vec;
     use iroha_primitives::fixed::Fixed;
-    use parity_scale_codec::{Decode, Encode};
+    use parity_scale_codec::{DecodeAll, Encode};
 
     use super::*;
     use crate::wsv::World;
@@ -863,8 +863,9 @@ mod tests {
     fn scale_codec_serialization_works() {
         let expression: ExpressionBox = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
         let serialized_expression: Vec<u8> = expression.encode();
-        let deserialized_expression = ExpressionBox::decode(&mut serialized_expression.as_slice())
-            .expect("Failed to decode.");
+        let deserialized_expression =
+            ExpressionBox::decode_all(&mut serialized_expression.as_slice())
+                .expect("Failed to decode.");
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
             expression

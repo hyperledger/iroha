@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, fmt::Debug, fs, io, path::PathBuf};
 use clap::Parser;
 use colored::*;
 use eyre::{eyre, Result};
-use parity_scale_codec::Decode;
+use parity_scale_codec::DecodeAll;
 
 mod generate_map;
 use generate_map::generate_map;
@@ -47,21 +47,21 @@ pub type DumpDecodedMap = BTreeMap<String, DumpDecodedPtr>;
 
 /// Types implementing this trait can be decoded from bytes
 /// with *Parity Scale Codec* and dumped to something implementing [`Write`](std::io::Write)
-pub trait DumpDecoded: Debug + Decode {
+pub trait DumpDecoded: Debug + DecodeAll {
     /// Decode `Self` from `input` and dump to `w`
     ///
     /// # Errors
     /// - If decoding from *Parity Scale Codec* fails
     /// - If writing into `w` fails
     fn dump_decoded(mut input: &[u8], w: &mut dyn io::Write) -> Result<()> {
-        let obj = <Self as Decode>::decode(&mut input)?;
+        let obj = <Self as DecodeAll>::decode_all(&mut input)?;
         #[allow(clippy::use_debug)]
         writeln!(w, "{:#?}", obj)?;
         Ok(())
     }
 }
 
-impl<T: Debug + Decode> DumpDecoded for T {}
+impl<T: Debug + DecodeAll> DumpDecoded for T {}
 
 fn main() -> Result<()> {
     let args = Args::parse();

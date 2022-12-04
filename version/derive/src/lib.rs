@@ -242,38 +242,14 @@ impl Parse for DeclareVersionedArgs {
 fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
     quote! (
         impl iroha_version::scale::DecodeVersioned for #enum_name {
-            fn decode_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
-                use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
-                use parity_scale_codec::Decode;
-
-                if let Some(version) = input.first() {
-                    if Self::supported_versions().contains(version) {
-                        let mut input = input.clone();
-                        Ok(Self::decode(&mut input)?)
-                    } else {
-                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
-                            *version,
-                            RawVersioned::ScaleBytes(input.to_vec())
-                        ))))
-                    }
-                } else {
-                    Err(Error::NotVersioned)
-                }
-            }
-
             fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
                 use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
-                use parity_scale_codec::Decode;
+                use parity_scale_codec::DecodeAll;
 
                 if let Some(version) = input.first() {
                     if Self::supported_versions().contains(version) {
                         let mut input = input.clone();
-                        let obj = Self::decode(&mut input)?;
-                        if input.is_empty() {
-                            Ok(obj)
-                        } else {
-                            Err(Error::ExtraBytesLeft(input.len().try_into().expect("`u64` always fit in `usize`")))
-                        }
+                        Ok(Self::decode_all(&mut input)?)
                     } else {
                         Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
                             *version,
