@@ -149,7 +149,7 @@ impl Kura {
             block_data_buffer.resize(block_data_buffer_len, 0_u8);
 
             match block_store.read_block_data(block_start, &mut block_data_buffer) {
-                Ok(_) => match VersionedCommittedBlock::decode_versioned(&block_data_buffer) {
+                Ok(_) => match VersionedCommittedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
                         blocks.push(decoded_block);
                     }

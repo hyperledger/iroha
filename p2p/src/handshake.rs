@@ -8,7 +8,7 @@ use iroha_actor::broker::Broker;
 use iroha_crypto::ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
 use iroha_data_model::{peer, Identifiable};
 use iroha_data_model_derive::IdOrdEqHash;
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 use crate::peer::{Connection, Cryptographer};
 
@@ -237,7 +237,7 @@ pub mod peer_state {
 
             let data = crypto.decrypt(data)?;
 
-            let pub_key = Decode::decode(&mut data.as_slice())?;
+            let pub_key = DecodeAll::decode_all(&mut data.as_slice())?;
 
             id.public_key = pub_key;
             Ok(Ready(id, broker, connection, crypto))

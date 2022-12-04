@@ -242,6 +242,8 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction, clippy::panic)]
+    use parity_scale_codec::DecodeAll;
+
     use super::*;
 
     #[test]
@@ -287,7 +289,7 @@ mod tests {
     #[test]
     fn decode_negative_value_from_parity_scale_should_fail() {
         let encoded = Fixed::negative_one().encode();
-        let result: Result<Fixed, _> = Fixed::decode(&mut encoded.as_slice());
+        let result: Result<Fixed, _> = Fixed::decode_all(&mut encoded.as_slice());
         assert!(result.is_err());
     }
 
@@ -304,7 +306,7 @@ mod tests {
     fn decode_zero_from_parity_scale_should_succeed() {
         let encoded = Fixed::ZERO.encode();
         let fixed: Fixed =
-            Fixed::decode(&mut encoded.as_slice()).expect("Should be possible to decode");
+            Fixed::decode_all(&mut encoded.as_slice()).expect("Should be possible to decode");
         assert_eq!(fixed, Fixed::ZERO);
     }
 
@@ -323,7 +325,7 @@ mod tests {
         let initial = Fixed::try_from(2.234_f64).expect("Valid `Fixed` value");
         let encoded = initial.encode();
         let fixed: Fixed =
-            Fixed::decode(&mut encoded.as_slice()).expect("Should be possible to decode");
+            Fixed::decode_all(&mut encoded.as_slice()).expect("Should be possible to decode");
         assert_eq!(fixed, initial);
     }
 

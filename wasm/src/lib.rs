@@ -21,7 +21,7 @@ use data_model::{permission::validator::NeedsPermissionBox, prelude::*};
 pub use debug::*;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
-pub use parity_scale_codec::{Decode, Encode};
+pub use parity_scale_codec::{DecodeAll, Encode};
 
 pub mod debug;
 
@@ -125,7 +125,7 @@ pub trait EvaluateOnHost {
     fn evaluate_on_host(&self) -> Result<Self::Value, Self::Error>;
 }
 
-impl<V: TryFrom<Value> + Decode> EvaluateOnHost for EvaluatesTo<V> {
+impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
     type Value = V;
     type Error = <V as TryFrom<Value>>::Error;
 
@@ -260,7 +260,7 @@ mod host {
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
-unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: *const u8) -> T {
+unsafe fn decode_with_length_prefix_from_raw<T: DecodeAll>(ptr: *const u8) -> T {
     let len_size_bytes = core::mem::size_of::<usize>();
 
     #[allow(clippy::expect_used)]
@@ -283,7 +283,7 @@ unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: *const u8) -> T {
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, `Box<[u8]>` containing the encoded object
-pub unsafe fn _decode_from_raw<T: Decode>(ptr: *const u8, len: usize) -> T {
+pub unsafe fn _decode_from_raw<T: DecodeAll>(ptr: *const u8, len: usize) -> T {
     _decode_from_raw_in_range(ptr, len, 0..)
 }
 
@@ -297,7 +297,7 @@ pub unsafe fn _decode_from_raw<T: Decode>(ptr: *const u8, len: usize) -> T {
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, `Box<[u8]>` containing the encoded object
-unsafe fn _decode_from_raw_in_range<T: Decode>(
+unsafe fn _decode_from_raw_in_range<T: DecodeAll>(
     ptr: *const u8,
     len: usize,
     range: RangeFrom<usize>,
@@ -305,7 +305,7 @@ unsafe fn _decode_from_raw_in_range<T: Decode>(
     let bytes = Box::from_raw(core::slice::from_raw_parts_mut(ptr as *mut _, len));
 
     #[allow(clippy::expect_used, clippy::expect_fun_call)]
-    T::decode(&mut &bytes[range]).expect(
+    T::decode_all(&mut &bytes[range]).expect(
         format!(
             "Decoding of {} failed. This is a bug",
             core::any::type_name::<T>()
@@ -393,7 +393,7 @@ mod tests {
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(ptr: *const u8, len: usize) {
         let bytes = slice::from_raw_parts(ptr, len);
-        let instruction = Instruction::decode(&mut &*bytes);
+        let instruction = Instruction::decode_all(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
     }
 
@@ -403,7 +403,7 @@ mod tests {
         len: usize,
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
-        let query = QueryBox::decode(&mut &*bytes).unwrap();
+        let query = QueryBox::decode_all(&mut &*bytes).unwrap();
         assert_eq!(query, get_test_query());
 
         ManuallyDrop::new(encode_with_length_prefix(&QUERY_RESULT).into_boxed_slice()).as_ptr()
@@ -448,7 +448,7 @@ mod tests {
         len: usize,
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
-        let expression = ExpressionBox::decode(&mut &*bytes).unwrap();
+        let expression = ExpressionBox::decode_all(&mut &*bytes).unwrap();
         assert_eq!(expression, get_test_expression());
 
         ManuallyDrop::new(encode_with_length_prefix(&EXPRESSION_RESULT).into_boxed_slice()).as_ptr()

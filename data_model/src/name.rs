@@ -146,6 +146,8 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use parity_scale_codec::DecodeAll;
+
     use super::*;
 
     const INVALID_NAMES: [&str; 6] = ["", " ", "@", "#", "$", "%"];
@@ -166,7 +168,7 @@ mod tests {
         for invalid_name in INVALID_NAMES {
             let invalid_name = Name(invalid_name.to_owned().into());
             let bytes = invalid_name.encode();
-            let name = Name::decode(&mut &bytes[..]);
+            let name = Name::decode_all(&mut &bytes[..]);
 
             assert!(name.is_err());
         }

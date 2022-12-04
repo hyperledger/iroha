@@ -58,7 +58,7 @@ mod tests {
         let versioned_message: VersionedMessage = Message.into();
         let bytes = versioned_message.encode_versioned();
         let decoded_message =
-            VersionedMessage::decode_versioned(&bytes).map_err(|e| e.to_string())?;
+            VersionedMessage::decode_all_versioned(&bytes).map_err(|e| e.to_string())?;
         match decoded_message {
             VersionedMessage::V1(message) => {
                 let _: Message = message;
@@ -82,7 +82,7 @@ mod tests {
 
         use model_1::*;
         let raw_string = "test string".encode();
-        let decoded_message = VersionedMessage::decode_versioned(&bytes);
+        let decoded_message = VersionedMessage::decode_all_versioned(&bytes);
         match decoded_message {
             Err(Error::UnsupportedVersion(unsupported_version)) => {
                 assert_eq!(unsupported_version.version, 3);

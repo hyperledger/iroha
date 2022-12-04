@@ -140,7 +140,7 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
         block_store
             .read_block_data(index_start, &mut block_buf)
             .expect(&format!("Failed to read block № {} data.", index_index + 1));
-        let block = VersionedCommittedBlock::decode_versioned(&block_buf)
+        let block = VersionedCommittedBlock::decode_all_versioned(&block_buf)
             .expect(&format!("Failed to decode block № {}", index_index + 1));
         println!("Block#{} :", index_index + 1);
         println!("{:#?}", block);

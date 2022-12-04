@@ -113,9 +113,8 @@ pub trait Stream<R: DecodeVersioned>:
             return Err(Error::NonBinaryMessage);
         }
 
-        Ok(try_decode_all_or_just_decode!(
-            R as "Message",
-            subscription_request_message.as_bytes()
+        Ok(R::decode_all_versioned(
+            subscription_request_message.as_bytes(),
         )?)
     }
 }

@@ -404,7 +404,7 @@ where
 
             let data = crypto.decrypt(data)?;
 
-            let pub_key = Decode::decode(&mut data.as_slice())?;
+            let pub_key = DecodeAll::decode_all(&mut data.as_slice())?;
 
             id.public_key = pub_key;
             Ok(Self::Ready(id, broker, connection, crypto))
@@ -561,11 +561,7 @@ where
                     }
                 }
             };
-            let mut decoded: Result<T, _> = DecodeAll::decode_all(&mut data.as_slice());
-            if decoded.is_err() {
-                warn!("Error parsing message using all bytes");
-                decoded = Decode::decode(&mut data.as_slice());
-            }
+            let decoded: Result<T, _> = DecodeAll::decode_all(&mut data.as_slice());
             match decoded {
                 Ok(decoded_data) => {
                     let message_with_data =

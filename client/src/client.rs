@@ -70,8 +70,7 @@ where
         ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
             match resp.status() {
                 StatusCode::OK => {
-                    let res =
-                        try_decode_all_or_just_decode!(VersionedPaginatedQueryResult, resp.body());
+                    let res = VersionedPaginatedQueryResult::decode_all_versioned(resp.body());
                     res.wrap_err(
                         "Failed to decode response from Iroha. \
                          You are likely using a version of the client library \
@@ -83,11 +82,7 @@ where
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND => {
-                    let mut res = QueryError::decode_all(&mut resp.body().as_ref());
-                    if res.is_err() {
-                        warn!("Can't decode query error, not all bytes were consumed");
-                        res = QueryError::decode(&mut resp.body().as_ref());
-                    }
+                    let res = QueryError::decode_all(&mut resp.body().as_ref());
                     let err = res.wrap_err(
                         "Failed to decode error-response from Iroha. \
                          You are likely using a version of the client library \
@@ -929,7 +924,7 @@ impl Client {
 
             if response.status() == StatusCode::OK {
                 let pending_transactions =
-                    try_decode_all_or_just_decode!(VersionedPendingTransactions, response.body())?;
+                    VersionedPendingTransactions::decode_all_versioned(response.body())?;
                 let VersionedPendingTransactions::V1(pending_transactions) = pending_transactions;
                 let transaction = pending_transactions
                     .into_iter()
@@ -1292,7 +1287,7 @@ pub mod events_api {
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message =
-                    try_decode_all_or_just_decode!(VersionedEventMessage, &message)?.into_v1();
+                    VersionedEventMessage::decode_all_versioned(&message)?.into_v1();
                 let EventMessage(event) = event_socket_message;
                 Ok(event)
             }
@@ -1377,7 +1372,7 @@ mod blocks_api {
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let block_socket_message =
-                    try_decode_all_or_just_decode!(VersionedBlockMessage, &message)?.into_v1();
+                    VersionedBlockMessage::decode_all_versioned(&message)?.into_v1();
 
                 let BlockMessage(block) = block_socket_message;
 

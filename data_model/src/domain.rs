@@ -498,6 +498,8 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use parity_scale_codec::DecodeAll;
+
     use super::*;
 
     const INVALID_IPFS: [&str; 4] = [
@@ -559,7 +561,7 @@ mod tests {
         for invalid_ipfs in INVALID_IPFS {
             let invalid_ipfs = IpfsPath(invalid_ipfs.into());
             let bytes = invalid_ipfs.encode();
-            let ipfs = IpfsPath::decode(&mut &bytes[..]);
+            let ipfs = IpfsPath::decode_all(&mut &bytes[..]);
 
             assert!(ipfs.is_err());
         }

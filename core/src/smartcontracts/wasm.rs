@@ -15,7 +15,7 @@ use iroha_config::{
     wasm::{Configuration, ConfigurationProxy},
 };
 use iroha_data_model::{permission, prelude::*, ParseError};
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{DecodeAll, Encode};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
@@ -639,7 +639,7 @@ impl<'wrld> Runtime<'wrld> {
     /// # Warning
     ///
     /// This method does not take ownership of the pointer.
-    fn decode_from_memory<C: wasmtime::AsContext, T: Decode>(
+    fn decode_from_memory<C: wasmtime::AsContext, T: DecodeAll>(
         memory: &wasmtime::Memory,
         context: &C,
         offset: WasmUsize,
@@ -648,7 +648,7 @@ impl<'wrld> Runtime<'wrld> {
         // Accessing memory as a byte slice to avoid the use of unsafe
         let mem_range = offset as usize..(offset + len) as usize;
         let mut bytes = &memory.data(context)[mem_range];
-        T::decode(&mut bytes).map_err(|error| Trap::new(error.to_string()))
+        T::decode_all(&mut bytes).map_err(|error| Trap::new(error.to_string()))
     }
 
     /// Decode the object from a given pointer where first element is the size of the object
@@ -660,7 +660,7 @@ impl<'wrld> Runtime<'wrld> {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn decode_with_length_prefix_from_memory<
         C: wasmtime::AsContextMut,
-        T: Decode + std::fmt::Debug,
+        T: DecodeAll + std::fmt::Debug,
     >(
         memory: &wasmtime::Memory,
         dealloc_fn: &wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>,
@@ -684,7 +684,7 @@ impl<'wrld> Runtime<'wrld> {
             ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)];
 
         let obj =
-            T::decode(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
+            T::decode_all(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
                 .map_err(|err| Error::DecodeWithPrefix(err.into()))?;
 
         dealloc_fn

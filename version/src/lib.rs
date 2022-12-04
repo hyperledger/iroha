@@ -208,13 +208,6 @@ pub mod scale {
 
     /// [`Decode`] versioned analog.
     pub trait DecodeVersioned: Decode + Version {
-        /// Use this function for versioned objects instead of `decode`.
-        ///
-        /// # Errors
-        /// - Version is unsupported
-        /// - Input won't have enough bytes for decoding
-        fn decode_versioned(input: &[u8]) -> Result<Self>;
-
         /// Use this function for versioned objects instead of `decode_all`.
         ///
         /// # Errors
@@ -228,55 +221,6 @@ pub mod scale {
     pub trait EncodeVersioned: Encode + Version {
         /// Use this function for versioned objects instead of `encode`.
         fn encode_versioned(&self) -> Vec<u8>;
-    }
-
-    /// Try to decode type `t` from input `i` with [`DecodeVersioned::decode_all_versioned`]
-    /// and if it failed then print warning message to the log
-    /// and use [`DecodeVersioned::decode_versioned`].
-    ///
-    /// Implemented as a macro so that warning message will be displayed
-    /// with the file name of calling side.
-    ///
-    /// Will be removed in favor of just [`DecodeVersioned::decode_all_versioned`] in the future.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use iroha_data_model::prelude::*;
-    /// # use iroha_version::scale::EncodeVersioned;
-    /// use iroha_logger::prelude::warn;
-    /// use iroha_version::scale::DecodeVersioned;
-    /// use iroha_version::try_decode_all_or_just_decode;
-    ///
-    /// # let msg: VersionedEventSubscriptionRequest = EventSubscriptionRequest(FilterBox::Data(DataEventFilter::AcceptAll)).into();
-    /// # let mut bytes = msg.encode_versioned();
-    /// # bytes.append(&mut bytes.clone());
-    /// # let excessive_bytes = bytes;
-    ///
-    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `VersionedEventMessage`"
-    /// let msg = try_decode_all_or_just_decode!(VersionedEventMessage, &excessive_bytes)?;
-    ///
-    /// // Succeeds in decoding with a warning "Extra bytes left after decoding as `Message`"
-    /// let msg = try_decode_all_or_just_decode!(VersionedEventMessage as "Message", &excessive_bytes)?;
-    ///
-    /// # Ok::<(), iroha_version::error::Error>(())
-    /// ```
-    #[macro_export]
-    macro_rules! try_decode_all_or_just_decode {
-        ($t:ty, $i:expr) => {
-            try_decode_all_or_just_decode!(impl $t, $i, stringify!($t))
-        };
-        ($t:ty as $l:literal, $i:expr) => {
-            try_decode_all_or_just_decode!(impl $t, $i, $l)
-        };
-        (impl $t:ty, $i:expr, $n:expr) => {{
-            let mut res = <$t as DecodeVersioned>::decode_all_versioned($i);
-            if let Err(iroha_version::error::Error::ExtraBytesLeft(left_bytes)) = res {
-                warn!(%left_bytes, "Extra bytes left after decoding as `{}`", $n);
-                res = <$t as DecodeVersioned>::decode_versioned($i);
-            }
-            res
-        }};
     }
 }
 
