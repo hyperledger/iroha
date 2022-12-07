@@ -307,7 +307,7 @@ impl WorldStateView {
     fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
         let prev_interval = self
             .blocks
-            .latest_block()
+            .nth_back(0)
             .map(|latest_block| {
                 let header = latest_block.header();
                 header.timestamp.try_into().map(|since| {
@@ -620,11 +620,18 @@ impl WorldStateView {
         }
     }
 
-    /// Hash of latest block
-    pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
+    /// Hash of nth back block
+    pub fn nth_back_block_hash(&self, n: usize) -> HashOf<VersionedCommittedBlock> {
         self.blocks
-            .latest_block()
+            .nth_back(n)
             .map_or(Hash::zeroed().typed(), |block| block.value().hash())
+    }
+
+    /// View change index of nth back block
+    pub fn nth_back_block_view_change_index(&self, n: usize) -> u64 {
+        self.blocks
+            .nth_back(n)
+            .map_or(0, |block| block.value().header().view_change_index)
     }
 
     /// Get `Account` and pass it to closure.

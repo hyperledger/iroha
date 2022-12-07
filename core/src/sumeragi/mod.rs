@@ -112,6 +112,7 @@ impl Sumeragi {
 
                 current_online_peers: Mutex::new(Vec::new()),
                 latest_block_hash: Mutex::new(Hash::zeroed().typed()),
+                previous_block_hash: Mutex::new(Hash::zeroed().typed()),
                 message_sender: Mutex::new(incoming_message_sender),
                 message_receiver: Mutex::new(incoming_message_receiver),
             },
@@ -226,6 +227,11 @@ impl Sumeragi {
         *self.internal.latest_block_hash.lock()
     }
 
+    /// Get previous to latest block hash for use by the block synchronization subsystem.
+    pub fn previous_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
+        *self.internal.previous_block_hash.lock()
+    }
+
     /// Get an array of blocks after the block identified by `block_hash`. Returns
     /// an empty array if the specified block could not be found.
     pub fn blocks_after_hash(
@@ -273,8 +279,10 @@ impl Sumeragi {
     ) -> ThreadHandler {
         let wsv = sumeragi.wsv_mutex_access().clone();
 
+        let latest_block_view_change_index = wsv.nth_back_block_view_change_index(0);
         let latest_block_height = wsv.height();
-        let latest_block_hash = wsv.latest_block_hash();
+        let latest_block_hash = wsv.nth_back_block_hash(0);
+        let previous_block_hash = wsv.nth_back_block_hash(1);
 
         let current_topology =
             if latest_block_height != 0 && latest_block_hash != Hash::zeroed().typed() {
@@ -294,8 +302,10 @@ impl Sumeragi {
 
         let sumeragi_state_machine_data = State {
             genesis_network,
+            previous_block_hash,
             latest_block_hash,
             latest_block_height,
+            latest_block_view_change_index,
             current_topology,
             wsv,
             transaction_cache: Vec::new(),

@@ -259,6 +259,10 @@
           "ty": "u64"
         },
         {
+          "name": "view_change_index",
+          "ty": "u64"
+        },
+        {
           "name": "previous_block_hash",
           "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
         },

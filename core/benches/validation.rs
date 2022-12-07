@@ -155,7 +155,7 @@ fn chain_blocks(criterion: &mut Criterion) {
             success_count += 1;
             let new_block = block
                 .clone()
-                .chain(success_count, previous_block_hash.transmute());
+                .chain(success_count, previous_block_hash.transmute(), 0);
             previous_block_hash = new_block.hash();
         });
     });
