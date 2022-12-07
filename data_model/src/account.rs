@@ -119,11 +119,24 @@ impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
 /// Returns true if any of the signatories have signed the transaction.
 impl Default for SignatureCheckCondition {
     #[inline]
+    #[allow(clippy::expect_used)]
     fn default() -> Self {
         Self(
             ContainsAny::new(
-                EvaluatesTo::new_unchecked(ContextValue::new(TRANSACTION_SIGNATORIES_VALUE).into()),
-                EvaluatesTo::new_unchecked(ContextValue::new(ACCOUNT_SIGNATORIES_VALUE).into()),
+                EvaluatesTo::new_unchecked(
+                    ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )
+                    .into(),
+                ),
+                EvaluatesTo::new_unchecked(
+                    ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )
+                    .into(),
+                ),
             )
             .into(),
         )

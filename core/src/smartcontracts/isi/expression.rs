@@ -81,7 +81,7 @@ impl Evaluate for ContextValue {
     ) -> Result<Self::Value, Self::Error> {
         context
             .get(&self.value_name)
-            .ok_or_else(|| FindError::Context(self.value_name.clone()).into())
+            .ok_or_else(|| FindError::Context(self.value_name.to_string()).into())
             .map(ToOwned::to_owned)
     }
 }
@@ -495,7 +495,7 @@ impl Evaluate for Mod {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::fmt::Debug;
+    use std::{fmt::Debug, str::FromStr};
 
     use eyre::Result;
     use iroha_crypto::KeyPair;
@@ -508,6 +508,7 @@ mod tests {
 
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn conditional_multisignature_quorum() -> Result<()> {
         let asset_quantity_high = 750_u32.to_value();
         let asset_quantity_low = 300_u32.to_value();
@@ -523,22 +524,32 @@ mod tests {
         let manager_signatory_set = Value::Vec(vec![manager_signatory.clone()]);
         let condition = IfBuilder::condition(And::new(
             Greater::new(
-                EvaluatesTo::new_unchecked(ContextValue::new("usd_quantity").into()),
+                EvaluatesTo::new_unchecked(
+                    ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail.")).into(),
+                ),
                 500_u32,
             ),
             Less::new(
-                EvaluatesTo::new_unchecked(ContextValue::new("usd_quantity").into()),
+                EvaluatesTo::new_unchecked(
+                    ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail.")).into(),
+                ),
                 1000_u32,
             ),
         ))
         .then_expression(EvaluatesTo::new_evaluates_to_value(
             Or::new(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(ContextValue::new("signatories").into()),
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
+                            .into(),
+                    ),
                     teller_signatory_set.clone(),
                 ),
                 Contains::new(
-                    EvaluatesTo::new_unchecked(ContextValue::new("signatories").into()),
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
+                            .into(),
+                    ),
                     manager_signatory,
                 ),
             )
@@ -553,10 +564,13 @@ mod tests {
         ))
         .with_value(
             //TODO: use query to get the actual quantity of an asset from WSV
-            "usd_quantity".to_owned(),
+            Name::from_str("usd_quantity").expect("Can't fail."),
             asset_quantity_high.clone(),
         )
-        .with_value("signatories".to_owned(), teller_signatory_set)
+        .with_value(
+            Name::from_str("signatories").expect("Can't fail."),
+            teller_signatory_set,
+        )
         .build();
         let wsv = WorldStateView::new(World::new());
         assert_eq!(
@@ -567,8 +581,14 @@ mod tests {
         let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
             condition.clone().into(),
         ))
-        .with_value("usd_quantity".to_owned(), asset_quantity_high.clone())
-        .with_value("signatories".to_owned(), manager_signatory_set)
+        .with_value(
+            Name::from_str("usd_quantity").expect("Can't fail."),
+            asset_quantity_high.clone(),
+        )
+        .with_value(
+            Name::from_str("signatories").expect("Can't fail."),
+            manager_signatory_set,
+        )
         .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -578,8 +598,14 @@ mod tests {
         let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
             condition.clone().into(),
         ))
-        .with_value("usd_quantity".to_owned(), asset_quantity_high)
-        .with_value("signatories".to_owned(), one_teller_set.clone())
+        .with_value(
+            Name::from_str("usd_quantity").expect("Can't fail."),
+            asset_quantity_high,
+        )
+        .with_value(
+            Name::from_str("signatories").expect("Can't fail."),
+            one_teller_set.clone(),
+        )
         .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -588,8 +614,14 @@ mod tests {
         // Signed by one teller with less value
         let expression =
             WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(condition.into()))
-                .with_value("usd_quantity".to_owned(), asset_quantity_low)
-                .with_value("signatories".to_owned(), one_teller_set)
+                .with_value(
+                    Name::from_str("usd_quantity").expect("Can't fail."),
+                    asset_quantity_low,
+                )
+                .with_value(
+                    Name::from_str("signatories").expect("Can't fail."),
+                    one_teller_set,
+                )
                 .build();
         assert_eq!(
             expression.evaluate(&wsv, &Context::new())?,
@@ -602,10 +634,10 @@ mod tests {
     fn where_expression() -> Result<()> {
         assert_eq!(
             WhereBuilder::evaluate(EvaluatesTo::new_unchecked(
-                ContextValue::new("test_value").into()
+                ContextValue::new(Name::from_str("test_value").expect("Can't fail.")).into()
             ))
             .with_value(
-                "test_value".to_owned(),
+                Name::from_str("test_value").expect("Can't fail."),
                 EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32).into())
             )
             .build()
@@ -617,19 +649,22 @@ mod tests {
 
     #[test]
     fn nested_where_expression() -> Result<()> {
-        let expression =
-            WhereBuilder::evaluate(EvaluatesTo::new_unchecked(ContextValue::new("a").into()))
-                .with_value("a".to_owned(), 2_u32)
-                .build();
+        let expression = WhereBuilder::evaluate(EvaluatesTo::new_unchecked(
+            ContextValue::new(Name::from_str("a").expect("Can't fail.")).into(),
+        ))
+        .with_value(Name::from_str("a").expect("Can't fail."), 2_u32)
+        .build();
         let outer_expression: ExpressionBox =
             WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
                 Add::new(
                     EvaluatesTo::new_unchecked(expression.into()),
-                    EvaluatesTo::new_unchecked(ContextValue::new("b").into()),
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(Name::from_str("b").expect("Can't fail.")).into(),
+                    ),
                 )
                 .into(),
             ))
-            .with_value("b".to_owned(), 4_u32)
+            .with_value(Name::from_str("b").expect("Can't fail."), 4_u32)
             .build()
             .into();
         assert_eq!(

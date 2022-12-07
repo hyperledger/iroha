@@ -27,7 +27,12 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let set_signature_condition = MintBox::new(
         SignatureCheckCondition(EvaluatesTo::new_unchecked(
             ContainsAll::new(
-                EvaluatesTo::new_unchecked(ContextValue::new(TRANSACTION_SIGNATORIES_VALUE).into()),
+                EvaluatesTo::new_unchecked(
+                    ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE).expect("Can't fail."),
+                    )
+                    .into(),
+                ),
                 val_vec![
                     alice_key_pair.public_key().clone(),
                     key_pair_2.public_key().clone(),

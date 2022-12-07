@@ -94,7 +94,7 @@ pub fn generate_map() -> DumpDecodedMap {
         BTreeMap<PublicKey, SignatureOf<block::CommittedBlock>>,
         BTreeMap<PublicKey, SignatureOf<sumeragi::view_change::Proof>>,
         BTreeMap<PublicKey, SignatureOf<transaction::Payload>>,
-        BTreeMap<String, expression::EvaluatesTo<Value>>,
+        BTreeMap<Name, expression::EvaluatesTo<Value>>,
         BTreeSet<PermissionToken>,
         BTreeSet<PublicKey>,
         BTreeSet<RoleId>,
