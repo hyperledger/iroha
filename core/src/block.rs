@@ -81,9 +81,13 @@ impl Chain {
         ChainIterator::new(self)
     }
 
-    /// Latest block reference and its height.
-    pub fn latest_block(&self) -> Option<MapRef<u64, VersionedCommittedBlock>> {
-        self.blocks.get(&(self.blocks.len() as u64))
+    /// Get nth block from the end of the [`Chain`]
+    pub fn nth_back(&self, n: usize) -> Option<MapRef<u64, VersionedCommittedBlock>> {
+        self.blocks
+            .len()
+            .gt(&n)
+            .then_some(())
+            .and_then(|_| self.blocks.get(&((self.blocks.len() - n) as u64)))
     }
 
     /// Length of the blockchain.
@@ -211,6 +215,7 @@ impl PendingBlock {
         self,
         height: u64,
         previous_block_hash: HashOf<VersionedCommittedBlock>,
+        view_change_index: u64,
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -219,6 +224,7 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: height + 1,
+                view_change_index,
                 previous_block_hash,
                 transactions_hash: Hash::zeroed().typed(),
                 rejected_transactions_hash: Hash::zeroed().typed(),
@@ -236,6 +242,7 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
+                view_change_index: 0,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: Hash::zeroed().typed(),
                 rejected_transactions_hash: Hash::zeroed().typed(),
@@ -253,6 +260,7 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
+                view_change_index: 0,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: Hash::zeroed().typed(),
                 rejected_transactions_hash: Hash::zeroed().typed(),
@@ -280,8 +288,10 @@ pub struct BlockHeader {
     pub timestamp: u128,
     /// Estimation of consensus duration in milliseconds
     pub consensus_estimation: u64,
-    /// a number of blocks in the chain up to the block.
+    /// A number of blocks in the chain up to the block.
     pub height: u64,
+    /// Value of view change index used to resolve soft forks
+    pub view_change_index: u64,
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
     pub previous_block_hash: HashOf<VersionedCommittedBlock>,
@@ -490,6 +500,7 @@ impl SignedBlock {
                 timestamp: 0,
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
+                view_change_index: 0,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: EmptyChainHash::default().into(),
                 rejected_transactions_hash: EmptyChainHash::default().into(),

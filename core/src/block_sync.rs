@@ -65,6 +65,7 @@ impl BlockSynchronizer {
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
             self.sumeragi.latest_block_hash(),
+            self.sumeragi.previous_block_hash(),
             self.peer_id.clone(),
         ))
         .send_to(self.broker.clone(), peer_id)
@@ -129,16 +130,26 @@ pub mod message {
     /// Get blocks after some block
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct GetBlocksAfter {
-        /// Block hash
-        pub hash: HashOf<VersionedCommittedBlock>,
+        /// Hash of latest available block
+        pub latest_hash: HashOf<VersionedCommittedBlock>,
+        /// Hash of second to latest block
+        pub previous_hash: HashOf<VersionedCommittedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
-        pub const fn new(hash: HashOf<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
-            Self { hash, peer_id }
+        pub const fn new(
+            latest_hash: HashOf<VersionedCommittedBlock>,
+            previous_hash: HashOf<VersionedCommittedBlock>,
+            peer_id: PeerId,
+        ) -> Self {
+            Self {
+                latest_hash,
+                previous_hash,
+                peer_id,
+            }
         }
     }
 
@@ -173,27 +184,32 @@ pub mod message {
         #[iroha_futures::telemetry_future]
         pub async fn handle_message(&self, block_sync: &mut BlockSynchronizer) {
             match self {
-                Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
+                Message::GetBlocksAfter(GetBlocksAfter {
+                    latest_hash,
+                    previous_hash,
+                    peer_id,
+                }) => {
                     if block_sync.block_batch_size == 0 {
                         warn!("Error: not sending any blocks as batch_size is equal to zero.");
                         return;
                     }
-                    if *hash == block_sync.sumeragi.latest_block_hash() {
+                    if *latest_hash == block_sync.sumeragi.latest_block_hash() {
                         return;
                     }
 
                     let blocks = block_sync
                         .sumeragi
-                        .blocks_after_hash(*hash)
+                        .blocks_after_hash(*previous_hash)
                         .into_iter()
+                        .skip_while(|block| block.hash() == *latest_hash)
                         .map(VersionedCandidateCommittedBlock::from)
                         .take(block_sync.block_batch_size as usize)
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {
-                        warn!(%hash, "Block hash not found");
+                        warn!(hash=%previous_hash, "Block hash not found");
                     } else {
-                        trace!("Sharing blocks after hash: {}", hash);
+                        trace!(hash=%previous_hash, "Sharing blocks after hash");
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                             .send_to(block_sync.broker.clone(), peer_id.clone())
                             .await;

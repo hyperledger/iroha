@@ -92,6 +92,8 @@ where
     pub current_online_peers: Mutex<Vec<PeerId>>,
     /// Hash of the latest block
     pub latest_block_hash: Mutex<HashOf<VersionedCommittedBlock>>,
+    /// Hash of the previous block
+    pub previous_block_hash: Mutex<HashOf<VersionedCommittedBlock>>,
     /// Sender channel
     pub message_sender: Mutex<mpsc::SyncSender<MessagePacket>>,
     /// Receiver channel.
@@ -111,8 +113,12 @@ impl<F: FaultInjection> Debug for SumeragiWithFault<F> {
 pub struct State {
     /// The [`GenesisNetwork`] that was used to initialise the state machine.
     pub genesis_network: Option<GenesisNetwork>,
+    /// The view change index of latest [`VersionedCommittedBlock`]
+    pub latest_block_view_change_index: u64,
     /// The hash of the latest [`VersionedCommittedBlock`]
     pub latest_block_hash: HashOf<VersionedCommittedBlock>,
+    /// Hash of the previous [`VersionedCommittedBlock`]
+    pub previous_block_hash: HashOf<VersionedCommittedBlock>,
     /// Current block height
     pub latest_block_height: u64,
     /// The current network topology.
@@ -307,11 +313,14 @@ fn commit_block<F>(
         sumeragi.events_sender.send(event).unwrap_or(0);
     }
 
+    state.previous_block_hash = state.latest_block_hash;
     state.latest_block_height = block.header().height;
     state.latest_block_hash = block.hash();
+    state.latest_block_view_change_index = block.header().view_change_index;
 
     // Push new block height information to block_sync
     *sumeragi.latest_block_hash.lock() = state.latest_block_hash;
+    *sumeragi.previous_block_hash.lock() = state.previous_block_hash;
 
     let previous_role = state.current_topology.role(&sumeragi.peer_id);
     state.current_topology.refresh_at_new_block(block_hash);
@@ -448,7 +457,7 @@ fn prune_view_change_proofs_and_calculate_current_index(
     ) as u64
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::too_many_lines)]
 fn handle_role_agnostic_messages<F>(
     sumeragi: &SumeragiWithFault<F>,
     state: &mut State,
@@ -486,6 +495,20 @@ fn handle_role_agnostic_messages<F>(
                         return;
                     }
                 };
+                if state.previous_block_hash == block.header().previous_block_hash
+                    && state.latest_block_height == block.header().height
+                    && state.latest_block_hash != block.hash()
+                    && state.latest_block_view_change_index < block.header().view_change_index
+                {
+                    error!(
+                        peer_latest_block_hash=%state.latest_block_hash,
+                        peer_latest_block_view_change_index=%state.latest_block_view_change_index,
+                        consensus_latest_block_hash=%block.hash(),
+                        consensus_latest_block_view_change_index=%block.header().view_change_index,
+                        "Soft fork occurred: peer is inconsistent state. Currently only reload with wipe of the block storage will help."
+                    );
+                    return;
+                }
                 if state.latest_block_hash != block.header().previous_block_hash {
                     warn!(
                         expected = %state.latest_block_hash,
@@ -608,7 +631,7 @@ pub fn run<F>(
     }
 
     // Assert initialization was done properly.
-    assert_eq!(state.latest_block_hash, state.wsv.latest_block_hash());
+    assert_eq!(state.latest_block_hash, state.wsv.nth_back_block_hash(0));
     trace!(
         "I, {}, finished sumeragi init. My role in the next round is {:?}",
         sumeragi.peer_id.public_key,
@@ -861,8 +884,11 @@ pub fn run<F>(
                     // TODO: This should properly process triggers
                     let event_recommendations = Vec::new();
 
-                    let block = PendingBlock::new(transactions, event_recommendations)
-                        .chain(state.latest_block_height, state.latest_block_hash);
+                    let block = PendingBlock::new(transactions, event_recommendations).chain(
+                        state.latest_block_height,
+                        state.latest_block_hash,
+                        current_view_change_index,
+                    );
                     {
                         let block = {
                             let span =

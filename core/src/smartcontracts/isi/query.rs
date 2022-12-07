@@ -259,7 +259,7 @@ mod tests {
 
         for height in 1u64..blocks {
             let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
-                .chain(height, curr_hash)
+                .chain(height, curr_hash, 0)
                 .validate(
                     &TransactionValidator::new(
                         limits,
