@@ -807,6 +807,7 @@ impl FailBox {
 mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::vec;
+    use core::str::FromStr;
 
     use super::*;
 
@@ -841,10 +842,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn len_if_one_branch() {
         let instructions = vec![if_instruction(
             ContextValue {
-                value_name: String::default(),
+                value_name: Name::from_str("a").expect("Cannot fail."),
             },
             fail(),
             None,
@@ -855,12 +857,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn len_sequence_if() {
         let instructions = vec![
             fail(),
             if_instruction(
                 ContextValue {
-                    value_name: String::default(),
+                    value_name: Name::from_str("b").expect("Cannot fail."),
                 },
                 fail(),
                 Some(fail()),

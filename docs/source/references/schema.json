@@ -19,13 +19,6 @@
       "decimal_places": 9
     }
   },
-  "Map<String, iroha_data_model::expression::EvaluatesTo<iroha_data_model::Value>>": {
-    "Map": {
-      "key": "String",
-      "value": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Value>",
-      "sorted_by_key": true
-    }
-  },
   "Map<iroha_data_model::account::Id, iroha_data_model::account::Account>": {
     "Map": {
       "key": "iroha_data_model::account::Id",
@@ -65,6 +58,13 @@
     "Map": {
       "key": "iroha_data_model::name::Name",
       "value": "iroha_data_model::ValueKind",
+      "sorted_by_key": true
+    }
+  },
+  "Map<iroha_data_model::name::Name, iroha_data_model::expression::EvaluatesTo<iroha_data_model::Value>>": {
+    "Map": {
+      "key": "iroha_data_model::name::Name",
+      "value": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Value>",
       "sorted_by_key": true
     }
   },
@@ -3035,7 +3035,7 @@
       "declarations": [
         {
           "name": "value_name",
-          "ty": "String"
+          "ty": "iroha_data_model::name::Name"
         }
       ]
     }
@@ -3449,7 +3449,7 @@
         },
         {
           "name": "values",
-          "ty": "Map<String, iroha_data_model::expression::EvaluatesTo<iroha_data_model::Value>>"
+          "ty": "Map<iroha_data_model::name::Name, iroha_data_model::expression::EvaluatesTo<iroha_data_model::Value>>"
         }
       ]
     }

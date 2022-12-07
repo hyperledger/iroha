@@ -23,7 +23,7 @@ use operation::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use super::{query::QueryBox, Value, ValueBox};
+use super::{query::QueryBox, Name, Value, ValueBox};
 use crate::NumericValue;
 
 /// Generate expression structure and basic impls for it.
@@ -161,11 +161,8 @@ macro_rules! gen_expr_and_impls {
     };
 }
 
-/// Bound name for a value.
-pub type ValueName = String;
-
 /// Context, composed of (name, value) pairs.
-pub type Context = btree_map::BTreeMap<ValueName, Value>;
+pub type Context = btree_map::BTreeMap<Name, Value>;
 
 /// Boxed expression.
 pub type ExpressionBox = Box<Expression>;
@@ -497,7 +494,7 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
 #[repr(transparent)]
 pub struct ContextValue {
     /// Name bound to the value.
-    pub value_name: String,
+    pub value_name: Name,
 }
 
 impl ContextValue {
@@ -509,10 +506,8 @@ impl ContextValue {
 
     /// Constructs `ContextValue`.
     #[inline]
-    pub fn new(value_name: &str) -> Self {
-        Self {
-            value_name: String::from(value_name),
-        }
+    pub fn new(value_name: Name) -> Self {
+        Self { value_name }
     }
 }
 
@@ -991,7 +986,7 @@ pub struct WhereBuilder {
     /// Expression to be evaluated.
     expression: EvaluatesTo<Value>,
     /// Context values for the context binded to their `String` names.
-    values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+    values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
 }
 
 impl WhereBuilder {
@@ -1008,7 +1003,7 @@ impl WhereBuilder {
     #[must_use]
     pub fn with_value<E: Into<EvaluatesTo<Value>>>(
         mut self,
-        value_name: ValueName,
+        value_name: Name,
         expression: E,
     ) -> Self {
         let _result = self.values.insert(value_name, expression.into());
@@ -1045,7 +1040,7 @@ pub struct Where {
     /// Expression to be evaluated.
     pub expression: EvaluatesTo<Value>,
     /// Context values for the context bonded to their `String` names.
-    pub values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+    pub values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
 }
 
 impl core::fmt::Display for Where {
@@ -1077,7 +1072,7 @@ impl Where {
     #[must_use]
     pub fn new<E: Into<EvaluatesTo<Value>>>(
         expression: E,
-        values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+        values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
     ) -> Self {
         Self {
             expression: expression.into(),
@@ -1111,6 +1106,6 @@ pub mod prelude {
     pub use super::{
         Add, And, Contains, ContainsAll, ContainsAny, Context, ContextValue, Divide, Equal,
         EvaluatesTo, Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Mod,
-        Multiply, Not, Or, RaiseTo, Subtract, ValueName, Where, WhereBuilder,
+        Multiply, Not, Or, RaiseTo, Subtract, Where, WhereBuilder,
     };
 }
