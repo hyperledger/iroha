@@ -638,6 +638,8 @@ pub fn run<F>(
         state.current_topology.role(&sumeragi.peer_id),
     );
 
+    let mut last_connect_peers_instant = Instant::now();
+
     // do normal rounds
     let mut voting_block_option = None;
     let mut block_signature_acc = Vec::new();
@@ -666,7 +668,10 @@ pub fn run<F>(
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
 
-        sumeragi.connect_peers(&state.current_topology);
+        if last_connect_peers_instant.elapsed().as_millis() > 1000 {
+            sumeragi.connect_peers(&state.current_topology);
+            last_connect_peers_instant = Instant::now();
+        }
 
         {
             let state = &mut state;
