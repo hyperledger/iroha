@@ -8,6 +8,7 @@ use std::{collections::HashMap, sync::Arc, thread};
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
+use iroha_actor::{broker::*, prelude::*};
 use iroha_client::client::Client;
 use iroha_config::{
     client::Configuration as ClientConfiguration, iroha::Configuration,
@@ -147,6 +148,39 @@ impl TestGenesis for GenesisNetwork {
 fn configure_world() {}
 
 impl Network {
+    /// Send message to an actor instance on peers.
+    ///
+    /// # Panics
+    /// Programmer error. `self.peers()` should already have `iroha`.
+    pub async fn send_to_actor_on_peers<M, A>(
+        &self,
+        select_actor: impl Fn(&Iroha) -> &Addr<A>,
+        msg: M,
+    ) -> Vec<(M::Result, PeerId)>
+    where
+        M: Message + Clone + Send + 'static,
+        M::Result: Send,
+        A: Actor + ContextHandler<M>,
+    {
+        let fut = self
+            .peers()
+            .map(|peer| {
+                (
+                    select_actor(peer.iroha.as_ref().expect("Already initialised")),
+                    peer.id.clone(),
+                )
+            })
+            .map(|(actor, peer_id)| async { (actor.send(msg.clone()).await, peer_id) })
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>();
+        time::timeout(Duration::from_secs(60), fut)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(result, peer_id)| (result.expect("Always `Ok`"), peer_id))
+            .collect()
+    }
+
     /// Starts network with peers with default configuration and
     /// specified options in a new async runtime.  Returns its info
     /// and client for connecting to it.
@@ -173,7 +207,7 @@ impl Network {
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = max_txs_in_block;
-        configuration.logger.max_log_level = iroha_logger::Level::TRACE.into();
+        configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -307,11 +341,10 @@ impl Network {
 /// # Panics
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
-    const POLL_PERIOD: Duration = Duration::from_millis(5000);
-    const MAX_RETRIES: u32 = 6;
+    const POLL_PERIOD: Duration = Duration::from_millis(1000);
+    const MAX_RETRIES: u32 = 10;
 
     for _ in 0..MAX_RETRIES {
-        thread::sleep(POLL_PERIOD);
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
             if let Ok(status) = client.get_status() {
                 if status.blocks < 1 {
@@ -326,6 +359,7 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
         if without_genesis_peers <= offline_peers {
             return;
         }
+        thread::sleep(POLL_PERIOD);
     }
     panic!(
         "Failed to wait for online peers to commit genesis block. Total wait time: {:?}",
@@ -345,8 +379,8 @@ pub struct Peer {
     pub telemetry_address: String,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
-    // /// Broker
-    // pub broker: Broker,
+    /// Broker
+    pub broker: Broker,
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
     /// Iroha itself
@@ -430,6 +464,7 @@ impl Peer {
             api_addr = %self.api_address,
             telemetry_addr = %self.telemetry_address
         );
+        let broker = self.broker.clone();
         let telemetry =
             iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -441,6 +476,7 @@ impl Peer {
                     configuration,
                     instruction_judge,
                     query_judge,
+                    broker,
                     telemetry,
                 )
                 .await
@@ -484,7 +520,7 @@ impl Peer {
             telemetry_address,
             shutdown,
             iroha: None,
-            // broker: Broker::new(),
+            broker: Broker::new(),
             temp_dir: None,
         })
     }
@@ -791,7 +827,6 @@ pub mod query {
 impl TestRuntime for Runtime {
     fn test() -> Self {
         runtime::Builder::new_multi_thread()
-            .thread_name("TestNet Thread")
             .thread_stack_size(32 * 1024 * 1024)
             .enable_all()
             .build()

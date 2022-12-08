@@ -14,7 +14,7 @@ use iroha_core::{
     prelude::*,
     queue::{self, Queue},
     sumeragi::Sumeragi,
-    EventsSender,
+    EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
 use tokio::sync::Notify;
@@ -36,6 +36,7 @@ pub struct Torii {
     queue: Arc<Queue>,
     events: EventsSender,
     query_judge: QueryJudgeArc,
+    network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
     sumeragi: Arc<Sumeragi>,
 }
@@ -71,6 +72,9 @@ pub enum Error {
     #[error("Failed to push into queue")]
     PushIntoQueue(#[from] Box<queue::Error>),
     #[cfg(feature = "telemetry")]
+    /// Error while getting status
+    #[error("Failed to get status")]
+    Status(#[from] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed")]
     ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
@@ -130,7 +134,7 @@ impl Error {
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
-            Prometheus(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

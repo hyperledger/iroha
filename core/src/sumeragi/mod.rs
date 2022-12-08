@@ -15,14 +15,16 @@ use std::{
 };
 
 use eyre::{Result, WrapErr as _};
+use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
+use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
-use crate::{genesis::GenesisNetwork, handler::ThreadHandler, p2p::P2PSystem};
+use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
 
 pub mod main_loop;
 pub mod message;
@@ -44,7 +46,7 @@ use crate::{
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
-    EventsSender, NetworkMessage, VersionedValidBlock,
+    EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
 };
 
 trait Consensus {
@@ -84,9 +86,13 @@ impl Sumeragi {
         wsv: WorldStateView,
         transaction_validator: TransactionValidator,
         queue: Arc<Queue>,
-        p2p: Arc<P2PSystem>,
+        broker: Broker,
         kura: Arc<Kura>,
+        network: Addr<IrohaNetwork>,
     ) -> Self {
+        let (incoming_message_sender, incoming_message_receiver) =
+            std::sync::mpsc::sync_channel(250);
+
         Self {
             internal: SumeragiWithFault::<NoFault> {
                 key_pair: configuration.key_pair.clone(),
@@ -98,13 +104,17 @@ impl Sumeragi {
                 transaction_limits: configuration.transaction_limits,
                 transaction_validator,
                 queue,
-                p2p,
+                broker,
                 kura,
+                network,
                 fault_injection: PhantomData,
                 gossip_batch_size: configuration.gossip_batch_size,
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
+                current_online_peers: Mutex::new(Vec::new()),
                 latest_block_hash: Mutex::new(Hash::zeroed().typed()),
+                message_sender: Mutex::new(incoming_message_sender),
+                message_receiver: Mutex::new(incoming_message_receiver),
             },
             config: configuration.clone(),
             metrics_mutex: Mutex::new(Metrics::default()),
@@ -126,20 +136,19 @@ impl Sumeragi {
     #[allow(
         clippy::expect_used,
         clippy::unwrap_in_result,
+        clippy::cast_precision_loss,
         clippy::float_arithmetic,
         clippy::mutex_integer
     )]
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .internal
-            .p2p
-            .connected_to_peers
+            .current_online_peers
             .lock()
-            .expect("Mutex poisoned.")
-            .iter()
+            .expect("Failed to lock `current_online_peers` for `update_metrics`")
             .len()
             .try_into()
-            .expect("Cast usize to u64");
+            .expect("casting usize to u64");
 
         let wsv_guard = self
             .internal
@@ -187,7 +196,6 @@ impl Sumeragi {
 
         let diff_count =
             wsv_guard.metric_tx_amounts_counter.get() - last_guard.metric_tx_amounts_counter;
-        #[allow(clippy::cast_precision_loss)]
         let diff_amount_per_count = (wsv_guard.metric_tx_amounts.get()
             - last_guard.metric_tx_amounts)
             / (diff_count as f64);
@@ -248,6 +256,16 @@ impl Sumeragi {
     /// Get an array of blocks from `block_height`. (`blocks[block_height]`, `blocks[block_height + 1]` etc.)
     pub fn blocks_from_height(&self, block_height: usize) -> Vec<VersionedCommittedBlock> {
         self.wsv_mutex_access().blocks_from_height(block_height)
+    }
+
+    /// Get list of peer id's for use in block synchronization.
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    pub fn get_block_sync_peer_ids(&self) -> Vec<PeerId> {
+        self.internal
+            .current_online_peers
+            .lock()
+            .expect("Mutex for `current_online_peers` poisoned in `get_block_sync_peer_ids`")
+            .clone()
     }
 
     /// Access the world state view object in a locking fashion.
@@ -323,6 +341,31 @@ impl Sumeragi {
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
+    }
+
+    /// Update the sumeragi internal online peers list.
+    #[allow(clippy::expect_used)]
+    pub fn update_online_peers(&self, online_peers: Vec<PeerId>) {
+        *self
+            .internal
+            .current_online_peers
+            .lock()
+            .expect("Failed to lock on update online peers.") = online_peers;
+    }
+
+    /// Deposit a sumeragi network message.
+    #[allow(clippy::expect_used)]
+    pub fn incoming_message(&self, msg: MessagePacket) {
+        if self
+            .internal
+            .message_sender
+            .lock()
+            .expect("Lock on sender")
+            .try_send(msg)
+            .is_err()
+        {
+            error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+        }
     }
 }
 

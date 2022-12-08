@@ -77,6 +77,7 @@ impl Kura {
             mode,
             block_store: Mutex::new(Box::new(block_store)),
             block_hash_array: Mutex::new(Vec::new()),
+            // broker,
             block_reciever: Mutex::new(block_reciever),
             block_sender,
             block_plain_text_path,
@@ -86,17 +87,13 @@ impl Kura {
     }
 
     /// Start the Kura thread
-    #[allow(clippy::expect_used)]
     pub fn start(kura: Arc<Self>) -> ThreadHandler {
         // Oneshot channel to allow forcefully stopping the thread.
         let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
-        let thread_handle = std::thread::Builder::new()
-            .name("Kura Thread".to_owned())
-            .spawn(move || {
-                Self::kura_recieve_blocks_loop(&kura, shutdown_receiver);
-            })
-            .expect("Failed to start Kura thread. Please resolve the OS level issue, and re-start Iroha. No point in continuing.");
+        let thread_handle = std::thread::spawn(move || {
+            Self::kura_recieve_blocks_loop(&kura, shutdown_receiver);
+        });
 
         let shutdown = move || {
             let _result = shutdown_sender.send(());
