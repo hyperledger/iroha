@@ -22,6 +22,7 @@ env:
 jobs:
   check:
     runs-on: [self-hosted, Linux, iroha2ci]
+    environment: test-env
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -46,6 +47,7 @@ jobs:
 
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
+    environment: test-env
     container:
       image: 7272721/i2-ci:nightly
     strategy:
@@ -83,6 +85,7 @@ jobs:
 
   integration:
     runs-on: [self-hosted, Linux, iroha2ci]
+    environment: test-env
     container:
       image: 7272721/i2-ci:nightly
     timeout-minutes: 30
@@ -96,6 +99,7 @@ jobs:
 
   unstable:
     runs-on: [self-hosted, Linux, iroha2ci]
+    environment: test-env
     container:
       image: 7272721/i2-ci:nightly
     timeout-minutes: 60
