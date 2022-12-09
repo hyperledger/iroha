@@ -151,7 +151,7 @@ impl ConfigurationProxy {
                             "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
                         ));
                     }
-                },
+                }
                 _ => {
                     eyre::bail!(ConfigError::ProxyBuildError(
                         "`TORII_API_URL` string: `{api_url}` should provide a connection protocol"
@@ -167,7 +167,8 @@ impl ConfigurationProxy {
                 Some((protocol, endpoint)) => {
                     if protocol != "http" {
                         eyre::bail!(ConfigError::ProxyBuildError(
-                            "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP".to_owned()
+                            "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP"
+                                .to_owned()
                         ));
                     }
                     if endpoint.split(':').count() != 2 {
@@ -175,7 +176,7 @@ impl ConfigurationProxy {
                             "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection port, e.g. `http://127.0.0.1:8180`".to_owned()
                         ));
                     }
-                },
+                }
                 _ => {
                     eyre::bail!(ConfigError::ProxyBuildError(
                         "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection protocol".to_owned()
