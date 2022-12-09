@@ -302,3 +302,18 @@ fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError
     assert!(definition.forbid_minting().is_err());
     Ok(())
 }
+
+#[test]
+fn account_id_parsing() -> Result<(), ParseError> {
+    // `AccountId` should have format `name@domain_name`
+    let account_normal: AccountId = "test@hello".parse()?;
+    assert_eq!(account_normal.name.to_string(), String::from("test"));
+    assert_eq!(account_normal.domain_id.name.to_string(), String::from("hello"));
+
+    let account_empty: Result<AccountId, _> = "@hello".parse();
+    assert!(account_empty.is_err());
+
+    let account_invalid: Result<AccountId, _> = "testhello".parse();
+    assert!(account_invalid.is_err());
+    Ok(())
+}

@@ -142,37 +142,45 @@ impl ConfigurationProxy {
         }
         if let Some(api_url) = &self.torii_api_url {
             let api_url = api_url.clone().to_string();
-            let split_api_url = api_url.split("://").collect::<Vec<_>>();
-            if split_api_url.len() != 2 {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_API_URL` string: `{api_url}` should provide a connection protocol"
-                        .to_owned()
-                ));
-            }
-            // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
-            if split_api_url[0] != "http" {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
-                ));
+            let split = api_url.rsplit_once("://");
+            match split {
+                Some((protocal, _)) => {
+                    // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
+                    if protocal != "http" {
+                        eyre::bail!(ConfigError::ProxyBuildError(
+                            "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
+                        ));
+                    }
+                },
+                _ => {
+                    eyre::bail!(ConfigError::ProxyBuildError(
+                        "`TORII_API_URL` string: `{api_url}` should provide a connection protocol"
+                            .to_owned()
+                    ));
+                }
             }
         }
         if let Some(telemetry_url) = &self.torii_telemetry_url {
             let telemetry_url = telemetry_url.clone().to_string();
-            let split_telemetry_url = telemetry_url.split("://").collect::<Vec<_>>();
-            if split_telemetry_url.len() != 2 {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection protocol".to_owned()
-                ));
-            }
-            if split_telemetry_url[0] != "http" {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP".to_owned()
-                ));
-            }
-            if split_telemetry_url[1].split(':').count() != 2 {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection port, e.g. `http://127.0.0.1:8180`".to_owned()
-                ));
+            let split = telemetry_url.rsplit_once("://");
+            match split {
+                Some((protocal, endpoint)) => {
+                    if protocal != "http" {
+                        eyre::bail!(ConfigError::ProxyBuildError(
+                            "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP".to_owned()
+                        ));
+                    }
+                    if endpoint.split(':').count() != 2 {
+                        eyre::bail!(ConfigError::ProxyBuildError(
+                            "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection port, e.g. `http://127.0.0.1:8180`".to_owned()
+                        ));
+                    }
+                },
+                _ => {
+                    eyre::bail!(ConfigError::ProxyBuildError(
+                        "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection protocol".to_owned()
+                    ));
+                }
             }
         }
         Ok(())
