@@ -7,6 +7,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+#THIS IS ONLY TEST
+
 # Note jobs in this workflow are run on `push` meaning that there's
 # no point in burning our AWS self-hosted runners' time. Hence
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
