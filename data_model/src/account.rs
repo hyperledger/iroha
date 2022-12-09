@@ -435,23 +435,19 @@ impl FromStr for Id {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
-        if string.is_empty() {
-            return Err(ParseError {
+        let split = string.rsplit_once('@');
+        match split {
+            Some(("", _)) => Err(ParseError {
                 reason: "`AccountId` cannot be empty",
-            });
+            }),
+            Some((name, domain_id)) if !name.is_empty() && !domain_id.is_empty() => Ok(Id {
+                name: name.parse()?,
+                domain_id: domain_id.parse()?,
+            }),
+            _ => Err(ParseError {
+                reason: "`AccountId` should have format `name@domain_name`",
+            }),
         }
-
-        let vector: Vec<&str> = string.split('@').collect();
-
-        if vector.len() != 2 {
-            return Err(ParseError {
-                reason: "Id should have format `name@domain_name`",
-            });
-        }
-        Ok(Self {
-            name: Name::from_str(vector[0])?,
-            domain_id: DomainId::from_str(vector[1])?,
-        })
     }
 }
 
