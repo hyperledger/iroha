@@ -144,9 +144,9 @@ impl ConfigurationProxy {
             let api_url = api_url.clone().to_string();
             let split = api_url.rsplit_once("://");
             match split {
-                Some((protocal, _)) => {
+                Some((protocol, _)) => {
                     // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
-                    if protocal != "http" {
+                    if protocol != "http" {
                         eyre::bail!(ConfigError::ProxyBuildError(
                             "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
                         ));
@@ -164,8 +164,8 @@ impl ConfigurationProxy {
             let telemetry_url = telemetry_url.clone().to_string();
             let split = telemetry_url.rsplit_once("://");
             match split {
-                Some((protocal, endpoint)) => {
-                    if protocal != "http" {
+                Some((protocol, endpoint)) => {
+                    if protocol != "http" {
                         eyre::bail!(ConfigError::ProxyBuildError(
                             "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP".to_owned()
                         ));
