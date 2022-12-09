@@ -482,6 +482,22 @@ impl SignedBlock {
             })
     }
 
+    /// Add additional signature for `SignedBlock`
+    ///
+    /// # Errors
+    /// Fails if given signature doesn't match block hash
+    pub fn add_signature(&mut self, signature: SignatureOf<Self>) -> Result<()> {
+        signature
+            .verify_hash(&self.hash())
+            .map(|_| {
+                self.signatures.insert(signature);
+            })
+            .wrap_err(format!(
+                "Provided signature doesn't match block with hash {}",
+                self.hash()
+            ))
+    }
+
     /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
     #[inline]
     pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {

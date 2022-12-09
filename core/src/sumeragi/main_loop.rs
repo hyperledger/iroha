@@ -573,7 +573,7 @@ fn compare_view_change_index_and_block_height_to_old<F>(
     // below is the state that gets reset.
     current_topology: &mut Topology,
     voting_block_option: &mut Option<VotingBlock>,
-    block_signature_acc: &mut Vec<(HashOf<SignedBlock>, SignatureOf<SignedBlock>)>,
+    block_signature_acc: &mut Vec<SignatureOf<SignedBlock>>,
     has_sent_transactions: &mut bool,
     instant_when_we_should_create_a_block: &mut Instant,
 ) where
@@ -1087,13 +1087,9 @@ pub fn run<F>(
                         sumeragi.events_sender.send(event).unwrap_or(0);
                     }
 
-                    let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                        &[Role::ValidatingPeer, Role::Leader],
-                        block.verified_signatures(),
-                    );
-                    for sig in &valid_signatures {
-                        block_signature_acc.push((block.hash(), sig.clone()));
-                    }
+                    let block = block
+                        .sign(sumeragi.key_pair.clone())
+                        .expect("Signing can only fail if the Key-Pair failed. This is mainly caused by hardware failure");
 
                     let voting_block = VotingBlock::new(block.clone());
                     voting_block_option = Some(voting_block);
@@ -1102,26 +1098,11 @@ pub fn run<F>(
                         Instant::now() + sumeragi.commit_time;
                 }
                 Some(Message::BlockSigned(BlockSigned { hash, signatures })) => {
-                    if voting_block_option.is_none()
-                        || hash
-                            != voting_block_option
-                                .as_ref()
-                                .expect("Voting block is `Some`")
-                                .block
-                                .hash()
-                    {
-                        error!("block signed is not relevant block");
-                        continue;
-                    }
-
-                    let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                        &[Role::ValidatingPeer, Role::Leader],
-                        signatures.verified_by_hash(hash),
-                    );
-
-                    for sig in valid_signatures {
-                        block_signature_acc.push((hash, sig));
-                    }
+                    let valid_signatures = state
+                        .current_topology
+                        .filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+                    block_signature_acc.extend(valid_signatures);
+                    trace!(%hash, "Received `BlockSigned` message");
                 }
                 Some(msg) => {
                     trace!(?msg, "Sumeragi Proxy Tail is not handling the message");
@@ -1129,72 +1110,38 @@ pub fn run<F>(
                 None => should_sleep = true,
             }
 
-            if voting_block_option.is_some() {
-                // count votes
-
-                let validating_peers = state.current_topology.peers_set_a();
-                let mut signatures_on_this_block = Vec::new();
-
-                let voting_block_hash = voting_block_option
-                    .as_ref()
-                    .expect("Vptomg block option is `Some`")
-                    .block
-                    .hash();
-                for (block_hash, signature) in &block_signature_acc {
-                    if *block_hash == voting_block_hash {
-                        signatures_on_this_block.push(signature);
+            if let Some(VotingBlock {
+                mut block,
+                voted_at,
+            }) = voting_block_option.take()
+            {
+                let block_signatures = core::mem::take(&mut block_signature_acc);
+                for block_signature in block_signatures {
+                    if let Err(err) = block.add_signature(block_signature) {
+                        warn!(?err, "Received wrong signature");
                     }
                 }
 
-                let mut vote_count = 0;
-                let mut peer_has_voted = vec![false; validating_peers.len()];
-                let mut peer_signatures = Vec::new();
-                for signature in signatures_on_this_block {
-                    for i in 0..validating_peers.len() {
-                        if *signature.public_key() == validating_peers[i].public_key {
-                            if !peer_has_voted[i] {
-                                peer_has_voted[i] = true;
-                                vote_count += 1;
-                                peer_signatures.push(signature.clone());
-                            }
-                            break;
-                        }
+                match block.clone().commit(&state.current_topology) {
+                    Ok(committed_block) => {
+                        info!(
+                            voting_block_hash=%block.hash(),
+                            "Block reached required number of votes",
+                        );
+
+                        sumeragi.broadcast_packet(
+                            MessagePacket::new(
+                                view_change_proof_chain.clone(),
+                                BlockCommitted::from(block).into(),
+                            ),
+                            &state.current_topology,
+                        );
+                        commit_block(sumeragi, committed_block.into(), &mut state);
                     }
-                }
-
-                vote_count += 1; // We are also voting for this block.
-                if vote_count >= state.current_topology.min_votes_for_commit() {
-                    let block = voting_block_option
-                        .take()
-                        .expect("Voting block should have been `Some`")
-                        .block;
-
-                    let mut block = block
-                        .sign(sumeragi.key_pair.clone())
-                        .expect("Signing can only fail if the Key-Pair failed. This is mainly caused by hardware failure");
-                    block.signatures.extend(peer_signatures);
-
-                    let committed_block = match block.clone().commit(&state.current_topology) {
-                        Ok(committed_block) => committed_block.into(),
-                        Err(err) => {
-                            warn!(?err);
-                            continue;
-                        }
-                    };
-
-                    info!(
-                        %voting_block_hash,
-                        "Block reached required number of votes",
-                    );
-
-                    sumeragi.broadcast_packet(
-                        MessagePacket::new(
-                            view_change_proof_chain.clone(),
-                            BlockCommitted::from(block).into(),
-                        ),
-                        &state.current_topology,
-                    );
-                    commit_block(sumeragi, committed_block, &mut state);
+                    Err(err) => {
+                        trace!(?err, "Not enough signatures. Will be waiting for more.");
+                        voting_block_option = Some(VotingBlock { block, voted_at });
+                    }
                 }
 
                 if Instant::now() > instant_at_which_we_should_have_committed {
