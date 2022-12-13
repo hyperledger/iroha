@@ -77,7 +77,7 @@ impl PendingBlock {
     pub fn chain(
         self,
         height: u64,
-        previous_block_hash: HashOf<VersionedCommittedBlock>,
+        previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
         view_change_index: u64,
     ) -> ChainedBlock {
         ChainedBlock {
@@ -89,8 +89,8 @@ impl PendingBlock {
                 height: height + 1,
                 view_change_index,
                 previous_block_hash,
-                transactions_hash: Hash::zeroed().typed(),
-                rejected_transactions_hash: Hash::zeroed().typed(),
+                transactions_hash: None,
+                rejected_transactions_hash: None,
                 genesis_topology: None,
             },
         }
@@ -106,9 +106,9 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 view_change_index: 0,
-                previous_block_hash: Hash::zeroed().typed(),
-                transactions_hash: Hash::zeroed().typed(),
-                rejected_transactions_hash: Hash::zeroed().typed(),
+                previous_block_hash: None,
+                transactions_hash: None,
+                rejected_transactions_hash: None,
                 genesis_topology: Some(genesis_topology),
             },
         }
@@ -124,9 +124,9 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 view_change_index: 0,
-                previous_block_hash: Hash::zeroed().typed(),
-                transactions_hash: Hash::zeroed().typed(),
-                rejected_transactions_hash: Hash::zeroed().typed(),
+                previous_block_hash: None,
+                transactions_hash: None,
+                rejected_transactions_hash: None,
                 genesis_topology: None,
             },
         }
@@ -157,11 +157,11 @@ pub struct BlockHeader {
     pub view_change_index: u64,
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
-    pub previous_block_hash: HashOf<VersionedCommittedBlock>,
+    pub previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
     /// Hash of merkle tree root of the tree of valid transactions' hashes.
-    pub transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
+    pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
+    pub rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
     /// Genesis topology
     pub genesis_topology: Option<Topology>,
 }
@@ -202,14 +202,12 @@ impl ChainedBlock {
             .iter()
             .map(VersionedValidTransaction::hash)
             .collect::<MerkleTree<_>>()
-            .hash()
-            .unwrap_or(Hash::zeroed().typed());
+            .hash();
         header.rejected_transactions_hash = rejected
             .iter()
             .map(VersionedRejectedTransaction::hash)
             .collect::<MerkleTree<_>>()
-            .hash()
-            .unwrap_or(Hash::zeroed().typed());
+            .hash();
         let event_recommendations = self.event_recommendations;
         // TODO: Validate Event recommendations somehow?
         ValidBlock {
@@ -380,9 +378,9 @@ impl SignedBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 view_change_index: 0,
-                previous_block_hash: Hash::zeroed().typed(),
-                transactions_hash: Hash::zeroed().typed(),
-                rejected_transactions_hash: Hash::zeroed().typed(),
+                previous_block_hash: None,
+                transactions_hash: None,
+                rejected_transactions_hash: None,
                 genesis_topology: None,
             },
             rejected_transactions: Vec::new(),
@@ -481,7 +479,7 @@ impl VersionedCandidateBlock {
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
-        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
         block_height: u64,
     ) -> Result<SignedBlock, eyre::Report> {
         self.into_v1()
@@ -548,7 +546,7 @@ impl CandidateBlock {
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
-        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
         block_height: u64,
     ) -> Result<SignedBlock, eyre::Report> {
         if self.is_empty() {
@@ -561,7 +559,7 @@ impl CandidateBlock {
 
         if latest_block != &self.header.previous_block_hash {
             bail!(
-                "Mismatch between the actual and expected hashes of the latest block. Expected: {}, actual: {}",
+                "Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}",
                 latest_block,
                 &self.header.previous_block_hash
             );
@@ -589,7 +587,6 @@ impl CandidateBlock {
             .map(VersionedSignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
-            .unwrap_or(Hash::zeroed().typed())
             .eq(&header.transactions_hash)
             .then_some(())
             .ok_or_else(|| {
@@ -601,7 +598,6 @@ impl CandidateBlock {
             .map(VersionedSignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
-            .unwrap_or(Hash::zeroed().typed())
             .eq(&header.rejected_transactions_hash)
             .then_some(())
             .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;
@@ -764,7 +760,7 @@ impl VersionedCommittedBlock {
         let header_value = BlockHeaderValue {
             timestamp,
             height,
-            previous_block_hash: *previous_block_hash,
+            previous_block_hash: previous_block_hash.as_deref().copied(),
             transactions_hash,
             rejected_transactions_hash,
             invalidated_blocks_hashes: Vec::new(),
@@ -1027,7 +1023,6 @@ impl CandidateCommittedBlock {
             .map(VersionedValidTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
-            .unwrap_or(Hash::zeroed().typed())
             .eq(&header.transactions_hash)
             .then_some(())
             .ok_or_else(|| {
@@ -1039,7 +1034,6 @@ impl CandidateCommittedBlock {
             .map(VersionedRejectedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
-            .unwrap_or(Hash::zeroed().typed())
             .eq(&header.rejected_transactions_hash)
             .then_some(())
             .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;

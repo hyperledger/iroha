@@ -23,7 +23,7 @@ fn sort_peers(criterion: &mut Criterion) {
     let peers = get_n_peers(N_PEERS);
     let _ = criterion.bench_function("sort_peers", |b| {
         let hash = HashOf::new(&[1_u8; Hash::LENGTH]).transmute();
-        b.iter(|| network_topology::sort_peers_by_hash(peers.clone(), &hash));
+        b.iter(|| network_topology::sort_peers_by_hash(peers.clone(), &Some(hash)));
     });
 }
 

@@ -68,6 +68,9 @@
       "sorted_by_key": true
     }
   },
+  "NonZeroU8": {
+    "Int": "FixedWidth"
+  },
   "Option<Duration>": {
     "Option": "Duration"
   },
@@ -76,6 +79,12 @@
   },
   "Option<iroha_crypto::hash::Hash>": {
     "Option": "iroha_crypto::hash::Hash"
+  },
+  "Option<iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>>": {
+    "Option": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
+  },
+  "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>": {
+    "Option": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
   },
   "Option<iroha_data_model::domain::Id>": {
     "Option": "iroha_data_model::domain::Id"
@@ -225,10 +234,10 @@
       "sorted": false
     }
   },
-  "[u8; 32]": {
+  "[u8; 31]": {
     "Array": {
       "ty": "u8",
-      "len": 32,
+      "len": 31,
       "sorted": false
     }
   },
@@ -264,15 +273,15 @@
         },
         {
           "name": "previous_block_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>>"
         },
         {
           "name": "transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
         },
         {
           "name": "rejected_transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
         },
         {
           "name": "genesis_topology",
@@ -532,7 +541,7 @@
         },
         {
           "name": "at_block",
-          "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>>"
         }
       ]
     }
@@ -552,9 +561,16 @@
     }
   },
   "iroha_crypto::hash::Hash": {
-    "Tuple": {
-      "types": [
-        "[u8; 32]"
+    "Struct": {
+      "declarations": [
+        {
+          "name": "more_significant_bits",
+          "ty": "[u8; 31]"
+        },
+        {
+          "name": "least_significant_byte",
+          "ty": "NonZeroU8"
+        }
       ]
     }
   },
@@ -1334,15 +1350,15 @@
         },
         {
           "name": "previous_block_hash",
-          "ty": "iroha_crypto::hash::Hash"
+          "ty": "Option<iroha_crypto::hash::Hash>"
         },
         {
           "name": "transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
         },
         {
           "name": "rejected_transactions_hash",
-          "ty": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
         },
         {
           "name": "invalidated_blocks_hashes",

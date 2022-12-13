@@ -1,6 +1,6 @@
 //! Exports `generate_map()` function and contains implementation details for it
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, num::NonZeroU8};
 
 use iroha_core::*;
 use iroha_crypto::*;
@@ -190,6 +190,8 @@ pub fn generate_map() -> DumpDecodedMap {
         GrantBox,
         Greater,
         Hash,
+        Option<HashOf<MerkleTree<transaction::VersionedSignedTransaction>>>,
+        Option<HashOf<block::VersionedCommittedBlock>>,
         HashOf<MerkleTree<transaction::VersionedSignedTransaction>>,
         HashOf<block::VersionedCommittedBlock>,
         HashOf<block::VersionedCandidateBlock>,
@@ -341,7 +343,7 @@ pub fn generate_map() -> DumpDecodedMap {
         [predicate::numerical::Interval<u16>; 8],
         [predicate::numerical::Interval<u8>; 4],
         [u16; 8],
-        [u8; 32],
+        [u8; 31],
         [u8; 4],
         account::NewAccount,
         asset::Mintable,
@@ -425,6 +427,7 @@ pub fn generate_map() -> DumpDecodedMap {
         u32,
         u64,
         u8,
+        NonZeroU8,
     };
 
     map.insert(

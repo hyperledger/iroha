@@ -17,7 +17,7 @@ use std::{
 };
 
 use iroha_config::kura::{Configuration, Mode};
-use iroha_crypto::{Hash, HashOf};
+use iroha_crypto::HashOf;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use parking_lot::Mutex;
@@ -271,15 +271,10 @@ impl Kura {
 
     /// Search through blocks for the height of the block with the given hash.
     pub fn get_block_height_by_hash(&self, hash: &HashOf<VersionedCommittedBlock>) -> Option<u64> {
-        let hash_data_guard = self.block_data.lock();
-
-        (*hash != Hash::zeroed().typed())
-            .then_some(())
-            .and(
-                hash_data_guard
-                    .iter()
-                    .position(|(block_hash, _block_arc)| block_hash == hash),
-            )
+        self.block_data
+            .lock()
+            .iter()
+            .position(|(block_hash, _block_arc)| block_hash == hash)
             .map(|index| index as u64 + 1)
     }
 
