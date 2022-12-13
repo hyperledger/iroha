@@ -5,7 +5,7 @@
     clippy::expect_used,
     clippy::panic,
     clippy::unimplemented,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 
 use proc_macro::TokenStream;

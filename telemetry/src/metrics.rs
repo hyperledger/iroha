@@ -1,5 +1,5 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
 
 use std::{
     ops::Deref,

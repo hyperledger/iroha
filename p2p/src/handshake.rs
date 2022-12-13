@@ -1,7 +1,7 @@
 //! This is a WIP module containing the refactored state-machine based
 //! handshake process. Currently, problems pertain to actor
 //! implementations.
-#![allow(missing_docs, clippy::missing_errors_doc)]
+#![allow(missing_docs, clippy::missing_errors_doc, unused_tuple_struct_fields)]
 
 use async_trait::async_trait;
 use iroha_actor::broker::Broker;
@@ -194,7 +194,7 @@ pub mod peer_state {
 
             let data = &crypto.encrypt(data)?;
 
-            #[allow(clippy::arithmetic)]
+            #[allow(clippy::arithmetic_side_effects)]
             let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
             #[allow(clippy::cast_possible_truncation)]
             buf.push(data.len() as u8);

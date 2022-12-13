@@ -4,7 +4,7 @@
     clippy::new_without_default,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 
 use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
@@ -522,10 +522,10 @@ impl WorldStateView {
         f: impl FnOnce(&Domain) -> Result<T, Infallible>,
     ) -> Result<T, FindError> {
         let domain = self.domain(id)?;
-        let value = match f(domain.value()) {
-            Ok(value) => value,
-            Err(_) => unreachable!("Returning `Infallible` should not be possible"),
-        };
+        let value = f(domain.value()).map_or_else(
+            |_infallible| unreachable!("Returning `Infallible` should not be possible"),
+            |value| value,
+        );
         Ok(value)
     }
 

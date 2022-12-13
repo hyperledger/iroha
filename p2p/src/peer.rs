@@ -1,6 +1,6 @@
 //! Peer state machine and connection/handshake logic with ecnryption
 //! and actor implementations.
-#![allow(clippy::arithmetic, clippy::std_instead_of_alloc)]
+#![allow(clippy::arithmetic_side_effects, clippy::std_instead_of_alloc)]
 use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
@@ -631,10 +631,7 @@ where
     async fn handle(&mut self, ctx: &mut Context<Self>, msg: StopSelf) {
         trace!(peer = ?self, "Stop request");
         let stop_self = match msg {
-            StopSelf::Peer(id) => match self.connection_id() {
-                Ok(my_id) => id == my_id,
-                Err(_) => false,
-            },
+            StopSelf::Peer(id) => self.connection_id().map_or(false, |my_id| id == my_id),
             StopSelf::Network => true,
         };
         if stop_self {

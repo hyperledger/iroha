@@ -42,7 +42,7 @@ pub trait IsGrantAllowed: Display {
     "G::Token::definition_id()",
     is_grant_allowed
 )]
-pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed + Display> {
+pub struct IsGrantAllowedAsValidator<G: IsGrantAllowed> {
     is_grant_allowed: G,
 }
 
@@ -105,7 +105,7 @@ pub trait IsRevokeAllowed {
     "R::Token::definition_id()",
     is_revoke_allowed
 )]
-pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed + Display> {
+pub struct IsRevokeAllowedAsValidator<R: IsRevokeAllowed> {
     is_revoke_allowed: R,
 }
 

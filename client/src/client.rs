@@ -1,7 +1,7 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -1094,14 +1094,17 @@ pub mod stream_api {
             let InitData {
                 first_message,
                 req,
-                next: handler,
+                next: next_handler,
             } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect()?;
             stream.write_message(WebSocketMessage::Binary(first_message))?;
 
             trace!("`SyncIterator` created successfully");
-            Ok(SyncIterator { stream, handler })
+            Ok(SyncIterator {
+                stream,
+                handler: next_handler,
+            })
         }
     }
 
@@ -1167,14 +1170,17 @@ pub mod stream_api {
             let InitData {
                 first_message,
                 req,
-                next: handler,
+                next: next_handler,
             } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect_async().await?;
             stream.send(WebSocketMessage::Binary(first_message)).await?;
 
             trace!("`AsyncStream` created successfully");
-            Ok(AsyncStream { stream, handler })
+            Ok(AsyncStream {
+                stream,
+                handler: next_handler,
+            })
         }
     }
 

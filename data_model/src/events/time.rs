@@ -1,5 +1,5 @@
 //! Time event and filter
-#![allow(clippy::std_instead_of_core, clippy::arithmetic)]
+#![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
 
 use core::{ops::Range, time::Duration};
 

@@ -79,7 +79,7 @@ fn format_smartcontract(smartcontract_path: PathBuf) -> Result<()> {
     let code_path = smartcontract_path.join("src/lib.rs");
     let fmt = Command::new("rustfmt")
         .current_dir(smartcontract_path)
-        .args(&[code_path.to_str().ok_or_else(|| {
+        .args([code_path.to_str().ok_or_else(|| {
             eyre!(
                 "Can't convert the smartcontract code path `{}` to str",
                 code_path.display()
@@ -114,7 +114,7 @@ fn build_smartcontract(smartcontract_path: &Path, out_dir: &OsStr) -> Result<()>
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
-        .args(&[
+        .args([
             "+nightly-2022-08-15",
             "build",
             "--release",

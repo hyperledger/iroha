@@ -304,7 +304,7 @@ pub fn get_type_argument<'tl>(s: &str, ty: &'tl Type) -> Option<&'tl GenericArgu
     None
 }
 
-pub fn get_inner_type<'tl, 'sl>(outer_ty_ident: &'sl str, ty: &'tl Type) -> &'tl Type {
+pub fn get_inner_type<'tl>(outer_ty_ident: &str, ty: &'tl Type) -> &'tl Type {
     #[allow(clippy::shadow_unrelated)]
     get_type_argument(outer_ty_ident, ty)
         .and_then(|ty| {

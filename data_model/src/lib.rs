@@ -5,7 +5,7 @@
     clippy::module_name_repetitions,
     clippy::unwrap_in_result,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::trait_duplication_in_bounds,
     clippy::extra_unused_lifetimes // Thanks to `EnumKind` not knowing how to write a derive macro.
 )]

@@ -372,7 +372,7 @@ mod tests {
             accumulator = accumulator.checked_add(inexact).unwrap();
         }
         assert_eq!(
-            Fixed::try_from(0.6_f64 * (10_f64.powf(9_f64))).unwrap(),
+            Fixed::try_from(0.6_f64 * 10_f64.powi(9)).unwrap(),
             accumulator
         );
     }

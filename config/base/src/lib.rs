@@ -416,6 +416,7 @@ pub mod proxy {
         where
             T: AsRef<[&'tl str]> + Send + 'tl;
 
+        #[allow(single_use_lifetimes)] // Unstable
         /// Get documentation of a given inner field of arbitrary depth
         ///
         /// # Errors

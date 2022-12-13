@@ -1,6 +1,6 @@
 //! Contains [`HasToken`] trait and box container for it
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]

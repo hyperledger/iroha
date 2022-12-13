@@ -65,21 +65,18 @@ impl Chain {
     /// and `false` if no validator with the given id was found.
     #[allow(clippy::expect_used)]
     pub fn remove_validator(&self, id: &Id) -> bool {
-        match self.all_validators.get(id) {
-            Some(entry) => {
-                let type_ = entry.validator_type();
-                self.all_validators
-                    .remove(id)
-                    .and_then(|_| self.concrete_type_validators.get_mut(type_))
-                    .expect(
-                        "Validator chain internal collections inconsistency error \
+        self.all_validators.get(id).map_or(false, |entry| {
+            let type_ = entry.validator_type();
+            self.all_validators
+                .remove(id)
+                .and_then(|_| self.concrete_type_validators.get_mut(type_))
+                .expect(
+                    "Validator chain internal collections inconsistency error \
                          when removing a validator. This is a bug",
-                    )
-                    .retain(|validator_id| validator_id != id);
-                true
-            }
-            None => false,
-        }
+                )
+                .retain(|validator_id| validator_id != id);
+            true
+        })
     }
 
     /// Validate given `operation` with all [`Chain`] validators of required type.
@@ -156,7 +153,7 @@ pub struct ChainView<'chain> {
     chain: &'chain Chain,
 }
 
-impl<'chain> ChainView<'chain> {
+impl ChainView<'_> {
     /// Wrapper around [`Self::validate()`].
     ///
     /// # Errors

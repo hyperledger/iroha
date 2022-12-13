@@ -2,7 +2,7 @@
 //! This module contains descriptions of such an events and
 //! utility Iroha Special Instructions to work with them.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]

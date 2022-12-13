@@ -7,7 +7,7 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 
 use std::{error::Error, iter, marker::PhantomData};
@@ -158,7 +158,7 @@ impl<'itm> Iterator for ChainIterator<'itm> {
     }
 }
 
-impl<'itm> DoubleEndedIterator for ChainIterator<'itm> {
+impl DoubleEndedIterator for ChainIterator<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_back);

@@ -3,7 +3,7 @@
 //! for performance check during development
 #![allow(missing_docs)]
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -14,9 +14,9 @@ use criterion::{
     BenchmarkId, Criterion, Throughput,
 };
 
-use crate::lib::Config;
+use crate::utils::Config;
 
-mod lib;
+mod utils;
 
 #[allow(clippy::multiple_inherent_impl)]
 impl Config {
@@ -26,7 +26,7 @@ impl Config {
 
         group.sample_size(self.sample_size as usize);
 
-        group.bench_function(BenchmarkId::from_parameter(&self), move |b| {
+        group.bench_function(BenchmarkId::from_parameter(self), move |b| {
             b.iter_custom(|_| self.measure().expect("Failed to measure"));
         });
 
@@ -56,7 +56,7 @@ struct Tps;
 
 impl Measurement for Tps {
     type Intermediate = ();
-    type Value = lib::Tps;
+    type Value = utils::Tps;
 
     fn start(&self) -> Self::Intermediate {
         unreachable!()

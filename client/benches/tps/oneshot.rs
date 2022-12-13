@@ -1,6 +1,6 @@
 //! Single trial of the benchmark
 
-mod lib;
+mod utils;
 
 use std::{fs::File, io::BufWriter};
 
@@ -24,7 +24,7 @@ fn main() {
         iroha_logger::disable_logger();
     }
 
-    let config = lib::Config::from_path("benches/tps/config.json").expect("Failed to configure");
+    let config = utils::Config::from_path("benches/tps/config.json").expect("Failed to configure");
     let tps = config.measure().expect("Failed to measure");
 
     flush_guard.map_or_else(

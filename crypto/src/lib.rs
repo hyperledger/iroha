@@ -1,6 +1,10 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
-#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(
+    clippy::std_instead_of_alloc,
+    clippy::std_instead_of_alloc,
+    clippy::arithmetic_side_effects
+)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -59,6 +63,7 @@ pub const BLS_SMALL: &str = "bls_small";
 #[display(fmt = "Algorithm not supported")]
 pub struct NoSuchAlgorithm;
 
+#[allow(clippy::std_instead_of_alloc)]
 #[cfg(feature = "std")]
 impl std::error::Error for NoSuchAlgorithm {}
 
@@ -223,6 +228,7 @@ impl From<NoSuchAlgorithm> for Error {
 }
 
 #[cfg(feature = "std")]
+#[allow(clippy::std_instead_of_alloc)]
 impl std::error::Error for Error {}
 
 impl KeyPair {
@@ -361,6 +367,7 @@ pub enum KeyParseError {
 }
 
 #[cfg(feature = "std")]
+#[allow(clippy::std_instead_of_alloc)]
 impl std::error::Error for KeyParseError {}
 
 ffi::ffi_item! {

@@ -2,7 +2,7 @@
 //! `build_schemas` `fn`, which is the function which decides which
 //! types are included in the schema.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]

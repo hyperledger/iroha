@@ -3,7 +3,7 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 use eyre::Result;
 use iroha_data_model::{

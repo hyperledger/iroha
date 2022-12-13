@@ -5,7 +5,7 @@
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -205,10 +205,10 @@ impl Iroha {
                 "unspecified"
             };
 
-            let location = match info.location() {
-                Some(location) => format!("{}:{}", location.file(), location.line()),
-                None => "unspecified".to_owned(),
-            };
+            let location = info.location().map_or_else(
+                || "unspecified".to_owned(),
+                |location| format!("{}:{}", location.file(), location.line()),
+            );
 
             iroha_logger::error!(%panic_message, %location, "A panic occured, shutting down");
 

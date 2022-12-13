@@ -2,7 +2,7 @@
 //! cryptographic key pairs. To be used with all compliant Iroha
 //! installations.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -407,7 +407,7 @@ mod client {
 mod docs {
     #![allow(clippy::panic_in_result_fn, clippy::expect_used)]
     #![allow(
-        clippy::arithmetic,
+        clippy::arithmetic_side_effects,
         clippy::std_instead_of_core,
         clippy::std_instead_of_alloc
     )]

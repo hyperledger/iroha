@@ -181,7 +181,10 @@ pub mod handle {
         /// # Errors
         /// [`ReloadError::Poisoned`] When the [`Mutex`] storing the reload handle is poisoned.
         pub fn set(&self, handle: impl ReloadMut<T> + Send + Sync + 'static) {
-            *self.inner.lock().expect("Mutex in `Singleton::set` got poisoned") = Some(Box::new(handle));
+            *self
+                .inner
+                .lock()
+                .expect("Mutex in `Singleton::set` got poisoned") = Some(Box::new(handle));
         }
     }
 

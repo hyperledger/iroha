@@ -1,6 +1,6 @@
 //! Kura inspector binary. For usage run with `--help`.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -42,14 +42,11 @@ enum Command {
 fn main() {
     let args = Args::parse();
 
-    let from_height = match args.from {
-        Some(height) => {
-            assert!(height != 0, "The genesis block has the height 1. Therefore, the \"from height\" you specify must not be 0.");
-            // Kura starts counting blocks from 0 like an array while the outside world counts the first block as number 1.
-            Some(height - 1)
-        }
-        None => None,
-    };
+    let from_height = args.from.map(|height| {
+        assert!(height != 0, "The genesis block has the height 1. Therefore, the \"from height\" you specify must not be 0.");
+        // Kura starts counting blocks from 0 like an array while the outside world counts the first block as number 1.
+        height - 1
+    });
 
     match args.command {
         Command::Print { length } => print_blockchain(

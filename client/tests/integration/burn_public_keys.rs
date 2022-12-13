@@ -25,7 +25,6 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
     signatories.len()
 }
 
-#[ignore = "ignore, more in #2851"]
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
     const KEYS_COUNT: usize = 3;
@@ -37,7 +36,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), [])).into();
 
-    let _ = submit_and_get(&mut client, [register_bob]);
+    let _unused = submit_and_get(&mut client, [register_bob]);
     let mut keys_count = bob_keys_count(&mut client);
     assert_eq!(keys_count, 0);
 
@@ -46,7 +45,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
         MintBox::new(public_key, bob_id.clone()).into()
     });
 
-    let _ = submit_and_get(&mut client, mint_keys);
+    let _unused = submit_and_get(&mut client, mint_keys);
     keys_count = bob_keys_count(&mut client);
     assert_eq!(keys_count, KEYS_COUNT);
 

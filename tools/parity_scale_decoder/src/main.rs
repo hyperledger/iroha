@@ -1,6 +1,6 @@
 //! Parity Scale decoder tool for Iroha data types. For usage run with `--help`
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]

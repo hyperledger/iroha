@@ -1,7 +1,7 @@
 #![allow(
     clippy::str_to_string,
     missing_docs,
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core
 )]
 

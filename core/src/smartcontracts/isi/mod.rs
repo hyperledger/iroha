@@ -2,7 +2,7 @@
 //! Instructions `Instruction`, generic instruction types and related
 //! implementations.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]

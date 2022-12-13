@@ -1,7 +1,7 @@
 //! Structures related to proofs and reasons of view changes.
 //! Where view change is a process of changing topology due to some faulty network behavior.
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]

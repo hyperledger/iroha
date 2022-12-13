@@ -1,5 +1,5 @@
 // Triggered by `&mut str` expansion
-#![allow(clippy::mut_mut)]
+#![allow(clippy::mut_mut, single_use_lifetimes)]
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},

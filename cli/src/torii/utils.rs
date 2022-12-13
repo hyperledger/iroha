@@ -43,6 +43,7 @@ pub mod body {
     use super::*;
 
     #[derive(Debug)]
+    #[allow(unused_tuple_struct_fields)]
     pub struct WarpQueryError(QueryError);
 
     impl From<QueryError> for WarpQueryError {

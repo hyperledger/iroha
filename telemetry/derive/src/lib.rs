@@ -66,6 +66,7 @@ fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuat
         .ok_or(input)
 }
 
+#[allow(unused_tuple_struct_fields)]
 struct MetricSpecs(Vec<MetricSpec>); // `HashSet` — idiomatic; slow
 
 impl Parse for MetricSpecs {

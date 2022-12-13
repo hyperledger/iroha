@@ -127,17 +127,15 @@ pub trait Filter {
     /// Returns a number of times trigger should be executed for
     ///
     /// Used for time-triggers
+    #[inline]
     fn count_matches(&self, event: &Self::Event) -> u32 {
-        if self.matches(event) {
-            1
-        } else {
-            0
-        }
+        self.matches(event).into()
     }
 
     /// Check if filter is mintable.
     ///
     /// Returns `true` by default. Used for time-triggers
+    #[inline]
     fn mintable(&self) -> bool {
         true
     }

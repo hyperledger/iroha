@@ -2,7 +2,7 @@
     clippy::expect_used,
     clippy::mixed_read_write_in_expression,
     clippy::unwrap_in_result,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 
 use proc_macro::TokenStream;

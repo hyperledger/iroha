@@ -112,7 +112,7 @@ where
         listener: TcpListener,
         mut finish: Receiver<()>,
     ) -> impl Stream<Item = NewPeer> + Send + 'static {
-        #![allow(clippy::unwrap_used, clippy::arithmetic)]
+        #![allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
         let listen_addr = listener.local_addr().unwrap().to_string();
         stream! {
             loop {
@@ -489,7 +489,7 @@ pub enum PeerMessage<T: Encode + Decode + Debug> {
 
 /// The message to be sent to the other [`Peer`].
 #[derive(Clone, Debug, iroha_actor::Message, Encode)]
-pub struct Post<T: Encode + Debug> {
+pub struct Post<T: Debug> {
     /// Data to be sent
     pub data: T,
     /// Destination peer

@@ -3,7 +3,7 @@
     missing_docs,
     clippy::shadow_reuse,
     clippy::str_to_string,
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core
 )]
 

@@ -185,16 +185,13 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 }
 
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
-    match &fn_descriptor.output_arg {
-        Some(out_arg) => {
-            let (arg_name, arg_type) = (out_arg.name(), out_arg.src_type_resolved());
-            let output_arg_conversion = crate::util::gen_arg_src_to_ffi(out_arg, true);
+    fn_descriptor.output_arg.as_ref().map_or_else(|| quote! {}, |out_arg|  {
+        let (arg_name, arg_type) = (out_arg.name(), out_arg.src_type_resolved());
+        let output_arg_conversion = crate::util::gen_arg_src_to_ffi(out_arg, true);
 
-            quote! {
-                #output_arg_conversion
-                <<#arg_type as iroha_ffi::FfiOutPtr>::OutPtr as iroha_ffi::OutPtrOf<_>>::write(__out_ptr, #arg_name)?;
-            }
+        quote! {
+            #output_arg_conversion
+            <<#arg_type as iroha_ffi::FfiOutPtr>::OutPtr as iroha_ffi::OutPtrOf<_>>::write(__out_ptr, #arg_name)?;
         }
-        None => quote! {},
-    }
+    })
 }

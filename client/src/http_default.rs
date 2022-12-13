@@ -1,6 +1,6 @@
 //! Defaults for various items used in communication over http(s).
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -30,7 +30,7 @@ pub struct DefaultRequestBuilder {
 }
 
 impl DefaultRequestBuilder {
-    /// Applies `.and_then()` semantics to the inner `Result` with underlying request builder.
+    /// Apply `.and_then()` semantics to the inner `Result` with underlying request builder.
     fn and_then<F>(self, fun: F) -> Self
     where
         F: FnOnce(AttoHttpRequestBuilder) -> Result<AttoHttpRequestBuilder>,
@@ -41,15 +41,10 @@ impl DefaultRequestBuilder {
         }
     }
 
-    /// Consumes itself to build request.
+    /// Build request by consuming self.
     pub fn build(self) -> Result<DefaultRequest> {
-        self.inner.map(|b| {
-            let body = match self.body {
-                Some(vec) => vec,
-                None => Vec::new(),
-            };
-            DefaultRequest(b.bytes(body))
-        })
+        self.inner
+            .map(|b| DefaultRequest(b.bytes(self.body.map_or_else(Vec::new, |vec| vec))))
     }
 }
 

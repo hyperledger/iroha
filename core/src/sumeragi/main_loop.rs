@@ -172,7 +172,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         self.broker.issue_send_sync(&post);
     }
 
-    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value, single_use_lifetimes)] // TODO: uncomment when anonymous lifetimes are stable
     fn broadcast_packet_to<'peer_id>(
         &self,
         msg: MessagePacket,
@@ -758,7 +758,7 @@ pub fn run<F>(
                             view_change_proof_chain.clone(),
                             crate::sumeragi::TransactionForwarded::new(tx).into(),
                         ),
-                        [state.current_topology.leader()].into_iter(),
+                        std::iter::once(state.current_topology.leader()),
                     );
                     has_sent_transactions = true;
                     sent_transaction_time = Instant::now();
@@ -1008,7 +1008,7 @@ pub fn run<F>(
                             view_change_proof_chain.clone(),
                             BlockSigned::from(signed_block.clone()).into(),
                         ),
-                        [state.current_topology.proxy_tail()].into_iter(),
+                        std::iter::once(state.current_topology.proxy_tail()),
                     );
                     info!(
                         peer_role = ?state.current_topology.role(&sumeragi.peer_id),

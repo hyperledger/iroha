@@ -2,7 +2,7 @@
 #![allow(
     clippy::std_instead_of_core,
     clippy::undocumented_unsafe_blocks,
-    clippy::arithmetic
+    clippy::arithmetic_side_effects
 )]
 
 #[cfg(not(feature = "std"))]
@@ -255,7 +255,7 @@ impl<'de> Deserialize<'de> for ConstString {
 
 struct ConstStringVisitor;
 
-impl<'de> Visitor<'de> for ConstStringVisitor {
+impl Visitor<'_> for ConstStringVisitor {
     type Value = ConstString;
 
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -462,10 +462,7 @@ impl TryFrom<String> for InlinedString {
 
     #[inline]
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match Self::try_from(value.as_str()) {
-            Ok(inlined) => Ok(inlined),
-            Err(_) => Err(value),
-        }
+        Self::try_from(value.as_str()).map_or(Err(value.clone()), Ok)
     }
 }
 

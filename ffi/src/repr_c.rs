@@ -264,38 +264,36 @@ where
     type FfiStore = [R::FfiStore; N];
 
     fn into_repr_c(self, store: &'itm mut Self::RustStore) -> [C; N] {
-        let array: [R; N] = if let Ok(arr) = self.into_iter().collect::<Vec<_>>().try_into() {
-            arr
-        } else {
-            // SAFETY: Vec<T> length is N
-            unsafe { unreachable_unchecked() }
-        };
-        *store = if let Ok(arr) = TryFrom::try_from(
+        let array: [R; N] = self.into_iter().collect::<Vec<_>>().try_into().map_or_else(
+            |_| // SAFETY: Vec<T> length is N
+                         unsafe { unreachable_unchecked() },
+            |arr| arr,
+        );
+        *store = TryFrom::try_from(
             core::iter::repeat_with(Default::default)
                 .take(array.len())
                 .collect::<Vec<R::RustStore>>(),
-        ) {
-            arr
-        } else {
-            // SAFETY: Vec<T> length is N
-            unsafe { unreachable_unchecked() }
-        };
+        )
+        .map_or_else(
+            |_|  // SAFETY: Vec<T> length is N
+                      unsafe { unreachable_unchecked() },
+            |arr| arr,
+        );
 
-        if let Ok(arr) = array
+        array
             .into_iter()
             .zip(store.iter_mut())
             .map(|(item, substore)| item.into_repr_c(substore))
             .collect::<Vec<_>>()
             .try_into()
-        {
-            arr
-        } else {
-            // SAFETY: Vec<T> length is N
-            unsafe { unreachable_unchecked() }
-        }
+            .map_or_else(
+                |_| // SAFETY: Vec<T> length is N
+                         unsafe { unreachable_unchecked() },
+                |arr| arr,
+            )
     }
     unsafe fn try_from_repr_c(source: [C; N], store: &'itm mut Self::FfiStore) -> Result<Self> {
-        let array: [ManuallyDrop<R>; N] = if let Ok(arr) = source
+        let array: [ManuallyDrop<R>; N] = source
             .into_iter()
             .zip(store.iter_mut())
             .map(|(item, substore)| {
@@ -303,25 +301,15 @@ where
             })
             .collect::<core::result::Result<Vec<_>, FfiReturn>>()?
             .try_into()
-        {
-            arr
-        } else {
-            unreachable_unchecked()
-        };
+            .map_or_else(|_| unreachable_unchecked(), |arr| arr);
 
-        Ok(
-            if let Ok(arr) = array
-                .iter()
-                .cloned()
-                .map(ManuallyDrop::into_inner)
-                .collect::<Vec<_>>()
-                .try_into()
-            {
-                arr
-            } else {
-                unreachable_unchecked()
-            },
-        )
+        Ok(array
+            .iter()
+            .cloned()
+            .map(ManuallyDrop::into_inner)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_or_else(|_| unreachable_unchecked(), |arr| arr))
     }
 }
 impl<
@@ -668,39 +656,33 @@ impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R
     type FfiStore = ();
 
     fn into_repr_c(self, _: &mut Self::RustStore) -> [*mut R; N] {
-        if let Ok(arr) = self
-            .into_iter()
+        self.into_iter()
             .map(Box::new)
             .map(Box::into_raw)
             .collect::<Vec<_>>()
             .try_into()
-        {
-            arr
-        } else {
-            // SAFETY: Vec<T> length is N
-            unsafe { unreachable_unchecked() }
-        }
+            .map_or_else(
+                |_| {
+                    // SAFETY: Vec<T> length is N
+                    unsafe { unreachable_unchecked() }
+                },
+                |arr| arr,
+            )
     }
 
     unsafe fn try_from_repr_c(source: [*mut R; N], _: &mut ()) -> Result<Self> {
-        Ok(
-            if let Ok(arr) = source
-                .into_iter()
-                .map(|item| {
-                    if let Some(item) = item.as_mut() {
-                        return Ok(*Box::from_raw(item));
-                    }
+        Ok(source
+            .into_iter()
+            .map(|item| {
+                if let Some(item) = item.as_mut() {
+                    return Ok(*Box::from_raw(item));
+                }
 
-                    Err(FfiReturn::ArgIsNull)
-                })
-                .collect::<core::result::Result<Vec<R>, _>>()?
-                .try_into()
-            {
-                arr
-            } else {
-                unreachable_unchecked()
-            },
-        )
+                Err(FfiReturn::ArgIsNull)
+            })
+            .collect::<core::result::Result<Vec<R>, _>>()?
+            .try_into()
+            .map_or_else(|_| unreachable_unchecked(), |arr| arr))
     }
 }
 impl<R: Ir<Type = Opaque>, const N: usize> CTypeConvert<'_, [Opaque; N], *mut *mut R> for [R; N]

@@ -3,7 +3,7 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::expect_used
 )]
 
@@ -670,7 +670,7 @@ mod tests {
         get_txs_handle.join().unwrap();
 
         // Last update for queue to drop invalid txs.
-        let _ = queue.get_transactions_for_block(&wsv);
+        let _unused = queue.get_transactions_for_block(&wsv);
 
         // Validate the queue state.
         let array_queue: Vec<_> = core::iter::repeat_with(|| queue.queue.pop())

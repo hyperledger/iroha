@@ -1,5 +1,9 @@
 //! Merkle tree implementation.
-#![allow(clippy::std_instead_of_alloc, clippy::arithmetic)]
+#![allow(
+    clippy::std_instead_of_alloc,
+    clippy::std_instead_of_core,
+    clippy::arithmetic_side_effects
+)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
@@ -170,7 +174,7 @@ impl<T> MerkleTree<T> {
             for depth in 0..self.height() {
                 let capacity_at_depth = 2_usize.pow(depth);
                 let tail = array.split_off(capacity_at_depth);
-                array.extend([None].iter().cycle().take(capacity_at_depth));
+                array.extend(core::iter::once(&None).cycle().take(capacity_at_depth));
                 new_array.append(&mut array);
                 array = tail;
             }
@@ -183,7 +187,6 @@ impl<T> MerkleTree<T> {
     }
 
     #[cfg(feature = "std")]
-    #[allow(clippy::expect_used)]
     fn update(&mut self, idx: usize) {
         let mut node = match self.get(idx) {
             Some(node) => *node,
@@ -199,10 +202,9 @@ impl<T> MerkleTree<T> {
                 1 => (&node, self.get_r_child(parent_idx)),
                 _ => unreachable!(),
             };
-            let parent_node = match r_node_opt {
-                Some(r_node) => Self::nodes_pair_hash(l_node.as_ref(), r_node.as_ref()),
-                None => *l_node,
-            };
+            let parent_node = r_node_opt.map_or(*l_node, |r_node| {
+                Self::nodes_pair_hash(l_node.as_ref(), r_node.as_ref())
+            });
             let parent_mut = self.0.get_mut(parent_idx).expect("Infallible");
             *parent_mut = parent_node;
             idx = parent_idx;

@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_basic_from() {
-        let n_should: u64 = VarUint::new(&[0b1000_0000, 0b1000_0000, 0b0000_0001])
+        let n_should: u64 = VarUint::new([0b1000_0000, 0b1000_0000, 0b0000_0001])
             .unwrap()
             .try_into()
             .unwrap();

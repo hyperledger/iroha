@@ -3,7 +3,7 @@
 //! to wasm format and submitted in a transaction
 #![allow(clippy::expect_used, clippy::doc_link_with_quotes)]
 #![allow(
-    clippy::arithmetic,
+    clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
@@ -751,7 +751,7 @@ trait GetExport {
 }
 
 #[allow(clippy::single_char_lifetime_names)]
-impl<'a, T> GetExport for Caller<'a, T> {
+impl<T> GetExport for Caller<'_, T> {
     fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern> {
         Self::get_export(self, name)
     }

@@ -1,5 +1,4 @@
 //! Module for starting peers and networks. Used only for tests
-
 #![allow(clippy::restriction, clippy::future_not_send)]
 
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
@@ -376,15 +375,10 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
 
     for _ in 0..MAX_RETRIES {
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
-            if let Ok(status) = client.get_status() {
-                if status.blocks < 1 {
-                    acc + 1
-                } else {
-                    acc
-                }
-            } else {
-                acc + 1
-            }
+            client.get_status().map_or(
+                acc + 1,
+                |status| if status.blocks < 1 { acc + 1 } else { acc },
+            )
         });
         if without_genesis_peers <= offline_peers {
             return;
@@ -577,10 +571,7 @@ impl Default for WithGenesis {
 
 impl From<Option<GenesisNetwork>> for WithGenesis {
     fn from(x: Option<GenesisNetwork>) -> Self {
-        match x {
-            None => Self::None,
-            Some(genesis) => Self::Has(genesis),
-        }
+        x.map_or(Self::None, Self::Has)
     }
 }
 

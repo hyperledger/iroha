@@ -52,10 +52,7 @@ fn attrs_have_ident(attrs: &[syn::Attribute], ident: &str) -> bool {
 
 const CONTAINERS: &[&str] = &["Box", "RefCell", "Cell", "Rc", "Arc", "Mutex", "RwLock"];
 
-fn get_type_argument<'b>(
-    s: &str,
-    ty: &'b syn::TypePath,
-) -> Option<&'b syn::GenericArgument> {
+fn get_type_argument<'b>(s: &str, ty: &'b syn::TypePath) -> Option<&'b syn::GenericArgument> {
     let segments = &ty.path.segments;
     if segments.len() != 1 || segments[0].ident != s {
         return None;

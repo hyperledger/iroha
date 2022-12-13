@@ -1,4 +1,5 @@
 //! Module with multihash implementation
+#![allow(clippy::std_instead_of_core)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{
