@@ -138,9 +138,9 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct GetBlocksAfter {
         /// Hash of latest available block
-        pub latest_hash: HashOf<VersionedCommittedBlock>,
+        pub latest_hash: Option<HashOf<VersionedCommittedBlock>>,
         /// Hash of second to latest block
-        pub previous_hash: HashOf<VersionedCommittedBlock>,
+        pub previous_hash: Option<HashOf<VersionedCommittedBlock>>,
         /// Peer id
         pub peer_id: PeerId,
     }
@@ -148,8 +148,8 @@ pub mod message {
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
         pub const fn new(
-            latest_hash: HashOf<VersionedCommittedBlock>,
-            previous_hash: HashOf<VersionedCommittedBlock>,
+            latest_hash: Option<HashOf<VersionedCommittedBlock>>,
+            previous_hash: Option<HashOf<VersionedCommittedBlock>>,
             peer_id: PeerId,
         ) -> Self {
             Self {
@@ -208,22 +208,21 @@ pub mod message {
                         return;
                     }
 
-                    let start_height = if *previous_hash == Hash::zeroed().typed() {
-                        1
-                    } else {
-                        match block_sync.kura.get_block_height_by_hash(previous_hash) {
+                    let start_height = match previous_hash {
+                        Some(hash) => match block_sync.kura.get_block_height_by_hash(hash) {
                             None => {
-                                error!(%previous_hash, "Block hash not found");
+                                error!(?previous_hash, "Block hash not found");
                                 return;
                             }
                             Some(height) => height + 1, // It's get blocks *after*, so we add 1.
-                        }
+                        },
+                        None => 1,
                     };
 
                     let blocks = (start_height..)
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
-                        .skip_while(|block| block.hash() == *latest_hash)
+                        .skip_while(|block| Some(block.hash()) == *latest_hash)
                         .map(|block| VersionedCommittedBlock::clone(&block).into())
                         .collect::<Vec<_>>();
 
@@ -231,9 +230,9 @@ pub mod message {
                         // The only case where the blocks array could be empty is if we got queried for blocks
                         // after the latest hash. There is a check earlier in the function that returns early
                         // so it should not be possible for us to get here.
-                        error!(%previous_hash, "Blocks array is empty but shouldn't be.");
+                        error!(hash=?previous_hash, "Blocks array is empty but shouldn't be.");
                     } else {
-                        trace!(hash=%previous_hash, "Sharing blocks after hash");
+                        trace!(hash=?previous_hash, "Sharing blocks after hash");
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                             .send_to(block_sync.broker.clone(), peer_id.clone())
                             .await;

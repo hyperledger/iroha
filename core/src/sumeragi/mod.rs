@@ -107,8 +107,6 @@ impl Sumeragi {
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
                 current_online_peers: Mutex::new(Vec::new()),
-                latest_block_hash: Mutex::new(Hash::zeroed().typed()),
-                previous_block_hash: Mutex::new(Hash::zeroed().typed()),
                 message_sender: Mutex::new(incoming_message_sender),
                 message_receiver: Mutex::new(incoming_message_receiver),
             },
@@ -260,21 +258,22 @@ impl Sumeragi {
         let latest_block_hash = wsv.latest_block_hash();
         let previous_block_hash = wsv.previous_block_hash();
 
-        let current_topology =
-            if latest_block_height != 0 && latest_block_hash != Hash::zeroed().typed() {
-                Topology::builder()
-                    .at_block(latest_block_hash)
-                    .with_peers(wsv.peers().iter().map(|peer| peer.id().clone()).collect())
-                    .build(0)
-                    .expect("Should be able to reconstruct topology from `wsv`")
-            } else {
+        let current_topology = latest_block_hash.map_or_else(
+            || {
                 assert!(!sumeragi.config.trusted_peers.peers.is_empty());
                 Topology::builder()
-                    .at_block(Hash::zeroed().typed())
                     .with_peers(sumeragi.config.trusted_peers.peers.clone())
                     .build(0)
                     .expect("This builder must have been valid. This is a programmer error.")
-            };
+            },
+            |block_hash| {
+                Topology::builder()
+                    .at_block(block_hash)
+                    .with_peers(wsv.peers().iter().map(|peer| peer.id().clone()).collect())
+                    .build(0)
+                    .expect("Should be able to reconstruct topology from `wsv`")
+            },
+        );
 
         let sumeragi_state_machine_data = State {
             genesis_network,

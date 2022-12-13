@@ -90,10 +90,6 @@ where
     pub gossip_period: Duration,
     /// [`PeerId`]s of the peers that are currently online.
     pub current_online_peers: Mutex<Vec<PeerId>>,
-    /// Hash of the latest block
-    pub latest_block_hash: Mutex<HashOf<VersionedCommittedBlock>>,
-    /// Hash of the previous block
-    pub previous_block_hash: Mutex<HashOf<VersionedCommittedBlock>>,
     /// Sender channel
     pub message_sender: Mutex<mpsc::SyncSender<MessagePacket>>,
     /// Receiver channel.
@@ -116,9 +112,9 @@ pub struct State {
     /// The view change index of latest [`VersionedCommittedBlock`]
     pub latest_block_view_change_index: u64,
     /// The hash of the latest [`VersionedCommittedBlock`]
-    pub latest_block_hash: HashOf<VersionedCommittedBlock>,
+    pub latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
     /// Hash of the previous [`VersionedCommittedBlock`]
-    pub previous_block_hash: HashOf<VersionedCommittedBlock>,
+    pub previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
     /// Current block height
     pub latest_block_height: u64,
     /// The current network topology.
@@ -147,12 +143,6 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             .into_iter()
             .map(|peer_id| peer_id.public_key)
             .collect()
-    }
-
-    /// Set the public block hash to zero, in a thread-safe manner
-    #[allow(clippy::expect_used)]
-    pub fn zeroize(&self) {
-        *self.latest_block_hash.lock() = Hash::zeroed().typed()
     }
 
     /// Update network topology by taking the actual list of peers
@@ -315,12 +305,8 @@ fn commit_block<F>(
 
     state.previous_block_hash = state.latest_block_hash;
     state.latest_block_height = block.header().height;
-    state.latest_block_hash = block.hash();
+    state.latest_block_hash = Some(block.hash());
     state.latest_block_view_change_index = block.header().view_change_index;
-
-    // Push new block height information to block_sync
-    *sumeragi.latest_block_hash.lock() = state.latest_block_hash;
-    *sumeragi.previous_block_hash.lock() = state.previous_block_hash;
 
     let previous_role = state.current_topology.role(&sumeragi.peer_id);
     state.current_topology.refresh_at_new_block(block_hash);
@@ -497,12 +483,12 @@ fn handle_role_agnostic_messages<F>(
                 };
                 if state.previous_block_hash == block.header().previous_block_hash
                     && state.latest_block_height == block.header().height
-                    && state.latest_block_hash != block.hash()
+                    && state.latest_block_hash != Some(block.hash())
                     && state.latest_block_view_change_index < block.header().view_change_index
                 {
                     error!(
-                        peer_latest_block_hash=%state.latest_block_hash,
-                        peer_latest_block_view_change_index=%state.latest_block_view_change_index,
+                        peer_latest_block_hash=?state.latest_block_hash,
+                        peer_latest_block_view_change_index=?state.latest_block_view_change_index,
                         consensus_latest_block_hash=%block.hash(),
                         consensus_latest_block_view_change_index=%block.header().view_change_index,
                         "Soft fork occurred: peer is inconsistent state. Currently only reload with wipe of the block storage will help."
@@ -511,8 +497,8 @@ fn handle_role_agnostic_messages<F>(
                 }
                 if state.latest_block_hash != block.header().previous_block_hash {
                     warn!(
-                        expected = %state.latest_block_hash,
-                        actual = %block.header().previous_block_hash,
+                        expected = ?state.latest_block_hash,
+                        actual = ?block.header().previous_block_hash,
                         "Mismatch between the actual and expected hashes of the latest block."
                     );
                     return;
@@ -616,7 +602,7 @@ pub fn run<F>(
 {
     let mut incoming_message_receiver = sumeragi.message_receiver.lock();
 
-    if state.latest_block_height == 0 || state.latest_block_hash == Hash::zeroed().typed() {
+    if state.latest_block_height == 0 || state.latest_block_hash.is_none() {
         if let Some(genesis_network) = state.genesis_network.take() {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
         } else {
@@ -1172,7 +1158,7 @@ fn sumeragi_init_commit_genesis<F>(
     iroha_logger::info!("Initializing iroha using the genesis block.");
 
     assert_eq!(state.latest_block_height, 0);
-    assert_eq!(state.latest_block_hash, Hash::zeroed().typed());
+    assert_eq!(state.latest_block_hash, None);
 
     let transactions = genesis_network.transactions;
     // Don't start genesis round. Instead just commit the genesis block.
@@ -1253,7 +1239,6 @@ where
         state.current_topology.is_consensus_required(),
         "Only peer in network, yet required to receive genesis topology. This is a configuration error."
     );
-    sumeragi.zeroize();
     loop {
         sumeragi.connect_peers(&state.current_topology);
         std::thread::sleep(Duration::from_millis(50));
