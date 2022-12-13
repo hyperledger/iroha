@@ -20,7 +20,7 @@ use crate::{block::VersionedCommittedBlock, WorldStateView};
 /// Sorts peers based on the `hash`.
 pub fn sort_peers_by_hash(
     peers: Vec<PeerId>,
-    hash: &HashOf<VersionedCommittedBlock>,
+    hash: &Option<HashOf<VersionedCommittedBlock>>,
 ) -> Vec<PeerId> {
     sort_peers_by_hash_and_counter(peers, hash, 0)
 }
@@ -28,12 +28,12 @@ pub fn sort_peers_by_hash(
 /// Sorts peers based on the `hash` and `counter` combined as a seed.
 fn sort_peers_by_hash_and_counter(
     mut peers: Vec<PeerId>,
-    hash: &HashOf<VersionedCommittedBlock>,
+    hash: &Option<HashOf<VersionedCommittedBlock>>,
     counter: u64,
 ) -> Vec<PeerId> {
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
     let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
-    bytes.extend(hash.as_ref());
+    bytes.extend(hash.as_deref().map_or(&[0; Hash::LENGTH], AsRef::as_ref));
     let bytes = Hash::new(&bytes).into();
     let mut rng = StdRng::from_seed(bytes);
     peers.shuffle(&mut rng);
@@ -132,7 +132,7 @@ impl GenesisBuilder {
             .collect();
         Ok(Topology {
             sorted_peers,
-            at_block: Hash::zeroed().typed(),
+            at_block: None,
         })
     }
 }
@@ -175,7 +175,7 @@ impl Builder {
         if peers.is_empty() {
             return Err(eyre!("There must be at least one peer in the network."));
         }
-        let at_block = field_is_some_or_err!(self.at_block)?;
+        let at_block = self.at_block;
         let peers: Vec<_> = peers.into_iter().collect();
         let n_view_changes = number_of_view_changes_this_round;
         let since_last_shuffle = n_view_changes % (peers.len() as u64);
@@ -200,7 +200,7 @@ pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
     /// Hash of the last committed block.
-    at_block: HashOf<VersionedCommittedBlock>,
+    at_block: Option<HashOf<VersionedCommittedBlock>>,
 }
 
 impl Topology {
@@ -213,7 +213,7 @@ impl Topology {
     pub fn into_builder(self) -> Builder {
         Builder {
             peers: Some(self.sorted_peers.into_iter().collect()),
-            at_block: Some(self.at_block),
+            at_block: self.at_block,
         }
     }
 
@@ -351,7 +351,7 @@ impl Topology {
     }
 
     /// Block hash on which this topology is based.
-    pub const fn at_block(&self) -> &HashOf<VersionedCommittedBlock> {
+    pub const fn at_block(&self) -> &Option<HashOf<VersionedCommittedBlock>> {
         &self.at_block
     }
 
@@ -506,8 +506,8 @@ mod tests {
         let hash2 = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
 
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &hash1);
-        let peers_2 = sort_peers_by_hash(peers, &hash2);
+        let peers_1 = sort_peers_by_hash(peers.clone(), &Some(hash1));
+        let peers_2 = sort_peers_by_hash(peers, &Some(hash2));
         assert_ne!(peers_1, peers_2);
     }
 
@@ -516,8 +516,8 @@ mod tests {
         let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
 
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &hash);
-        let peers_2 = sort_peers_by_hash(peers, &hash);
+        let peers_1 = sort_peers_by_hash(peers.clone(), &Some(hash));
+        let peers_2 = sort_peers_by_hash(peers, &Some(hash));
         assert_eq!(peers_1, peers_2);
     }
 
@@ -526,8 +526,8 @@ mod tests {
         let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
 
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
-        let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 1);
+        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &Some(hash), 1);
+        let peers_2 = sort_peers_by_hash_and_counter(peers, &Some(hash), 1);
         assert_eq!(peers_1, peers_2);
     }
 
@@ -536,8 +536,8 @@ mod tests {
         let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
 
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
-        let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 2);
+        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &Some(hash), 1);
+        let peers_2 = sort_peers_by_hash_and_counter(peers, &Some(hash), 2);
         assert_ne!(peers_1, peers_2);
     }
 
@@ -548,7 +548,6 @@ mod tests {
         let mut number_of_view_changes: u64 = 0;
         let mut last_topology = Builder::new()
             .with_peers(peers)
-            .at_block(Hash::zeroed().typed())
             .build(number_of_view_changes)?;
         for _a_view_change in 0..2 * n_peers {
             let mut topology = last_topology.clone();

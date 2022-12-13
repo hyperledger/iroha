@@ -12,6 +12,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::num::NonZeroU8;
 
 /// Derive schema. It will make your structure schemaable
 pub use iroha_schema_derive::IntoSchema;
@@ -197,7 +198,7 @@ macro_rules! impl_schema_int {
     )*};
 }
 
-impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8);
+impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8, NonZeroU8);
 
 impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, P> {
     fn type_name() -> String {

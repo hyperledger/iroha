@@ -1,6 +1,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{alloc::alloc, format, string::String, vec, vec::Vec};
-use core::{hash, marker::PhantomData};
+use core::{hash, marker::PhantomData, num::NonZeroU8};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
 use iroha_ffi::FfiType;
@@ -17,6 +17,7 @@ use crate::ffi;
 
 ffi::ffi_item! {
     /// Hash of Iroha entities. Currently supports only blake2b-32.
+    /// Least significant bit of hash is set to 1.
     #[derive(
         Clone,
         Copy,
@@ -27,20 +28,18 @@ ffi::ffi_item! {
         PartialEq,
         Ord,
         PartialOrd,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
         IntoSchema,
         FfiType,
     )]
-    #[repr(transparent)]
-    #[serde(transparent)]
     // TODO: use #[ffi_type(unsafe {robust})] instead
     #[ffi_type(opaque)]
-    #[display(fmt = "{}", "hex::encode(_0)")]
-    #[debug(fmt = "{{ Hash({}) }}", "hex::encode(_0)")]
-    pub struct Hash([u8; Self::LENGTH]);
+    #[display(fmt = "{}", "hex::encode(self.as_ref())")]
+    #[debug(fmt = "{}", "hex::encode(self.as_ref())")]
+    #[repr(C)]
+    pub struct Hash {
+        more_significant_bits: [u8; Self::LENGTH - 1],
+        least_significant_byte: NonZeroU8,
+    }
 }
 
 impl Hash {
@@ -48,15 +47,15 @@ impl Hash {
     pub const LENGTH: usize = 32;
 
     /// Wrap the given bytes; they must be prehashed with `VarBlake2b`
-    pub const fn prehashed(bytes: [u8; Self::LENGTH]) -> Self {
-        Self(bytes)
-    }
-
-    /// Construct zeroed hash
-    #[must_use]
-    // TODO: It would be best if all uses of zeroed hash could be replaced with Option<Hash>
-    pub const fn zeroed() -> Self {
-        Hash::prehashed([0; Hash::LENGTH])
+    pub fn prehashed(mut hash: [u8; Self::LENGTH]) -> Self {
+        hash[Self::LENGTH - 1] |= 1;
+        #[allow(unsafe_code)]
+        // SAFETY:
+        // - any `u8` value after bitwise or with 1 will be at least 1
+        // - `Hash` and `[u8; Hash::LENGTH]` have the same memory layout
+        unsafe {
+            core::mem::transmute(hash)
+        }
     }
 
     /// Hash the given bytes.
@@ -80,19 +79,75 @@ impl Hash {
     pub const fn typed<T>(self) -> HashOf<T> {
         HashOf(self, PhantomData)
     }
+
+    /// Check if least significant bit of `[u8; Hash::LENGTH]` is 1
+    fn is_lsb_1(hash: &[u8; Self::LENGTH]) -> bool {
+        hash[Self::LENGTH - 1] & 1 == 1
+    }
 }
 
 impl From<Hash> for [u8; Hash::LENGTH] {
     #[inline]
-    fn from(Hash(bytes): Hash) -> Self {
-        bytes
+    fn from(hash: Hash) -> Self {
+        #[allow(unsafe_code)]
+        // SAFETY: `Hash` and `[u8; Hash::LENGTH]` have the same memory layout
+        unsafe {
+            core::mem::transmute(hash)
+        }
     }
 }
 
 impl AsRef<[u8; Hash::LENGTH]> for Hash {
     #[inline]
     fn as_ref(&self) -> &[u8; Hash::LENGTH] {
-        &self.0
+        #[allow(unsafe_code, trivial_casts)]
+        // SAFETY: `Hash` and `[u8; Hash::LENGTH]` have the same memory layout
+        unsafe {
+            &*((self as *const Self).cast::<[u8; Self::LENGTH]>())
+        }
+    }
+}
+
+impl Serialize for Hash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let hash: &[u8; Self::LENGTH] = self.as_ref();
+        hash.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Hash {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        <[u8; Self::LENGTH]>::deserialize(deserializer)
+            .and_then(|hash| {
+                Hash::is_lsb_1(&hash)
+                    .then_some(hash)
+                    .ok_or_else(|| D::Error::custom("expect least significant bit of hash to be 1"))
+            })
+            .map(Self::prehashed)
+    }
+}
+
+impl Encode for Hash {
+    fn using_encoded<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
+        f(self.as_ref())
+    }
+}
+
+impl Decode for Hash {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        <[u8; Self::LENGTH]>::decode(input)
+            .and_then(|hash| {
+                Hash::is_lsb_1(&hash)
+                    .then_some(hash)
+                    .ok_or_else(|| "expect least significant bit of hash to be 1".into())
+            })
+            .map(Self::prehashed)
     }
 }
 

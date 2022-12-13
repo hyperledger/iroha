@@ -19,7 +19,7 @@ use crate::block::VersionedCommittedBlock;
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct Proof {
     /// Hash of the latest committed block.
-    pub latest_block_hash: HashOf<VersionedCommittedBlock>,
+    pub latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
     pub view_change_index: u64,
     /// Collection of signatures from the different peers.
@@ -30,7 +30,9 @@ impl Proof {
     /// Produce a signature payload in the form of a [`Hash`]
     pub fn signature_payload(&self) -> Hash {
         let mut buf = [0_u8; Hash::LENGTH + std::mem::size_of::<u64>()];
-        buf[..Hash::LENGTH].copy_from_slice(self.latest_block_hash.as_ref());
+        if let Some(hash) = self.latest_block_hash {
+            buf[..Hash::LENGTH].copy_from_slice(hash.as_ref());
+        }
         buf[Hash::LENGTH..].copy_from_slice(&self.view_change_index.to_le_bytes());
         // Now we hash the buffer to produce a payload that is completely
         // different between view change proofs in the same sumeragi round.
@@ -91,11 +93,11 @@ pub trait ProofChain {
         &self,
         peers: &HashSet<PeerId>,
         max_faults: usize,
-        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
     ) -> usize;
 
     /// Remove invalid proofs from the chain.
-    fn prune(&mut self, latest_block: &HashOf<VersionedCommittedBlock>);
+    fn prune(&mut self, latest_block: &Option<HashOf<VersionedCommittedBlock>>);
 
     /// Attempt to insert a view chain proof into this `ProofChain`.
     ///
@@ -105,7 +107,7 @@ pub trait ProofChain {
         &mut self,
         peers: &HashSet<PeerId>,
         max_faults: usize,
-        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
         new_proof: &Proof,
     ) -> Result<(), &'static str>;
 }
@@ -115,7 +117,7 @@ impl ProofChain for Vec<Proof> {
         &self,
         peers: &HashSet<PeerId>,
         max_faults: usize,
-        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
     ) -> usize {
         self.iter()
             .enumerate()
@@ -127,7 +129,7 @@ impl ProofChain for Vec<Proof> {
             .count()
     }
 
-    fn prune(&mut self, latest_block: &HashOf<VersionedCommittedBlock>) {
+    fn prune(&mut self, latest_block: &Option<HashOf<VersionedCommittedBlock>>) {
         let valid_count = self
             .iter()
             .enumerate()
@@ -143,7 +145,7 @@ impl ProofChain for Vec<Proof> {
         &mut self,
         peers: &HashSet<PeerId>,
         max_faults: usize,
-        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
         new_proof: &Proof,
     ) -> Result<(), &'static str> {
         if new_proof.latest_block_hash != *latest_block {

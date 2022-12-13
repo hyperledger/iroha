@@ -260,7 +260,7 @@ mod tests {
 
         for height in 1u64..blocks {
             let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
-                .chain(height, curr_hash, 0)
+                .chain(height, Some(curr_hash), 0)
                 .validate(
                     &TransactionValidator::new(
                         limits,
@@ -354,7 +354,7 @@ mod tests {
             block.into_value().header
         );
 
-        assert!(FindBlockHeaderByHash::new(Hash::zeroed())
+        assert!(FindBlockHeaderByHash::new(Hash::new([42]))
             .execute(&wsv)
             .is_err());
 

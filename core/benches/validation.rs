@@ -157,9 +157,10 @@ fn chain_blocks(criterion: &mut Criterion) {
     let _ = criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block = block
-                .clone()
-                .chain(success_count, previous_block_hash.transmute(), 0);
+            let new_block =
+                block
+                    .clone()
+                    .chain(success_count, Some(previous_block_hash.transmute()), 0);
             previous_block_hash = new_block.hash();
         });
     });

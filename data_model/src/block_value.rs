@@ -24,7 +24,7 @@ declare_item! {
     #[derive(
         Debug, Clone, Display, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
     )]
-    #[display(fmt = "Block №{height} (hash: {transactions_hash});")]
+    #[display(fmt = "Block №{height} (hash: {current_block_hash});")]
     pub struct BlockHeaderValue {
         /// Unix time (in milliseconds) of block forming by a peer.
         pub timestamp: u128,
@@ -32,11 +32,11 @@ declare_item! {
         pub height: u64,
         /// Hash of a previous block in the chain.
         /// Is an array of zeros for the first block.
-        pub previous_block_hash: Hash,
+        pub previous_block_hash: Option<Hash>,
         /// Hash of merkle tree root of the tree of valid transactions' hashes.
-        pub transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
+        pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
         /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-        pub rejected_transactions_hash: HashOf<MerkleTree<VersionedSignedTransaction>>,
+        pub rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
         /// Hashes of the blocks that were rejected by consensus.
         pub invalidated_blocks_hashes: Vec<Hash>,
         /// Hash of the most recent block

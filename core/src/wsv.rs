@@ -413,19 +413,20 @@ impl WorldStateView {
     /// Return a vector of blockchain blocks after the block with the given `hash`
     pub fn block_hashes_after_hash(
         &self,
-        hash: HashOf<VersionedCommittedBlock>,
+        hash: Option<HashOf<VersionedCommittedBlock>>,
     ) -> Vec<HashOf<VersionedCommittedBlock>> {
-        if hash == Hash::zeroed().typed() {
-            self.block_hashes.borrow().clone()
-        } else {
-            self.block_hashes
-                .borrow()
-                .iter()
-                .skip_while(|&x| *x != hash)
-                .skip(1)
-                .copied()
-                .collect()
-        }
+        hash.map_or_else(
+            || self.block_hashes.borrow().clone(),
+            |block_hash| {
+                self.block_hashes
+                    .borrow()
+                    .iter()
+                    .skip_while(|&x| *x != block_hash)
+                    .skip(1)
+                    .copied()
+                    .collect()
+            },
+        )
     }
 
     /// The same as [`Self::modify_world_multiple_events`] except closure `f` returns a single [`WorldEvent`].
@@ -638,29 +639,21 @@ impl WorldStateView {
         }
     }
 
-    /// Hash of latest block
-    pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
-        self.block_hashes
-            .borrow()
-            .iter()
-            .last()
-            .map_or(Hash::zeroed().typed(), |hash| *hash)
+    /// Return the hash of the latest block
+    pub fn latest_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
+        self.block_hashes.borrow().iter().nth_back(0).copied()
     }
 
-    /// View change index of nth back block
+    /// Return the view change index of the latest block
     pub fn latest_block_view_change_index(&self) -> u64 {
         self.kura
             .get_block_by_height(self.height())
             .map_or(0, |block| block.header().view_change_index)
     }
 
-    /// Hash of latest block
-    pub fn previous_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
-        self.block_hashes
-            .borrow()
-            .iter()
-            .nth_back(1)
-            .map_or(Hash::zeroed().typed(), |hash| *hash)
+    /// Return the hash of the block one before the latest block
+    pub fn previous_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
+        self.block_hashes.borrow().iter().nth_back(1).copied()
     }
 
     /// Get `Account` and pass it to closure.
@@ -1101,16 +1094,14 @@ mod tests {
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
             block.header.height = i as u64;
-            if let Some(block_hash) = block_hashes.last() {
-                block.header.previous_block_hash = *block_hash;
-            }
+            block.header.previous_block_hash = block_hashes.last().copied();
             let block: VersionedCommittedBlock = block.clone().into();
             block_hashes.push(block.hash());
             wsv.apply(&block).unwrap();
         }
 
         assert!(wsv
-            .block_hashes_after_hash(block_hashes[6])
+            .block_hashes_after_hash(Some(block_hashes[6]))
             .into_iter()
             .eq(block_hashes.into_iter().skip(7)));
     }
