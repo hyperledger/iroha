@@ -1,6 +1,6 @@
 [package]
 name = "iroha_p2p"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
@@ -12,12 +12,12 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.9", path = "../crypto" }
-iroha_actor = { version = "=2.0.0-pre-rc.9", path = "../actor" }
-iroha_data_model = { version = "=2.0.0-pre-rc.9", path = "../data_model" }
-iroha_config_base = { version = "=2.0.0-pre-rc.9", path = "../config/base" }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.9", path = "../data_model/derive" }
+iroha_logger = { version = "=2.0.0-pre-rc.11", path = "../logger" }
+iroha_crypto = { version = "=2.0.0-pre-rc.11", path = "../crypto" }
+iroha_actor = { version = "=2.0.0-pre-rc.11", path = "../actor" }
+iroha_data_model = { version = "=2.0.0-pre-rc.11", path = "../data_model" }
+iroha_config_base = { version = "=2.0.0-pre-rc.11", path = "../config/base" }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.11", path = "../data_model/derive" }
 
 rand = "0.8.5"
 tokio = { version = "1.20.1", features = ["rt-multi-thread", "macros"] }
@@ -30,4 +30,4 @@ thiserror = "1.0.32"
 derive_more = "0.99.17"
 
 [dev-dependencies]
-test_network = { version = "=2.0.0-pre-rc.9", path = "../core/test_network" }
+test_network = { version = "=2.0.0-pre-rc.11", path = "../core/test_network" }

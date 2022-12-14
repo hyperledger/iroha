@@ -1812,7 +1812,7 @@ checksum = "24c3f4eff5495aee4c0399d7b6a0dc2b6e81be84242ffbfcf253ebacccc1d0cb"
 
 [[package]]
 name = "iroha"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1845,7 +1845,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_actor"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1862,7 +1862,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_actor_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_actor",
  "proc-macro-error",
@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_cli_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_client"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "attohttpc",
  "base64",
@@ -1922,7 +1922,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_client_cli"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "anyhow",
  "clap 3.2.16",
@@ -1938,7 +1938,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_config"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "crossbeam",
  "derive_more",
@@ -1958,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_config_base"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "crossbeam",
  "iroha_config_derive",
@@ -1969,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_config_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_core"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2019,7 +2019,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_crypto"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "derive_more",
  "getset",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_data_model"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "base64",
  "criterion",
@@ -2069,7 +2069,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_data_model_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_data_model",
  "iroha_ffi",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_macro",
  "proc-macro2",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_ffi"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "getset",
  "iroha_ffi_derive",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_ffi_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "derive_more",
  "getset",
@@ -2118,7 +2118,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_futures"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_config",
  "iroha_futures_derive",
@@ -2132,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_futures_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_logger"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "color-eyre",
  "derive_more",
@@ -2159,14 +2159,14 @@ dependencies = [
 
 [[package]]
 name = "iroha_macro"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_derive",
 ]
 
 [[package]]
 name = "iroha_p2p"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "aead",
  "async-stream",
@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_permissions_validators"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "derive_more",
  "iroha_core",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_primitives"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "derive_more",
  "fixnum",
@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_schema"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "fixnum",
  "impls",
@@ -2231,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_schema_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_schema",
  "proc-macro2",
@@ -2242,7 +2242,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_schema_gen"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_core",
  "iroha_crypto",
@@ -2252,11 +2252,11 @@ dependencies = [
 
 [[package]]
 name = "iroha_substrate"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 
 [[package]]
 name = "iroha_telemetry"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_telemetry_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_core",
  "proc-macro-error",
@@ -2292,7 +2292,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_version"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_data_model",
  "iroha_logger",
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_version_derive"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "iroha_macro",
  "iroha_version",
@@ -2384,7 +2384,7 @@ dependencies = [
 
 [[package]]
 name = "kagami"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "clap 3.2.16",
  "color-eyre",
@@ -2407,7 +2407,7 @@ checksum = "f9b7d56ba4a8344d6be9729995e6b06f928af29998cdf79fe390cbf6b1fee838"
 
 [[package]]
 name = "kura_inspector"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "clap 3.2.16",
  "iroha_core",
@@ -2783,7 +2783,7 @@ dependencies = [
 
 [[package]]
 name = "parity_scale_decoder"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "clap 3.2.16",
  "colored",
@@ -3862,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "test_network"
-version = "2.0.0-pre-rc.9"
+version = "2.0.0-pre-rc.11"
 dependencies = [
  "eyre",
  "futures",
