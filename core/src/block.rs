@@ -183,14 +183,10 @@ impl ChainedBlock {
     ) -> ValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
-        let wsv_clone = WorldStateView::clone(wsv);
-        let wsv = if self.header.is_genesis() {
-            wsv
-        } else {
-            &wsv_clone
-        };
+
+        let wsv = wsv.clone();
         for tx in self.transactions {
-            match transaction_validator.validate(tx.into_v1(), self.header.is_genesis(), wsv) {
+            match transaction_validator.validate(tx.into_v1(), self.header.is_genesis(), &wsv) {
                 Ok(tx) => txs.push(tx),
                 Err(tx) => {
                     iroha_logger::warn!(
@@ -578,6 +574,7 @@ impl CandidateBlock {
             );
         }
 
+        let wsv = wsv.clone();
         let CandidateBlock {
             header,
             rejected_transactions,
@@ -617,7 +614,7 @@ impl CandidateBlock {
             .map(|accepted_tx| {
                 accepted_tx.and_then(|tx| {
                     transaction_validator
-                        .validate(tx, header.is_genesis(), wsv)
+                        .validate(tx, header.is_genesis(), &wsv)
                         .map_err(|rejected_tx| rejected_tx.into_v1().rejection_reason)
                         .wrap_err("Failed to validate transaction")
                 })
@@ -639,7 +636,7 @@ impl CandidateBlock {
             })
             .map(|accepted_tx| {
                 accepted_tx.and_then(|tx| {
-                    match transaction_validator.validate(tx, header.is_genesis(), wsv) {
+                    match transaction_validator.validate(tx, header.is_genesis(), &wsv) {
                         Err(rejected_transaction) => Ok(rejected_transaction),
                         Ok(_) => Err(eyre!("Transactions which supposed to be rejected is valid")),
                     }
