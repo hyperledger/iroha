@@ -15,10 +15,7 @@ use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use serde::Serialize;
 
-use crate::{
-    block::{EmptyChainHash, VersionedCommittedBlock},
-    WorldStateView,
-};
+use crate::{block::VersionedCommittedBlock, WorldStateView};
 
 /// Sorts peers based on the `hash`.
 pub fn sort_peers_by_hash(
@@ -135,7 +132,7 @@ impl GenesisBuilder {
             .collect();
         Ok(Topology {
             sorted_peers,
-            at_block: EmptyChainHash::default().into(),
+            at_block: Hash::zeroed().typed(),
         })
     }
 }
