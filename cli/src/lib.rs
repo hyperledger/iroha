@@ -268,8 +268,10 @@ impl Iroha {
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
+            let wsv_clone = wsv.clone();
+
             transaction_validator
-                .validate_every(genesis.iter().cloned(), &wsv)
+                .validate_every(genesis.iter().cloned(), &wsv_clone)
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
 

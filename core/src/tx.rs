@@ -130,19 +130,8 @@ impl TransactionValidator {
             }));
         }
 
-        if is_genesis {
-            let wsv_cloned = WorldStateView::clone(&wsv);
-            self.validate_with_builtin_validators(&tx, &wsv_cloned, is_genesis)?;
-        } else {
-            self.validate_with_builtin_validators(&tx, &wsv, is_genesis)?;
-        }
-
-        if is_genesis {
-            let wsv_cloned = WorldStateView::clone(&wsv);
-            Self::validate_with_runtime_validators(tx, &wsv_cloned)
-        } else {
-            Self::validate_with_runtime_validators(tx, &wsv)
-        }
+        self.validate_with_builtin_validators(&tx, wsv, is_genesis)?;
+        Self::validate_with_runtime_validators(tx, wsv)
     }
 
     /// Validate signatures for the given transaction
