@@ -40,11 +40,7 @@ use self::{
     view_change::{Proof, ProofChain as ViewChangeProofs},
 };
 use crate::{
-    block::{EmptyChainHash, VersionedPendingBlock},
-    kura::Kura,
-    prelude::*,
-    queue::Queue,
-    tx::TransactionValidator,
+    block::VersionedPendingBlock, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator,
     EventsSender, IrohaNetwork, NetworkMessage,
 };
 
@@ -274,7 +270,7 @@ impl Sumeragi {
             } else {
                 assert!(!sumeragi.config.trusted_peers.peers.is_empty());
                 Topology::builder()
-                    .at_block(EmptyChainHash::default().into())
+                    .at_block(Hash::zeroed().typed())
                     .with_peers(sumeragi.config.trusted_peers.peers.clone())
                     .build(0)
                     .expect("This builder must have been valid. This is a programmer error.")
