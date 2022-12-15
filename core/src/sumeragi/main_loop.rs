@@ -113,7 +113,7 @@ pub struct State {
     /// other subsystems where we can. This way the performance of
     /// sumeragi is more dependent on the code that is internal to the
     /// subsystem.
-    pub transaction_cache: Vec<Option<VersionedAcceptedTransaction>>,
+    pub transaction_cache: Vec<VersionedAcceptedTransaction>,
 }
 
 impl<F: FaultInjection> SumeragiWithFault<F> {
@@ -231,13 +231,13 @@ fn gossip_transactions<F>(
     F: FaultInjection,
 {
     if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
-        let mut txs = Vec::new();
-        for tx in &state.transaction_cache {
-            txs.push(tx.clone().expect("`tx` was empty"));
-            if txs.len() >= sumeragi.gossip_batch_size as usize {
-                break;
-            }
-        }
+        let txs = state
+            .transaction_cache
+            .iter()
+            .take(sumeragi.gossip_batch_size as usize)
+            .cloned()
+            .collect::<Vec<_>>();
+
         if !txs.is_empty() {
             debug!(
                 peer_role = ?state.current_topology.role(&sumeragi.peer_id),
@@ -315,22 +315,9 @@ fn commit_block<F>(
 
 fn cache_transaction<F: FaultInjection>(state: &mut State, sumeragi: &SumeragiWithFault<F>) {
     let transaction_cache = &mut state.transaction_cache;
-    let mut read_index = 0;
-    let mut write_index = 0;
-    while read_index < transaction_cache.len() {
-        if let Some(tx) = transaction_cache[read_index].take() {
-            if tx.is_in_blockchain(&state.wsv) || tx.is_expired(sumeragi.queue.tx_time_to_live) {
-                read_index += 1;
-                continue;
-            }
-            transaction_cache[write_index] = Some(tx);
-            read_index += 1;
-            write_index += 1;
-            continue;
-        }
-        read_index += 1;
-    }
-    transaction_cache.truncate(write_index);
+    transaction_cache.retain(|tx| {
+        !tx.is_in_blockchain(&state.wsv) && !tx.is_expired(sumeragi.queue.tx_time_to_live)
+    });
 }
 
 #[allow(clippy::panic)]
@@ -651,30 +638,16 @@ pub fn run<F>(
         {
             let state = &mut state;
             // We prune expired transactions. We do not check if they are in the blockchain, it would be a waste.
-            let mut read_index = 0;
-            let mut write_index = 0;
-            while read_index < state.transaction_cache.len() {
-                if let Some(tx) = state.transaction_cache[read_index].take() {
-                    if tx.is_expired(sumeragi.queue.tx_time_to_live) {
-                        read_index += 1;
-                        continue;
-                    }
-                    state.transaction_cache[write_index] = Some(tx);
-                    read_index += 1;
-                    write_index += 1;
-                    continue;
-                }
-                read_index += 1;
-            }
-            state.transaction_cache.truncate(write_index);
+            state
+                .transaction_cache
+                .retain(|tx| !tx.is_expired(sumeragi.queue.tx_time_to_live));
 
             // Pull in new transactions into the cache.
             while state.transaction_cache.len() < sumeragi.queue.txs_in_block {
-                let tx_maybe = sumeragi.queue.pop_without_seen(&state.wsv);
-                if tx_maybe.is_none() {
-                    break;
+                match sumeragi.queue.pop_without_seen(&state.wsv) {
+                    Some(tx) => state.transaction_cache.push(tx),
+                    None => break,
                 }
-                state.transaction_cache.push(tx_maybe);
             }
         };
 
@@ -726,8 +699,7 @@ pub fn run<F>(
                     .transaction_cache
                     .choose(&mut rand::thread_rng())
                     .expect("It was checked earlier that transaction cache is not empty.")
-                    .clone()
-                    .expect("It is also a non-empty variant");
+                    .clone();
                 let tx_hash = tx.hash();
                 info!(
                     peer_addr = %sumeragi.peer_id.address,
@@ -854,11 +826,8 @@ pub fn run<F>(
                 if Instant::now() > instant_when_we_should_create_a_block
                     || state.transaction_cache.len() >= sumeragi.queue.txs_in_block
                 {
-                    let transactions: Vec<VersionedAcceptedTransaction> = state
-                        .transaction_cache
-                        .iter()
-                        .map(|tx| tx.clone().expect("Is Some"))
-                        .collect();
+                    let transactions: Vec<VersionedAcceptedTransaction> =
+                        state.transaction_cache.clone();
 
                     info!("sumeragi Doing block with {} txs.", transactions.len());
                     // TODO: This should properly process triggers
