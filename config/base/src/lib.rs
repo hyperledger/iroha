@@ -334,7 +334,7 @@ pub mod derive {
         /// Used in [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for deserialization errors
         #[error("Deserializing JSON failed: {0}")]
         #[serde(skip)]
-        SerdeError(#[from] serde_json::Error),
+        SerdeError(#[from] json5::Error),
     }
 
     impl Error {

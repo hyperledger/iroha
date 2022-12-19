@@ -9,13 +9,15 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::{panic, path::PathBuf, sync::Arc};
+use std::{panic, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
+use eyre::ContextCompat;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
+    path::Path as ConfigPath,
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
@@ -50,24 +52,32 @@ pub struct Arguments {
     /// Set this flag on the peer that should submit genesis on the network initial start.
     pub submit_genesis: bool,
     /// Set custom genesis file path. `None` if `submit_genesis` set to `false`.
-    pub genesis_path: Option<PathBuf>,
+    pub genesis_path: Option<ConfigPath>,
     /// Set custom config file path.
-    pub config_path: PathBuf,
+    pub config_path: ConfigPath,
 }
 
-const CONFIGURATION_PATH: &str = "config.json";
-const GENESIS_PATH: &str = "genesis.json";
+const CONFIGURATION_PATH: &str = "config";
+const GENESIS_PATH: &str = "genesis";
 const SUBMIT_GENESIS: bool = false;
 
 impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(GENESIS_PATH.into()),
-            config_path: CONFIGURATION_PATH.into(),
+            genesis_path: Some(ConfigPath::default(GENESIS_PATH).expect(&format!(
+                "Default genesis path `{}` has extension, but it should not have one.",
+                GENESIS_PATH
+            ))),
+            config_path: ConfigPath::default(CONFIGURATION_PATH).expect(&format!(
+                "Default config path `{}` has extension, but it should not have one.",
+                GENESIS_PATH
+            )),
         }
     }
 }
+
+pub mod config {}
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
@@ -154,7 +164,13 @@ impl Iroha {
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
-        let file_proxy = ConfigurationProxy::from_path(&args.config_path);
+        let file_proxy = ConfigurationProxy::from_path(
+            &args
+                .config_path
+                .first_existing_path()
+                .wrap_err("Configuration file does not exist")?
+                .as_ref(),
+        );
         let env_proxy = ConfigurationProxy::from_env();
         let config = file_proxy.override_with(env_proxy).build()?;
 
@@ -170,7 +186,12 @@ impl Iroha {
         let genesis = if let Some(genesis_path) = &args.genesis_path {
             GenesisNetwork::from_configuration(
                 args.submit_genesis,
-                RawGenesisBlock::from_path(genesis_path)?,
+                RawGenesisBlock::from_path(
+                    genesis_path
+                        .first_existing_path()
+                        .wrap_err("Genesis block file doesn't exist")?
+                        .as_ref(),
+                )?,
                 Some(&config.genesis),
                 &config.sumeragi.transaction_limits,
             )

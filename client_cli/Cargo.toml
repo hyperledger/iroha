@@ -25,7 +25,7 @@ iroha_config = { version = "=2.0.0-pre-rc.11", path = "../config" }
 color-eyre = "0.6.2"
 clap = { version = "3.2.16", features = ["derive"] }
 dialoguer = { version = "0.10.2", default-features = false }
-serde_json = "1.0.83"
+json5 = "0.4.1"
 
 [build-dependencies]
 anyhow = "1.0.60"

@@ -1,15 +1,13 @@
 //! Iroha peer command-line interface.
 
-use core::str::FromStr;
-
 use eyre::WrapErr as _;
-use iroha::Arguments;
+use iroha_config::path::Path as ConfigPath;
 use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
-    let mut args = Arguments::default();
+    let mut args = iroha::Arguments::default();
     if std::env::args().any(|a| is_help(&a)) {
         print_help();
         return Ok(());
@@ -23,7 +21,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     if std::env::args().any(|a| is_submit(&a)) {
         args.submit_genesis = true;
         if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
-            args.genesis_path = Some(std::path::PathBuf::from_str(&genesis_path)?);
+            args.genesis_path = Some(ConfigPath::user_provided(&genesis_path)?);
         }
     } else {
         args.genesis_path = None;
@@ -37,7 +35,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     }
 
     if let Ok(config_path) = std::env::var("IROHA2_CONFIG_PATH") {
-        args.config_path = std::path::PathBuf::from_str(&config_path)?;
+        args.config_path = ConfigPath::user_provided(&config_path)?;
     }
     if !args.config_path.exists() {
         // Require all the fields defined in default `config.json`
@@ -85,12 +83,12 @@ fn print_help() {
     println!("pass `--version` or `-V` to print version information");
     println!();
     println!("Iroha 2 is configured via environment variables:");
-    println!("    IROHA2_CONFIG_PATH is the location of your `config.json`");
-    println!("    IROHA2_GENESIS_PATH is the location of `genesis.json`");
+    println!("    IROHA2_CONFIG_PATH is the location of your `config.json` or `config.json5`");
+    println!("    IROHA2_GENESIS_PATH is the location of `genesis.json` or `genesis.json5`");
     println!("If either of these is not provided, Iroha checks the current directory.");
     println!(
-        "Additionally, in case of absence of both IROHA2_CONFIG_PATH and `config.json`
-in the current directory, all the variables from `config.json` should be set via the environment
+        "Additionally, in case of absence of both IROHA2_CONFIG_PATH and `config.json`/`config.json5`
+in the current directory, all the variables from `config.json`/`config.json5` should be set via the environment
 as follows:"
     );
     println!("    IROHA_TORII is the torii gateway config");
