@@ -120,10 +120,9 @@ pub fn default_permissions() -> InstructionJudgeBoxed {
                     .or(mint::GrantedByAssetCreator.into_validator()),
             )
             .with_recursive_validator(
-                burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner.into_validator()),
-            )
-            .with_recursive_validator(
-                burn::OnlyAssetsCreatedByThisAccount
+                burn::OnlyOwnedAssets
+                    .or(burn::GrantedByAssetOwner.into_validator())
+                    .or(burn::OnlyAssetsCreatedByThisAccount)
                     .or(burn::GrantedByAssetCreator.into_validator()),
             )
             .with_recursive_validator(
