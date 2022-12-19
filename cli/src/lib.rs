@@ -9,9 +9,10 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::{panic, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, panic, path::PathBuf, str::FromStr, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
+use eyre::ContextCompat;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
@@ -50,22 +51,97 @@ pub struct Arguments {
     /// Set this flag on the peer that should submit genesis on the network initial start.
     pub submit_genesis: bool,
     /// Set custom genesis file path. `None` if `submit_genesis` set to `false`.
-    pub genesis_path: Option<PathBuf>,
+    pub genesis_path: Option<ConfigPath>,
     /// Set custom config file path.
-    pub config_path: PathBuf,
+    pub config_path: ConfigPath,
 }
 
-const CONFIGURATION_PATH: &str = "config.json";
-const GENESIS_PATH: &str = "genesis.json";
+const CONFIGURATION_PATH: &str = "config";
+const GENESIS_PATH: &str = "genesis";
+const POSSIBLE_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 const SUBMIT_GENESIS: bool = false;
 
 impl Default for Arguments {
     fn default() -> Self {
+        let extensions: Vec<_> = POSSIBLE_CONFIG_EXTENSIONS
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect();
+
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(GENESIS_PATH.into()),
-            config_path: CONFIGURATION_PATH.into(),
+            genesis_path: Some(
+                ConfigPath::new(GENESIS_PATH).with_possible_extensions(extensions.clone()),
+            ),
+            config_path: ConfigPath::new(CONFIGURATION_PATH).with_possible_extensions(extensions),
         }
+    }
+}
+
+/// Wrapper around path to config file (i.e. config.json, genesis.json).
+///
+/// Provides abstraction above file extension.
+#[derive(Debug, Clone)]
+pub struct ConfigPath {
+    path: PathBuf,
+    possible_extensions: Vec<String>,
+}
+
+impl ConfigPath {
+    /// Construct new [`ConfigPath`] from exact `path`
+    #[inline]
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            possible_extensions: Vec::new(),
+        }
+    }
+
+    /// Add possible extensions to the config path.
+    ///
+    /// # Note
+    ///
+    /// After using this function simple `path` provided in [`ConfigPath::new()`] will not be
+    /// counted as a valid path.
+    /// Only `path` with `possible_extensions` will be used in other functions like
+    /// [`ConfigPath::exists()`].
+    #[must_use]
+    pub fn with_possible_extensions(self, possible_extensions: Vec<String>) -> Self {
+        Self {
+            possible_extensions,
+            ..self
+        }
+    }
+
+    /// Try to get first existing path applying possible extensions if there are some.
+    pub fn first_existing_path(&self) -> Option<Cow<PathBuf>> {
+        if self.possible_extensions.is_empty() {
+            self.path.exists().then_some(Cow::Borrowed(&self.path))
+        } else {
+            self.possible_extensions.iter().find_map(|extension| {
+                let path = self.path.with_extension(extension);
+                path.exists().then_some(Cow::Owned(path))
+            })
+        }
+    }
+
+    /// Check if config path exists applying possible extensions if there are some.
+    pub fn exists(&self) -> bool {
+        if self.possible_extensions.is_empty() {
+            self.path.exists()
+        } else {
+            self.possible_extensions
+                .iter()
+                .any(|extension| self.path.with_extension(extension).exists())
+        }
+    }
+}
+
+impl FromStr for ConfigPath {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::new(s))
     }
 }
 
@@ -154,7 +230,13 @@ impl Iroha {
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
-        let file_proxy = ConfigurationProxy::from_path(&args.config_path);
+        let file_proxy = ConfigurationProxy::from_path(
+            &args
+                .config_path
+                .first_existing_path()
+                .wrap_err("Configuration file does not exist")?
+                .as_ref(),
+        );
         let env_proxy = ConfigurationProxy::from_env();
         let config = file_proxy.override_with(env_proxy).build()?;
 
@@ -170,7 +252,12 @@ impl Iroha {
         let genesis = if let Some(genesis_path) = &args.genesis_path {
             GenesisNetwork::from_configuration(
                 args.submit_genesis,
-                RawGenesisBlock::from_path(genesis_path)?,
+                RawGenesisBlock::from_path(
+                    genesis_path
+                        .first_existing_path()
+                        .wrap_err("Genesis configuration file does not exist")?
+                        .as_ref(),
+                )?,
                 Some(&config.genesis),
                 &config.sumeragi.transaction_limits,
             )
