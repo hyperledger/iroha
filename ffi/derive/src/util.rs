@@ -48,26 +48,23 @@ pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
     }
 }
 
-#[allow(clippy::expect_used)]
-pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
+pub fn gen_resolve_type(arg: &Arg, is_output: bool) -> TokenStream {
     let (arg_name, src_type) = (arg.name(), arg.src_type());
-    let ffi_type = arg.ffi_type_resolved(is_output);
-    let store_name = gen_store_name(arg_name);
 
-    let mut resolve_impl_trait = None;
+    let mut resolve_impl_trait = quote! {};
     if let Type::ImplTrait(type_) = &src_type {
         for bound in &type_.bounds {
             if let syn::TypeParamBound::Trait(trait_) = bound {
                 let trait_ = trait_.path.segments.last().expect_or_abort("Defined");
 
                 if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
-                    resolve_impl_trait = Some(quote! {
+                    resolve_impl_trait = quote! {
                         let #arg_name: Vec<_> = #arg_name.into_iter().collect();
-                    });
+                    };
                 } else if trait_.ident == "Into" {
-                    resolve_impl_trait = Some(quote! {
+                    resolve_impl_trait = quote! {
                         let #arg_name = #arg_name.into();
-                    });
+                    };
                 }
             }
         }
@@ -75,15 +72,24 @@ pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
 
     if is_output && unwrap_result_type(src_type).is_some() {
         return quote! {
-            let mut #store_name = Default::default();
             let #arg_name = if let Ok(ok) = #arg_name {
-                iroha_ffi::FfiConvert::into_ffi(ok, &mut #store_name)
+                ok
             } else {
                 // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                 return Err(iroha_ffi::FfiReturn::ExecutionFail);
             };
         };
     }
+
+    resolve_impl_trait
+}
+
+#[allow(clippy::expect_used)]
+pub fn gen_arg_src_to_ffi(arg: &Arg, is_output: bool) -> TokenStream {
+    let arg_name = arg.name();
+    let resolve_impl_trait = gen_resolve_type(arg, is_output);
+    let ffi_type = arg.ffi_type_resolved(is_output);
+    let store_name = gen_store_name(arg_name);
 
     quote! {
         #resolve_impl_trait
