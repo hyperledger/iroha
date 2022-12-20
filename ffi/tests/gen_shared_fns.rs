@@ -52,7 +52,7 @@ fn gen_shared_fns() {
             let mut cloned = MaybeUninit::<*mut FfiStruct1>::new(core::ptr::null_mut());
 
             __clone(
-                FfiStruct1::ID,
+                FfiStruct1::ID.into_ffi(&mut ()),
                 ffi_struct1.cast(),
                 cloned.as_mut_ptr().cast(),
             );
@@ -67,7 +67,7 @@ fn gen_shared_fns() {
         let cloned_ptr = FfiConvert::into_ffi(&cloned, &mut ());
 
         __eq(
-            FfiStruct1::ID,
+            FfiStruct1::ID.into_ffi(&mut ()),
             ffi_struct1.cast(),
             cloned_ptr.cast(),
             is_equal.as_mut_ptr(),
@@ -77,7 +77,7 @@ fn gen_shared_fns() {
 
         let mut ordering = MaybeUninit::new(1);
         __ord(
-            FfiStruct1::ID,
+            FfiStruct1::ID.into_ffi(&mut ()),
             ffi_struct1.cast(),
             cloned_ptr.cast(),
             ordering.as_mut_ptr(),
@@ -85,10 +85,16 @@ fn gen_shared_fns() {
         let ordering: Ordering = FfiConvert::try_from_ffi(ordering.assume_init(), &mut ()).unwrap();
         assert_eq!(ordering, Ordering::Equal);
 
-        assert_eq!(FfiReturn::Ok, __drop(FfiStruct1::ID, ffi_struct1.cast()));
         assert_eq!(
             FfiReturn::Ok,
-            __drop(FfiStruct1::ID, cloned.into_ffi(&mut ()).cast())
+            __drop(FfiStruct1::ID.into_ffi(&mut ()), ffi_struct1.cast())
+        );
+        assert_eq!(
+            FfiReturn::Ok,
+            __drop(
+                FfiStruct1::ID.into_ffi(&mut ()),
+                cloned.into_ffi(&mut ()).cast()
+            )
         );
     }
 }

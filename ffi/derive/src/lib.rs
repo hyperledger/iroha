@@ -10,6 +10,7 @@ use proc_macro::TokenStream;
 use proc_macro_error::abort;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote, Item, NestedMeta};
+use wrapper::wrap_method;
 
 use crate::convert::derive_ffi_type;
 
@@ -238,8 +239,10 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let fn_descriptor = FnDescriptor::from_fn(&item);
             let ffi_fn = ffi_fn::gen_declaration(&fn_descriptor);
+            let wrapped_item = wrap_method(&fn_descriptor);
+
             quote! {
-                #item
+                #wrapped_item
                 #ffi_fn
             }
         }

@@ -1,11 +1,13 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::{marker::PhantomData, mem::MaybeUninit};
+use std::{alloc, marker::PhantomData, mem::MaybeUninit};
+
+iroha_ffi::def_ffi_fn! { dealloc }
 
 use iroha_ffi::{
     ffi_export,
     slice::{OutBoxedSlice, SliceRef},
-    FfiConvert, FfiReturn, FfiType,
+    FfiConvert, FfiOutPtrRead, FfiReturn, FfiType,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
@@ -47,6 +49,10 @@ impl TransparentStruct {
 
     pub fn payload(&self) -> &GenericTransparentStruct<()> {
         &self.payload
+    }
+
+    pub fn payload_mut(&mut self) -> &mut GenericTransparentStruct<()> {
+        &mut self.payload
     }
 }
 
@@ -93,34 +99,22 @@ fn transparent_vec_to_vec() {
         TransparentStruct::new(GenericTransparentStruct::new(3)),
     ];
 
-    let mut transparent_struct_uninit = vec![
-        MaybeUninit::new(4),
-        MaybeUninit::new(5),
-        MaybeUninit::new(6),
-    ];
-    let mut len = MaybeUninit::new(0);
     let mut store = Default::default();
-    let output =
-        OutBoxedSlice::from_uninit_slice(Some(transparent_struct_uninit.as_mut()), &mut len);
+    let mut output = MaybeUninit::new(OutBoxedSlice::from_raw_parts(core::ptr::null_mut(), 0));
 
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            __vec_to_vec(transparent_struct_vec.clone().into_ffi(&mut store), output)
+            __vec_to_vec(
+                transparent_struct_vec.clone().into_ffi(&mut store),
+                output.as_mut_ptr()
+            )
         );
 
-        // NOTE: it's really inconvenient now to receive `Vec` from ffi
-        transparent_struct_uninit.truncate(len.assume_init() as usize);
-
-        for (transparent_struct, output) in transparent_struct_vec
-            .into_iter()
-            .zip(transparent_struct_uninit.into_iter())
-        {
-            assert_eq!(
-                Ok(transparent_struct),
-                TransparentStruct::try_from_ffi(output.assume_init(), &mut ())
-            );
-        }
+        let output = output.assume_init();
+        assert_eq!(output.len(), 3);
+        let vec = Vec::<TransparentStruct>::try_read_out(output).expect("Valid");
+        assert_eq!(transparent_struct_vec, vec);
     }
 }
 
@@ -193,6 +187,26 @@ fn transparent_method_borrow() {
         assert_eq!(
             Ok(&transparent_struct.payload),
             <&GenericTransparentStruct<_>>::try_from_ffi(output.assume_init(), &mut ())
+        );
+    }
+}
+
+#[test]
+fn transparent_method_borrow_mut() {
+    let mut transparent_struct = TransparentStruct::new(GenericTransparentStruct::new(42));
+    let mut output = MaybeUninit::new(core::ptr::null_mut());
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            TransparentStruct__payload_mut(
+                (&mut transparent_struct).into_ffi(&mut ()),
+                output.as_mut_ptr()
+            )
+        );
+        assert_eq!(
+            Ok(&mut transparent_struct.payload),
+            <&mut GenericTransparentStruct<_>>::try_from_ffi(output.assume_init(), &mut ())
         );
     }
 }

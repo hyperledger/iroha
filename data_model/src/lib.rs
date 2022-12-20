@@ -557,6 +557,7 @@ pub enum Value {
     FfiType,
     IntoSchema,
 )]
+#[ffi_type(opaque)]
 pub enum NumericValue {
     /// `u32` value
     U32(u32),

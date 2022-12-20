@@ -2,7 +2,10 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Ident;
 
-use crate::impl_visitor::{ffi_output_arg, Arg, FnDescriptor};
+use crate::{
+    impl_visitor::{ffi_output_arg, Arg, FnDescriptor},
+    util::gen_resolve_type,
+};
 
 pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_fn_name(fn_descriptor);
@@ -120,7 +123,7 @@ fn gen_input_arg(arg: &Arg) -> TokenStream {
 
 fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
     let (arg_name, arg_type) = (arg.name(), arg.src_type_resolved());
-    quote! { #arg_name: <#arg_type as iroha_ffi::FfiOutPtr>::OutPtr }
+    quote! { #arg_name: *mut <#arg_type as iroha_ffi::FfiOutPtr>::OutPtr }
 }
 
 fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
@@ -185,16 +188,16 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 }
 
 fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
-    match &fn_descriptor.output_arg {
-        Some(out_arg) => {
+    fn_descriptor.output_arg.as_ref().map_or_else(
+        || quote! {},
+        |out_arg| {
             let (arg_name, arg_type) = (out_arg.name(), out_arg.src_type_resolved());
-            let output_arg_conversion = crate::util::gen_arg_src_to_ffi(out_arg, true);
+            let resolve_impl_trait = gen_resolve_type(out_arg, true);
 
             quote! {
-                #output_arg_conversion
-                <<#arg_type as iroha_ffi::FfiOutPtr>::OutPtr as iroha_ffi::OutPtrOf<_>>::write(__out_ptr, #arg_name)?;
+                #resolve_impl_trait
+                <#arg_type as iroha_ffi::FfiOutPtrWrite>::write_out(#arg_name, __out_ptr);
             }
-        }
-        None => quote! {},
-    }
+        },
+    )
 }
