@@ -13,7 +13,7 @@
 
 use std::{
     fmt,
-    fs::{read as read_file, File},
+    fs::{self, read as read_file},
     io::stdin,
     str::FromStr,
     time::Duration,
@@ -21,7 +21,7 @@ use std::{
 
 use clap::StructOpt;
 use color_eyre::{
-    eyre::{Error, WrapErr},
+    eyre::{ContextCompat as _, Error, WrapErr},
     Result,
 };
 use dialoguer::Confirm;
@@ -48,8 +48,8 @@ impl FromStr for Metadata {
         }
         let err_msg = format!("Failed to open the metadata file {}.", &file);
         let deser_err_msg = format!("Failed to deserialize metadata from file: {}", &file);
-        let file = File::open(file).wrap_err(err_msg)?;
-        let metadata: UnlimitedMetadata = serde_json::from_reader(file).wrap_err(deser_err_msg)?;
+        let content = fs::read_to_string(file).wrap_err(err_msg)?;
+        let metadata: UnlimitedMetadata = json5::from_str(&content).wrap_err(deser_err_msg)?;
         Ok(Self(metadata))
     }
 }
@@ -63,8 +63,8 @@ impl FromStr for Configuration {
     fn from_str(file: &str) -> Result<Self> {
         let deser_err_msg = format!("Failed to decode config file {} ", &file);
         let err_msg = format!("Failed to open config file {}", &file);
-        let file = File::open(file).wrap_err(err_msg)?;
-        let cfg = serde_json::from_reader(file).wrap_err(deser_err_msg)?;
+        let content = fs::read_to_string(file).wrap_err(err_msg)?;
+        let cfg = json5::from_str(&content).wrap_err(deser_err_msg)?;
         Ok(Self(cfg))
     }
 }
@@ -106,7 +106,7 @@ pub enum Subcommand {
     Wasm(wasm::Args),
     /// The subcommand related to block streaming
     Blocks(blocks::Args),
-    /// The subcommand related to multi-instructions as Json
+    /// The subcommand related to multi-instructions as Json or Json5
     Json(json::Args),
 }
 
@@ -147,7 +147,16 @@ fn main() -> Result<()> {
     let config = if let Some(config) = config_opt {
         config
     } else {
-        Configuration::from_str("config.json")?
+        let config_path = iroha::ConfigPath::new("config").with_preconfigured_extensions();
+        #[allow(clippy::expect_used)]
+        Configuration::from_str(
+            config_path
+                .first_existing_path()
+                .wrap_err("Configuration file does not exist")?
+                .as_ref()
+                .to_str()
+                .expect("Default config path is a valid UTF-8 string, qed."),
+        )?
     };
     let Configuration(config) = config;
     println!(
@@ -157,7 +166,7 @@ fn main() -> Result<()> {
     #[cfg(debug_assertions)]
     eprintln!(
         "{}",
-        &serde_json::to_string(&config).wrap_err("Failed to serialize configuration.")?
+        &json5::to_string(&config).wrap_err("Failed to serialize configuration.")?
     );
     #[cfg(not(debug_assertions))]
     eprintln!("This is a release build, debug information omitted from messages");
@@ -317,7 +326,7 @@ mod domain {
         /// Domain name as double-quoted string
         #[structopt(short, long)]
         pub id: DomainId,
-        /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -356,7 +365,7 @@ mod domain {
 }
 
 mod account {
-    use std::{fmt::Debug, fs::File};
+    use std::fmt::Debug;
 
     use iroha_client::client;
 
@@ -440,9 +449,8 @@ mod account {
             let err_msg = format!("Failed to open the signature condition file {}", &s);
             let deser_err_msg =
                 format!("Failed to deserialize signature condition from file {}", &s);
-            let file = File::open(s).wrap_err(err_msg)?;
-            let condition: Box<Expression> =
-                serde_json::from_reader(file).wrap_err(deser_err_msg)?;
+            let content = fs::read_to_string(s).wrap_err(err_msg)?;
+            let condition: Box<Expression> = json5::from_str(&content).wrap_err(deser_err_msg)?;
             Ok(Self(SignatureCheckCondition(EvaluatesTo::new_unchecked(
                 condition,
             ))))
@@ -454,7 +462,7 @@ mod account {
     pub struct SignatureCondition {
         /// Signature condition file
         pub condition: Signature,
-        /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -498,10 +506,10 @@ mod account {
         /// Account id
         #[structopt(short, long)]
         pub id: <Account as Identifiable>::Id,
-        /// The JSON file with a permission token
+        /// The JSON/JSON5 file with a permission token
         #[structopt(short, long)]
         pub permission: Permission,
-        /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -514,13 +522,12 @@ mod account {
         type Err = Error;
 
         fn from_str(s: &str) -> Result<Self> {
-            let file = File::open(s)
-                .wrap_err(format!("Failed to open the permission token file {}", &s))?;
-            let permission_token: PermissionToken =
-                serde_json::from_reader(file).wrap_err(format!(
-                    "Failed to deserialize the permission token from file {}",
-                    &s
-                ))?;
+            let content = fs::read_to_string(s)
+                .wrap_err(format!("Failed to read the permission token file {}", &s))?;
+            let permission_token: PermissionToken = json5::from_str(&content).wrap_err(format!(
+                "Failed to deserialize the permission token from file {}",
+                &s
+            ))?;
             Ok(Self(permission_token))
         }
     }
@@ -600,7 +607,7 @@ mod asset {
         /// Value type stored in asset
         #[structopt(short, long)]
         pub value_type: AssetValueType,
-        /// /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -639,7 +646,7 @@ mod asset {
         /// Quantity to mint
         #[structopt(short, long)]
         pub quantity: u32,
-        /// /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -677,7 +684,7 @@ mod asset {
         /// Quantity of asset as number
         #[structopt(short, long)]
         pub quantity: u32,
-        /// /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -777,7 +784,7 @@ mod peer {
         /// Public key of the peer
         #[structopt(short, long)]
         pub key: PublicKey,
-        /// /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -803,7 +810,7 @@ mod peer {
         /// Public key of the peer
         #[structopt(short, long)]
         pub key: PublicKey,
-        /// /// The JSON file with key-value metadata pairs
+        /// The JSON/JSON5 file with key-value metadata pairs
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
@@ -858,7 +865,7 @@ mod wasm {
 }
 
 mod json {
-    use std::io::BufReader;
+    use std::io::{BufReader, Read as _};
 
     use super::*;
 
@@ -868,8 +875,12 @@ mod json {
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let reader = BufReader::new(stdin());
-            let instructions: Vec<Instruction> = serde_json::from_reader(reader)?;
+            let mut reader = BufReader::new(stdin());
+            let mut raw_content = Vec::new();
+            reader.read_to_end(&mut raw_content)?;
+
+            let content = String::from_utf8(raw_content)?;
+            let instructions: Vec<Instruction> = json5::from_str(&content)?;
             submit(instructions, cfg, UnlimitedMetadata::new())
                 .wrap_err("Failed to submit parsed instructions")
         }

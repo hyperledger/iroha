@@ -84,12 +84,12 @@ fn print_help() {
     println!("pass `--version` or `-V` to print version information");
     println!();
     println!("Iroha 2 is configured via environment variables:");
-    println!("    IROHA2_CONFIG_PATH is the location of your `config.json`");
-    println!("    IROHA2_GENESIS_PATH is the location of `genesis.json`");
+    println!("    IROHA2_CONFIG_PATH is the location of your `config.json` or `config.json5`");
+    println!("    IROHA2_GENESIS_PATH is the location of `genesis.json` or `genesis.json5`");
     println!("If either of these is not provided, Iroha checks the current directory.");
     println!(
-        "Additionally, in case of absence of both IROHA2_CONFIG_PATH and `config.json`
-in the current directory, all the variables from `config.json` should be set via the environment
+        "Additionally, in case of absence of both IROHA2_CONFIG_PATH and `config.json`/`config.json5`
+in the current directory, all the variables from `config.json`/`config.json5` should be set via the environment
 as follows:"
     );
     println!("    IROHA_TORII is the torii gateway config");

@@ -58,22 +58,15 @@ pub struct Arguments {
 
 const CONFIGURATION_PATH: &str = "config";
 const GENESIS_PATH: &str = "genesis";
-const POSSIBLE_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
+const PRECONFIGURED_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 const SUBMIT_GENESIS: bool = false;
 
 impl Default for Arguments {
     fn default() -> Self {
-        let extensions: Vec<_> = POSSIBLE_CONFIG_EXTENSIONS
-            .into_iter()
-            .map(ToOwned::to_owned)
-            .collect();
-
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(
-                ConfigPath::new(GENESIS_PATH).with_possible_extensions(extensions.clone()),
-            ),
-            config_path: ConfigPath::new(CONFIGURATION_PATH).with_possible_extensions(extensions),
+            genesis_path: Some(ConfigPath::new(GENESIS_PATH).with_preconfigured_extensions()),
+            config_path: ConfigPath::new(CONFIGURATION_PATH).with_preconfigured_extensions(),
         }
     }
 }
@@ -84,7 +77,7 @@ impl Default for Arguments {
 #[derive(Debug, Clone)]
 pub struct ConfigPath {
     path: PathBuf,
-    possible_extensions: Vec<String>,
+    with_preconfigured_extensions: bool,
 }
 
 impl ConfigPath {
@@ -93,11 +86,11 @@ impl ConfigPath {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            possible_extensions: Vec::new(),
+            with_preconfigured_extensions: false,
         }
     }
 
-    /// Add possible extensions to the config path.
+    /// Add pre-configured possible extensions to the config path.
     ///
     /// # Note
     ///
@@ -106,33 +99,35 @@ impl ConfigPath {
     /// Only `path` with `possible_extensions` will be used in other functions like
     /// [`ConfigPath::exists()`].
     #[must_use]
-    pub fn with_possible_extensions(self, possible_extensions: Vec<String>) -> Self {
+    pub fn with_preconfigured_extensions(self) -> Self {
         Self {
-            possible_extensions,
+            with_preconfigured_extensions: true,
             ..self
         }
     }
 
     /// Try to get first existing path applying possible extensions if there are some.
     pub fn first_existing_path(&self) -> Option<Cow<PathBuf>> {
-        if self.possible_extensions.is_empty() {
-            self.path.exists().then_some(Cow::Borrowed(&self.path))
+        if self.with_preconfigured_extensions {
+            PRECONFIGURED_CONFIG_EXTENSIONS
+                .iter()
+                .find_map(|extension| {
+                    let path = self.path.with_extension(extension);
+                    path.exists().then_some(Cow::Owned(path))
+                })
         } else {
-            self.possible_extensions.iter().find_map(|extension| {
-                let path = self.path.with_extension(extension);
-                path.exists().then_some(Cow::Owned(path))
-            })
+            self.path.exists().then_some(Cow::Borrowed(&self.path))
         }
     }
 
     /// Check if config path exists applying possible extensions if there are some.
     pub fn exists(&self) -> bool {
-        if self.possible_extensions.is_empty() {
-            self.path.exists()
-        } else {
-            self.possible_extensions
+        if self.with_preconfigured_extensions {
+            PRECONFIGURED_CONFIG_EXTENSIONS
                 .iter()
                 .any(|extension| self.path.with_extension(extension).exists())
+        } else {
+            self.path.exists()
         }
     }
 }
