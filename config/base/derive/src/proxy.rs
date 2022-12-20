@@ -96,9 +96,12 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
             let inner = if is_string {
                 quote! { Ok(var) }
             } else if as_str_attr {
-                quote! { serde_json::from_value(var.into()).map_err(#err_variant) }
+                quote! {{
+                    let value: ::serde_json::Value = var.into();
+                    ::json5::from_str(&value.to_string()).map_err(#err_variant)
+                }}
             } else {
-                quote! { serde_json::from_str(&var).map_err(#err_variant) }
+                quote! { ::json5::from_str(&var).map_err(#err_variant) }
             };
             let mut set_field = quote! {
                 let #ident = std::env::var(#field_env)
@@ -165,7 +168,7 @@ pub fn impl_load_from_disk(ast: &StructWithFields) -> TokenStream {
                     })
                     .and_then(
                         |s| -> ::core::result::Result<Self, #error_ty> {
-                            serde_json::from_str(&s).map_err(#serde_err_variant)
+                            json5::from_str(&s).map_err(#serde_err_variant)
                         },
                     )
                     .map_or(#none_proxy, ::std::convert::identity);
