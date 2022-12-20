@@ -8,10 +8,15 @@ mod wasm {
     use core::{mem::ManuallyDrop, slice};
 
     use crate::{
-        repr_c::{COutPtr, CType, CTypeConvert},
+        repr_c::{
+            read_non_local, write_non_local, COutPtr, COutPtrRead, COutPtrWrite, CType,
+            CTypeConvert, CWrapperOutput,
+        },
         slice::{OutBoxedSlice, SliceMut, SliceRef},
         FfiReturn, Result,
     };
+
+    crate::decl_ffi_fn! { dealloc }
 
     /// Marker for an integer primitive type that is not recognized by the `WebAssembly`.
     /// This struct is meant only to be used internally, i.e. there are no constructors.
@@ -72,6 +77,23 @@ mod wasm {
                 }
             }
 
+            impl CWrapperOutput<NonWasmIntPrimitive> for $src {
+                type ReturnType = Self;
+            }
+            impl COutPtr<NonWasmIntPrimitive> for $src {
+                type OutPtr = $dst;
+            }
+            impl COutPtrWrite<NonWasmIntPrimitive> for $src {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    write_non_local::<_, NonWasmIntPrimitive>(self, out_ptr)
+                }
+            }
+            impl COutPtrRead<NonWasmIntPrimitive> for $src {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                    read_non_local::<_, NonWasmIntPrimitive>(out_ptr)
+                }
+            }
+
             impl CType<Box<NonWasmIntPrimitive>> for Box<$src> {
                 type ReprC = *mut $src;
             }
@@ -92,6 +114,25 @@ mod wasm {
                 }
             }
 
+            impl CWrapperOutput<Box<NonWasmIntPrimitive>> for Box<$src> {
+                type ReturnType = Self;
+            }
+            impl COutPtr<Box<NonWasmIntPrimitive>> for Box<$src> {
+                type OutPtr = $src;
+            }
+            impl COutPtrWrite<Box<NonWasmIntPrimitive>> for Box<$src> {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    let mut store = Box::default();
+                    CTypeConvert::<Box<NonWasmIntPrimitive>, _>::into_repr_c(self, &mut store);
+                    out_ptr.write(*store);
+                }
+            }
+            impl COutPtrRead<Box<NonWasmIntPrimitive>> for Box<$src> {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                    CTypeConvert::<NonWasmIntPrimitive, _>::try_from_repr_c(out_ptr as $dst, &mut ()).map(Box::new)
+                }
+            }
+
             impl CType<&[NonWasmIntPrimitive]> for &[$src] {
                 type ReprC = SliceRef<$src>;
             }
@@ -106,6 +147,23 @@ mod wasm {
                 unsafe fn try_from_repr_c(source: SliceRef<$src>, _: &mut ()) -> Result<Self> {
                     let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
                     Ok(slice::from_raw_parts(slice.as_ptr().cast(), slice.len()))
+                }
+            }
+
+            impl CWrapperOutput<&[NonWasmIntPrimitive]> for &[$src] {
+                type ReturnType = Self;
+            }
+            impl COutPtr<&[NonWasmIntPrimitive]> for &[$src] {
+                type OutPtr = SliceRef<$src>;
+            }
+            impl COutPtrWrite<&[NonWasmIntPrimitive]> for &[$src] {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    write_non_local::<_, &[NonWasmIntPrimitive]>(self, out_ptr)
+                }
+            }
+            impl COutPtrRead<&[NonWasmIntPrimitive]> for &[$src] {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                    read_non_local::<_, &[NonWasmIntPrimitive]>(out_ptr)
                 }
             }
 
@@ -126,6 +184,23 @@ mod wasm {
                 }
             }
 
+            impl CWrapperOutput<&mut [NonWasmIntPrimitive]> for &mut [$src] {
+                type ReturnType = Self;
+            }
+            impl COutPtr<&mut [NonWasmIntPrimitive]> for &mut [$src] {
+                type OutPtr = SliceMut<$src>;
+            }
+            impl COutPtrWrite<&mut [NonWasmIntPrimitive]> for &mut [$src] {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    write_non_local::<_, &mut [NonWasmIntPrimitive]>(self, out_ptr)
+                }
+            }
+            impl COutPtrRead<&mut [NonWasmIntPrimitive]> for &mut [$src] {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                    read_non_local::<_, &mut [NonWasmIntPrimitive]>(out_ptr)
+                }
+            }
+
             impl CType<Vec<NonWasmIntPrimitive>> for Vec<$src> {
                 type ReprC = SliceMut<$src>;
             }
@@ -135,10 +210,36 @@ mod wasm {
 
                 fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<$src> {
                     *store = self;
-                    SliceMut::from_slice(store)
+                    SliceMut::from_slice(Some(store))
                 }
                 unsafe fn try_from_repr_c(source: SliceMut<$src>, _: &mut ()) -> Result<Self> {
                     source.into_rust().ok_or(FfiReturn::ArgIsNull).map(|slice| slice.to_vec())
+                }
+            }
+
+            impl CWrapperOutput<Vec<NonWasmIntPrimitive>> for Vec<$src> {
+                type ReturnType = Self;
+            }
+            impl COutPtr<Vec<NonWasmIntPrimitive>> for Vec<$src> {
+                type OutPtr = OutBoxedSlice<$src>;
+            }
+            impl COutPtrWrite<Vec<NonWasmIntPrimitive>> for Vec<$src> {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    let mut store = Vec::default();
+                    CTypeConvert::<Vec<NonWasmIntPrimitive>, _>::into_repr_c(self, &mut store);
+                    out_ptr.write(OutBoxedSlice::from_vec(Some(store)));
+                }
+            }
+            impl COutPtrRead<Vec<NonWasmIntPrimitive>> for Vec<$src> {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                    let slice = SliceMut::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
+                    let res = CTypeConvert::<Vec<NonWasmIntPrimitive>, _>::try_from_repr_c(slice, &mut ());
+
+                    if !out_ptr.deallocate() {
+                        return Err(FfiReturn::TrapRepresentation)
+                    }
+
+                    res
                 }
             }
 
@@ -170,23 +271,21 @@ mod wasm {
                 }
             }
 
-            impl COutPtr<NonWasmIntPrimitive> for $src {
-                type OutPtr = *mut $dst;
-            }
-            impl COutPtr<Box<NonWasmIntPrimitive>> for Box<$src> {
-                type OutPtr = *mut $src;
-            }
-            impl COutPtr<&[NonWasmIntPrimitive]> for &[$src] {
-                type OutPtr = *mut SliceRef<$src>;
-            }
-            impl COutPtr<&mut [NonWasmIntPrimitive]> for &mut [$src] {
-                type OutPtr = *mut SliceMut<$src>;
-            }
-            impl COutPtr<Vec<NonWasmIntPrimitive>> for Vec<$src> {
-                type OutPtr = OutBoxedSlice<$src>;
+            impl<const N: usize> CWrapperOutput<[NonWasmIntPrimitive; N]> for [$src; N] {
+                type ReturnType = Self;
             }
             impl<const N: usize> COutPtr<[NonWasmIntPrimitive; N]> for [$src; N] {
-                type OutPtr = *mut [$src; N];
+                type OutPtr = Self;
+            }
+            impl<const N: usize> COutPtrWrite<[NonWasmIntPrimitive; N]> for [$src; N] {
+                unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                    write_non_local::<_, [NonWasmIntPrimitive; N]>(self, out_ptr)
+                }
+            }
+            impl<const N: usize> COutPtrRead<[NonWasmIntPrimitive; N]> for [$src; N] {
+                unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                    read_non_local::<_, [NonWasmIntPrimitive; N]>(out_ptr)
+                }
             }
 
             // SAFETY: Conversion of non wasm primitive doesn't use store
@@ -210,7 +309,7 @@ mod wasm {
 macro_rules! fieldless_enum_derive {
     ( $src:ty => $dst:ty: {$niche_val:expr}: $validity_fn:expr ) => {
         impl $crate::option::Niche for $src {
-            const NICHE_VALUE: Self::ReprC = $niche_val;
+            const NICHE_VALUE: <$dst as $crate::FfiType>::ReprC = $niche_val;
         }
 
         $crate::ffi_type! {unsafe impl Transparent for $src[$dst] validated with {$validity_fn} }

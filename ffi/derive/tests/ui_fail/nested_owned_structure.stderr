@@ -1,7 +1,7 @@
 error[E0277]: the trait bound `Vec<FfiStruct>: NonLocal<Vec<Opaque>>` is not satisfied
-  --> tests/ui_fail/nested_owned_structure.rs:12:1
+  --> tests/ui_fail/nested_owned_structure.rs:10:1
    |
-12 | #[ffi_export]
+10 | #[ffi_export]
    | ^^^^^^^^^^^^^ the trait `NonLocal<Vec<Opaque>>` is not implemented for `Vec<FfiStruct>`
    |
    = help: the trait `NonLocal<Vec<Transparent>>` is implemented for `Vec<R>`

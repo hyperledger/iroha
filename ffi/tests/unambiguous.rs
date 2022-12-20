@@ -48,8 +48,6 @@ impl AmbiguousY for FfiStruct {
 }
 
 #[test]
-// False positive
-#[allow(clippy::let_unit_value)]
 fn unambiguous_method_call() {
     let mut output = MaybeUninit::new(Ambiguous::None as _);
 
