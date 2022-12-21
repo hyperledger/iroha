@@ -55,6 +55,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .find(|asset| asset.id().definition_id == asset_definition_id)
             .expect("Asset not found");
         assert_eq!(AssetValue::Quantity(quantity), *asset.value());
+        peer.stop();
     }
 
     {

@@ -59,7 +59,9 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
             .unwrap();
     }
     let block: VersionedCommittedBlock = block.commit_unchecked().into();
-    let mut block_store = BlockStore::new(dir.path());
+    let mut block_store = BlockStore::new(dir.path())
+        .lock()
+        .expect("Failed to lock store");
     block_store.create_files_if_they_do_not_exist().unwrap();
 
     let serialized_block: Vec<u8> = block.encode_versioned();
@@ -69,7 +71,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
 
     let metadata = fs::metadata(dir.path().join("blocks.data")).await.unwrap();
     let file_size = Byte::from_bytes(u128::from(metadata.len())).get_appropriate_unit(false);
-    println!("For {} validators: {}", n_validators, file_size);
+    println!("For {n_validators} validators: {file_size}");
 }
 
 async fn measure_block_size_async() {
