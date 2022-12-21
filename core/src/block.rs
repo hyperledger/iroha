@@ -1136,7 +1136,12 @@ pub mod stream {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use std::{str::FromStr, sync::Arc};
+
+    use iroha_data_model::prelude::*;
+
     use super::*;
+    use crate::kura::Kura;
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -1144,5 +1149,52 @@ mod tests {
         let committed_block = valid_block.clone().commit_unchecked();
 
         assert_eq!(*valid_block.hash(), *committed_block.hash())
+    }
+
+    #[test]
+    fn should_reject_due_to_repetition() {
+        // Predefined world state
+        let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let alice_keys = KeyPair::generate().expect("Valid");
+        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build();
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let mut domain = Domain::new(domain_id).build();
+        assert!(domain.add_account(account).is_none());
+        let world = World::with([domain], Vec::new());
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world, kura);
+
+        // Creating an instruction
+        let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+        let create_asset_definition: Instruction =
+            RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into();
+
+        // Making two transactions that have the same instruction
+        let transaction_limits = TransactionLimits {
+            max_instruction_number: 100,
+            max_wasm_size_bytes: 0,
+        };
+        let transaction_validator = TransactionValidator::new(
+            transaction_limits,
+            Arc::new(AllowAll::new()),
+            Arc::new(AllowAll::new()),
+        );
+        let tx = Transaction::new(alice_id, [create_asset_definition].into(), 4000)
+            .sign(alice_keys)
+            .expect("Valid");
+        let tx = crate::VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
+            .expect("Valid");
+
+        // Creating a block of two identical transactions and validating it
+        let transactions = vec![tx.clone(), tx];
+        let pending_block = PendingBlock::new(transactions, Vec::new());
+        let chained_block = pending_block.chain_first();
+        let valid_block = chained_block.validate(&transaction_validator, &wsv);
+
+        // The first transaction should be confirmed
+        assert_eq!(valid_block.transactions.len(), 1);
+
+        // The second transaction should be rejected
+        assert_eq!(valid_block.rejected_transactions.len(), 1);
     }
 }
