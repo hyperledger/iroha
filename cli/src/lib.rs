@@ -9,7 +9,7 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::{borrow::Cow, convert::Infallible, panic, path::PathBuf, str::FromStr, sync::Arc};
+use std::{panic, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use eyre::ContextCompat;
@@ -17,6 +17,7 @@ use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
+    path::Path as ConfigPath,
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
@@ -58,87 +59,25 @@ pub struct Arguments {
 
 const CONFIGURATION_PATH: &str = "config";
 const GENESIS_PATH: &str = "genesis";
-const PRECONFIGURED_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 const SUBMIT_GENESIS: bool = false;
 
 impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(ConfigPath::new(GENESIS_PATH).with_preconfigured_extensions()),
-            config_path: ConfigPath::new(CONFIGURATION_PATH).with_preconfigured_extensions(),
+            genesis_path: Some(ConfigPath::default(GENESIS_PATH).expect(&format!(
+                "Default genesis path `{}` has extension, but it should not have one.",
+                GENESIS_PATH
+            ))),
+            config_path: ConfigPath::default(CONFIGURATION_PATH).expect(&format!(
+                "Default config path `{}` has extension, but it should not have one.",
+                GENESIS_PATH
+            )),
         }
     }
 }
 
-/// Wrapper around path to config file (i.e. config.json, genesis.json).
-///
-/// Provides abstraction above file extension.
-#[derive(Debug, Clone)]
-pub struct ConfigPath {
-    path: PathBuf,
-    with_preconfigured_extensions: bool,
-}
-
-impl ConfigPath {
-    /// Construct new [`ConfigPath`] from exact `path`
-    #[inline]
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            with_preconfigured_extensions: false,
-        }
-    }
-
-    /// Add pre-configured possible extensions to the config path.
-    ///
-    /// # Note
-    ///
-    /// After using this function simple `path` provided in [`ConfigPath::new()`] will not be
-    /// counted as a valid path.
-    /// Only `path` with `possible_extensions` will be used in other functions like
-    /// [`ConfigPath::exists()`].
-    #[must_use]
-    pub fn with_preconfigured_extensions(self) -> Self {
-        Self {
-            with_preconfigured_extensions: true,
-            ..self
-        }
-    }
-
-    /// Try to get first existing path applying possible extensions if there are some.
-    pub fn first_existing_path(&self) -> Option<Cow<PathBuf>> {
-        if self.with_preconfigured_extensions {
-            PRECONFIGURED_CONFIG_EXTENSIONS
-                .iter()
-                .find_map(|extension| {
-                    let path = self.path.with_extension(extension);
-                    path.exists().then_some(Cow::Owned(path))
-                })
-        } else {
-            self.path.exists().then_some(Cow::Borrowed(&self.path))
-        }
-    }
-
-    /// Check if config path exists applying possible extensions if there are some.
-    pub fn exists(&self) -> bool {
-        if self.with_preconfigured_extensions {
-            PRECONFIGURED_CONFIG_EXTENSIONS
-                .iter()
-                .any(|extension| self.path.with_extension(extension).exists())
-        } else {
-            self.path.exists()
-        }
-    }
-}
-
-impl FromStr for ConfigPath {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::new(s))
-    }
-}
+pub mod config {}
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
@@ -250,7 +189,7 @@ impl Iroha {
                 RawGenesisBlock::from_path(
                     genesis_path
                         .first_existing_path()
-                        .wrap_err("Genesis configuration file does not exist")?
+                        .wrap_err("Genesis block file doesn't exist")?
                         .as_ref(),
                 )?,
                 Some(&config.genesis),

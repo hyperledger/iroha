@@ -1928,7 +1928,6 @@ dependencies = [
  "clap 3.2.16",
  "color-eyre",
  "dialoguer",
- "iroha",
  "iroha_client",
  "iroha_config",
  "iroha_crypto",

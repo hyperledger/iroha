@@ -10,6 +10,7 @@ pub mod iroha;
 pub mod kura;
 pub mod logger;
 pub mod network;
+pub mod path;
 pub mod queue;
 pub mod sumeragi;
 pub mod telemetry;

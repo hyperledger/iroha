@@ -26,7 +26,7 @@ use color_eyre::{
 };
 use dialoguer::Confirm;
 use iroha_client::client::Client;
-use iroha_config::client::Configuration as ClientConfiguration;
+use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 
@@ -147,15 +147,16 @@ fn main() -> Result<()> {
     let config = if let Some(config) = config_opt {
         config
     } else {
-        let config_path = iroha::ConfigPath::new("config").with_preconfigured_extensions();
+        let config_path = ConfigPath::default("config")
+            .expect("Never fails, because default `config` path has no extensions");
         #[allow(clippy::expect_used)]
         Configuration::from_str(
             config_path
                 .first_existing_path()
                 .wrap_err("Configuration file does not exist")?
                 .as_ref()
-                .to_str()
-                .expect("Default config path is a valid UTF-8 string, qed."),
+                .to_string_lossy()
+                .as_ref(),
         )?
     };
     let Configuration(config) = config;

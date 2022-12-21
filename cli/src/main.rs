@@ -1,8 +1,7 @@
 //! Iroha peer command-line interface.
 
-use core::str::FromStr;
-
 use eyre::WrapErr as _;
+use iroha_config::path::Path as ConfigPath;
 use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 
@@ -22,7 +21,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     if std::env::args().any(|a| is_submit(&a)) {
         args.submit_genesis = true;
         if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
-            args.genesis_path = Some(iroha::ConfigPath::from_str(&genesis_path)?);
+            args.genesis_path = Some(ConfigPath::user_provided(&genesis_path)?);
         }
     } else {
         args.genesis_path = None;
@@ -36,7 +35,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     }
 
     if let Ok(config_path) = std::env::var("IROHA2_CONFIG_PATH") {
-        args.config_path = iroha::ConfigPath::from_str(&config_path)?;
+        args.config_path = ConfigPath::user_provided(&config_path)?;
     }
     if !args.config_path.exists() {
         // Require all the fields defined in default `config.json`
