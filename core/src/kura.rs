@@ -32,7 +32,7 @@ pub struct Kura {
     /// The mode of initialisation of [`Kura`].
     mode: Mode,
     /// The block storage
-    block_store: Mutex<Box<dyn BlockStoreTrait + Send>>,
+    block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
     #[allow(clippy::type_complexity)]
     block_data: Mutex<
@@ -59,7 +59,7 @@ impl Kura {
         block_store_path: &Path,
         debug_output_new_blocks: bool,
     ) -> Result<Arc<Self>> {
-        let mut block_store = StdFileBlockStore::new(block_store_path);
+        let mut block_store = BlockStore::new(block_store_path);
         block_store.create_files_if_they_do_not_exist()?;
 
         let block_plain_text_path = debug_output_new_blocks.then(|| {
@@ -70,7 +70,7 @@ impl Kura {
 
         let kura = Arc::new(Self {
             mode,
-            block_store: Mutex::new(Box::new(block_store)),
+            block_store: Mutex::new(block_store),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path,
         });
@@ -81,10 +81,10 @@ impl Kura {
     /// Create a kura instance that doesn't write to disk. Instead it serves as a handler
     /// for in-memory blocks only.
     pub fn blank_kura_for_testing() -> Arc<Kura> {
-        let block_store = StdFileBlockStore::new(Path::new(""));
+        let block_store = BlockStore::new(Path::new(""));
         Arc::new(Self {
             mode: Mode::Strict,
-            block_store: Mutex::new(Box::new(block_store)),
+            block_store: Mutex::new(block_store),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
         })
@@ -339,156 +339,35 @@ impl Kura {
     }
 }
 
-/// The interface for the **block store**, which is where [Kura],
-/// the block storage subsystem, stores its blocks.
-///
-/// The [`BlockStoreTrait`] defines and implements functionality used by Kura
-/// for every platform. The default implementation is `StdFileBlockStore`,
-/// which uses `std::fs`.
-pub trait BlockStoreTrait: Debug {
-    /// Read a series of block indices from the block index file and
-    /// attempt to fill all of `dest_buffer`.
-    ///
-    /// # Errors
-    /// IO Error.
-    fn read_block_indices(
-        &self,
-        start_block_height: u64,
-        dest_buffer: &mut [(u64, u64)],
-    ) -> Result<()>;
-
-    /// Write the index of a single block at the specified `block_height`.
-    /// If `block_height` is beyond the end of the index file, attempt to
-    /// extend the index file.
-    ///
-    /// # Errors
-    /// IO Error.
-    fn write_block_index(&mut self, block_height: u64, start: u64, length: u64) -> Result<()>;
-
-    /// Get the number of indices in the index file, which is calculated as the size of
-    /// the index file in bytes divided by 16.
-    ///
-    /// # Errors
-    /// IO Error.
-    ///
-    /// The most common reason this function fails is
-    /// that you did not call `create_files_if_they_do_not_exist`.
-    ///
-    /// Note that if there is an error, you can be quite sure all other
-    /// read and write operations will also fail.
-    fn read_index_count(&self) -> Result<u64>;
-
-    /// Change the size of the index file (the value returned by
-    /// `read_index_count`).
-    ///
-    /// # Errors
-    /// IO Error.
-    ///
-    /// The most common reason this function fails is
-    /// that you did not call `create_files_if_they_do_not_exist`.
-    ///
-    /// Note that if there is an error, you can be quite sure all other
-    /// read and write operations will also fail.
-    fn write_index_count(&mut self, new_count: u64) -> Result<()>;
-
-    /// Read block data starting from the `start_location_in_data_file` in data file
-    /// in order to fill `dest_buffer`.
-    ///
-    /// # Errors
-    /// IO Error.
-    fn read_block_data(
-        &self,
-        start_location_in_data_file: u64,
-        dest_buffer: &mut [u8],
-    ) -> Result<()>;
-
-    /// Write `block_data` into the data file starting at
-    /// `start_location_in_data_file`. Extend the file if
-    /// necessary.
-    ///
-    /// # Errors
-    /// IO Error.
-    fn write_block_data(
-        &mut self,
-        start_location_in_data_file: u64,
-        block_data: &[u8],
-    ) -> Result<()>;
-
-    /// Create the index and data files if they do not
-    /// already exist.
-    ///
-    /// # Errors
-    /// Fails if the any of the files don't exist
-    /// and couldn't be created.
-    fn create_files_if_they_do_not_exist(&mut self) -> Result<()>;
-
-    // Above are the platform dependent functions.
-    // Below are the platform independent functions that use the above functions.
-
-    /// Call `read_block_indices` with a buffer of one.
-    ///
-    /// # Errors
-    /// IO Error.
-    fn read_block_index(&self, block_height: u64) -> Result<(u64, u64)> {
-        let mut index = (0, 0);
-        self.read_block_indices(block_height, std::slice::from_mut(&mut index))?;
-        Ok(index)
-    }
-
-    /// Append `block_data` to this block store. First writing
-    /// the data to the data file and then creating a new index
-    /// for it in the index file.
-    ///
-    /// # Errors
-    /// Fails if any of the required platform specific functions
-    /// fail.
-    fn append_block_to_chain(&mut self, block_data: &[u8]) -> Result<()> {
-        let new_block_height = self.read_index_count()?;
-        let start_location_in_data_file = if new_block_height == 0 {
-            0
-        } else {
-            let (ultimate_block_start, ultimate_block_len) =
-                self.read_block_index(new_block_height - 1)?;
-            ultimate_block_start + ultimate_block_len
-        };
-
-        self.write_block_data(start_location_in_data_file, block_data)?;
-        self.write_block_index(
-            new_block_height,
-            start_location_in_data_file,
-            block_data.len() as u64,
-        )?;
-
-        Ok(())
-    }
-}
-
 /// An implementation of a block store for Kura
 /// that uses `std::fs`, the default IO file in Rust.
 #[derive(Debug)]
-pub struct StdFileBlockStore {
+pub struct BlockStore {
     path_to_blockchain: PathBuf,
 }
 
-impl StdFileBlockStore {
+impl BlockStore {
     const INDEX_FILE_NAME: &'static str = "blocks.index";
     const DATA_FILE_NAME: &'static str = "blocks.data";
 
     /// Create a new block store in `path`.
     pub fn new(path: &Path) -> Self {
-        StdFileBlockStore {
+        BlockStore {
             path_to_blockchain: path.to_path_buf(),
         }
     }
-}
 
-impl BlockStoreTrait for StdFileBlockStore {
+    /// Read a series of block indices from the block index file and
+    /// attempt to fill all of `dest_buffer`.
+    ///
+    /// # Errors
+    /// IO Error.
     #[allow(
         clippy::needless_range_loop,
         clippy::unwrap_used,
         clippy::unwrap_in_result
     )]
-    fn read_block_indices(
+    pub fn read_block_indices(
         &self,
         start_block_height: u64,
         dest_buffer: &mut [(u64, u64)],
@@ -523,7 +402,23 @@ impl BlockStoreTrait for StdFileBlockStore {
         Ok(())
     }
 
-    fn write_block_index(&mut self, block_height: u64, start: u64, length: u64) -> Result<()> {
+    /// Call `read_block_indices` with a buffer of one.
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn read_block_index(&self, block_height: u64) -> Result<(u64, u64)> {
+        let mut index = (0, 0);
+        self.read_block_indices(block_height, std::slice::from_mut(&mut index))?;
+        Ok(index)
+    }
+
+    /// Write the index of a single block at the specified `block_height`.
+    /// If `block_height` is beyond the end of the index file, attempt to
+    /// extend the index file.
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn write_block_index(&mut self, block_height: u64, start: u64, length: u64) -> Result<()> {
         let mut index_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -540,8 +435,19 @@ impl BlockStoreTrait for StdFileBlockStore {
         Ok(())
     }
 
+    /// Get the number of indices in the index file, which is calculated as the size of
+    /// the index file in bytes divided by 16.
+    ///
+    /// # Errors
+    /// IO Error.
+    ///
+    /// The most common reason this function fails is
+    /// that you did not call `create_files_if_they_do_not_exist`.
+    ///
+    /// Note that if there is an error, you can be quite sure all other
+    /// read and write operations will also fail.
     #[allow(clippy::integer_division)]
-    fn read_index_count(&self) -> Result<u64> {
+    pub fn read_index_count(&self) -> Result<u64> {
         let index_file = std::fs::OpenOptions::new()
             .read(true)
             .open(self.path_to_blockchain.join(Self::INDEX_FILE_NAME))?;
@@ -549,7 +455,18 @@ impl BlockStoreTrait for StdFileBlockStore {
         // Each entry is 16 bytes.
     }
 
-    fn write_index_count(&mut self, new_count: u64) -> Result<()> {
+    /// Change the size of the index file (the value returned by
+    /// `read_index_count`).
+    ///
+    /// # Errors
+    /// IO Error.
+    ///
+    /// The most common reason this function fails is
+    /// that you did not call `create_files_if_they_do_not_exist`.
+    ///
+    /// Note that if there is an error, you can be quite sure all other
+    /// read and write operations will also fail.
+    pub fn write_index_count(&mut self, new_count: u64) -> Result<()> {
         let index_file = std::fs::OpenOptions::new()
             .write(true)
             .open(self.path_to_blockchain.join(Self::INDEX_FILE_NAME))?;
@@ -558,7 +475,12 @@ impl BlockStoreTrait for StdFileBlockStore {
         Ok(())
     }
 
-    fn read_block_data(
+    /// Read block data starting from the `start_location_in_data_file` in data file
+    /// in order to fill `dest_buffer`.
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn read_block_data(
         &self,
         start_location_in_data_file: u64,
         dest_buffer: &mut [u8],
@@ -571,7 +493,13 @@ impl BlockStoreTrait for StdFileBlockStore {
         Ok(())
     }
 
-    fn write_block_data(
+    /// Write `block_data` into the data file starting at
+    /// `start_location_in_data_file`. Extend the file if
+    /// necessary.
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn write_block_data(
         &mut self,
         start_location_in_data_file: u64,
         block_data: &[u8],
@@ -587,7 +515,13 @@ impl BlockStoreTrait for StdFileBlockStore {
         Ok(())
     }
 
-    fn create_files_if_they_do_not_exist(&mut self) -> Result<()> {
+    /// Create the index and data files if they do not
+    /// already exist.
+    ///
+    /// # Errors
+    /// Fails if the any of the files don't exist
+    /// and couldn't be created.
+    pub fn create_files_if_they_do_not_exist(&mut self) -> Result<()> {
         std::fs::create_dir_all(&self.path_to_blockchain)?;
         std::fs::OpenOptions::new()
             .write(true)
@@ -597,6 +531,33 @@ impl BlockStoreTrait for StdFileBlockStore {
             .write(true)
             .create(true)
             .open(self.path_to_blockchain.join(Self::DATA_FILE_NAME))?;
+        Ok(())
+    }
+
+    /// Append `block_data` to this block store. First writing
+    /// the data to the data file and then creating a new index
+    /// for it in the index file.
+    ///
+    /// # Errors
+    /// Fails if any of the required platform specific functions
+    /// fail.
+    pub fn append_block_to_chain(&mut self, block_data: &[u8]) -> Result<()> {
+        let new_block_height = self.read_index_count()?;
+        let start_location_in_data_file = if new_block_height == 0 {
+            0
+        } else {
+            let (ultimate_block_start, ultimate_block_len) =
+                self.read_block_index(new_block_height - 1)?;
+            ultimate_block_start + ultimate_block_len
+        };
+
+        self.write_block_data(start_location_in_data_file, block_data)?;
+        self.write_block_index(
+            new_block_height,
+            start_location_in_data_file,
+            block_data.len() as u64,
+        )?;
+
         Ok(())
     }
 }
@@ -631,7 +592,7 @@ mod tests {
     #[test]
     fn read_and_write_to_blockchain_index() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = StdFileBlockStore {
+        let mut block_store = BlockStore {
             path_to_blockchain: dir.path().to_path_buf(),
         };
         block_store.create_files_if_they_do_not_exist().unwrap();
@@ -668,7 +629,7 @@ mod tests {
     #[test]
     fn read_and_write_to_blockchain_data_store() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = StdFileBlockStore {
+        let mut block_store = BlockStore {
             path_to_blockchain: dir.path().to_path_buf(),
         };
         block_store.create_files_if_they_do_not_exist().unwrap();
@@ -686,7 +647,7 @@ mod tests {
     #[test]
     fn fresh_block_store_has_zero_blocks() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = StdFileBlockStore {
+        let mut block_store = BlockStore {
             path_to_blockchain: dir.path().to_path_buf(),
         };
         block_store.create_files_if_they_do_not_exist().unwrap();
@@ -697,7 +658,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_increases_block_count() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = StdFileBlockStore {
+        let mut block_store = BlockStore {
             path_to_blockchain: dir.path().to_path_buf(),
         };
         block_store.create_files_if_they_do_not_exist().unwrap();
@@ -715,7 +676,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_places_blocks_correctly_in_data_file() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = StdFileBlockStore {
+        let mut block_store = BlockStore {
             path_to_blockchain: dir.path().to_path_buf(),
         };
         block_store.create_files_if_they_do_not_exist().unwrap();
