@@ -37,6 +37,8 @@ pub struct Status {
     pub uptime: Uptime,
     /// Number of view changes in the current round
     pub view_changes: u64,
+    /// Number of the transactions in the queue
+    pub queue_size: u64,
 }
 
 impl<T: Deref<Target = Metrics>> From<&T> for Status {
@@ -49,6 +51,7 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
             txs_rejected: val.txs.with_label_values(&["rejected"]).get(),
             uptime: Uptime(Duration::from_millis(val.uptime_since_genesis_ms.get())),
             view_changes: val.view_changes.get(),
+            queue_size: val.queue_size.get(),
         }
     }
 }
@@ -76,6 +79,8 @@ pub struct Metrics {
     pub isi_times: HistogramVec,
     /// Number of view changes in the current round
     pub view_changes: GenericGauge<AtomicU64>,
+    /// Number of transactions in the queue
+    pub queue_size: GenericGauge<AtomicU64>,
     // Internal use only.
     registry: Registry,
 }
@@ -124,6 +129,8 @@ impl Default for Metrics {
             "Number of view changes in the current round",
         )
         .expect("Infallible");
+        let queue_size = GenericGauge::new("queue_size", "Number of the transactions in the queue")
+            .expect("Infallible");
         let registry = Registry::new();
 
         macro_rules! register {
@@ -146,7 +153,8 @@ impl Default for Metrics {
             accounts,
             isi,
             isi_times,
-            view_changes
+            view_changes,
+            queue_size
         );
 
         Self {
@@ -161,6 +169,7 @@ impl Default for Metrics {
             isi,
             isi_times,
             view_changes,
+            queue_size,
         }
     }
 }

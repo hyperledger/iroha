@@ -29,12 +29,9 @@ pub struct Queue {
     queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
     /// [`VersionedAcceptedTransaction`]s addressed by `Hash`.
     txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
-    /// Length of [`DashMap`].
-    ///
-    /// [`DashMap`] right now just iterates over itself and calculates its length like this:
-    /// self.txs.iter().len()
+    /// The maximum number of transactions in the block
     pub txs_in_block: usize,
-    /// The maximum number of transactions
+    /// The maximum number of transactions in the queue
     max_txs: usize,
     /// Length of time after which transactions are dropped.
     pub tx_time_to_live: Duration,
