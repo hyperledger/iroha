@@ -430,16 +430,7 @@ impl std::cmp::Eq for Peer {}
 
 impl Drop for Peer {
     fn drop(&mut self) {
-        iroha_logger::info!(
-            p2p_addr = %self.p2p_address,
-            api_addr = %self.api_address,
-            "Stopping peer",
-        );
-
-        if let Some(shutdown) = self.shutdown.take() {
-            shutdown.abort();
-            iroha_logger::info!("Shutting down peer...");
-        }
+        self.stop();
     }
 }
 
@@ -495,7 +486,7 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let mut iroha = <Iroha>::with_genesis(
+                let mut iroha = Iroha::with_genesis(
                     genesis,
                     configuration,
                     instruction_judge,
@@ -517,6 +508,24 @@ impl Peer {
         self.shutdown = Some(handle);
         // Prevent temporary directory deleting
         self.temp_dir = Some(temp_dir);
+    }
+
+    /// Stop the peer if it's running
+    pub fn stop(&mut self) -> Option<()> {
+        iroha_logger::info!(
+            p2p_addr = %self.p2p_address,
+            api_addr = %self.api_address,
+            "Stopping peer",
+        );
+
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.abort();
+            iroha_logger::info!("Shutting down peer...");
+            self.iroha.take();
+            Some(())
+        } else {
+            None
+        }
     }
 
     /// Creates peer
