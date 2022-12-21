@@ -211,6 +211,15 @@ impl Sumeragi {
                 .wrap_err("Failed to compose domains")?
                 .set(domain.accounts().len() as u64);
         }
+
+        metrics_guard
+            .view_changes
+            .set(wsv_guard.latest_block_view_change_index());
+
+        metrics_guard
+            .queue_size
+            .set(self.internal.queue.tx_len() as u64);
+
         Ok(())
     }
 
