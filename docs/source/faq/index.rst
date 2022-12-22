@@ -44,4 +44,7 @@ What is the throughput (TPS)? Are there any performance test results?
 The efficiency of your Iroha network will depend on the configuration, hardware and number of nodes.
 You are welcome to try out the load test in `test/load` directory and report the results.
 
-.. note::We will be adding new frequent questions here!
+What is the difference between Iroha and Iroha 2?
+-------------------------------------------------
+
+Iroha 2 is a rewrite of Iroha in Rust. `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_ offers a summery of differences between the two projects.
