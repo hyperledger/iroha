@@ -28,8 +28,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Inner helper struct.
 ///
-/// This could be [`Path`] itself, but it is not because enum can be constructed directly and
-/// we need checked way to construct it with written constructors.
+/// With this struct, we force to use [`Path`]'s constructors instead of constructing it directly.
 #[derive(Debug, Clone)]
 enum InnerPath {
     Default(PathBuf),
@@ -73,7 +72,7 @@ impl Path {
         Ok(Self(UserProvided(path)))
     }
 
-    /// Try to get first existing path applying possible extensions if there are some.
+    /// Try to get first existing path by applying possible extensions if there are any.
     pub fn first_existing_path(&self) -> Option<Cow<PathBuf>> {
         match &self.0 {
             Default(path) => ALLOWED_CONFIG_EXTENSIONS.iter().find_map(|extension| {
@@ -84,7 +83,7 @@ impl Path {
         }
     }
 
-    /// Check if config path exists applying possible extensions if there are some.
+    /// Check if config path exists by applying allowed extensions if there are any.
     pub fn exists(&self) -> bool {
         match &self.0 {
             Default(path) => ALLOWED_CONFIG_EXTENSIONS
