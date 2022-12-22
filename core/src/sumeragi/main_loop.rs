@@ -643,12 +643,9 @@ pub fn run<F>(
                 .retain(|tx| !tx.is_expired(sumeragi.queue.tx_time_to_live));
 
             // Pull in new transactions into the cache.
-            while state.transaction_cache.len() < sumeragi.queue.txs_in_block {
-                match sumeragi.queue.pop_without_seen(&state.wsv) {
-                    Some(tx) => state.transaction_cache.push(tx),
-                    None => break,
-                }
-            }
+            sumeragi
+                .queue
+                .get_transactions_for_block(&state.wsv, &mut state.transaction_cache);
         };
 
         gossip_transactions(
