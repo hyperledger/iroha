@@ -605,13 +605,13 @@ impl WorldStateView {
         if self.block_hashes.borrow().is_empty() {
             None
         } else {
-            match self.kura.get_block_by_height(1) {
-                None => {
+            self.kura.get_block_by_height(1).map_or_else(
+                || {
                     error!("Failed to get genesis block from kura.");
                     None
-                }
-                Some(genesis_block) => Some(genesis_block.as_v1().header.timestamp),
-            }
+                },
+                |genesis_block| Some(genesis_block.as_v1().header.timestamp),
+            )
         }
     }
 

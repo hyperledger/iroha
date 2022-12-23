@@ -17,7 +17,7 @@ use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
-    path::Path as ConfigPath,
+    path::ConfigPath,
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
@@ -65,19 +65,21 @@ impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(ConfigPath::default(GENESIS_PATH).expect(&format!(
-                "Default genesis path `{}` has extension, but it should not have one.",
-                GENESIS_PATH
-            ))),
-            config_path: ConfigPath::default(CONFIGURATION_PATH).expect(&format!(
-                "Default config path `{}` has extension, but it should not have one.",
-                GENESIS_PATH
-            )),
+            genesis_path: Some(ConfigPath::default(GENESIS_PATH).unwrap_or_else(|e| {
+                panic!(
+                    "Default genesis path `{}` has extension, but it should not have one. {e:?}",
+                    GENESIS_PATH
+                )
+            })),
+            config_path: ConfigPath::default(CONFIGURATION_PATH).unwrap_or_else(|e| {
+                panic!(
+                    "Default config path `{}` has extension, but it should not have one. {e:?}",
+                    GENESIS_PATH
+                )
+            }),
         }
     }
 }
-
-pub mod config {}
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.

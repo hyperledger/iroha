@@ -20,13 +20,13 @@ iroha_config_base = { version = "=2.0.0-pre-rc.11", path = "../config/base" }
 iroha_data_model_derive = { version = "=2.0.0-pre-rc.11", path = "../data_model/derive" }
 
 rand = "0.8.5"
-tokio = { version = "1.20.1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.23.0", features = ["rt-multi-thread", "macros"] }
 async-stream = "0.3.3"
-futures = { version = "0.3.21", default-features = false }
-async-trait = "0.1.57"
-parity-scale-codec = { version = "3.1.5", features = ["derive"] }
+futures = { version = "0.3.25", default-features = false }
+async-trait = "0.1.60"
+parity-scale-codec = { version = "3.2.1", features = ["derive"] }
 aead = "0.3.2"
-thiserror = "1.0.32"
+thiserror = "1.0.38"
 derive_more = "0.99.17"
 
 [dev-dependencies]

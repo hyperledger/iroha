@@ -20,12 +20,12 @@ maintenance = { status = "actively-developed" }
 
 
 [dependencies]
-syn = { version = "1.0.99", features = ["full"] }
-quote = "1.0.21"
-proc-macro2 = "1.0.43"
+syn = { version = "1.0.107", features = ["full"] }
+quote = "1.0.23"
+proc-macro2 = "1.0.49"
 proc-macro-error = "1.0.4"
 
 [dev-dependencies]
 iroha_core = { version = "=2.0.0-pre-rc.11", path = "../../core" }
 
-trybuild = "1.0.64"
+trybuild = "1.0.73"

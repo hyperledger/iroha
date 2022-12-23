@@ -96,7 +96,7 @@ where
                     }
                 }
                 msg = internal_stream.next() => {
-                    if let Some(InternalMessage::Reconnect) = msg {
+                    if matches!(msg,  Some(InternalMessage::Reconnect)) {
                         self.on_reconnect().await;
                     }
                 }
@@ -107,7 +107,7 @@ where
     async fn on_telemetry(&mut self, telemetry: Telemetry) {
         match prepare_message(&self.name, telemetry) {
             Ok((msg, msg_kind)) => {
-                if let Some(MessageKind::Initialization) = msg_kind {
+                if matches!(msg_kind, Some(MessageKind::Initialization)) {
                     self.init_msg = Some(msg.clone());
                 }
                 self.send_message(msg).await;
@@ -196,7 +196,7 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
             (field, map)
         })
         .collect();
-    if let Some(MessageKind::Initialization) = msg_kind {
+    if matches!(msg_kind, Some(MessageKind::Initialization)) {
         payload.insert("name".into(), name.into());
         payload.insert("chain".into(), "Iroha".into());
         payload.insert("implementation".into(), "".into());

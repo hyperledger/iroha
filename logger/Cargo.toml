@@ -8,15 +8,15 @@ edition = "2021"
 iroha_config = { version = "=2.0.0-pre-rc.11", path = "../config" }
 
 color-eyre = "0.6.2"
-serde_json = "1.0.83"
-tracing = "0.1.36"
-tracing-core = "0.1.29"
+serde_json = "1.0.91"
+tracing = "0.1.37"
+tracing-core = "0.1.30"
 tracing-futures = { version = "0.2.5", default-features = false, features = ["std-future", "std"] }
-tracing-subscriber = { version = "0.3.15", default-features = false, features = ["fmt", "ansi"] }
-tracing-bunyan-formatter = { version = "0.3.3", default-features = false }
-tokio = { version = "1.20.1", features = ["sync"] }
-once_cell = "1.13.0"
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi"] }
+tracing-bunyan-formatter = { version = "0.3.4", default-features = false }
+tokio = { version = "1.23.0", features = ["sync"] }
+once_cell = "1.16.0"
 derive_more = "0.99.17"
 
 [dev-dependencies]
-tokio = { version = "1.20.1", features = ["macros", "time", "rt"] }
+tokio = { version = "1.23.0", features = ["macros", "time", "rt"] }
