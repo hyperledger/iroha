@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUSTUP_TOOLCHAIN: nightly-2022-08-15
+  RUSTUP_TOOLCHAIN: nightly-2022-12-22
 
 jobs:
   analysis:
