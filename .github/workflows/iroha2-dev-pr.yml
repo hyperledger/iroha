@@ -42,39 +42,30 @@ jobs:
       - name: Wasm build check
         if: always()
         working-directory: wasm
-        run: mold --run cargo +nightly-2022-12-22 build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
 
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: 7272721/i2-ci:nightly
-    strategy:
-      matrix:
-        feature_flag: [all-features, no-default-features]
-    env:
-      # TODO Set NIGHTLY in the container #2606
-      NIGHTLY: nightly-2022-12-22
     steps:
       - uses: actions/checkout@v3
       # TODO Remove this step #2165
-      - name: Adjust toolchain
-        run: |
-          rustup component add llvm-tools-preview
-          rustup +$NIGHTLY component add llvm-tools-preview
+      # - name: Adjust toolchain
+      #   run: |
+      #     rustup component add llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests, with ${{ matrix.feature_flag }}
+      - name: Run tests, with coverage
         run: |
           mold --run cargo llvm-cov clean --workspace
-          mold --run cargo +$NIGHTLY llvm-cov --doc --no-report --${{ matrix.feature_flag }} --workspace --no-fail-fast
-          mold --run cargo llvm-cov --no-report --ignore-filename-regex main.rs --${{ matrix.feature_flag }} --workspace --no-fail-fast
+          mold --run cargo llvm-cov --doc --no-report --all-features --workspace --no-fail-fast
+          mold --run cargo llvm-cov --no-report --ignore-filename-regex main.rs --all-features --workspace --no-fail-fast
       - name: Generate lcov report
-        if: matrix.feature_flag == 'all-features'
         run: |
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
-          mold --run cargo +$NIGHTLY llvm-cov --doctests --no-run --${{ matrix.feature_flag }} --workspace --lcov --output-path lcov.info
+          mold --run cargo llvm-cov --doctests --no-run --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
-        if: matrix.feature_flag == 'all-features'
         uses: codecov/codecov-action@v3
         with:
           files: lcov.info
