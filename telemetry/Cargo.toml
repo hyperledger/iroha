@@ -35,4 +35,4 @@ prometheus = { version = "0.13.3", default-features = false }
 
 [build-dependencies]
 anyhow = "1.0.68"
-vergen = { version = "7.3.2", default-features = false, features = ["cargo", "git"] }
+vergen = { version = "7.3.2", default-features = false, features = ["cargo"] }
