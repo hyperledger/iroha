@@ -3,6 +3,11 @@ name: I2::Dev::Publish
 on:
   push:
     branches: [iroha2-dev]
+    # Run the workflow to check that the docker containers are properly buildable
+  pull_request:
+    branches: [iroha2-dev]
+    paths:
+      - '.github/workflows/**.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,11 +28,13 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Set up Docker Buildx
         id: buildx
+        if: always()
         uses: docker/setup-buildx-action@v2
         with:
           install: true
       - name: Build and push iroha2:dev image
         uses: docker/build-push-action@v3
+        if: always()
         with:
           push: true
           tags: hyperledger/iroha2:dev
@@ -39,7 +46,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+# FIXME: This workflow never worked properly. Should we remove it? 
   load-rs:
+    if: false
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly

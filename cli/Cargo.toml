@@ -65,7 +65,7 @@ serial_test = "0.8.0"
 
 [build-dependencies]
 anyhow = "1.0.68"
-vergen = { version = "7.4.4", default-features = false, features = ["git", "cargo"] }
+vergen = { version = "7.3.2", default-features = false, features = ["git", "cargo"] }
 
 [package.metadata.cargo-all-features]
 denylist = [

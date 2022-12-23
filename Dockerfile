@@ -1,24 +1,17 @@
 #base stage
 FROM archlinux:base-devel AS builder
 
-ENV NIGHTLY=nightly-2022-08-15
-RUN set -eux && \
-    pacman -Syu rustup mold musl rust-musl --noconfirm && \
-    # toolchain: ./rust-toolchain.toml
-    rustup target add x86_64-unknown-linux-musl && \
-    rustup component add rust-src llvm-tools-preview  && \
-    # toolchain: $NIGHTLY
-    rustup install --profile default $NIGHTLY && \
-    rustup +$NIGHTLY target add x86_64-unknown-linux-musl wasm32-unknown-unknown && \
-    rustup +$NIGHTLY component add rust-src llvm-tools-preview && \
-    # cargo install
-    cargo install cargo-lints webassembly-test-runner && \
-    :
+RUN pacman -Syu rustup mold musl rust-musl --noconfirm
+RUN rustup toolchain install nightly-2022-12-22-x86_64-unknown-linux-musl
+RUN rustup default nightly-2022-12-22-x86_64-unknown-linux-musl
+RUN rustup target add x86_64-unknown-linux-musl
+RUN rustup component add rust-src
+RUN rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
+RUN rustup component add rust-src llvm-tools-preview
 
 # builder stage
 WORKDIR /iroha
 COPY . .
-RUN  rm -f rust-toolchain.toml
 RUN  mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
 
 # final image
