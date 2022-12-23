@@ -42,7 +42,7 @@ jobs:
       - name: Wasm build check
         if: always()
         working-directory: wasm
-        run: mold --run cargo +nightly-2022-08-15 build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo +nightly-2022-12-22 build --target wasm32-unknown-unknown --quiet
 
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
@@ -53,7 +53,7 @@ jobs:
         feature_flag: [all-features, no-default-features]
     env:
       # TODO Set NIGHTLY in the container #2606
-      NIGHTLY: nightly-2022-08-15
+      NIGHTLY: nightly-2022-12-22
     steps:
       - uses: actions/checkout@v3
       # TODO Remove this step #2165

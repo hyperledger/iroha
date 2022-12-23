@@ -5,5 +5,5 @@ error[E0277]: the trait bound `Vec<FfiStruct>: NonLocal<Vec<Opaque>>` is not sat
    | ^^^^^^^^^^^^^ the trait `NonLocal<Vec<Opaque>>` is not implemented for `Vec<FfiStruct>`
    |
    = help: the trait `NonLocal<Vec<Transparent>>` is implemented for `Vec<R>`
-   = note: required because of the requirements on the impl of `COutPtr<Vec<Vec<Opaque>>>` for `Vec<Vec<FfiStruct>>`
+   = note: required for `Vec<Vec<FfiStruct>>` to implement `COutPtr<Vec<Vec<Opaque>>>`
    = note: this error originates in the attribute macro `ffi_export` (in Nightly builds, run with -Z macro-backtrace for more info)

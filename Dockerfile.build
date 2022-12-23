@@ -1,0 +1,63 @@
+ARG VERSION=latest
+ARG RUST_ARCH=x86_64-unknown-linux-gnu
+FROM ubuntu:$VERSION
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    RUST_VERSION=nightly-2022-12-22-x86_64-unknown-linux-gnu \
+    RUST_ARCH=$RUST_ARCH
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    gcc \
+    curl \
+    clang \
+    llvm-dev \
+    libc6-dev \
+    wget \
+    git \
+    cmake \
+    libstdc++-10-dev \
+    libssl-dev \
+    zlib1g-dev \
+    libxxhash-dev \
+    build-essential \
+    pkg-config \
+    mold
+
+
+RUN url="https://static.rust-lang.org/rustup/archive/1.24.3/x86_64-unknown-linux-gnu/rustup-init"; \
+    wget "$url"; \
+    chmod +x rustup-init
+
+RUN ./rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION; \
+    rm rustup-init; \
+    chmod -R a+w $RUSTUP_HOME $CARGO_HOME; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN rustup component add llvm-tools-preview clippy
+RUN rustup component add rust-src --toolchain $RUST_VERSION
+RUN rustup target add wasm32-unknown-unknown --toolchain $RUST_VERSION
+RUN cargo install cargo-lints cargo-nono webassembly-test-runner
+RUN cargo install cargo-llvm-cov
+RUN rustup component add rustfmt --toolchain $RUST_VERSION
+
+# RUN git clone https://github.com/rui314/mold.git; \
+#     git -C "./mold" checkout v1.7.1; \
+#     cmake --directory="./mold" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=c++ ..; \
+#     cmake --directory="./mold" --build . -j $(nproc); \
+#     cmake --install .
+#     rm -rf "./mold"
+
+# RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
+#     chmod +x get-docker.sh; \
+#     ./get-docker.sh; \
+#     rm get-docker.sh
+
+
+# RUN curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose; \
+#     chmod +x /usr/local/bin/docker-compose
