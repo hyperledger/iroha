@@ -2,17 +2,16 @@
 FROM archlinux:base-devel AS builder
 
 RUN pacman -Syu rustup mold musl rust-musl --noconfirm
-RUN rustup toolchain install nightly-2022-12-22-x86_64-unknown-linux-musl
-RUN rustup default nightly-2022-12-22-x86_64-unknown-linux-musl
-RUN rustup target add x86_64-unknown-linux-musl
-RUN rustup component add rust-src
+RUN rustup toolchain install nightly-2022-12-22
+RUN rustup default nightly-2022-12-22
 RUN rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
-RUN rustup component add rust-src llvm-tools-preview
+RUN rustup component add rust-src
 
 # builder stage
 WORKDIR /iroha
 COPY . .
-RUN  mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored
+RUN cargo build  --target x86_64-unknown-linux-musl --features vendored --profile deploy
+
 
 # final image
 FROM alpine:3.16
