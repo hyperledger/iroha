@@ -8,11 +8,11 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = "1.0.99"
-quote = "1.0.21"
-proc-macro2 = "1.0.43"
+syn = "1.0.107"
+quote = "1.0.23"
+proc-macro2 = "1.0.49"
 
 [dev-dependencies]
 iroha_macro = { version = "2.0.0-pre-rc.11", path = ".." }
 
-trybuild = "1.0.64"
+trybuild = "1.0.73"

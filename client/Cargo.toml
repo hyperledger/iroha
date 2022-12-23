@@ -30,16 +30,16 @@ attohttpc = "0.18.0"
 eyre = "0.6.8"
 http = "0.2.8"
 rand = "0.8.5"
-serde = { version = "1.0.142", features = ["derive"] }
-serde_json = "1.0.83"
-base64 = "0.13.0"
-thiserror = "1.0.32"
+serde = { version = "1.0.151", features = ["derive"] }
+serde_json = "1.0.91"
+base64 = "0.13.1"
+thiserror = "1.0.38"
 derive_more = "0.99.17"
-parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
-tokio = { version = "1.20.1", features = ["rt"] }
+parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
+tokio = { version = "1.23.0", features = ["rt"] }
 tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
 tungstenite = { version = "0.16", features = ["native-tls"] }
-futures-util = "0.3.24"
+futures-util = "0.3.25"
 
 
 [dev-dependencies]
@@ -47,18 +47,18 @@ iroha_permissions_validators = { version = "=2.0.0-pre-rc.11", path = "../permis
 iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 
 test_network = { version = "=2.0.0-pre-rc.11", path = "../core/test_network" }
-tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread"] }
+tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread"] }
 criterion = { version = "0.3.6", features = ["html_reports"] }
 color-eyre = "0.6.2"
 tempfile = "3.3.0"
 hex = "0.4.3"
 
-tracing-subscriber = { version = "0.3.15", default-features = false, features = ["fmt", "ansi"] }
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi"] }
 tracing-flame = "0.2.0"
 lazy_static = "1.4.0"
 
 [build-dependencies]
-eyre = "0.6.5"
+eyre = "0.6.8"
 
 [[bench]]
 name = "torii"

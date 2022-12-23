@@ -2,6 +2,10 @@
 //! Iroha you should add it here by creating a `handle_*` function,
 //! and add it to impl Torii. This module also defines the `VerifiedQueryRequest`,
 //! which is the only kind of query that is permitted to execute.
+
+// FIXME: This can't be fixed, because one trait in `warp` is private.
+#![allow(opaque_hidden_inferred_bound)]
+
 use std::num::TryFromIntError;
 
 use eyre::WrapErr;

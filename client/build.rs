@@ -115,7 +115,7 @@ fn build_smartcontract(smartcontract_path: &Path, out_dir: &OsStr) -> Result<()>
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
         .args([
-            "+nightly-2022-08-15",
+            "+nightly-2022-12-22",
             "build",
             "--release",
             "-Z",

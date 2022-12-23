@@ -860,7 +860,7 @@ impl Client {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
-            &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
+            format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
         )
     }
 
@@ -888,22 +888,22 @@ impl Client {
     /// Construct a handler for Blocks API. With this handler you can use any WS client you want.
     ///
     /// # Errors
-    /// Fails if handler construction fails
+    /// - if handler construction fails
     #[inline]
     pub fn blocks_handler(&self, height: u64) -> Result<blocks_api::flow::Init> {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
-            &format!("{}/{}", &self.torii_url, uri::BLOCKS_STREAM),
+            format!("{}/{}", &self.torii_url, uri::BLOCKS_STREAM),
         )
     }
 
-    /// Tries to find the original transaction in the pending local tx queue.
-    /// Should be used for an MST case.
-    /// Takes pagination as parameter.
+    /// Find the original transaction in the pending local tx
+    /// queue.  Should be used for an MST case.  Takes pagination as
+    /// parameter.
     ///
     /// # Errors
-    /// Fails if subscribing to websocket fails
+    /// - if subscribing to websocket fails
     pub fn get_original_transaction_with_pagination(
         &self,
         transaction: &SignedTransaction,
@@ -948,11 +948,11 @@ impl Client {
         Ok(None)
     }
 
-    /// Tries to find the original transaction in the local pending tx queue.
+    /// Find the original transaction in the local pending tx queue.
     /// Should be used for an MST case.
     ///
     /// # Errors
-    /// Fails if sending request fails
+    /// - if sending request fails
     pub fn get_original_transaction(
         &self,
         transaction: &SignedTransaction,

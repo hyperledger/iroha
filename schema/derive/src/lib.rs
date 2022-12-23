@@ -291,7 +291,7 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
     index
         .map(|int| quote! { #int })
         .or_else(|| {
-            v.discriminant.as_ref().map(|&(_, ref expr)| {
+            v.discriminant.as_ref().map(|(_, expr)| {
                 let n: Lit = syn::parse2(quote! { #expr })
                     .expect("Fallback in variant_index failed to parse");
                 quote! { #n }

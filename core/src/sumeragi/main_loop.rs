@@ -710,7 +710,7 @@ pub fn run<F>(
                 );
 
                 // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
-                if let Ok(MustUse(true)) = tx.check_signature_condition(&state.wsv) {
+                if matches!(tx.check_signature_condition(&state.wsv), Ok(MustUse(true))) {
                     sumeragi.broadcast_packet_to(
                         MessagePacket::new(
                             view_change_proof_chain.clone(),

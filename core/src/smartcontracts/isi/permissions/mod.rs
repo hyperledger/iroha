@@ -291,7 +291,7 @@ impl ValidatorVerdict {
     /// but won't compute `f` if `self` is [`Allow`](ValidatorVerdict::Allow)
     #[must_use]
     pub fn most_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
-        if let Self::Allow = &self {
+        if matches!(self, Self::Allow) {
             self
         } else {
             self.most_permissive(f())

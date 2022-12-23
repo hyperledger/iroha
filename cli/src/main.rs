@@ -1,7 +1,7 @@
 //! Iroha peer command-line interface.
 
 use eyre::WrapErr as _;
-use iroha_config::path::Path as ConfigPath;
+use iroha_config::path::ConfigPath;
 use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 

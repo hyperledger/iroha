@@ -22,8 +22,8 @@ iroha_permissions_validators = { version = "=2.0.0-pre-rc.11", path = "../../per
 
 
 eyre = "0.6.8"
-futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
+futures = { version = "0.3.25", default-features = false, features = ["std", "async-await"] }
 rand = "0.8.5"
 tempfile = "3.3.0"
-tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread", "macros"] }
 unique_port = "0.2.1"

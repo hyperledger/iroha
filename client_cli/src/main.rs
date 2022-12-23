@@ -26,7 +26,7 @@ use color_eyre::{
 };
 use dialoguer::Confirm;
 use iroha_client::client::Client;
-use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
+use iroha_config::{client::Configuration as ClientConfiguration, path::ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 

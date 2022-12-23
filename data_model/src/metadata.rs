@@ -114,7 +114,7 @@ impl Metadata {
     /// Get the (expensive) cumulative length of all [`Value`]s housed
     /// in this map.
     pub fn nested_len(&self) -> usize {
-        self.map.iter().map(|(_, v)| 1 + v.len()).sum()
+        self.map.values().map(|v| 1 + v.len()).sum()
     }
 
     /// Get metadata given path. If the path is malformed, or

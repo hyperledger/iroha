@@ -23,10 +23,10 @@ iroha_crypto = { version = "=2.0.0-pre-rc.11", path = "../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.11", path = "../config" }
 
 color-eyre = "0.6.2"
-clap = { version = "3.2.16", features = ["derive"] }
+clap = { version = "3.2.23", features = ["derive"] }
 dialoguer = { version = "0.10.2", default-features = false }
 json5 = "0.4.1"
 
 [build-dependencies]
-anyhow = "1.0.60"
-vergen = { version = "7.3.2", default-features = false, features = ["git"] }
+anyhow = "1.0.68"
+vergen = { version = "7.4.4", default-features = false, features = ["git"] }

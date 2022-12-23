@@ -115,7 +115,7 @@ impl Broker {
             .get()
             .iter()
             .filter_map(|(id, recipient)| Some((id, recipient.downcast_ref::<Recipient<M>>()?)))
-            .fold(0, |p, (_, n)| p + if n.0.is_closed() { 0 } else { 1 })
+            .fold(0, |p, (_, n)| p + usize::from(!n.0.is_closed()))
     }
 
     /// Synchronously send message via broker.
