@@ -47,4 +47,4 @@ You are welcome to try out the load test in `test/load` directory and report the
 What is the difference between Iroha and Iroha 2?
 -------------------------------------------------
 
-Iroha 2 is a rewrite of Iroha in Rust. `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_ offers a summery of differences between the two projects.
+Iroha 2 is a rewrite of Iroha in Rust with a few major changes to the consensus mechanism. `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_ offers a summary of differences between the two projects.
