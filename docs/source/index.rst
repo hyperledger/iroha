@@ -17,6 +17,8 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
 
 .. note::
     Please note that there exists a complete rewrite of Hyperledger Iroha in Rust, `Iroha 2 <https://github.com/hyperledger/iroha/tree/iroha2-dev#hyperledger-iroha>`_. Both projects are developed concurrently in the same repository. However, they are not compatible. You can read about their differences in `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_.
+    
+    For all new projects, we recommend using Iroha 2 instead of Iroha 1.
 
 .. toctree::
     :maxdepth: 2
