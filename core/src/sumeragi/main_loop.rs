@@ -189,12 +189,11 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         let current_topology = &state.current_topology;
         let role = current_topology.role(&self.peer_id);
 
-        let txs = state
-            .transaction_cache
-            .iter()
-            .take(self.gossip_batch_size as usize)
-            .cloned()
-            .collect::<Vec<_>>();
+        // Transactions are intentionally taken from the queue instead of the cache
+        // to gossip multisignature transactions too
+        let txs = self
+            .queue
+            .n_random_transactions(self.gossip_batch_size, &state.wsv);
 
         if !txs.is_empty() {
             debug!(%role, tx_count = txs.len(), "Gossiping transactions");
