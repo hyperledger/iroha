@@ -181,7 +181,7 @@ impl Iroha {
         iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
         iroha_logger::info!(
             cargo_pkg_version = env!("CARGO_PKG_VERSION"),
-            // git_sha = env!("VERGEN_GIT_SHA"),
+            git_sha = env!("VERGEN_GIT_SHA"),
             "Iroha version"
         );
 

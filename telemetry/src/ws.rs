@@ -200,16 +200,16 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
         payload.insert("name".into(), name.into());
         payload.insert("chain".into(), "Iroha".into());
         payload.insert("implementation".into(), "".into());
-        // payload.insert(
-        //     "version".into(),
-        //     format!(
-        //         "{}-{}-{}",
-        //         env!("VERGEN_GIT_SEMVER"),
-        //         env!("VERGEN_GIT_SHA_SHORT"),
-        //         env!("VERGEN_CARGO_TARGET_TRIPLE")
-        //     )
-        //     .into(),
-        // );
+        payload.insert(
+            "version".into(),
+            format!(
+                "{}-{}-{}",
+                env!("VERGEN_GIT_SEMVER"),
+                env!("VERGEN_GIT_SHA_SHORT"),
+                env!("VERGEN_CARGO_TARGET_TRIPLE")
+            )
+            .into(),
+        );
         payload.insert("config".into(), "".into());
         payload.insert("authority".into(), false.into());
         payload.insert(

@@ -3,10 +3,10 @@
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    let config = vergen::Config::default();
+    let mut config = vergen::Config::default();
     // TODO: This doesn't work, because safe.directory brought in by
     // `libgit2` is broken.  This is yet another reminder why relying
     // on a C library is usually the worst possible idea.
-    // *config.git_mut().sha_kind_mut() = vergen::ShaKind::Short;
+    *config.git_mut().sha_kind_mut() = vergen::ShaKind::Short;
     vergen::vergen(config)
 }
