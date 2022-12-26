@@ -104,9 +104,9 @@ as follows:"
 #[allow(clippy::print_stdout)]
 fn print_version() {
     println!(
-        "iroha {}",
+        "iroha {} ({})",
         env!("CARGO_PKG_VERSION"),
-        // env!("VERGEN_GIT_SHA")
+        env!("VERGEN_GIT_SHA")
     );
     println!("cargo features: {}", env!("VERGEN_CARGO_FEATURES"));
 }

@@ -35,4 +35,7 @@ prometheus = { version = "0.13.3", default-features = false }
 
 [build-dependencies]
 anyhow = "1.0.68"
-vergen = { version = "7.3.2", default-features = false, features = ["cargo"] }
+vergen = { version = "7.3.2", default-features = false, features = ["cargo", "git"] }
+# DO NOT BUMP THIS VERSION.
+git2 = { version = "=0.14.4", features = ["vendored-libgit2"] }
+
