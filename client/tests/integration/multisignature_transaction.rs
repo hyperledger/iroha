@@ -12,7 +12,6 @@ use test_network::*;
 use super::Configuration;
 
 #[allow(clippy::too_many_lines)]
-#[ignore = "Multisignature is not working for now. See #2595"]
 #[test]
 fn multisignature_transactions_should_wait_for_all_signatures() {
     let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1, None);

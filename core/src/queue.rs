@@ -12,10 +12,11 @@ use std::collections::HashSet;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
-use eyre::{eyre, Report, Result};
+use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
+use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
@@ -108,24 +109,17 @@ impl Queue {
             )
     }
 
-    // FIXME: Currently it is impossible to distinguish if signature check condition failed or if there is just not enough signatures (#2595).
     fn check_tx(
         &self,
         tx: &VersionedAcceptedTransaction,
         wsv: &WorldStateView,
-    ) -> Result<(), Error> {
+    ) -> Result<MustUse<bool>, Error> {
         if tx.is_expired(self.tx_time_to_live) {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(wsv) {
             Err(Error::InBlockchain)
         } else {
             tx.check_signature_condition(wsv)
-                .and_then(|success| {
-                    success
-                        .into_inner()
-                        .then_some(())
-                        .ok_or_else(|| eyre!("Signature condition check failed"))
-                })
                 .map_err(|reason| Error::SignatureCondition {
                     tx_hash: tx.hash(),
                     reason,
@@ -207,14 +201,18 @@ impl Queue {
                 continue;
             }
 
-            // Transactions are not removed from the queue until expired or committed
-            seen.push(hash);
-            if *entry
-                .get()
-                .check_signature_condition(wsv)
-                .expect("Checked in `check_tx` just above")
-            {
-                return Some(entry.get().clone());
+            match self.check_tx(entry.get(), wsv) {
+                Err(_) => {
+                    entry.remove_entry();
+                    continue;
+                }
+                Ok(MustUse(signature_check)) => {
+                    // Transactions are not removed from the queue until expired or committed
+                    seen.push(hash);
+                    if signature_check {
+                        return Some(entry.get().clone());
+                    }
+                }
             }
         }
     }
@@ -388,7 +386,10 @@ mod tests {
             let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
             let mut account = Account::new(account_id, [key_pair.public_key().clone()]).build();
-            account.set_signature_check_condition(SignatureCheckCondition(false.into()));
+            // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
+            account.set_signature_check_condition(SignatureCheckCondition(
+                EvaluatesTo::new_unchecked(0u32.into()),
+            ));
             assert!(domain.add_account(account).is_none());
 
             let kura = Kura::blank_kura_for_testing();
@@ -414,7 +415,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Multisignature is not working for now. See #2595"]
     fn push_multisignature_tx() {
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
