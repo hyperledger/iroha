@@ -132,8 +132,11 @@ pub(crate) async fn handle_queries(
     query_judge: QueryJudgeArc,
     pagination: Pagination,
     sorting: Sorting,
-    request: VerifiedQueryRequest,
+    request: VersionedSignedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
+    let VersionedSignedQueryRequest::V1(request) = request;
+    let request: VerifiedQueryRequest = request.try_into()?;
+
     let (result, filter) = {
         let wsv = sumeragi.wsv_mutex_access().clone();
         let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
@@ -517,14 +520,15 @@ impl Torii {
                 .and(add_state!(self.sumeragi, self.query_judge))
                 .and(paginate())
                 .and(sorting())
-                .and(body::query()),
+                .and(body::versioned()),
         ))
         .or(endpoint2(
             handle_post_configuration,
             warp::path(uri::CONFIGURATION)
                 .and(add_state!(self.iroha_cfg))
                 .and(warp::body::json()),
-        ));
+        ))
+        .recover(|rejection| async move { body::recover_versioned(rejection) });
 
         let events_ws_router = warp::path(uri::SUBSCRIPTION)
             .and(add_state!(self.events))

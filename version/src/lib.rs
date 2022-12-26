@@ -121,7 +121,7 @@ pub mod error {
         }
     }
     #[cfg(feature = "warp")]
-    impl warp::Reply for Error {
+    impl warp::Reply for &Error {
         fn into_response(self) -> warp::reply::Response {
             #[cfg(not(feature = "std"))]
             use alloc::string::ToString as _;
