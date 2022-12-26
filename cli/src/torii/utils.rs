@@ -5,8 +5,6 @@ use iroha_version::prelude::*;
 use parity_scale_codec::Encode;
 use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
 
-use super::routing::VerifiedQueryRequest;
-
 /// Structure for empty response body
 #[derive(Clone, Copy)]
 pub struct Empty;
@@ -37,39 +35,9 @@ macro_rules! add_state {
 }
 
 pub mod body {
-    use iroha_core::smartcontracts::query::Error as QueryError;
-    use iroha_data_model::query::VersionedSignedQueryRequest;
+    use iroha_version::error::Error as VersionError;
 
     use super::*;
-
-    #[derive(Debug)]
-    #[allow(unused_tuple_struct_fields)]
-    pub struct WarpQueryError(QueryError);
-
-    impl From<QueryError> for WarpQueryError {
-        fn from(source: QueryError) -> Self {
-            Self(source)
-        }
-    }
-
-    impl warp::reject::Reject for WarpQueryError {}
-
-    impl TryFrom<&Bytes> for super::VerifiedQueryRequest {
-        type Error = WarpQueryError;
-
-        fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
-            let res = VersionedSignedQueryRequest::decode_all_versioned(body.as_ref());
-            let query = res.map_err(|e| WarpQueryError(Box::new(e).into()))?;
-            let VersionedSignedQueryRequest::V1(query) = query;
-            Ok(Self::try_from(query)?)
-        }
-    }
-
-    /// Decode query request
-    pub fn query() -> impl Filter<Extract = (VerifiedQueryRequest,), Error = Rejection> + Copy {
-        warp::body::bytes()
-            .and_then(|body: Bytes| async move { (&body).try_into().map_err(warp::reject::custom) })
-    }
 
     /// Decode body as versioned scale codec
     pub fn versioned<T: DecodeVersioned>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy
@@ -77,6 +45,14 @@ pub mod body {
         warp::body::bytes().and_then(|body: Bytes| async move {
             T::decode_all_versioned(body.as_ref()).map_err(warp::reject::custom)
         })
+    }
+
+    /// Recover from failure in `versioned`
+    pub fn recover_versioned(rejection: Rejection) -> Result<impl Reply, Rejection> {
+        if let Some(error) = rejection.find::<VersionError>() {
+            return Ok(error.into_response());
+        }
+        Err(rejection)
     }
 }
 
