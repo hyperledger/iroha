@@ -484,10 +484,13 @@ fn enqueue_transaction<F: FaultInjection>(
     match VersionedAcceptedTransaction::from_transaction(tx, &sumeragi.transaction_limits) {
         Ok(tx) => match sumeragi.queue.push(tx, wsv) {
             Ok(_) => {}
-            Err((tx, crate::queue::Error::InBlockchain)) => {
+            Err(crate::queue::Failure {
+                tx,
+                err: crate::queue::Error::InBlockchain,
+            }) => {
                 debug!(tx_hash = %tx.hash(), "Transaction already in blockchain, ignoring...")
             }
-            Err((tx, err)) => {
+            Err(crate::queue::Failure { tx, err }) => {
                 error!(%addr, ?err, tx_hash = %tx.hash(), "Failed to enqueue transaction.")
             }
         },
