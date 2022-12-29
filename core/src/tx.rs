@@ -290,6 +290,9 @@ impl VersionedAcceptedTransaction {
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
     ///
+    /// Note that `check_signature_condition` does not verify signatures.
+    /// Signature verification is done when transaction transit from `SignedTransaction` to `AcceptedTransaction` state.
+    ///
     /// # Errors
     /// Can fail if signature condition account fails or if account is not found
     pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
@@ -347,9 +350,11 @@ impl AcceptedTransaction {
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
     ///
+    /// Note that `check_signature_condition` does not verify signatures.
+    /// Signature verification is done when transaction transit from `SignedTransaction` to `AcceptedTransaction` state.
+    ///
     /// # Errors
     /// - Account not found
-    /// - Signature verification fails
     pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
         let account_id = &self.payload.account_id;
 

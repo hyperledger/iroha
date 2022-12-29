@@ -3,8 +3,7 @@
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects,
-    clippy::expect_used
+    clippy::arithmetic_side_effects
 )]
 
 use core::time::Duration;
@@ -16,7 +15,7 @@ use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
-use iroha_primitives::must_use::MustUse;
+use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
@@ -27,8 +26,12 @@ use crate::prelude::*;
 /// Multiple producers, single consumer
 #[derive(Debug)]
 pub struct Queue {
-    /// The queue proper
+    /// The queue for transactions that passed signature check
     queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
+    /// The queue for transactions that didn't pass signature check and are waiting for additional signatures
+    ///
+    /// Second queue is needed to prevent situation when multisig transactions prevent ordinary transactions from being added into the queue
+    signature_buffer: ArrayQueue<HashOf<VersionedSignedTransaction>>,
     /// [`VersionedAcceptedTransaction`]s addressed by `Hash`.
     txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
     /// The maximum number of transactions in the block
@@ -67,13 +70,26 @@ pub enum Error {
     },
 }
 
+/// Failure that can pop up when pushing transaction into the queue
+#[derive(Debug)]
+pub struct Failure {
+    /// Transaction failed to be pushed into the queue
+    pub tx: VersionedAcceptedTransaction,
+    /// Push failure reason
+    pub err: Error,
+}
+
 impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &Configuration) -> Self {
         Self {
             queue: ArrayQueue::new(cfg.maximum_transactions_in_queue as usize),
+            signature_buffer: ArrayQueue::new(
+                cfg.maximum_transactions_in_signature_buffer as usize,
+            ),
             txs: DashMap::new(),
-            max_txs: cfg.maximum_transactions_in_queue as usize,
+            max_txs: (cfg.maximum_transactions_in_queue
+                + cfg.maximum_transactions_in_signature_buffer) as usize,
             txs_in_block: cfg.maximum_transactions_in_block as usize,
             tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
             future_threshold: Duration::from_millis(cfg.future_threshold_ms),
@@ -114,7 +130,9 @@ impl Queue {
         tx: &VersionedAcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<MustUse<bool>, Error> {
-        if tx.is_expired(self.tx_time_to_live) {
+        if tx.is_in_future(self.future_threshold) {
+            Err(Error::InFuture)
+        } else if tx.is_expired(self.tx_time_to_live) {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(wsv) {
             Err(Error::InBlockchain)
@@ -127,63 +145,92 @@ impl Queue {
         }
     }
 
-    /// Pushes transaction into queue.
+    /// Push transaction into queue.
     ///
     /// # Errors
     /// See [`enum@Error`]
-    #[allow(
-        clippy::unwrap_in_result,
-        clippy::expect_used,
-        clippy::missing_panics_doc
-    )]
     pub fn push(
         &self,
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView,
-    ) -> Result<(), (VersionedAcceptedTransaction, Error)> {
-        if tx.is_in_future(self.future_threshold) {
-            Err((tx, Error::InFuture))
-        } else if let Err(e) = self.check_tx(&tx, wsv) {
-            Err((tx, e))
-        } else if self.txs.len() >= self.max_txs {
-            Err((tx, Error::Full))
-        } else {
-            let hash = tx.hash();
-            let entry = match self.txs.entry(hash) {
-                Entry::Occupied(mut old_tx) => {
-                    // MST case
-                    old_tx
-                        .get_mut()
-                        .as_mut_v1()
-                        .signatures
-                        .extend(tx.as_v1().signatures.clone());
-                    return Ok(());
+    ) -> Result<(), Failure> {
+        match self.check_tx(&tx, wsv) {
+            Err(err) => Err(Failure { tx, err }),
+            Ok(MustUse(signature_check)) => {
+                // Get `txs_len` before entry to avoid deadlock
+                let txs_len = self.txs.len();
+                let hash = tx.hash();
+                let entry = match self.txs.entry(hash) {
+                    Entry::Occupied(mut old_tx) => {
+                        // MST case
+                        old_tx
+                            .get_mut()
+                            .as_mut_v1()
+                            .signatures
+                            .extend(tx.as_v1().signatures.clone());
+                        return Ok(());
+                    }
+                    Entry::Vacant(entry) => entry,
+                };
+                if txs_len >= self.max_txs {
+                    return Err(Failure {
+                        tx,
+                        err: Error::Full,
+                    });
                 }
-                Entry::Vacant(entry) => entry,
-            };
 
-            // Reason for such insertion order is to avoid situation
-            // when poped from the `queue` hash does not yet has corresponding (hash, tx) record in `txs`
-            entry.insert(tx);
-            self.queue.push(hash).map_err(|err_hash| {
-                let (_, err_tx) = self
-                    .txs
-                    .remove(&err_hash)
-                    .expect("Inserted just before match");
-                (err_tx, Error::Full)
-            })
+                // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
+                entry.insert(tx);
+                let queue_to_push = if signature_check {
+                    &self.queue
+                } else {
+                    &self.signature_buffer
+                };
+                queue_to_push.push(hash).map_err(|err_hash| {
+                    let (_, err_tx) = self
+                        .txs
+                        .remove(&err_hash)
+                        .expect("Inserted just before match");
+                    Failure {
+                        tx: err_tx,
+                        err: Error::Full,
+                    }
+                })
+            }
         }
     }
 
-    /// Pop single transaction.
-    ///
-    /// Records unsigned transaction in `seen`.
-    #[allow(
-        clippy::expect_used,
-        clippy::unwrap_in_result,
-        clippy::cognitive_complexity
-    )]
-    fn pop(
+    /// Pop single transaction from the signature buffer. Record all visited and not removed transactions in `seen`.
+    fn pop_from_signature_buffer(
+        &self,
+        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
+        wsv: &WorldStateView,
+    ) -> Option<VersionedAcceptedTransaction> {
+        loop {
+            let hash = self.signature_buffer.pop()?;
+            let entry = match self.txs.entry(hash) {
+                Entry::Occupied(entry) => entry,
+                // FIXME: Reachable under high load. Investigate, see if it's a problem.
+                Entry::Vacant(_) => continue,
+            };
+
+            match self.check_tx(entry.get(), wsv) {
+                Ok(MustUse(signature_check)) => {
+                    // Transactions are not removed from the queue until expired or committed
+                    seen.push(hash);
+                    if signature_check {
+                        return Some(entry.get().clone());
+                    }
+                }
+                Err(_) => {
+                    entry.remove_entry();
+                }
+            }
+        }
+    }
+
+    /// Pop single transaction from the queue. Record all visited and not removed transactions in `seen`.
+    fn pop_from_queue(
         &self,
         seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
         wsv: &WorldStateView,
@@ -196,24 +243,15 @@ impl Queue {
                 // When transactions are submitted quickly it can be reached.
                 Entry::Vacant(_) => continue,
             };
-            if self.check_tx(entry.get(), wsv).is_err() {
+
+            if !self.is_pending(entry.get(), wsv) {
                 entry.remove_entry();
                 continue;
             }
 
-            match self.check_tx(entry.get(), wsv) {
-                Err(_) => {
-                    entry.remove_entry();
-                    continue;
-                }
-                Ok(MustUse(signature_check)) => {
-                    // Transactions are not removed from the queue until expired or committed
-                    seen.push(hash);
-                    if signature_check {
-                        return Some(entry.get().clone());
-                    }
-                }
-            }
+            // Transactions are not removed from the queue until expired or committed
+            seen.push(hash);
+            return Some(entry.get().clone());
         }
     }
 
@@ -247,21 +285,33 @@ impl Queue {
             return;
         }
 
-        let mut seen = Vec::new();
+        let mut seen_queue = Vec::new();
+        let mut seen_waiting_buffer = Vec::new();
+
+        let txs_from_queue = core::iter::from_fn(|| self.pop_from_queue(&mut seen_queue, wsv));
+        let txs_from_waiting_buffer =
+            core::iter::from_fn(|| self.pop_from_signature_buffer(&mut seen_waiting_buffer, wsv));
 
         let transactions_hashes: HashSet<HashOf<VersionedSignedTransaction>> = transactions
             .iter()
             .map(VersionedAcceptedTransaction::hash)
             .collect();
-        let out = std::iter::from_fn(|| self.pop(&mut seen, wsv))
+        let txs = txs_from_queue
+            .riffle(txs_from_waiting_buffer)
             .filter(|tx| !transactions_hashes.contains(&tx.hash()))
             .take(self.txs_in_block - transactions.len());
-        transactions.extend(out);
+        transactions.extend(txs);
 
-        #[allow(clippy::expect_used)]
-        seen.into_iter()
-            .try_for_each(|hash| self.queue.push(hash))
-            .expect("As we never exceed the number of transactions pending");
+        [
+            (seen_queue, &self.queue),
+            (seen_waiting_buffer, &self.signature_buffer),
+        ]
+        .into_iter()
+        .for_each(|(seen, queue)| {
+            seen.into_iter()
+                .try_for_each(|hash| queue.push(hash))
+                .expect("Exceeded the number of transactions pending")
+        })
     }
 }
 
@@ -372,8 +422,183 @@ mod tests {
 
         assert!(matches!(
             queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
-            Err((_, Error::Full))
+            Err(Failure {
+                err: Error::Full,
+                ..
+            })
         ));
+    }
+
+    #[test]
+    fn push_tx_when_signature_buffer_is_full() {
+        let max_txs_in_waiting_buffer = 10;
+
+        let alice_key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
+        let bob_key_pair = KeyPair::generate().unwrap();
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = {
+            let domain_id = DomainId::from_str("wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build();
+            let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
+            let mut alice = Account::new(
+                alice_id,
+                alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
+            )
+            .build();
+            alice.set_signature_check_condition(SignatureCheckCondition(
+                ContainsAll::new(
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(
+                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                        )
+                        .into(),
+                    ),
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(
+                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                        )
+                        .into(),
+                    ),
+                )
+                .into(),
+            ));
+            let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
+            assert!(domain.add_account(alice).is_none());
+            assert!(domain.add_account(bob).is_none());
+            Arc::new(WorldStateView::new(
+                World::with([domain], PeersIds::new()),
+                kura.clone(),
+            ))
+        };
+
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_signature_buffer: max_txs_in_waiting_buffer,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
+
+        // Fill waiting buffer with multisig transactions
+        for _ in 0..max_txs_in_waiting_buffer {
+            queue
+                .push(
+                    accepted_tx("alice@wonderland", 100_000, alice_key_pairs[0].clone()),
+                    &wsv,
+                )
+                .expect("Failed to push tx into queue");
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        // Check that signature buffer is full
+        assert!(matches!(
+            queue.push(
+                accepted_tx("alice@wonderland", 100_000, alice_key_pairs[0].clone()),
+                &wsv
+            ),
+            Err(Failure {
+                err: Error::Full,
+                ..
+            })
+        ));
+
+        // Check that ordinary transactions can still be pushed into the queue
+        assert!(queue
+            .push(
+                accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
+                &wsv,
+            )
+            .is_ok())
+    }
+
+    #[test]
+    fn push_multisig_tx_when_queue_is_full() {
+        let max_txs_in_queue = 10;
+
+        let alice_key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
+        let bob_key_pair = KeyPair::generate().unwrap();
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = {
+            let domain_id = DomainId::from_str("wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build();
+            let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
+            let mut alice = Account::new(
+                alice_id,
+                alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
+            )
+            .build();
+            alice.set_signature_check_condition(SignatureCheckCondition(
+                ContainsAll::new(
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(
+                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                        )
+                        .into(),
+                    ),
+                    EvaluatesTo::new_unchecked(
+                        ContextValue::new(
+                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                        )
+                        .into(),
+                    ),
+                )
+                .into(),
+            ));
+            let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
+            assert!(domain.add_account(alice).is_none());
+            assert!(domain.add_account(bob).is_none());
+            Arc::new(WorldStateView::new(
+                World::with([domain], PeersIds::new()),
+                kura.clone(),
+            ))
+        };
+
+        let queue = Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
+
+        // Fill queue with ordinary transactions
+        for _ in 0..max_txs_in_queue {
+            queue
+                .push(
+                    accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
+                    &wsv,
+                )
+                .expect("Failed to push tx into queue");
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        // Check that queue is full
+        assert!(matches!(
+            queue.push(
+                accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
+                &wsv
+            ),
+            Err(Failure {
+                err: Error::Full,
+                ..
+            })
+        ));
+
+        // Check that multisig transactions can still be pushed into the queue
+        assert!(queue
+            .push(
+                accepted_tx("alice@wonderland", 100_000, alice_key_pairs[0].clone()),
+                &wsv,
+            )
+            .is_ok())
     }
 
     #[test]
@@ -410,7 +635,10 @@ mod tests {
 
         assert!(matches!(
             queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
-            Err((_, Error::SignatureCondition { .. }))
+            Err(Failure {
+                err: Error::SignatureCondition { .. },
+                ..
+            })
         ));
     }
 
@@ -571,7 +799,10 @@ mod tests {
         });
         assert!(matches!(
             queue.push(tx, &wsv),
-            Err((_, Error::InBlockchain))
+            Err(Failure {
+                err: Error::InBlockchain,
+                ..
+            })
         ));
         assert_eq!(queue.txs.len(), 0);
     }
@@ -711,8 +942,10 @@ mod tests {
                     let tx = accepted_tx("alice@wonderland", 100_000, alice_key.clone());
                     match queue_arc_clone.push(tx, &wsv_clone) {
                         Ok(()) => (),
-                        Err((_, Error::Full)) => (),
-                        Err((_, err)) => panic!("{}", err),
+                        Err(Failure {
+                            err: Error::Full, ..
+                        }) => (),
+                        Err(Failure { err, .. }) => panic!("{err}"),
                     }
                 }
             })
@@ -768,7 +1001,13 @@ mod tests {
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
         tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;
-        assert!(matches!(queue.push(tx, &wsv), Err((_, Error::InFuture))));
+        assert!(matches!(
+            queue.push(tx, &wsv),
+            Err(Failure {
+                err: Error::InFuture,
+                ..
+            })
+        ));
         assert_eq!(queue.txs.len(), 1);
     }
 }

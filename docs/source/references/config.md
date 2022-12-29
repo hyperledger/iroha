@@ -69,6 +69,7 @@ The following is the default configuration used by Iroha.
   "QUEUE": {
     "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
     "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
+    "MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
@@ -430,6 +431,7 @@ Has type `Option<queue::ConfigurationProxy>`[^1]. Can be configured via environm
   "FUTURE_THRESHOLD_MS": 1000,
   "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
   "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
+  "MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
   "TRANSACTION_TIME_TO_LIVE_MS": 86400000
 }
 ```
@@ -459,6 +461,16 @@ Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MA
 The upper limit of the number of transactions waiting in the queue.
 
 Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_QUEUE`
+
+```json
+65536
+```
+
+### `queue.maximum_transactions_in_signature_buffer`
+
+The upper limit of the number of transactions waiting for more signatures.
+
+Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER`
 
 ```json
 65536
