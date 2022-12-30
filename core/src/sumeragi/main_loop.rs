@@ -703,8 +703,8 @@ fn should_terminate(shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>) 
     }
 }
 
+#[instrument(skip_all)]
 /// Execute the main loop of [`SumeragiWithFault`]
-#[instrument(skip(sumeragi, state, genesis_network, shutdown_receiver))]
 pub(crate) fn run<F: FaultInjection>(
     genesis_network: Option<GenesisNetwork>,
     sumeragi: &SumeragiWithFault<F>,
@@ -1121,7 +1121,7 @@ fn early_return(
 
     match shutdown_receiver.try_recv() {
         Ok(()) | Err(TryRecvError::Closed) => {
-            info!("Sumeragi Thread is being shutdown shut down.");
+            info!("Sumeragi Thread is being shut down.");
             Err(EarlyReturn::ShutdownMessageReceived)
         }
         Err(TryRecvError::Empty) => Ok(()),

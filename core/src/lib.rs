@@ -1,4 +1,6 @@
 //! Iroha — A simple, enterprise-grade decentralized ledger.
+
+#![allow(incomplete_features)] // This feature is minor and breakage to be expected is going to be minimal.
 #![feature(adt_const_params)]
 
 pub mod block;
@@ -63,13 +65,12 @@ pub enum NetworkMessage {
 
 /// Check to see if the given item was included in the blockchain.
 pub trait IsInBlockchain {
-    /// Checks if this item has already been committed or rejected.
+    /// Check if [`self`] is committed or rejected.
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool;
 }
 
-/// Module constaining [`ThreadHandler`]
 pub mod handler {
-    #![allow(clippy::expect_used)]
+    //! General purpose thread handler. It is responsible for
     use std::thread::JoinHandle;
 
     /// Call shutdown function and join thread on drop
@@ -80,7 +81,9 @@ pub mod handler {
     }
 
     impl ThreadHandler {
-        /// Create new [`Self`]
+        /// [`Self`] constructor
+        #[must_use]
+        #[inline]
         pub fn new(shutdown: Box<dyn FnOnce() + Send>, handle: JoinHandle<()>) -> Self {
             Self {
                 shutdown: Some(shutdown),
@@ -90,6 +93,7 @@ pub mod handler {
     }
 
     impl Drop for ThreadHandler {
+        /// Join on drop to ensure that the thread is properly shut down.
         fn drop(&mut self) {
             (self.shutdown.take().expect("Always some after init"))();
             let handle = self.handle.take().expect("Always some after init");

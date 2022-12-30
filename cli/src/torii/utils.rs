@@ -49,10 +49,10 @@ pub mod body {
 
     /// Recover from failure in `versioned`
     pub fn recover_versioned(rejection: Rejection) -> Result<impl Reply, Rejection> {
-        if let Some(error) = rejection.find::<VersionError>() {
-            return Ok(error.into_response());
-        }
-        Err(rejection)
+        rejection
+            .find::<VersionError>()
+            .map(warp::Reply::into_response)
+            .ok_or(rejection)
     }
 }
 

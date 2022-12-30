@@ -1005,9 +1005,9 @@ pub mod value {
         Numerical(numerical::SemiRange),
         /// Timestamp (currently for `BlockValue` only).
         TimeStamp(numerical::SemiInterval<u128>),
-        /// IpAddress
+        /// IpAddress enumerable by `u32`
         Ipv4Addr(ip_addr::Ipv4Predicate),
-        ///
+        /// IpAddress extended to use wide range `u128` enumerable addresses.
         Ipv6Addr(ip_addr::Ipv6Predicate),
         /// Always return true.
         Pass,

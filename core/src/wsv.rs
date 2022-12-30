@@ -123,7 +123,6 @@ impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
-    #[allow(clippy::expect_used)]
     pub fn new(world: World, kura: Arc<Kura>) -> Self {
         // Added to remain backward compatible with other code primary in tests
         let config = ConfigurationProxy::default()
