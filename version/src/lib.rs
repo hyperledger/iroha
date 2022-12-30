@@ -120,6 +120,7 @@ pub mod error {
             warp::http::StatusCode::BAD_REQUEST
         }
     }
+
     #[cfg(feature = "warp")]
     impl warp::Reply for &Error {
         fn into_response(self) -> warp::reply::Response {

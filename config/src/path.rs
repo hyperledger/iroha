@@ -46,6 +46,15 @@ enum InnerPath {
 #[derive(Debug, Clone)]
 pub struct Path(InnerPath);
 
+impl core::fmt::Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Default(pth) => write!(f, "{pth:?} (default)"),
+            UserProvided(pth) => write!(f, "{pth:?}"),
+        }
+    }
+}
+
 impl Path {
     /// Construct new [`Path`] from the default `path`.
     ///

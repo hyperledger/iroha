@@ -95,6 +95,11 @@ allow = [
     'clippy::separated-literal-suffix',
     # Most trybuild code triggers a false-positive.
 
+    # Not all public items should be inline. We only inline **trivial** functions.
+    'clippy::missing_inline_in_public_items',
+
+    'unknown_lints',
+
     # --- Re-enable candidates -----
 
     # Lots of false-positives.
@@ -105,10 +110,9 @@ allow = [
     # As soon as trait specialisation is stable we need to remove it.
     'clippy::same_name_method',
     'clippy::pub_use',
-    'unknown_lints',
 
     # Style guide candidate. Explicitly converting the return value to
-    # () is good, for refactoring, and if there is a necessary
+    # () is good for refactoring, and if there is necessary
     # processing of the data returned by a function, it should
     # **really** be marked as #[must_use]
     'clippy::semicolon_if_nothing_returned',
@@ -118,22 +122,15 @@ allow = [
     # `#[deny]` directives
     'clippy::must_use_candidate',
 
-    # TODO: Remove when stabilized
+    # Unstable and many false-positives
     ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn
     'clippy::missing_const_for_fn',
 
-    # While we should aspire to enable it one day, I vote for enabling
-    # it selectively, in cases where borrowing is necessary to convey
-    # to the user
+    # Too much affected code. Often impossible to apply suggestion on stable rust.
     'elided_lifetimes_in_paths',
 
-    # This lint produces a lot of false positives. Recommend enabling
-    # locally. Also, it highlights many types and enums, which
-    # indicates that the lint is triggered by the generated code
+    # This lint produces a lot of false positives. Recommend local #[deny] directives
     'clippy::use_self',
-
-    # Not all public items should be inline. We only inline **trivial** functions.
-    'clippy::missing_inline_in_public_items',
 
     # We don't want to manually deny every `clippy::restriction::*` lint.
     'clippy::blanket-clippy-restriction-lints',
@@ -145,7 +142,11 @@ allow = [
     'clippy::missing_trait_methods',
 
     # We allow this and deny `clippy::semicolon_inside_block`.
-    'clippy::semicolon_outside_block'
+    'clippy::semicolon_outside_block',
+
+    # It is debatable whether it's actually easier to read,
+    # additionally, not all patterns are covered by the inlined syntax
+    'clippy::uninlined_format_args',
 ]
 
 warn = [

@@ -172,12 +172,10 @@ impl Iroha {
         let config = file_proxy.override_with(env_proxy).build()?;
 
         let telemetry = iroha_logger::init(&config.logger)?;
-        iroha_logger::info!("Hyperledgerいろは2にようこそ！");
-        iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
         iroha_logger::info!(
-            cargo_pkg_version = env!("CARGO_PKG_VERSION"),
-            git_sha = env!("VERGEN_GIT_SHA"),
-            "Iroha version"
+            git_commit_sha = env!("VERGEN_GIT_SHA"),
+            "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha {}!",
+            env!("CARGO_PKG_VERSION")
         );
 
         let genesis = if let Some(genesis_path) = &args.genesis_path {
@@ -241,6 +239,7 @@ impl Iroha {
     /// - Reading telemetry configs
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
+    #[allow(clippy::too_many_lines)] // This is actually easier to understand as a linear sequence of init statements.
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
@@ -273,7 +272,11 @@ impl Iroha {
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
-        let kura = Kura::from_configuration(&config.kura)?;
+        let kura = Kura::new(
+            config.kura.init_mode,
+            std::path::Path::new(&config.kura.block_store_path),
+            config.kura.debug_output_new_blocks,
+        )?;
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
         let query_judge = Arc::from(query_judge);
@@ -301,7 +304,7 @@ impl Iroha {
         if Self::start_telemetry(telemetry, &config).await? {
             iroha_logger::info!("Telemetry started")
         } else {
-            iroha_logger::error!("Telemetry did not start")
+            iroha_logger::warn!("Telemetry not started")
         }
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));

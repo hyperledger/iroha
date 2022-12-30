@@ -7,7 +7,10 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use iroha_core::{kura::BlockStore, prelude::VersionedCommittedBlock};
+use iroha_core::{
+    kura::{BlockIndex, BlockStore},
+    prelude::VersionedCommittedBlock,
+};
 use iroha_version::scale::DecodeVersioned;
 
 /// Kura inspector
@@ -99,7 +102,10 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
     };
 
     let mut block_indices = vec![
-        (0, 0);
+        BlockIndex {
+            start: 0,
+            length: 0
+        };
         block_count
             .try_into()
             .expect("block_count didn't fit in 32-bits")
@@ -118,24 +124,23 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
     );
 
     for i in 0..block_count {
-        let (index_start, index_len) =
-            block_indices[usize::try_from(i).expect("i didn't fit in 32-bits")];
-        let index_index = from_height + i;
+        let idx = block_indices[usize::try_from(i).expect("i didn't fit in 32-bits")];
+        let meta_index = from_height + i;
 
         println!(
             "Block#{} starts at byte offset {} and is {} bytes long.",
-            index_index + 1,
-            index_start,
-            index_len
+            meta_index + 1,
+            idx.start,
+            idx.length
         );
         let mut block_buf =
-            vec![0_u8; usize::try_from(index_len).expect("index_len didn't fit in 32-bits")];
+            vec![0_u8; usize::try_from(idx.length).expect("index_len didn't fit in 32-bits")];
         block_store
-            .read_block_data(index_start, &mut block_buf)
-            .expect(&format!("Failed to read block № {} data.", index_index + 1));
+            .read_block_data(idx.start, &mut block_buf)
+            .expect(&format!("Failed to read block № {} data.", meta_index + 1));
         let block = VersionedCommittedBlock::decode_all_versioned(&block_buf)
-            .expect(&format!("Failed to decode block № {}", index_index + 1));
-        println!("Block#{} :", index_index + 1);
+            .expect(&format!("Failed to decode block № {}", meta_index + 1));
+        println!("Block#{} :", meta_index + 1);
         println!("{block:#?}");
     }
 }

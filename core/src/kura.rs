@@ -12,7 +12,7 @@ use std::{
 };
 
 use derive_more::Deref;
-use iroha_config::kura::{Configuration, Mode};
+use iroha_config::kura::Mode;
 use iroha_crypto::HashOf;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
@@ -105,50 +105,28 @@ impl Kura {
         ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
 
-    /// Loads kura from configuration
-    ///
-    /// # Errors
-    /// Fails if there are filesystem errors when trying
-    /// to access the block store indicated by the
-    /// path in the configuration.
-    pub fn from_configuration(configuration: &Configuration) -> Result<Arc<Self>> {
-        Self::new(
-            configuration.init_mode,
-            Path::new(&configuration.block_store_path),
-            configuration.debug_output_new_blocks,
-        )
-    }
-
     /// Initialize [`Kura`] after its construction to be able to work with it.
     ///
     /// # Errors
     /// Fails if:
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
-    #[allow(clippy::expect_used)]
     pub fn init(&self) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
-        let mut block_hashes = Vec::new();
-
         let block_store = self.block_store.lock();
 
         let block_index_count: usize = block_store
             .read_index_count()?
             .try_into()
             .expect("We don't have 4 billion blocks.");
-        let mut block_indices = Vec::new();
-        block_indices.try_reserve(block_index_count)?;
-        block_indices.resize(block_index_count, (0_u64, 0_u64));
+        let mut block_indices = vec![BlockIndex::default(); block_index_count];
         block_store.read_block_indices(0, &mut block_indices)?;
 
-        for (block_start, block_len) in block_indices {
-            let mut block_data_buffer = Vec::new();
-            let block_data_buffer_len: usize = block_len
-                .try_into()
-                .expect("TODO: handle allocation too large because block_len is corrupted.");
-            block_data_buffer.try_reserve(block_data_buffer_len)?;
-            block_data_buffer.resize(block_data_buffer_len, 0_u8);
+        let mut block_hashes: Vec<HashOf<VersionedCommittedBlock>> = Vec::new();
+        for block in block_indices {
+            // This is re-allocated every iteration. This could cause a problem.
+            let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
 
-            match block_store.read_block_data(block_start, &mut block_data_buffer) {
+            match block_store.read_block_data(block.start, &mut block_data_buffer) {
                 Ok(_) => match VersionedCommittedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
                         block_hashes.push(decoded_block.hash());
@@ -164,22 +142,15 @@ impl Kura {
                 }
             }
         }
-
         info!(block_count = block_hashes.len(), "Init complete");
 
-        {
-            // The none value is set in order to indicate that the blocks exist on disk but
-            // are not yet loaded.
-            let data_array = block_hashes
-                .iter()
-                .copied()
-                .map(|hash| (hash, None))
-                .collect();
-
-            let mut guard = self.block_data.lock();
-            *guard = data_array;
-        }
-
+        // The none value is set in order to indicate that the blocks exist on disk but
+        // are not yet loaded.
+        *self.block_data.lock() = block_hashes
+            .iter()
+            .copied()
+            .map(|hash| (hash, None))
+            .collect();
         Ok(block_hashes)
     }
 
@@ -252,7 +223,7 @@ impl Kura {
 
             let mut block_store_guard = kura.block_store.lock();
             if let Err(error) = block_store_guard.write_index_count(start_height as u64) {
-                error!("Failed to write index count, ERROR = {}", error);
+                error!(?error, "Failed to write index count");
                 panic!("Kura has encountered a fatal IO error.");
             }
 
@@ -260,7 +231,7 @@ impl Kura {
                 let serialized_block: Vec<u8> = block.encode_versioned();
 
                 if let Err(error) = block_store_guard.append_block_to_chain(&serialized_block) {
-                    error!("Failed to store block, ERROR = {}", error);
+                    error!(?error, "Failed to store block");
                     panic!("Kura has encountered a fatal IO error.");
                 }
             }
@@ -307,14 +278,14 @@ impl Kura {
         };
 
         let block_store = self.block_store.lock();
-        let (block_start, block_len) = block_store
+        let BlockIndex { start, length } = block_store
             .read_block_index(block_number as u64)
             .expect("Failed to read block index from disk.");
 
         let mut block_buf =
-            vec![0_u8; usize::try_from(block_len).expect("index_len didn't fit in 32-bits")];
+            vec![0_u8; usize::try_from(length).expect("index_len didn't fit in 32-bits")];
         block_store
-            .read_block_data(block_start, &mut block_buf)
+            .read_block_data(start, &mut block_buf)
             .expect("Failed to read block data.");
         let block = VersionedCommittedBlock::decode_all_versioned(&block_buf)
             .expect("Failed to decode block");
@@ -369,7 +340,7 @@ pub trait Lock: core::ops::Deref<Target = PathBuf> {}
 /// Owns the path to store because [`Unlocked`] needs
 /// to unlock it when dropped, and `Drop` impls
 /// cannot be specialized, so `Drop` has to be implemented
-/// on typestate struct.
+/// on typestate `struct`.
 #[derive(Debug, Deref)]
 pub struct Unlocked(PathBuf);
 impl Lock for Unlocked {}
@@ -382,15 +353,30 @@ impl Unlocked {
 
     /// Try to acquire lockfile and convert self to [`Locked`]
     fn lock(self) -> Result<Locked> {
+        let path = self.join(LOCK_FILE_NAME);
         if let Err(e) = fs::File::options()
             .read(true)
             .write(true)
             .create_new(true)
-            .open(self.join(LOCK_FILE_NAME))
+            .open(path.clone())
         {
             match e.kind() {
                 std::io::ErrorKind::AlreadyExists => Err(Error::Locked(self.0)),
-                _ => Err(e.into()),
+                std::io::ErrorKind::NotFound => {
+                    std::fs::create_dir_all(self.0.clone())
+                        .map_err(|e| Error::MkDir(e, path.clone()))?;
+                    if let Err(e) = fs::File::options()
+                        .read(true)
+                        .write(true)
+                        .create_new(true)
+                        .open(path.clone())
+                    {
+                        Err(Error::IO(e, path))
+                    } else {
+                        Ok(Locked(self.0))
+                    }
+                }
+                _ => Err(Error::IO(e, path)),
             }
         } else {
             Ok(Locked(self.0))
@@ -413,10 +399,11 @@ impl Locked {
     // Try to lift lockfile. Only for internal use in `unlock`
     // and `Drop` implementation.
     fn try_lift_lock(&mut self) -> Result<()> {
-        if let Err(e) = fs::remove_file(self.join(LOCK_FILE_NAME)) {
+        let path = self.join(LOCK_FILE_NAME);
+        if let Err(e) = fs::remove_file(path.clone()) {
             match e.kind() {
                 std::io::ErrorKind::NotFound => Err(Error::Unlocked(self.0.clone())),
-                _ => Err(e.into()),
+                _ => Err(Error::IO(e, path)),
             }
         } else {
             Ok(())
@@ -445,7 +432,7 @@ impl Drop for Locked {
     }
 }
 
-/// An implementation of a block store for Kura
+/// An implementation of a block store for `Kura`
 /// that uses `std::fs`, the default IO file in Rust.
 #[derive(Debug)]
 pub struct BlockStore<L: Lock> {
@@ -475,6 +462,15 @@ impl BlockStore<Unlocked> {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy)]
+/// Lightweight wrapper for block indices in the block index file
+pub struct BlockIndex {
+    /// Start of block in bytes
+    pub start: u64,
+    /// Length of block section in bytes
+    pub length: u64,
+}
+
 /// Operations available both on locked and unlocked store,
 /// i.e. only read operations.
 impl<L: Lock> BlockStore<L> {
@@ -483,40 +479,50 @@ impl<L: Lock> BlockStore<L> {
     ///
     /// # Errors
     /// IO Error.
-    #[allow(clippy::needless_range_loop)]
     pub fn read_block_indices(
         &self,
         start_block_height: u64,
-        dest_buffer: &mut [(u64, u64)],
+        dest_buffer: &mut [BlockIndex],
     ) -> Result<()> {
+        let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         let mut index_file = std::fs::OpenOptions::new()
             .read(true)
-            .open(self.path_to_blockchain.join(INDEX_FILE_NAME))?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
         let start_location = start_block_height * (2 * std::mem::size_of::<u64>() as u64);
         let block_count = dest_buffer.len();
 
         if start_location + (2 * std::mem::size_of::<u64>() as u64) * block_count as u64
-            > index_file.metadata()?.len()
+            > index_file
+                .metadata()
+                .map_err(|e| Error::IO(e, path.clone()))?
+                .len()
         {
-            return Err(Error::OutOfBoundsBlockRead(
+            return Err(Error::OutOfBoundsBlockRead {
                 start_block_height,
-                block_count as u64,
-            ));
+                block_count,
+            });
         }
-        index_file.seek(SeekFrom::Start(start_location))?;
+        index_file
+            .seek(SeekFrom::Start(start_location))
+            .map_err(|e| Error::IO(e, path.clone()))?;
         let mut buffer = [0; core::mem::size_of::<u64>()];
         // (start, length), (start,length) ...
-        for index in 0..block_count {
-            dest_buffer[index] = (
-                {
-                    index_file.read_exact(&mut buffer)?;
+        for current_buffer in dest_buffer.iter_mut() {
+            *current_buffer = BlockIndex {
+                start: {
+                    index_file
+                        .read_exact(&mut buffer)
+                        .map_err(|e| Error::IO(e, path.clone()))?;
                     u64::from_le_bytes(buffer)
                 },
-                {
-                    index_file.read_exact(&mut buffer)?;
+                length: {
+                    index_file
+                        .read_exact(&mut buffer)
+                        .map_err(|e| Error::IO(e, path.clone()))?;
                     u64::from_le_bytes(buffer)
                 },
-            );
+            };
         }
         Ok(())
     }
@@ -525,14 +531,18 @@ impl<L: Lock> BlockStore<L> {
     ///
     /// # Errors
     /// IO Error.
-    pub fn read_block_index(&self, block_height: u64) -> Result<(u64, u64)> {
-        let mut index = (0, 0);
+    pub fn read_block_index(&self, block_height: u64) -> Result<BlockIndex> {
+        let mut index = BlockIndex {
+            start: 0,
+            length: 0,
+        };
         self.read_block_indices(block_height, std::slice::from_mut(&mut index))?;
         Ok(index)
     }
 
-    /// Get the number of indices in the index file, which is calculated as the size of
-    /// the index file in bytes divided by 16.
+    /// Get the number of indices in the index file, which is
+    /// calculated as the size of the index file in bytes divided by
+    /// `2*size_of(u64)`.
     ///
     /// # Errors
     /// IO Error.
@@ -540,19 +550,23 @@ impl<L: Lock> BlockStore<L> {
     /// The most common reason this function fails is
     /// that you did not call `create_files_if_they_do_not_exist`.
     ///
-    /// Note that if there is an error, you can be quite sure all other
-    /// read and write operations will also fail.
+    /// Note that if there is an error, you can be quite sure all
+    /// other read and write operations will also fail.
     #[allow(clippy::integer_division)]
     pub fn read_index_count(&self) -> Result<u64> {
+        let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         let index_file = std::fs::OpenOptions::new()
             .read(true)
-            .open(self.path_to_blockchain.join(INDEX_FILE_NAME))?;
-        Ok(index_file.metadata()?.len() / (2 * std::mem::size_of::<u64>() as u64))
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        Ok(index_file.metadata().map_err(|e| Error::IO(e, path))?.len()
+            / (2 * std::mem::size_of::<u64>() as u64))
         // Each entry is 16 bytes.
     }
 
-    /// Read block data starting from the `start_location_in_data_file` in data file
-    /// in order to fill `dest_buffer`.
+    /// Read block data starting from the
+    /// `start_location_in_data_file` in data file in order to fill
+    /// `dest_buffer`.
     ///
     /// # Errors
     /// IO Error.
@@ -561,11 +575,17 @@ impl<L: Lock> BlockStore<L> {
         start_location_in_data_file: u64,
         dest_buffer: &mut [u8],
     ) -> Result<()> {
+        let path = self.path_to_blockchain.join(DATA_FILE_NAME);
         let mut data_file = std::fs::OpenOptions::new()
             .read(true)
-            .open(self.path_to_blockchain.join(DATA_FILE_NAME))?;
-        data_file.seek(SeekFrom::Start(start_location_in_data_file))?;
-        data_file.read_exact(dest_buffer)?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        data_file
+            .seek(SeekFrom::Start(start_location_in_data_file))
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        data_file
+            .read_exact(dest_buffer)
+            .map_err(|e| Error::IO(e, path))?;
         Ok(())
     }
 }
@@ -576,7 +596,7 @@ impl BlockStore<Locked> {
     // Doesn't actually lock anything, do not use outside of tests.
     #[cfg_attr(
         not(debug_assertions),
-        deprecated(note = "Use of fake store in release build is suspicious")
+        deprecated(note = "Use of fake store in release is probably not what you want")
     )]
     fn fake_locked_for_tests(path: PathBuf) -> Self {
         Self {
@@ -602,19 +622,34 @@ impl BlockStore<Locked> {
     /// # Errors
     /// IO Error.
     pub fn write_block_index(&mut self, block_height: u64, start: u64, length: u64) -> Result<()> {
+        let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         let mut index_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .open(self.path_to_blockchain.join(INDEX_FILE_NAME))?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
         let start_location = block_height * (2 * std::mem::size_of::<u64>() as u64);
-        if start_location + (2 * std::mem::size_of::<u64>() as u64) > index_file.metadata()?.len() {
-            index_file.set_len(start_location + (2 * std::mem::size_of::<u64>() as u64))?;
+        if start_location + (2 * std::mem::size_of::<u64>() as u64)
+            > index_file
+                .metadata()
+                .map_err(|e| Error::IO(e, path.clone()))?
+                .len()
+        {
+            index_file
+                .set_len(start_location + (2 * std::mem::size_of::<u64>() as u64))
+                .map_err(|e| Error::IO(e, path.clone()))?;
         }
-        index_file.seek(SeekFrom::Start(start_location))?;
+        index_file
+            .seek(SeekFrom::Start(start_location))
+            .map_err(|e| Error::IO(e, path.clone()))?;
         // block0       | block1
         // start, length| start, length  ... et cetera.
-        index_file.write_all(&start.to_le_bytes())?;
-        index_file.write_all(&length.to_le_bytes())?;
+        index_file
+            .write_all(&start.to_le_bytes())
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        index_file
+            .write_all(&length.to_le_bytes())
+            .map_err(|e| Error::IO(e, path))?;
         Ok(())
     }
 
@@ -630,11 +665,15 @@ impl BlockStore<Locked> {
     /// Note that if there is an error, you can be quite sure all other
     /// read and write operations will also fail.
     pub fn write_index_count(&mut self, new_count: u64) -> Result<()> {
+        let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         let index_file = std::fs::OpenOptions::new()
             .write(true)
-            .open(self.path_to_blockchain.join(INDEX_FILE_NAME))?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
         let new_byte_size = new_count * (2 * std::mem::size_of::<u64>() as u64);
-        index_file.set_len(new_byte_size)?;
+        index_file
+            .set_len(new_byte_size)
+            .map_err(|e| Error::IO(e, path))?;
         Ok(())
     }
 
@@ -649,14 +688,27 @@ impl BlockStore<Locked> {
         start_location_in_data_file: u64,
         block_data: &[u8],
     ) -> Result<()> {
+        let path = self.path_to_blockchain.join(DATA_FILE_NAME);
         let mut data_file = std::fs::OpenOptions::new()
             .write(true)
-            .open(self.path_to_blockchain.join(DATA_FILE_NAME))?;
-        if start_location_in_data_file + block_data.len() as u64 > data_file.metadata()?.len() {
-            data_file.set_len(start_location_in_data_file + block_data.len() as u64)?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        if start_location_in_data_file + block_data.len() as u64
+            > data_file
+                .metadata()
+                .map_err(|e| Error::IO(e, path.clone()))?
+                .len()
+        {
+            data_file
+                .set_len(start_location_in_data_file + block_data.len() as u64)
+                .map_err(|e| Error::IO(e, path.clone()))?;
         }
-        data_file.seek(SeekFrom::Start(start_location_in_data_file))?;
-        data_file.write_all(block_data)?;
+        data_file
+            .seek(SeekFrom::Start(start_location_in_data_file))
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        data_file
+            .write_all(block_data)
+            .map_err(|e| Error::IO(e, path.clone()))?;
         Ok(())
     }
 
@@ -664,18 +716,23 @@ impl BlockStore<Locked> {
     /// already exist.
     ///
     /// # Errors
-    /// Fails if any of the files don't exist
-    /// and couldn't be created.
+    /// Fails if any of the files don't exist and couldn't be
+    /// created.
     pub fn create_files_if_they_do_not_exist(&mut self) -> Result<()> {
-        std::fs::create_dir_all(&*self.path_to_blockchain)?;
+        std::fs::create_dir_all(&*self.path_to_blockchain)
+            .map_err(|e| Error::MkDir(e, self.path_to_blockchain.clone()))?;
+        let path = self.path_to_blockchain.join(INDEX_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .open(self.path_to_blockchain.join(INDEX_FILE_NAME))?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path))?;
+        let path = self.path_to_blockchain.join(DATA_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .open(self.path_to_blockchain.join(DATA_FILE_NAME))?;
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path))?;
         Ok(())
     }
 
@@ -691,9 +748,8 @@ impl BlockStore<Locked> {
         let start_location_in_data_file = if new_block_height == 0 {
             0
         } else {
-            let (ultimate_block_start, ultimate_block_len) =
-                self.read_block_index(new_block_height - 1)?;
-            ultimate_block_start + ultimate_block_len
+            let ultimate_block = self.read_block_index(new_block_height - 1)?;
+            ultimate_block.start + ultimate_block.length
         };
 
         self.write_block_data(start_location_in_data_file, block_data)?;
@@ -712,8 +768,11 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Generic IO error
-    #[error("Failed reading/writing from disk")]
-    IO(#[from] std::io::Error),
+    #[error("Failed reading/writing {_1:?} from disk")]
+    IO(#[source] std::io::Error, PathBuf),
+    /// Failed to create the directory
+    #[error("Failed to create the directory {_1:?}")]
+    MkDir(std::io::Error, PathBuf),
     /// Error (de)serializing block
     #[error("Failed to serialize/deserialize block")]
     Codec(#[from] iroha_version::error::Error),
@@ -722,14 +781,22 @@ pub enum Error {
     Alloc(#[from] std::collections::TryReserveError),
     /// Zero-height block was provided
     /// The block store tried reading data beyond the end of the block data file.
-    #[error("Tried reading block data read out of bounds: {0}, {1}.")]
-    OutOfBoundsBlockRead(u64, u64),
+    #[error("Tried reading block data out of bounds: {start_block_height}, {block_count}.")]
+    OutOfBoundsBlockRead {
+        /// The block height from which the read was supposed to start
+        start_block_height: u64,
+        /// The actual block count
+        block_count: usize,
+    },
     /// Tried to lock an already locked store
     #[error("Tried to lock block store by creating a lockfile at {0}, but it already exists")]
     Locked(PathBuf),
     /// Tried to unlock an already unlocked store
     #[error("Tried to unlock block store by deleting lockfile at {0}, but it couldn't be found")]
     Unlocked(PathBuf),
+    /// Integer conversion error
+    #[error("Conversion of wide integer into narrow integer. This error cannot be caught at compile time at present")]
+    IntConversion(#[from] std::num::TryFromIntError),
 }
 
 #[allow(clippy::unwrap_used)]
@@ -739,6 +806,38 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    fn indices<const N: usize>(value: [(u64, u64); N]) -> [BlockIndex; N] {
+        let mut ret = [BlockIndex {
+            start: 0,
+            length: 0,
+        }; N];
+        for idx in 0..value.len() {
+            ret[idx] = value[idx].into();
+        }
+        ret
+    }
+
+    impl PartialEq for BlockIndex {
+        fn eq(&self, other: &Self) -> bool {
+            self.start == other.start && self.length == other.length
+        }
+    }
+
+    impl PartialEq<(u64, u64)> for BlockIndex {
+        fn eq(&self, other: &(u64, u64)) -> bool {
+            self.start == other.0 && self.length == other.1
+        }
+    }
+
+    impl From<(u64, u64)> for BlockIndex {
+        fn from(value: (u64, u64)) -> Self {
+            Self {
+                start: value.0,
+                length: value.1,
+            }
+        }
+    }
 
     #[test]
     fn read_and_write_to_blockchain_index() {
@@ -761,8 +860,8 @@ mod tests {
 
         // or equivilant
         {
-            let should_be = [(2, 9), (0, 0), (6, 3), (1, 2)];
-            let mut is = [(0, 0), (0, 0), (0, 0), (0, 0)];
+            let should_be = indices([(2, 9), (0, 0), (6, 3), (1, 2)]);
+            let mut is = indices([(0, 0), (0, 0), (0, 0), (0, 0)]);
 
             block_store.read_block_indices(0, &mut is).unwrap();
             assert_eq!(should_be, is);
@@ -830,9 +929,9 @@ mod tests {
         }
 
         for i in 0..append_count {
-            let (start, len) = block_store.read_block_index(i).unwrap();
+            let BlockIndex { start, length } = block_store.read_block_index(i).unwrap();
             assert_eq!(i * block_data.len() as u64, start);
-            assert_eq!(block_data.len() as u64, len);
+            assert_eq!(block_data.len() as u64, length);
         }
     }
 
