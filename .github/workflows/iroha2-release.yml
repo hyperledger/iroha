@@ -43,6 +43,7 @@ jobs:
           tags: |
             hyperledger/iroha2:${{ env.TAG }}
             docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ github.sha }}
+            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}
           labels: commit=${{ github.sha }}
           build-args: TAG=${{ env.TAG }}
           file: Dockerfile
