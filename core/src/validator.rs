@@ -97,12 +97,11 @@ impl Chain {
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<(), DenialReason> {
         let operation = operation.into();
-        let validators = match self
+        let Some(validators) = self
             .concrete_type_validators
-            .get(&operation.required_validator_type())
+            .get(&operation.required_validator_type()) else
         {
-            Some(validators) => validators,
-            None => return Ok(()),
+            return Ok(())
         };
 
         for validator_id in validators.value() {

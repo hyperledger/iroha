@@ -153,12 +153,9 @@ impl Sumeragi {
         {
             let mut block_index = start_index;
             while block_index < wsv_guard.height() {
-                let block =
-                    if let Some(block) = self.internal.kura.get_block_by_height(block_index + 1) {
-                        block
-                    } else {
-                        break;
-                    };
+                let Some(block) = self.internal.kura.get_block_by_height(block_index + 1) else {
+                    break;
+                };
                 block_index += 1;
                 let block_txs_accepted = block.as_v1().transactions.len() as u64;
                 let block_txs_rejected = block.as_v1().rejected_transactions.len() as u64;

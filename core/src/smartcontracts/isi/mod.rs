@@ -410,12 +410,11 @@ impl Execute for TransferBox {
         wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
-        let (source_asset_id, destination_asset_id) = match (
+        let (IdBox::AssetId(source_asset_id), IdBox::AssetId(destination_asset_id)) = (
             self.source_id.evaluate(wsv, &context)?,
             self.destination_id.evaluate(wsv, &context)?,
-        ) {
-            (IdBox::AssetId(src), IdBox::AssetId(dst)) => (src, dst),
-            _ => return Err(Error::Unsupported(InstructionType::Transfer)),
+        ) else {
+            return Err(Error::Unsupported(InstructionType::Transfer));
         };
 
         let value = self.object.evaluate(wsv, &context)?;
