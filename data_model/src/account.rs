@@ -3,7 +3,6 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    boxed::Box,
     collections::{btree_map, btree_set},
     format,
     string::String,

@@ -1,5 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, format, string::String, vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};

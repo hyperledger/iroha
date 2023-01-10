@@ -16,7 +16,7 @@ mod signature;
 mod varint;
 
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, borrow::ToOwned, boxed::Box, format, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]

@@ -1,7 +1,7 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
+use alloc::{collections::btree_set, format, string::String, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 

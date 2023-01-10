@@ -3,7 +3,6 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    boxed::Box,
     format,
     string::{String, ToString},
     vec::Vec,

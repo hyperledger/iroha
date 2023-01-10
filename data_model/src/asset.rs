@@ -3,7 +3,7 @@
 #![allow(clippy::std_instead_of_alloc)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_map, format, string::String, vec::Vec};
+use alloc::{collections::btree_map, format, string::String, vec::Vec};
 use core::{cmp::Ordering, fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
