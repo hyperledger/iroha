@@ -277,8 +277,8 @@ fn commit_block<F>(
     // Update WSV copy that is public facing
     {
         let mut wsv = sumeragi.wsv.lock();
-        *wsv = state.wsv.clone()
-    };
+        *wsv = state.wsv.clone();
+    }
 
     if sumeragi.events_sender.receiver_count() > 0 {
         for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {

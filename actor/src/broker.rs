@@ -293,8 +293,8 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(10), rec.recv())
                 .await
                 .unwrap()
-                .unwrap()
-        };
+                .unwrap();
+        }
 
         assert_eq!(
             (

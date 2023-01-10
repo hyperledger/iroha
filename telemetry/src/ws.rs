@@ -466,8 +466,8 @@ mod tests {
             assert!(payload.contains_key("config"));
             assert!(payload.contains_key("authority"));
             assert!(payload.contains_key("startup_time"));
-            assert!(payload.contains_key("network_id"))
-        };
+            assert!(payload.contains_key("network_id"));
+        }
 
         // The second message is `update`
         telemetry_sender

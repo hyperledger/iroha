@@ -128,8 +128,8 @@ allow = [
     # Should be enabled per trait impl rather than globally.
     'clippy::missing_trait_methods',
 
-    # We allow this and deny `clippy::semicolon_outside_block`.
-    'clippy::semicolon_inside_block'
+    # We allow this and deny `clippy::semicolon_inside_block`.
+    'clippy::semicolon_outside_block'
 ]
 
 warn = [

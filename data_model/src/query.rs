@@ -132,7 +132,6 @@ impl Query for QueryBox {
 }
 
 /// Payload of a query.
-#[allow(clippy::semicolon_outside_block)] // False positive
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Payload {
     /// Timestamp of the query creation.

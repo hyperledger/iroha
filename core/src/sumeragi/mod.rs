@@ -174,8 +174,8 @@ impl Sumeragi {
                     .inc_by(block_txs_accepted + block_txs_rejected);
                 metrics_guard.block_height.inc();
             }
-            last_guard.block_height = block_index
-        };
+            last_guard.block_height = block_index;
+        }
 
         metrics_guard.domains.set(wsv_guard.domains().len() as u64);
 

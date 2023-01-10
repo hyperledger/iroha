@@ -499,8 +499,8 @@ mod tests {
                     []
                 ))
                 .into()
-            )
-        };
+            );
+        }
         {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
@@ -514,8 +514,8 @@ mod tests {
                     []
                 ))
                 .into()
-            )
-        };
+            );
+        }
         {
             let domain_id: DomainId = "meadow".parse().unwrap();
             assert_eq!(

@@ -3,7 +3,6 @@
 use iroha_schema::prelude::*;
 use parity_scale_codec::Encode;
 
-#[allow(clippy::semicolon_outside_block)] // False positive
 #[derive(IntoSchema, Encode)]
 struct Foo {
     #[codec(compact)]

@@ -410,8 +410,6 @@ impl Iroha {
         config: &Configuration,
     ) -> Result<bool> {
         #[allow(unused)]
-        // Helps to avoid unnecessary operations implied with `;` outside block
-        #[allow(clippy::semicolon_outside_block)]
         if let Some((substrate_telemetry, telemetry_future)) = telemetry {
             #[cfg(feature = "dev-telemetry")]
             {

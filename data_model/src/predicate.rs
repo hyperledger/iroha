@@ -432,7 +432,7 @@ pub mod string {
             #[test]
             fn trigger() {
                 let starts_with = Predicate::starts_with("Curiouser");
-                let contains = Predicate::contains("Curiouser"); //
+                let contains = Predicate::contains("Curiouser");
                 let ends_with = Predicate::ends_with("Curiouser");
                 let pred_is = Predicate::is("Curiouser");
 
