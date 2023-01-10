@@ -265,7 +265,7 @@ mod blocks {
 
     use super::*;
 
-    /// Get event stream from iroha peer
+    /// Get block stream from iroha peer
     #[derive(StructOpt, Debug, Clone, Copy)]
     pub struct Args {
         /// Block height from which to start streaming blocks

@@ -20,24 +20,43 @@ cargo build
 
 The above command will produce the `iroha_client_cli` ELF executable file for Linux/BSD, the `iroha_client_cli` executable for MacOS, and the `iroha_client_cli.exe` executable for Windows, depending on your platform and configuration.
 
-## Usage Examples
+Check [build and installation instructions](https://hyperledger.github.io/iroha-2-docs/guide/build-and-install.html) for more details.
+
+## Usage 
+
+Run Iroha Client CLI:
+
+```
+iroha_client_cli [OPTIONS] <SUBCOMMAND>
+```
+
+### Options
+
+|        Option         |                    Description                     |
+| --------------------- | -------------------------------------------------- |
+| -c, --config <config> | Set a config file path (`config.json` by default). |
+
+### Subcommands
+
+|  Command  |                                                                 Description                                                                 |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account` | Execute commands related to accounts: register a new one, list all accounts, grant a permission to an account, list all account permissions |
+| `asset`   | Execute commands related to assets: register a new one, mint or transfer assets, get info about an asset, list all assets                   |
+| `blocks`  | Get block stream from Iroha peer                                                                                                            |
+| `domain`  | Execute commands related to domains: register a new one, list all domains                                                                   |
+| `events`  | Get event stream from Iroha peer                                                                                                            |
+| `json`    | Submit multi-instructions as JSON                                                                                                           |
+| `peer`    | Execute commands related to peer administration and networking                                                                              |
+| `wasm`    | Execute commands related to WASM                                                                                                            |
+| `help`    | Print the help message for `iroha_client_cli` and/or the current subcommand other than `help` subcommand                                    |
+
+Refer to [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions.html) for more information about Iroha instructions such as register, mint, grant, and so on.
+
+Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-docs/guide/bash.html) for detailed instructions on working with Iroha Client CLI.
+
+## Examples
 
 :grey_exclamation: All examples below are Unix-oriented. If you're working on Windows, we would highly encourage you to consider using WSL, as most documentation assumes a POSIX-like shell running on your system. Please be advised that the differences in the syntax may go beyond executing `iroha_client_cli.exe` instead of `iroha_client_cli`.
-
-In this section we will show you how to use Iroha CLI Client to do the following:
-
-- [Create a new domain](#create-new-domain)
-- [Create a new account](#create-new-account)
-- [Mint an asset to an account's wallet](#mint-asset-to-account)
-- [Query an account's assets](#query-account-assets-quantity)
-
-To get the full list of commands and their descriptions, run:
-
-```
-./iroha_client_cli --help
-```
-
-### TL;DR
 
 ```bash
 ./iroha_client_cli domain register --id="Soramitsu"
@@ -47,9 +66,19 @@ To get the full list of commands and their descriptions, run:
 ./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
 ```
 
+In this section we will show you how to use Iroha CLI Client to do the following:
+
+- [Create new Domain](#create-new-domain)
+- [Create new Account](#create-new-account)
+- [Mint Asset to Account](#mint-asset-to-account)
+- [Query Account Assets Quantity](#query-account-assets-quantity)
+- [Execute WASM transaction](#execute-wasm-transaction)
+- [Execute Multi-instruction Transactions](#execute-multi-instruction-instructions)
+
 ### Create new Domain
 
 Let's start with domain creation. To create a domain, you need to specify the entity type first (`domain` in our case) and then the command (`register`) with a list of required parameters.
+
 For the `domain` entity, you only need to provide the `id` argument as a string that doesn't contain the `@` and `#` symbols.
 
 ```bash
@@ -61,6 +90,7 @@ Now you have a domain without any accounts.
 ### Create new Account
 
 Let's create a new account. Like in the previous example, specify the entity type (`account`) and the command (`register`). Then define the account name as the value of the `id` argument.
+
 Additionally, you need to provide the `key` argument with the account's public key as a double-quoted multihash representation of the key. Providing an empty string also works (but is highly discouraged), while omitting the argument altogether will produce an error.
 
 ```bash
@@ -119,11 +149,12 @@ cat /path/to/file.wasm | ./iroha_client_cli wasm
 
 These subcommands submit the provided wasm binary as an `Executable` to be executed outside a trigger context.
 
-### Multiple instructions
+### Execute Multi-instruction Transactions
 
-Accept instructions as JSON to stdin:
+The reference implementation of the Rust client, `iroha_client_cli`, is often used for diagnosing problems in other implementations.
+	
+To test transactions in the JSON format (used in the genesis block and by other SDKs), pipe the transaction into the client and add the `json` subcommand to the arguments:
+
 ```bash
 cat /path/to/file.json | ./iroha_client_cli json
 ```
-
-Run multiple instructions with a single subcommand using the JSON representation.
