@@ -72,9 +72,7 @@ impl IsAllowed for AssetSetOnlyForSignerAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::SetKeyValue(set_kv_box) = instruction else {
             return Skip;
         };
         let object_id = try_evaluate_or_deny!(set_kv_box.object_id, wsv);
@@ -102,9 +100,7 @@ impl HasToken for SetGrantedByAssetOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::SetKeyValue(set_kv_box) = instruction else {
             return Err("Instruction is not set".to_owned());
         };
         let object_id = set_kv_box
@@ -159,9 +155,7 @@ impl IsAllowed for AccountSetOnlyForSignerAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::SetKeyValue(set_kv_box) = instruction else {
             return Skip;
         };
         let object_id = try_evaluate_or_deny!(set_kv_box.object_id, wsv);
@@ -188,9 +182,7 @@ impl HasToken for SetGrantedByAccountOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::SetKeyValue(set_kv_box) = instruction else {
             return Err("Instruction is not set".to_owned());
         };
         let object_id = set_kv_box
@@ -244,9 +236,7 @@ impl IsAllowed for AssetRemoveOnlyForSignerAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
-            rem_kv
-        } else {
+        let Instruction::RemoveKeyValue(rem_kv_box) = instruction else {
             return Skip;
         };
         let object_id = try_evaluate_or_deny!(rem_kv_box.object_id, wsv);
@@ -272,9 +262,7 @@ impl HasToken for RemoveGrantedByAssetOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
-            rem_kv
-        } else {
+        let Instruction::RemoveKeyValue(rem_kv_box) = instruction else {
             return Err("Instruction is not set".to_owned());
         };
         let object_id = rem_kv_box
@@ -328,9 +316,7 @@ impl IsAllowed for AccountRemoveOnlyForSignerAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
-            rem_kv
-        } else {
+        let Instruction::RemoveKeyValue(rem_kv_box) = instruction else {
             return Skip;
         };
         let object_id = try_evaluate_or_deny!(rem_kv_box.object_id, wsv);
@@ -357,9 +343,7 @@ impl HasToken for RemoveGrantedByAccountOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
-            rem_kv
-        } else {
+        let Instruction::RemoveKeyValue(rem_kv_box) = instruction else {
             return Err("Instruction is not remove".to_owned());
         };
         let object_id = rem_kv_box
@@ -451,9 +435,7 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::SetKeyValue(set_kv_box) = instruction else {
             return Skip;
         };
 
@@ -488,9 +470,7 @@ impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
-            rem_kv
-        } else {
+        let Instruction::RemoveKeyValue(rem_kv_box) = instruction else {
             return Skip;
         };
 
@@ -524,9 +504,7 @@ impl HasToken for SetGrantedByAssetDefinitionOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::SetKeyValue(set_kv_box) = instruction else {
             return Err("Instruction is not set".to_owned());
         };
         let object_id = set_kv_box
@@ -555,9 +533,7 @@ impl HasToken for RemoveGrantedByAssetDefinitionOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let set_kv_box = if let Instruction::RemoveKeyValue(set_kv) = instruction {
-            set_kv
-        } else {
+        let Instruction::RemoveKeyValue(set_kv_box) = instruction else {
             return Err("Instruction is not remove key value".to_owned());
         };
         let object_id = set_kv_box

@@ -27,9 +27,7 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let unregister_box = if let Instruction::Unregister(unregister) = instruction {
-            unregister
-        } else {
+        let Instruction::Unregister(unregister_box) = instruction else {
             return Skip;
         };
 
@@ -61,9 +59,7 @@ impl HasToken for GrantedByAssetCreator {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> core::result::Result<Self::Token, String> {
-        let unregister_box = if let Instruction::Unregister(unregister) = instruction {
-            unregister
-        } else {
+        let Instruction::Unregister(unregister_box) = instruction else {
             return Err("Instruction is not unregister.".to_owned());
         };
         let object_id = unregister_box
