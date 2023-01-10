@@ -871,9 +871,7 @@ pub mod query {
 
     impl TestQueryResult for QueryResult {
         fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-            let assets = if let QueryResult(Value::Vec(assets)) = self {
-                assets
-            } else {
+            let QueryResult(Value::Vec(assets)) = self else {
                 panic!("Wrong Query Result Type.");
             };
             assets.iter().find_map(|asset| {
