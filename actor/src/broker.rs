@@ -105,9 +105,7 @@ impl Broker {
 
     /// Number of subscribers for specific message
     pub fn subscribers<M: BrokerMessage + Send + Sync>(&self) -> usize {
-        let entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {
-            entry
-        } else {
+        let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) else {
             return 0;
         };
 
@@ -120,9 +118,7 @@ impl Broker {
 
     /// Synchronously send message via broker.
     pub fn issue_send_sync<M: BrokerMessage + Send + Sync>(&self, m: &M) {
-        let mut entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {
-            entry
-        } else {
+        let Entry::Occupied(mut entry) = self.entry(TypeId::of::<M>()) else {
             return;
         };
 
@@ -154,9 +150,7 @@ impl Broker {
 
     /// Send message via broker
     pub async fn issue_send<M: BrokerMessage + Send + Sync>(&self, m: M) {
-        let mut entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {
-            entry
-        } else {
+        let Entry::Occupied(mut entry) = self.entry(TypeId::of::<M>()) else {
             return;
         };
 
