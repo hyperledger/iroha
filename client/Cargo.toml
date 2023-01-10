@@ -43,7 +43,7 @@ futures-util = "0.3.25"
 
 
 [dev-dependencies]
-iroha_permissions_validators = { version = "=2.0.0-pre-rc.13", path = "../permissions_validators" }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.13", path = "../permission_validators/deprecated" } # TODO: Remove
 iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 
 test_network = { version = "=2.0.0-pre-rc.13", path = "../core/test_network" }

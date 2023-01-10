@@ -24,7 +24,7 @@ members = [
   "macro/derive",
   "macro/utils",
   "p2p",
-  "permissions_validators",
+  "permission_validators/deprecated", # TODO: Remove
   "schema",
   "schema/derive",
   "schema/gen",
