@@ -119,7 +119,7 @@ allow = [
     # Not all public items should be inline. We only inline **trivial** functions.
     'clippy::missing_inline_in_public_items',
 
-    # We don't want to mannually deny every `clippy::restriction::*` lint.
+    # We don't want to manually deny every `clippy::restriction::*` lint.
     'clippy::blanket-clippy-restriction-lints',
 
     # A lot of false-positive.
@@ -127,6 +127,9 @@ allow = [
 
     # Should be enabled per trait impl rather than globally.
     'clippy::missing_trait_methods',
+
+    # We allow this and deny `clippy::semicolon_outside_block`.
+    'clippy::semicolon_inside_block'
 ]
 
 warn = [

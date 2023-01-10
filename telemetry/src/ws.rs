@@ -443,9 +443,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let msg = message_receiver.next().await.unwrap();
-            let bytes = if let Message::Binary(bytes) = msg {
-                bytes
-            } else {
+            let Message::Binary(bytes) = msg else {
                 panic!()
             };
             let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
@@ -479,9 +477,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let msg = message_receiver.next().await.unwrap();
-            let bytes = if let Message::Binary(bytes) = msg {
-                bytes
-            } else {
+            let Message::Binary(bytes) = msg else {
                 panic!()
             };
             let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
