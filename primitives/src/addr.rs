@@ -98,7 +98,7 @@ impl core::fmt::Display for Ipv6Addr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // TODO: Implement omission of zeroes.
         for i in 0_usize..7_usize {
-            write!(f, "{:x}:", i)?; // Need hexadecimal
+            write!(f, "{i:x}:")?; // Need hexadecimal
         }
         write!(f, "{:x}", self[7])
     }

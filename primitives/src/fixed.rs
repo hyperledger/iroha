@@ -146,7 +146,7 @@ impl Fixed {
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum FixedPointOperationError {
     /// All [`Fixed`] values should be positive.
-    #[display(fmt = "{}: negative value not allowed", _0)]
+    #[display(fmt = "{_0}: negative value not allowed")]
     NegativeValue(FixNum),
     /// Conversion failed.
     #[display(fmt = "Failed to produce fixed point number")]

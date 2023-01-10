@@ -62,7 +62,7 @@ pub fn gen_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
         .map_or_else(Default::default, |trait_name| format!("__{trait_name}"));
 
     Ident::new(
-        &format!("{}{}{}", self_ty_name, trait_name, method_name),
+        &format!("{self_ty_name}{trait_name}{method_name}"),
         proc_macro2::Span::call_site(),
     )
 }
@@ -83,20 +83,19 @@ fn gen_doc(fn_descriptor: &FnDescriptor) -> String {
         || method_name.to_string(),
         |self_ty| {
             trait_name.map_or_else(
-                || format!("{}::{}", self_ty, method_name),
+                || format!("{self_ty}::{method_name}"),
                 // NOTE: Fully-qualified syntax currently not supported
-                |trait_| format!("{}::{}", trait_, method_name),
+                |trait_| format!("{trait_}::{method_name}"),
             )
         },
     );
 
     format!(
-        " FFI function equivalent of [`{}`]\n \
+        " FFI function equivalent of [`{path}`]\n \
           \n \
           # Safety\n \
           \n \
-          All of the given pointers must be valid",
-        path
+          All of the given pointers must be valid"
     )
 }
 

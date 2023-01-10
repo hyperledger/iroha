@@ -192,9 +192,9 @@ fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature 
 
     let method_name = Ident::new(
         &match derive {
-            Derive::Setter => format!("set_{}", field_name),
-            Derive::Getter => format!("{}", field_name),
-            Derive::MutGetter => format!("{}_mut", field_name),
+            Derive::Setter => format!("set_{field_name}"),
+            Derive::Getter => format!("{field_name}"),
+            Derive::MutGetter => format!("{field_name}_mut"),
         },
         proc_macro2::Span::call_site(),
     );

@@ -149,8 +149,7 @@ fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
     let version_number = args_map
         .get(VERSION_NUMBER_ARG_NAME)
         .expect_or_abort(&format!(
-            "No version number argument with name {} found.",
-            VERSION_NUMBER_ARG_NAME
+            "No version number argument with name {VERSION_NUMBER_ARG_NAME} found.",
         ));
     #[allow(clippy::str_to_string)]
     let version_number: u32 = if let Lit::Int(number) = version_number {
@@ -166,8 +165,7 @@ fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
     let versioned_struct_name = args_map
         .get(VERSIONED_STRUCT_ARG_NAME)
         .expect_or_abort(&format!(
-            "No versioned struct name argument with name {} found.",
-            VERSIONED_STRUCT_ARG_NAME
+            "No versioned struct name argument with name {VERSION_NUMBER_ARG_NAME} found.",
         ));
     #[allow(clippy::str_to_string)]
     let versioned_struct_name = if let Lit::Str(name) = versioned_struct_name {
@@ -199,7 +197,7 @@ impl DeclareVersionedArgs {
         self.range
             .clone()
             .into_iter()
-            .map(|i| Ident::new(&format!("V{}", i), Span::call_site()))
+            .map(|i| Ident::new(&format!("V{i}"), Span::call_site()))
             .collect()
     }
 

@@ -198,8 +198,8 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
     let orig_fil = quote! { #import_path::OriginFilter };
     let imp_event = quote! { #import_path::#event_ident };
 
-    let filter_doc = format!(" Filter for {} entity", event_ident);
-    let new_doc = format!(" Construct new {}", filter_ident);
+    let filter_doc = format!(" Filter for {event_ident} entity");
+    let new_doc = format!(" Construct new {filter_ident}");
 
     quote! {
         #[derive(
@@ -280,7 +280,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
     let import_path = quote! { crate::prelude };
     let imp_event = quote! { #import_path::#event_ident };
 
-    let event_filter_doc = format!(" Event filter for {} entity", event_ident);
+    let event_filter_doc = format!(" Event filter for {event_ident} entity");
 
     quote! {
         #[derive(

@@ -108,7 +108,7 @@ pub mod error {
                 Self::ExtraBytesLeft(n) => format!("Buffer contains {n} bytes after decoding"),
             };
 
-            write!(f, "{}", msg)
+            write!(f, "{msg}")
         }
     }
 

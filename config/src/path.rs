@@ -75,7 +75,7 @@ impl ConfigPath {
 
         let extension = path
             .extension()
-            .ok_or(ExtensionError::UserConfigHasNone)?
+            .ok_or(Error::UserProvidedConfigFileHasNoExtension)?
             .to_string_lossy();
         if !ALLOWED_CONFIG_EXTENSIONS.contains(&extension.as_ref()) {
             return Err(ExtensionError::Invalid(extension.into_owned()));
@@ -91,7 +91,7 @@ impl ConfigPath {
                 let path_ext = path.with_extension(extension);
                 path_ext.exists().then_some(Cow::Owned(path_ext))
             }),
-            User(path) => path.exists().then_some(Cow::Borrowed(path)),
+            UserProvided(path) => path.exists().then_some(Cow::Borrowed(path)),
         }
     }
 

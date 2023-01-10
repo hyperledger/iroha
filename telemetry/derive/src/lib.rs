@@ -177,7 +177,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
                 if *type_name != "Result" {
                     abort!(
                         type_name,
-                        format!("Should return `Result`. Found {}", type_name)
+                        format!("Should return `Result`. Found {type_name}")
                     );
                 }
             }

@@ -58,7 +58,7 @@ pub fn derive_ffi_type(mut input: DeriveInput) -> TokenStream {
 }
 
 fn derive_ffi_type_for_extern_item(name: &Ident, generics: &mut Generics) -> TokenStream {
-    let ref_name = Ident::new(&format!("{}Ref", name), proc_macro2::Span::call_site());
+    let ref_name = Ident::new(&format!("{name}Ref"), proc_macro2::Span::call_site());
 
     let (impl_generics, ty_generics, where_clause) = split_for_impl(generics);
 
@@ -402,7 +402,7 @@ fn gen_data_carrying_repr_c_enum(
 ) -> (Ident, TokenStream) {
     let (payload_name, payload) = gen_data_carrying_enum_payload(enum_name, generics, enum_);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let doc = format!(" [`ReprC`] equivalent of [`{}`]", enum_name);
+    let doc = format!(" [`ReprC`] equivalent of [`{enum_name}`]");
     let enum_tag_type = gen_enum_tag_type(enum_name, enum_);
     let repr_c_enum_name = gen_repr_c_enum_name(enum_name);
 
@@ -432,7 +432,7 @@ fn gen_data_carrying_enum_payload(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let field_names = enum_.variants.iter().map(|variant| &variant.ident);
     let payload_name = gen_repr_c_enum_payload_name(enum_name);
-    let doc = format!(" [`ReprC`] equivalent of [`{}`]", enum_name);
+    let doc = format!(" [`ReprC`] equivalent of [`{enum_name}`]");
 
     let field_tys = enum_
         .variants
@@ -477,7 +477,7 @@ fn gen_discriminants(
         <(Vec<_>, Vec<_>)>::default(),
         |mut acc, (variant_name, discriminant_value)| {
             let discriminant_name = Ident::new(
-                &format!("{}__{}", enum_name, variant_name).to_uppercase(),
+                &format!("{enum_name}__{variant_name}").to_uppercase(),
                 proc_macro2::Span::call_site(),
             );
 
@@ -530,14 +530,14 @@ fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&syn::Field) -> TokenS
 
 fn gen_repr_c_enum_name(enum_name: &Ident) -> Ident {
     Ident::new(
-        &format!("__iroha_ffi__ReprC{}", enum_name),
+        &format!("__iroha_ffi__ReprC{enum_name}"),
         proc_macro2::Span::call_site(),
     )
 }
 
 fn gen_repr_c_enum_payload_name(enum_name: &Ident) -> Ident {
     Ident::new(
-        &format!("__iroha_ffi__{}Payload", enum_name),
+        &format!("__iroha_ffi__{enum_name}Payload"),
         proc_macro2::Span::call_site(),
     )
 }
