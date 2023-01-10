@@ -456,6 +456,7 @@ impl Torii {
         }
     }
 
+    #[allow(opaque_hidden_inferred_bound)]
     #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
     fn create_telemetry_router(
@@ -483,6 +484,7 @@ impl Torii {
     }
 
     /// Helper function to create router. This router can tested without starting up an HTTP server
+    #[allow(opaque_hidden_inferred_bound)]
     pub(crate) fn create_api_router(
         &self,
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
