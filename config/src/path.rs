@@ -37,16 +37,16 @@ pub type Result<T> = std::result::Result<T, ExtensionError>;
 #[derive(Debug, Clone)]
 enum InnerPath {
     Default(PathBuf),
-    User(PathBuf),
+    UserProvided(PathBuf),
 }
 
 /// Wrapper around path to config file (i.e. config.json, genesis.json).
 ///
 /// Provides abstraction above user-provided config and default ones.
 #[derive(Debug, Clone)]
-pub struct ConfigPath(InnerPath);
+pub struct Path(InnerPath);
 
-impl ConfigPath {
+impl Path {
     /// Construct new [`Path`] from the default `path`.
     ///
     /// # Panics
@@ -79,7 +79,7 @@ impl ConfigPath {
             return Err(ExtensionError::Invalid(extension.into_owned()));
         }
 
-        Ok(Self(User(path)))
+        Ok(Self(UserProvided(path)))
     }
 
     /// Try to get first existing path by applying possible extensions if there are any.
@@ -99,7 +99,7 @@ impl ConfigPath {
             Default(path) => ALLOWED_CONFIG_EXTENSIONS
                 .iter()
                 .any(|extension| path.with_extension(extension).exists()),
-            User(path) => path.exists(),
+            UserProvided(path) => path.exists(),
         }
     }
 }

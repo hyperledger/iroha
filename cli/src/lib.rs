@@ -12,12 +12,12 @@
 use std::{panic, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use eyre::ContextCompat;
+use eyre::ContextCompat as _;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
-    path::ConfigPath,
+    path::Path as ConfigPath,
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
