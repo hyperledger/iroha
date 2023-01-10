@@ -1890,6 +1890,7 @@ dependencies = [
  "iroha_schema_gen",
  "iroha_telemetry",
  "iroha_version",
+ "lazy_static",
  "parity-scale-codec",
  "serde",
  "serde_json",
@@ -1990,6 +1991,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "json5",
+ "lazy_static",
  "vergen",
 ]
 

@@ -1,37 +1,35 @@
 //! Module with configuration path related structures.
 
-use std::{borrow::Cow, path::PathBuf};
+extern crate alloc;
+
+use alloc::borrow::Cow;
+use std::path::PathBuf;
 
 use InnerPath::*;
 
-/// Extensions which are permissible as input file extensions.
+/// Allowed configuration file extension that user can provide.
 pub const ALLOWED_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 
 /// Error type for [`Path`].
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ExtensionError {
-    /// Provided config file has no extension.
+    /// User provided config file without extension.
     #[error(
         "Provided config file has no extension, allowed extensions are: {:?}.",
         ALLOWED_CONFIG_EXTENSIONS
     )]
-    UserConfigHasNone,
-
-    /// Provided configuration file doesn't have the two allowed extensions: [`ALLOWED_CONFIG_EXTENSIONS`]
+    Missing,
+    /// User provided config file with unsupported extension.
     #[error(
         "Provided config file has invalid extension `{0}`, \
         allowed extensions are: {:?}.",
         ALLOWED_CONFIG_EXTENSIONS
     )]
     Invalid(String),
-
-    /// Default configuration file should not have an extension and in this case an extension was provided.
-    #[error("Provided by default config file has extension when it should not have one.")]
-    DefaultHasSome,
 }
 
-/// Result type used in this crate.
-pub type Result<T> = core::result::Result<T, ExtensionError>;
+/// Result type for [`Path`] constructors.
+pub type Result<T> = std::result::Result<T, ExtensionError>;
 
 /// Inner helper struct.
 ///
@@ -51,31 +49,31 @@ pub struct ConfigPath(InnerPath);
 impl ConfigPath {
     /// Construct new [`Path`] from the default `path`.
     ///
-    /// # Errors
-    /// - If `path` contains an extension
-    pub fn default(path: impl Into<PathBuf>) -> Result<Self> {
-        let path = path.into();
+    /// # Panics
+    ///
+    /// Panics if `path` contains an extension.
+    #[allow(clippy::panic)]
+    pub fn default(path: &'static std::path::Path) -> Self {
+        assert!(
+            path.extension().is_none(),
+            "Default configuration path should have no extension"
+        );
 
-        if path.extension().is_some() {
-            return Err(ExtensionError::DefaultHasSome);
-        }
-
-        Ok(Self(Default(path)))
+        Self(Default(path.to_owned()))
     }
 
     /// Construct new [`Path`] from user-provided `path`.
     ///
-    /// `path` should contain one of the allowed extensions.
-    ///
     /// # Errors
-    /// - If the file has no extension
-    /// - If the file has extensions other than [`ALLOWED_CONFIG_EXTENSIONS`]
+    ///
+    /// An error will be returned if `path` contains no file extension
+    /// or contains unsupported one.
     pub fn user_provided(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
 
         let extension = path
             .extension()
-            .ok_or(Error::UserProvidedConfigFileHasNoExtension)?
+            .ok_or(ExtensionError::Missing)?
             .to_string_lossy();
         if !ALLOWED_CONFIG_EXTENSIONS.contains(&extension.as_ref()) {
             return Err(ExtensionError::Invalid(extension.into_owned()));

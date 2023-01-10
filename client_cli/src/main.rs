@@ -134,6 +134,10 @@ impl RunArgs for Subcommand {
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_CONFIG_PATH: &'static std::path::Path = std::path::Path::new("config");
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
@@ -143,8 +147,7 @@ fn main() -> Result<()> {
     let config = if let Some(config) = config_opt {
         config
     } else {
-        let config_path = ConfigPath::default("config")
-            .expect("Never fails, because default `config` path has no extensions");
+        let config_path = ConfigPath::default(*DEFAULT_CONFIG_PATH);
         #[allow(clippy::expect_used)]
         Configuration::from_str(
             config_path

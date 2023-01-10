@@ -57,16 +57,19 @@ pub struct Arguments {
     pub config_path: ConfigPath,
 }
 
-const CONFIGURATION_PATH: &str = "config";
-const GENESIS_PATH: &str = "genesis";
+lazy_static::lazy_static! {
+    pub static ref CONFIGURATION_PATH: &'static std::path::Path = std::path::Path::new("config");
+    pub static ref GENESIS_PATH : &'static std::path::Path = std::path::Path::new("genesis");
+}
+
 const SUBMIT_GENESIS: bool = false;
 
 impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(ConfigPath::default(GENESIS_PATH).unwrap_or_else(|_| panic!("Default genesis path `{GENESIS_PATH}` has extension, but it should not have one."))),
-            config_path: ConfigPath::default(CONFIGURATION_PATH).unwrap_or_else(|_| panic!("Default config path `{GENESIS_PATH}` has extension, but it should not have one.")),
+            genesis_path: Some(ConfigPath::default(*GENESIS_PATH)),
+            config_path: ConfigPath::default(*CONFIGURATION_PATH),
         }
     }
 }
