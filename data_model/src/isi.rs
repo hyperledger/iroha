@@ -200,7 +200,7 @@ impl core::fmt::Display for SequenceBox {
             }
             first = false;
 
-            write!(f, "`{}`", instruction)?;
+            write!(f, "`{instruction}`")?;
         }
         write!(f, "]")
     }
@@ -221,7 +221,7 @@ impl core::fmt::Display for If {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "IF `{}` THEN `{}`", self.condition, self.then)?;
         if let Some(otherwise) = &self.otherwise {
-            write!(f, " ELSE `{}`", otherwise)?;
+            write!(f, " ELSE `{otherwise}`")?;
         }
 
         Ok(())

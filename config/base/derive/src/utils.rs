@@ -286,9 +286,7 @@ pub fn extract_field_types(fields: &[StructField]) -> Vec<Type> {
 }
 
 pub fn get_type_argument<'tl>(s: &str, ty: &'tl Type) -> Option<&'tl GenericArgument> {
-    let path = if let Type::Path(r#type) = ty {
-        r#type
-    } else {
+    let Type::Path(path) = ty else {
         return None;
     };
     let segments = &path.path.segments;
