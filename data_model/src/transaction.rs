@@ -1,5 +1,7 @@
 //! [`Transaction`] structures and related implementations.
 #![allow(clippy::std_instead_of_core)]
+// TODO: Remove when a proper `Display` will be implemented for `Transaction`
+#![allow(clippy::use_debug)]
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::{
@@ -414,6 +416,7 @@ impl Txn for Transaction {
     FfiType,
     IntoSchema,
 )]
+#[allow(clippy::use_debug)]
 #[display(fmt = "{self:?}")] // TODO ?
 pub struct SignedTransaction {
     /// [`Transaction`] payload.
@@ -731,10 +734,7 @@ impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
 #[derive(
     Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
-#[display(
-    fmt = "Failed to verify signature condition specified in the account: {}",
-    reason
-)]
+#[display(fmt = "Failed to verify signature condition specified in the account: {reason}")]
 pub struct UnsatisfiedSignatureConditionFail {
     /// Reason why signature condition failed
     pub reason: String,
@@ -785,7 +785,7 @@ impl std::error::Error for InstructionExecutionFail {}
 #[derive(
     Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
-#[display(fmt = "Failed to execute wasm binary: {}", reason)]
+#[display(fmt = "Failed to execute wasm binary: {reason}")]
 pub struct WasmExecutionFail {
     /// Error which happened during execution
     pub reason: String,
@@ -798,7 +798,7 @@ impl std::error::Error for WasmExecutionFail {}
 #[derive(
     Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
-#[display(fmt = "Action not permitted: {}", reason)]
+#[display(fmt = "Action not permitted: {reason}")]
 pub struct NotPermittedFail {
     /// The cause of failure.
     pub reason: String,

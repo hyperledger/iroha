@@ -111,7 +111,7 @@ where
                 }
                 write!(f, ")")
             }
-            GenericPredicateBox::Not(predicate) => write!(f, "NOT({})", predicate),
+            GenericPredicateBox::Not(predicate) => write!(f, "NOT({predicate})"),
             GenericPredicateBox::Raw(predicate) => predicate.fmt(f),
         }
     }
