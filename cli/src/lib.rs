@@ -58,7 +58,9 @@ pub struct Arguments {
 }
 
 lazy_static::lazy_static! {
+    /// Default configuration path
     pub static ref CONFIGURATION_PATH: &'static std::path::Path = std::path::Path::new("config");
+    /// Default genesis path
     pub static ref GENESIS_PATH : &'static std::path::Path = std::path::Path::new("genesis");
 }
 
@@ -408,13 +410,15 @@ impl Iroha {
         config: &Configuration,
     ) -> Result<bool> {
         #[allow(unused)]
+        // Helps to avoid unnecessary operations implied with `;` outside block
+        #[allow(clippy::semicolon_outside_block)]
         if let Some((substrate_telemetry, telemetry_future)) = telemetry {
             #[cfg(feature = "dev-telemetry")]
             {
                 iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
                     .await
-                    .wrap_err("Failed to setup telemetry for futures")?
-            };
+                    .wrap_err("Failed to setup telemetry for futures")?;
+            }
             iroha_telemetry::ws::start(&config.telemetry, substrate_telemetry)
                 .await
                 .wrap_err("Failed to setup telemetry")
