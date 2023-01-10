@@ -692,9 +692,7 @@ mod tests {
         Actor2.start().await;
 
         // SAFETY: The init order is modified in a normal fashion.
-        unsafe {
-            assert_eq!(INIT_ORDER, vec![1, 2]);
-        }
+        unsafe { assert_eq!(INIT_ORDER, vec![1, 2]) };
 
         Ok(())
     }

@@ -400,7 +400,7 @@ fn construct_operation_string<O: Display>(
     authority: &<Account as Identifiable>::Id,
 ) -> String {
     if display_operation {
-        format!(" `{}` by `{}`", operation, authority)
+        format!(" `{operation}` by `{authority}`")
     } else {
         String::new()
     }

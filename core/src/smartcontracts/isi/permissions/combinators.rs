@@ -8,7 +8,7 @@ use super::*;
 /// Pay attention to wrap only validators
 /// that do not check nested instructions by themselves.
 #[derive(Debug, Display)]
-#[display(fmt = "`{}` with nested checking", validator)]
+#[display(fmt = "`{validator}` with nested checking")]
 pub struct CheckNested<V: IsAllowed<Operation = Instruction>> {
     validator: V,
 }

@@ -219,7 +219,7 @@ pub mod error {
             match err {
                 FixedPointOperationError::NegativeValue(_) => Self::Math(MathError::NegativeValue),
                 FixedPointOperationError::Conversion(e) => {
-                    Self::Conversion(format!("Mathematical conversion failed. {}", e))
+                    Self::Conversion(format!("Mathematical conversion failed. {e}"))
                 }
                 FixedPointOperationError::Overflow => MathError::Overflow.into(),
                 FixedPointOperationError::DivideByZero => MathError::DivideByZero.into(),

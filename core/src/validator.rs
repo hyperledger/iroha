@@ -111,10 +111,7 @@ impl Chain {
                  when validating an operation. This is a bug",
             );
             Self::execute_validator(validator.value(), wsv, operation.clone()).map_err(|err| {
-                format!(
-                    "Validator `{}` denied the operation `{operation}`: `{err}`",
-                    validator_id,
-                )
+                format!("Validator `{validator_id}` denied the operation `{operation}`: `{err}`",)
             })?
         }
 

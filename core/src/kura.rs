@@ -177,8 +177,8 @@ impl Kura {
                 .collect();
 
             let mut guard = self.block_data.lock();
-            *guard = data_array;
-        }
+            *guard = data_array
+        };
 
         Ok(blocks)
     }
@@ -745,8 +745,8 @@ mod tests {
             let mut is = [(0, 0), (0, 0), (0, 0), (0, 0)];
 
             block_store.read_block_indices(0, &mut is).unwrap();
-            assert_eq!(should_be, is);
-        }
+            assert_eq!(should_be, is)
+        };
 
         assert_eq!(block_store.read_index_count().unwrap(), 4);
         block_store.write_index_count(0).unwrap();

@@ -20,7 +20,7 @@ type Bytes = Vec<u8>;
 type AttoHttpRequestBuilderWithBytes = AttoHttpRequestBuilder<atto_body::Bytes<Bytes>>;
 
 fn header_name_from_str(str: &str) -> Result<HeaderName> {
-    HeaderName::from_str(str).wrap_err_with(|| format!("Failed to parse header name {}", str))
+    HeaderName::from_str(str).wrap_err_with(|| format!("Failed to parse header name {str}"))
 }
 
 /// Default request builder implemented on top of `attohttpc` crate.
@@ -65,7 +65,7 @@ impl DefaultRequest {
         let response = self
             .0
             .send()
-            .wrap_err_with(|| format!("Failed to send http {} request to {}", method, url))?;
+            .wrap_err_with(|| format!("Failed to send http {method} request to {url}"))?;
 
         ClientResponse(response).try_into()
     }

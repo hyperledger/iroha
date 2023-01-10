@@ -90,10 +90,7 @@ fn accept_transaction(criterion: &mut Criterion) {
             }
         });
     });
-    println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
-    );
+    println!("Success count: {success_count}, Failures count: {failures_count}");
 }
 
 fn sign_transaction(criterion: &mut Criterion) {
@@ -108,10 +105,7 @@ fn sign_transaction(criterion: &mut Criterion) {
             Err(_) => failures_count += 1,
         });
     });
-    println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
-    );
+    println!("Success count: {success_count}, Failures count: {failures_count}");
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
@@ -140,10 +134,7 @@ fn validate_transaction(criterion: &mut Criterion) {
             }
         });
     });
-    println!(
-        "Success count: {}, Failure count: {}",
-        success_count, failure_count
-    );
+    println!("Success count: {success_count}, Failure count: {failure_count}");
 }
 
 fn chain_blocks(criterion: &mut Criterion) {
@@ -164,7 +155,7 @@ fn chain_blocks(criterion: &mut Criterion) {
             previous_block_hash = new_block.hash();
         });
     });
-    println!("Total count: {}", success_count);
+    println!("Total count: {success_count}");
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
@@ -194,10 +185,7 @@ fn sign_blocks(criterion: &mut Criterion) {
             Err(_) => failures_count += 1,
         });
     });
-    println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
-    );
+    println!("Success count: {success_count}, Failures count: {failures_count}");
 }
 
 fn validate_blocks(criterion: &mut Criterion) {

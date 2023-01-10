@@ -104,7 +104,7 @@ mod crypto {
             if self.json {
                 let output = serde_json::to_string_pretty(&self.key_pair()?)
                     .wrap_err("Failed to serialise to JSON.")?;
-                writeln!(writer, "{}", output)?;
+                writeln!(writer, "{output}")?;
             } else {
                 let key_pair = self.key_pair()?;
                 writeln!(writer, "Public key (multihash): {}", &key_pair.public_key())?;
@@ -526,7 +526,7 @@ mod docs {
                 writer,
                 "The following is the default configuration used by Iroha.\n"
             )?;
-            writeln!(writer, "```json\n{}\n```\n", defaults)?;
+            writeln!(writer, "```json\n{defaults}\n```\n")?;
             Self::get_markdown_with_depth(writer, &docs, &mut vec, 2)?;
             Ok(())
         }
@@ -574,8 +574,8 @@ mod docs {
                     .collect::<String>();
 
                 write!(writer, "{} `{}`\n\n", "#".repeat(depth), field_str)?;
-                write!(writer, "{}\n\n", doc)?;
-                write!(writer, "```json\n{}\n```\n\n", defaults)?;
+                write!(writer, "{doc}\n\n")?;
+                write!(writer, "```json\n{defaults}\n```\n\n")?;
 
                 if inner {
                     Self::get_markdown_with_depth(writer, docs, field, depth + 1)?;

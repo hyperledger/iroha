@@ -211,7 +211,7 @@ pub mod query {
             let id = self
                 .id
                 .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
             iroha_logger::trace!(%id);
             // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
@@ -231,11 +231,11 @@ pub mod query {
             let id = self
                 .id
                 .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {e}")))?;
             iroha_logger::trace!(%id, %key);
             wsv.triggers()
                 .inspect_by_id(&id, |action| {
@@ -255,7 +255,7 @@ pub mod query {
             let domain_id = &self
                 .domain_id
                 .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {}", e)))?;
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
 
             let triggers = wsv
                 .triggers()

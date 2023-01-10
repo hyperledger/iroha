@@ -277,8 +277,8 @@ fn commit_block<F>(
     // Update WSV copy that is public facing
     {
         let mut wsv = sumeragi.wsv.lock();
-        *wsv = state.wsv.clone();
-    }
+        *wsv = state.wsv.clone()
+    };
 
     if sumeragi.events_sender.receiver_count() > 0 {
         for event in events_buffer.into_iter().chain(Vec::<Event>::from(&block)) {
@@ -643,10 +643,13 @@ pub fn run<F>(
                 .retain(|tx| !tx.is_expired(sumeragi.queue.tx_time_to_live));
 
             // Pull in new transactions into the cache.
-            sumeragi
-                .queue
-                .get_transactions_for_block(&state.wsv, &mut state.transaction_cache);
-        };
+            while state.transaction_cache.len() < sumeragi.queue.txs_in_block {
+                match sumeragi.queue.pop_without_seen(&state.wsv) {
+                    Some(tx) => state.transaction_cache.push(tx),
+                    None => break,
+                }
+            }
+        }
 
         gossip_transactions(
             sumeragi,

@@ -65,18 +65,8 @@ impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(ConfigPath::default(GENESIS_PATH).unwrap_or_else(|e| {
-                panic!(
-                    "Default genesis path `{}` has extension, but it should not have one. {e:?}",
-                    GENESIS_PATH
-                )
-            })),
-            config_path: ConfigPath::default(CONFIGURATION_PATH).unwrap_or_else(|e| {
-                panic!(
-                    "Default config path `{}` has extension, but it should not have one. {e:?}",
-                    GENESIS_PATH
-                )
-            }),
+            genesis_path: Some(ConfigPath::default(GENESIS_PATH).unwrap_or_else(|_| panic!("Default genesis path `{GENESIS_PATH}` has extension, but it should not have one."))),
+            config_path: ConfigPath::default(CONFIGURATION_PATH).unwrap_or_else(|_| panic!("Default config path `{GENESIS_PATH}` has extension, but it should not have one.")),
         }
     }
 }
@@ -420,8 +410,8 @@ impl Iroha {
             {
                 iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
                     .await
-                    .wrap_err("Failed to setup telemetry for futures")?;
-            }
+                    .wrap_err("Failed to setup telemetry for futures")?
+            };
             iroha_telemetry::ws::start(&config.telemetry, substrate_telemetry)
                 .await
                 .wrap_err("Failed to setup telemetry")

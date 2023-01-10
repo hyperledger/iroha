@@ -96,7 +96,7 @@ where
                     }
                 }
                 msg = internal_stream.next() => {
-                    if matches!(msg,  Some(InternalMessage::Reconnect)) {
+                    if matches!(msg, Some(InternalMessage::Reconnect)) {
                         self.on_reconnect().await;
                     }
                 }
@@ -189,7 +189,7 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
             let field = field.to_owned();
             let map = if field == "genesis_hash" || field == "best" || field == "finalized_hash" {
                 map.as_str()
-                    .map_or_else(|| unreachable!(), |hash| format!("0x{}", hash).into())
+                    .map_or_else(|| unreachable!(), |hash| format!("0x{hash}").into())
             } else {
                 map
             };
@@ -468,8 +468,8 @@ mod tests {
             assert!(payload.contains_key("config"));
             assert!(payload.contains_key("authority"));
             assert!(payload.contains_key("startup_time"));
-            assert!(payload.contains_key("network_id"));
-        }
+            assert!(payload.contains_key("network_id"))
+        };
 
         // The second message is `update`
         telemetry_sender

@@ -300,7 +300,7 @@ impl Client {
         if let Some(basic_auth) = &configuration.basic_auth {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let encoded = base64::encode(credentials);
-            headers.insert(String::from("Authorization"), format!("Basic {}", encoded));
+            headers.insert(String::from("Authorization"), format!("Basic {encoded}"));
         }
 
         Ok(Self {
@@ -435,7 +435,7 @@ impl Client {
         let response = req
             .build()?
             .send()
-            .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
+            .wrap_err_with(|| format!("Failed to send transaction with hash {hash:?}"))?;
         resp_handler.handle(response)?;
         Ok(hash)
     }
@@ -993,7 +993,7 @@ impl Client {
     /// If sending request or decoding fails
     pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
         let body = serde_json::to_vec(&post_config)
-            .wrap_err(format!("Failed to serialize {:?}", post_config))?;
+            .wrap_err(format!("Failed to serialize {post_config:?}"))?;
         let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
@@ -1651,7 +1651,7 @@ mod tests {
             .headers
             .get("Authorization")
             .expect("Expected `Authorization` header");
-        let expected_value = format!("Basic {}", ENCRYPTED_CREDENTIALS);
+        let expected_value = format!("Basic {ENCRYPTED_CREDENTIALS}");
         assert_eq!(value, &expected_value);
     }
 

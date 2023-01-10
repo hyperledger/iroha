@@ -83,8 +83,7 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
 
     assert!(
         index_count != 0,
-        "Index count is zero. This could be because there are no blocks in the store: {:?}",
-        block_store_path
+        "Index count is zero. This could be because there are no blocks in the store: {block_store_path:?}"
     );
 
     let from_height = if from_height >= index_count {
@@ -111,7 +110,7 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
     let block_indices = block_indices;
 
     // Now for the actual printing
-    println!("Index file says there are {} blocks.", index_count);
+    println!("Index file says there are {index_count} blocks.");
     println!(
         "Printing blocks {}-{}...",
         from_height + 1,
@@ -137,6 +136,6 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
         let block = VersionedCommittedBlock::decode_all_versioned(&block_buf)
             .expect(&format!("Failed to decode block № {}", index_index + 1));
         println!("Block#{} :", index_index + 1);
-        println!("{:#?}", block);
+        println!("{block:#?}");
     }
 }
