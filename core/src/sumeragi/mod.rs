@@ -7,17 +7,16 @@
     clippy::std_instead_of_alloc
 )]
 use std::{
-    collections::HashSet,
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
-    sync::Arc,
+    sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
 
 use eyre::{Result, WrapErr as _};
 use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
-use iroha_crypto::{HashOf, KeyPair, SignatureOf};
+use iroha_crypto::{KeyPair, SignatureOf};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
@@ -70,6 +69,7 @@ pub struct Sumeragi {
     config: Configuration,
     metrics_mutex: Mutex<Metrics>,
     last_update_metrics_mutex: Mutex<LastUpdateMetricsData>,
+    message_sender: mpsc::SyncSender<MessagePacket>,
 }
 
 impl Sumeragi {
@@ -85,31 +85,21 @@ impl Sumeragi {
         kura: Arc<Kura>,
         network: Addr<IrohaNetwork>,
     ) -> Self {
-        let (incoming_message_sender, incoming_message_receiver) =
-            std::sync::mpsc::sync_channel(250);
+        let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         Self {
-            internal: SumeragiWithFault::<NoFault> {
-                key_pair: configuration.key_pair.clone(),
-                peer_id: configuration.peer_id.clone(),
-                events_sender,
-                wsv: Mutex::new(wsv),
-                commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
-                block_time: Duration::from_millis(configuration.block_time_ms),
-                transaction_limits: configuration.transaction_limits,
-                transaction_validator,
+            internal: SumeragiWithFault::new(
+                configuration,
                 queue,
+                events_sender,
+                wsv,
+                transaction_validator,
                 broker,
                 kura,
                 network,
-                fault_injection: PhantomData,
-                gossip_batch_size: configuration.gossip_batch_size,
-                gossip_period: Duration::from_millis(configuration.gossip_period_ms),
-
-                current_online_peers: Mutex::new(Vec::new()),
-                message_sender: Mutex::new(incoming_message_sender),
-                message_receiver: Mutex::new(incoming_message_receiver),
-            },
+                message_receiver,
+            ),
+            message_sender,
             config: configuration.clone(),
             metrics_mutex: Mutex::new(Metrics::default()),
             last_update_metrics_mutex: Mutex::new(LastUpdateMetricsData {
@@ -274,15 +264,14 @@ impl Sumeragi {
             },
             |block_hash| {
                 Topology::builder()
+                    .with_peers(wsv.peers().iter().map(|peer| peer.id().clone()))
                     .at_block(block_hash)
-                    .with_peers(wsv.peers().iter().map(|peer| peer.id().clone()).collect())
                     .build(0)
                     .expect("Should be able to reconstruct topology from `wsv`")
             },
         );
 
         let sumeragi_state_machine_data = State {
-            genesis_network,
             previous_block_hash,
             latest_block_hash,
             latest_block_height,
@@ -299,6 +288,7 @@ impl Sumeragi {
             .name("sumeragi thread".to_owned())
             .spawn(move || {
                 main_loop::run(
+                    genesis_network,
                     &sumeragi.internal,
                     sumeragi_state_machine_data,
                     shutdown_receiver,
@@ -322,7 +312,7 @@ impl Sumeragi {
     /// Deposit a sumeragi network message.
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
-        if self.internal.message_sender.lock().try_send(msg).is_err() {
+        if self.message_sender.try_send(msg).is_err() {
             error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }
@@ -342,18 +332,23 @@ pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
 #[non_exhaustive]
 pub struct VotingBlock {
     /// At what time has this peer voted for this block
-    pub voted_at: Duration,
+    pub voted_at: Instant,
     /// Valid Block
     pub block: SignedBlock,
 }
 
 impl VotingBlock {
-    /// Constructs new `VotingBlock.`
+    /// Construct new `VotingBlock` with current time.
     #[allow(clippy::expect_used)]
     pub fn new(block: SignedBlock) -> VotingBlock {
         VotingBlock {
-            voted_at: current_time(),
             block,
+            voted_at: Instant::now(),
         }
+    }
+    /// Construct new `VotingBlock` with the given time.
+    #[allow(clippy::expect_used)]
+    pub(crate) fn voted_at(block: SignedBlock, voted_at: Instant) -> VotingBlock {
+        VotingBlock { block, voted_at }
     }
 }

@@ -114,14 +114,16 @@ pub(crate) async fn handle_instructions(
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    let push_result = queue
+    queue
         .push(transaction, &sumeragi.wsv_mutex_access())
-        .map_err(|(_, err)| err);
-    if let Err(ref error) = push_result {
-        iroha_logger::warn!(%error, "Failed to push into queue")
-    }
-    push_result
-        .map_err(Box::new)
+        .map_err(|(tx, err)| {
+            iroha_logger::warn!(
+                tx_hash=%tx.hash(), ?err,
+                "Failed to push into queue"
+            );
+
+            Box::new(err)
+        })
         .map_err(Error::PushIntoQueue)
         .map(|()| Empty)
 }

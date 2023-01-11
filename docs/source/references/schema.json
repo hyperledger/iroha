@@ -538,10 +538,6 @@
         {
           "name": "sorted_peers",
           "ty": "Vec<iroha_data_model::peer::Id>"
-        },
-        {
-          "name": "at_block",
-          "ty": "Option<iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>>"
         }
       ]
     }

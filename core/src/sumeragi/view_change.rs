@@ -63,9 +63,15 @@ impl Proof {
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
-    pub fn verify(&self, peers: &HashSet<PeerId>, max_faults: usize) -> bool {
-        let peer_public_keys: HashSet<&PublicKey> =
-            peers.iter().map(|peer_id| &peer_id.public_key).collect();
+    pub fn verify<'a>(
+        &self,
+        peers: impl IntoIterator<Item = &'a PeerId>,
+        max_faults: usize,
+    ) -> bool {
+        let peer_public_keys: HashSet<&PublicKey> = peers
+            .into_iter()
+            .map(|peer_id| &peer_id.public_key)
+            .collect();
 
         let signature_payload = self.signature_payload();
         let valid_count = self
@@ -89,66 +95,69 @@ impl Proof {
 /// to `Vec<Proof>`. There is no other implementor of `ProofChain`.
 pub trait ProofChain {
     /// Verify the view change proof chain.
-    fn verify_with_state(
+    fn verify_with_state<'a>(
         &self,
-        peers: &HashSet<PeerId>,
+        peers: impl IntoIterator<Item = &'a PeerId>,
         max_faults: usize,
-        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
     ) -> usize;
 
     /// Remove invalid proofs from the chain.
-    fn prune(&mut self, latest_block: &Option<HashOf<VersionedCommittedBlock>>);
+    fn prune(&mut self, latest_block: Option<HashOf<VersionedCommittedBlock>>);
 
     /// Attempt to insert a view chain proof into this `ProofChain`.
     ///
     /// # Errors
     /// Implementation-dependent
-    fn insert_proof(
+    fn insert_proof<'a>(
         &mut self,
-        peers: &HashSet<PeerId>,
+        peers: impl IntoIterator<Item = &'a PeerId>,
         max_faults: usize,
-        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
         new_proof: &Proof,
     ) -> Result<(), &'static str>;
 }
 
 impl ProofChain for Vec<Proof> {
-    fn verify_with_state(
+    fn verify_with_state<'a>(
         &self,
-        peers: &HashSet<PeerId>,
+        peers: impl IntoIterator<Item = &'a PeerId>,
         max_faults: usize,
-        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
     ) -> usize {
+        let peers = peers.into_iter().collect::<Vec<_>>();
+
         self.iter()
             .enumerate()
             .take_while(|(i, proof)| {
-                proof.latest_block_hash == *latest_block
+                proof.latest_block_hash == latest_block
                     && proof.view_change_index == (*i as u64)
-                    && proof.verify(peers, max_faults)
+                    // TODO: Remove this clone
+                    && proof.verify(peers.clone(), max_faults)
             })
             .count()
     }
 
-    fn prune(&mut self, latest_block: &Option<HashOf<VersionedCommittedBlock>>) {
+    fn prune(&mut self, latest_block: Option<HashOf<VersionedCommittedBlock>>) {
         let valid_count = self
             .iter()
             .enumerate()
             .take_while(|(i, proof)| {
-                proof.latest_block_hash == *latest_block && proof.view_change_index == (*i as u64)
+                proof.latest_block_hash == latest_block && proof.view_change_index == (*i as u64)
             })
             .count();
         self.truncate(valid_count);
     }
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    fn insert_proof(
+    fn insert_proof<'a>(
         &mut self,
-        peers: &HashSet<PeerId>,
+        peers: impl IntoIterator<Item = &'a PeerId>,
         max_faults: usize,
-        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
         new_proof: &Proof,
     ) -> Result<(), &'static str> {
-        if new_proof.latest_block_hash != *latest_block {
+        if new_proof.latest_block_hash != latest_block {
             return Err("Block hash didn't match");
         }
         let next_unfinished_view_change = self.verify_with_state(peers, max_faults, latest_block);

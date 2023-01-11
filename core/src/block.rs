@@ -303,10 +303,13 @@ impl SignedBlock {
     /// Verify signatures and commit block to the store.
     ///
     /// # Errors
-    /// - If signatures verification fails
+    ///
+    /// Not enough signatures
     #[inline]
-    pub fn commit(self, topology: &Topology) -> Result<CommittedBlock, eyre::Report> {
-        topology
+    pub fn commit(mut self, topology: &Topology) -> Result<CommittedBlock, (Self, eyre::Report)> {
+        let verified_signatures = self.retain_verified_signatures();
+
+        if topology
             .filter_signatures_by_roles(
                 &[
                     Role::ValidatingPeer,
@@ -314,14 +317,16 @@ impl SignedBlock {
                     Role::ProxyTail,
                     Role::ObservingPeer,
                 ],
-                self.verified_signatures(),
+                verified_signatures,
             )
             .len()
-            .ge(&topology.min_votes_for_commit())
-            .then_some(())
-            .ok_or_else(|| {
-                eyre!("The block doesn't have enough valid signatures to be committed.")
-            })?;
+            .lt(&topology.min_votes_for_commit())
+        {
+            return Err((
+                self,
+                eyre!("The block doesn't have enough valid signatures to be committed."),
+            ));
+        }
 
         Ok(self.commit_unchecked())
     }
@@ -360,10 +365,11 @@ impl SignedBlock {
             ))
     }
 
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    /// Return signatures that are verified with the `hash` of this block, removing all other
+    /// signatures.
     #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.signatures.verified_by_hash(self.hash())
+    pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.signatures.retain_verified_by_hash(self.hash())
     }
 
     /// Create dummy `ValidBlock`. Used in tests
@@ -463,11 +469,11 @@ impl VersionedCandidateBlock {
         self.as_v1().hash().transmute()
     }
 
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    /// Return signatures that are verified with the `hash` of this block, removing all other signatures.
     #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.as_v1()
-            .verified_signatures()
+    pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.as_mut_v1()
+            .retain_verified_signatures()
             .map(SignatureOf::transmute_ref)
     }
 
@@ -480,7 +486,7 @@ impl VersionedCandidateBlock {
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
-        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
         block_height: u64,
     ) -> Result<SignedBlock, eyre::Report> {
         self.into_v1()
@@ -511,10 +517,10 @@ impl CandidateBlock {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    /// Return signatures that are verified with the `hash` of this block, removing all other signatures.
     #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.signatures.verified_by_hash(self.hash())
+    pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.signatures.retain_verified_by_hash(self.hash())
     }
 
     /// Check if there are no transactions in this block.
@@ -547,7 +553,7 @@ impl CandidateBlock {
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
-        latest_block: &Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
         block_height: u64,
     ) -> Result<SignedBlock, eyre::Report> {
         if self.is_empty() {
@@ -558,7 +564,7 @@ impl CandidateBlock {
             bail!("Block has committed transactions");
         }
 
-        if latest_block != &self.header.previous_block_hash {
+        if latest_block != self.header.previous_block_hash {
             bail!(
                 "Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}",
                 latest_block,
@@ -731,11 +737,12 @@ impl VersionedCommittedBlock {
         &self.as_v1().header
     }
 
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    /// Return signatures that are verified with the `hash` of this block
     #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
+    pub fn signatures(&self) -> impl IntoIterator<Item = &SignatureOf<Self>> {
         self.as_v1()
-            .verified_signatures()
+            .signatures
+            .iter()
             .map(SignatureOf::transmute_ref)
     }
 
@@ -800,12 +807,6 @@ impl CommittedBlock {
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
-    }
-
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
-    #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.signatures.verified_by_hash(self.hash())
     }
 }
 
@@ -918,33 +919,30 @@ impl VersionedCandidateCommittedBlock {
         &self.as_v1().header
     }
 
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
-    #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.as_v1()
-            .verified_signatures()
-            .map(SignatureOf::transmute_ref)
-    }
-
     /// Revalidate transaction hashes, verify signatures and produce [`VersionedCommittedBlock`]
     ///
     /// # Errors
     /// - If transaction hashes don't match the hashes stored in the block header
     /// - If signatures verification fails
-    pub fn revalidate(self, topology: &Topology) -> Result<VersionedCommittedBlock, eyre::Report> {
+    pub fn revalidate(
+        self,
+        topology: &Topology,
+    ) -> Result<VersionedCommittedBlock, (Self, eyre::Report)> {
         self.into_v1()
             .revalidate(topology)
             .map(VersionedCommittedBlock::from)
+            .map_err(|err| (err.0.into(), err.1))
     }
 
     /// Revalidate transaction hashes and produce [`VersionedCommittedBlock`]
     ///
     /// # Errors
     /// - If transaction hashes don't match the hashes stored in the block header
-    pub fn revalidate_hashes(self) -> Result<VersionedCommittedBlock, eyre::Report> {
+    pub fn revalidate_hashes(self) -> Result<VersionedCommittedBlock, (Self, eyre::Report)> {
         self.into_v1()
             .revalidate_hashes()
             .map(VersionedCommittedBlock::from)
+            .map_err(|err| (err.0.into(), err.1))
     }
 }
 
@@ -973,10 +971,10 @@ impl CandidateCommittedBlock {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Return the signatures (as `payload`) that are verified with the `hash` of this block.
+    /// Return signatures that are verified with the `hash` of this block, removing all other signatures.
     #[inline]
-    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.signatures.verified_by_hash(self.hash())
+    pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
+        self.signatures.retain_verified_by_hash(self.hash())
     }
 
     /// Revalidate transaction hashes, verify signatures and produce [`CommittedBlock`]
@@ -984,8 +982,13 @@ impl CandidateCommittedBlock {
     /// # Errors
     /// - If transaction hashes don't match the hashes stored in the block header
     /// - If signatures verification fails
-    pub fn revalidate(self, topology: &Topology) -> Result<CommittedBlock, eyre::Report> {
-        topology
+    pub fn revalidate(
+        mut self,
+        topology: &Topology,
+    ) -> Result<CommittedBlock, (Self, eyre::Report)> {
+        let verified_signatures = self.retain_verified_signatures();
+
+        if topology
             .filter_signatures_by_roles(
                 &[
                     Role::ValidatingPeer,
@@ -993,14 +996,16 @@ impl CandidateCommittedBlock {
                     Role::ProxyTail,
                     Role::ObservingPeer,
                 ],
-                self.verified_signatures(),
+                verified_signatures,
             )
             .len()
-            .ge(&topology.min_votes_for_commit())
-            .then_some(())
-            .ok_or_else(|| {
-                eyre!("The block doesn't have enough valid signatures to be committed.")
-            })?;
+            .lt(&topology.min_votes_for_commit())
+        {
+            return Err((
+                self,
+                eyre!("The block doesn't have enough valid signatures to be committed."),
+            ));
+        }
         self.revalidate_hashes()
     }
 
@@ -1011,41 +1016,35 @@ impl CandidateCommittedBlock {
     ///
     /// # Errors
     /// - If transaction hashes don't match the hashes stored in the block header
-    pub fn revalidate_hashes(self) -> Result<CommittedBlock, eyre::Report> {
-        let Self {
-            header,
-            rejected_transactions,
-            transactions,
-            event_recommendations,
-            signatures,
-        } = self;
-
-        transactions
+    pub fn revalidate_hashes(self) -> Result<CommittedBlock, (Self, eyre::Report)> {
+        if self
+            .transactions
             .iter()
             .map(VersionedValidTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
-            .eq(&header.transactions_hash)
-            .then_some(())
-            .ok_or_else(|| {
-                eyre!("The transaction hash stored in the block header does not match the actual transaction hash.")
-            })?;
+            .ne(&self.header.transactions_hash)
+        {
+            return Err((self, eyre!("The transaction hash stored in the block header does not match the actual transaction hash.")));
+        }
 
-        rejected_transactions
+        if self
+            .rejected_transactions
             .iter()
             .map(VersionedRejectedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash()
-            .eq(&header.rejected_transactions_hash)
-            .then_some(())
-            .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;
+            .ne(&self.header.rejected_transactions_hash)
+        {
+            return Err((self, eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction.")));
+        }
 
         Ok(CommittedBlock {
-            header,
-            rejected_transactions,
-            transactions,
-            event_recommendations,
-            signatures: signatures.transmute(),
+            header: self.header,
+            rejected_transactions: self.rejected_transactions,
+            transactions: self.transactions,
+            event_recommendations: self.event_recommendations,
+            signatures: self.signatures.transmute(),
         })
     }
 }
