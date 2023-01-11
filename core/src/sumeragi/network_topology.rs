@@ -7,6 +7,7 @@
 )]
 use std::{collections::HashSet, iter};
 
+use derive_more::Display;
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{Hash, HashOf, SignatureOf};
 use iroha_data_model::{prelude::PeerId, transaction::VersionedSignedTransaction};
@@ -130,10 +131,7 @@ impl GenesisBuilder {
             .chain(set_a.into_iter())
             .chain(set_b.into_iter())
             .collect();
-        Ok(Topology {
-            sorted_peers,
-            at_block: None,
-        })
+        Ok(Topology { sorted_peers })
     }
 }
 
@@ -149,18 +147,18 @@ pub struct Builder {
 
 impl Builder {
     /// Constructor.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self::default()
     }
 
     /// Set peers that participate in consensus.
-    pub fn with_peers(mut self, peers: HashSet<PeerId>) -> Self {
-        self.peers = Some(peers);
+    pub(crate) fn with_peers(mut self, peers: impl IntoIterator<Item = PeerId>) -> Self {
+        self.peers = Some(peers.into_iter().collect());
         self
     }
 
     /// Set the latest committed block.
-    pub fn at_block(mut self, block: HashOf<VersionedCommittedBlock>) -> Self {
+    pub(crate) fn at_block(mut self, block: HashOf<VersionedCommittedBlock>) -> Self {
         self.at_block = Some(block);
         self
     }
@@ -170,7 +168,7 @@ impl Builder {
     /// # Errors
     /// 1. Required field is omitted.
     /// 2. No peer exists.
-    pub fn build(self, number_of_view_changes_this_round: u64) -> Result<Topology> {
+    pub(crate) fn build(self, number_of_view_changes_this_round: u64) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
         if peers.is_empty() {
             return Err(eyre!("There must be at least one peer in the network."));
@@ -187,10 +185,7 @@ impl Builder {
             let peers = sort_peers_by_hash_and_counter(peers, &at_block, last_shuffled_at);
             shift_peers_by_n(peers, since_last_shuffle)
         };
-        Ok(Topology {
-            sorted_peers,
-            at_block,
-        })
+        Ok(Topology { sorted_peers })
     }
 }
 
@@ -199,8 +194,6 @@ impl Builder {
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
-    /// Hash of the last committed block.
-    at_block: Option<HashOf<VersionedCommittedBlock>>,
 }
 
 impl Topology {
@@ -209,29 +202,10 @@ impl Topology {
         Builder::new()
     }
 
-    /// Into Builder.
-    pub fn into_builder(self) -> Builder {
-        Builder {
-            peers: Some(self.sorted_peers.into_iter().collect()),
-            at_block: self.at_block,
-        }
-    }
-
-    /// Apply new committed block hash.
-    #[allow(clippy::expect_used)]
-    pub fn refresh_at_new_block(&mut self, block: HashOf<VersionedCommittedBlock>) {
-        *self = self
-            .clone()
-            .into_builder()
-            .at_block(block)
-            .build(0)
-            .expect("Topology was invalid.");
-    }
-
     /// Apply a `view change`, i.e. change the topology in case there were faults in the consensus round.
     #[allow(clippy::expect_used)]
     pub fn rebuild_with_new_view_change_count(&mut self, view_change_count: u64) {
-        *self = self.clone().into_builder().build(view_change_count).expect(
+        *self = Builder::new().with_peers(self.sorted_peers.iter().cloned()).build(view_change_count).expect(
             "Invalid topology. At this stage the error is unrecoverable. Please restart the peer.",
         )
     }
@@ -304,6 +278,7 @@ impl Topology {
     ///
     /// # Errors
     /// Fails if there are no such peer with this key and if signature verification fails
+    // TODO: Not used?
     pub fn verify_signature_with_role(
         &self,
         signature: &SignatureOf<VersionedSignedTransaction>,
@@ -350,40 +325,26 @@ impl Topology {
         &self.sorted_peers
     }
 
-    /// Block hash on which this topology is based.
-    pub const fn at_block(&self) -> &Option<HashOf<VersionedCommittedBlock>> {
-        &self.at_block
-    }
-
     /// Maximum number of faulty peers that the network will tolerate.
     #[allow(clippy::integer_division)]
     pub fn max_faults(&self) -> usize {
         (self.sorted_peers.len() - 1) / 3
     }
 
-    /// Updates network topology by taking the actual list of peers from `WorldStateView`.
-    /// Updates it only if there is a change in WSV peers, otherwise leaves the order unchanged.
-    #[allow(clippy::expect_used)]
-    pub fn update_network_topology(&mut self, wsv: &WorldStateView) {
-        let wsv_peers: HashSet<_> = wsv
-            .trusted_peers_ids()
-            .iter()
-            .map(|id_ref| id_ref.clone())
-            .collect();
-        let topology_peers: HashSet<_> = self.sorted_peers().iter().cloned().collect();
-        if topology_peers != wsv_peers {
-            *self = self
-                    .clone()
-                    .into_builder()
-                    .with_peers(wsv_peers)
-                    .build(0)
-                .expect("The safety of changing the number of peers should have been checked at the Instruction execution stage.");
-        }
+    /// Create network topology from the list of [`WorldStateView`] peers at the given block
+    pub fn recreate(&mut self, wsv: &WorldStateView, block: HashOf<VersionedCommittedBlock>) {
+        let wsv_peers = wsv.peers_ids().iter().map(|id| id.clone());
+
+        *self = Topology::builder()
+            .with_peers(wsv_peers)
+            .at_block(block)
+            .build(0)
+            .expect("Invalid topology");
     }
 }
 
 /// Possible Peer's roles in consensus.
-#[derive(Copy, Clone, Debug, Hash, PartialOrd, Ord, Eq, PartialEq)]
+#[derive(Debug, Display, Clone, Copy, PartialOrd, Ord, Eq, PartialEq, Hash)]
 pub enum Role {
     /// Leader.
     Leader,

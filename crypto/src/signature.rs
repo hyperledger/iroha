@@ -476,24 +476,18 @@ impl<T> SignaturesOf<T> {
         self.signatures.insert(SignatureWrapperOf(signature));
     }
 
-    /// Returns signatures that have passed verification.
+    /// Return signatures that have passed verification, remove all others.
     #[cfg(feature = "std")]
-    pub fn verified_by_hash(&self, hash: HashOf<T>) -> impl Iterator<Item = &SignatureOf<T>> {
+    pub fn retain_verified_by_hash(
+        &mut self,
+        hash: HashOf<T>,
+    ) -> impl Iterator<Item = &SignatureOf<T>> {
+        self.signatures
+            .retain(|sign| sign.verify_hash(&hash).is_ok());
         self.iter()
-            .filter(move |sign| sign.verify_hash(&hash).is_ok())
     }
 
-    /// Returns signatures that have passed verification.
-    #[cfg(feature = "std")]
-    pub fn into_verified_by_hash(
-        self,
-        hash: &HashOf<T>,
-    ) -> impl Iterator<Item = SignatureOf<T>> + '_ {
-        self.into_iter()
-            .filter(move |sign| sign.verify_hash(hash).is_ok())
-    }
-
-    /// Returns all signatures.
+    /// Return all signatures.
     #[inline]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
         self.into_iter()
@@ -538,9 +532,9 @@ impl<T: Encode> SignaturesOf<T> {
         self.verify_hash(&HashOf::new(item))
     }
 
-    /// Returns signatures that have passed verification.
-    pub fn verified(&self, value: &T) -> impl Iterator<Item = &SignatureOf<T>> {
-        self.verified_by_hash(HashOf::new(value))
+    /// Return signatures that have passed verification, remove all others.
+    pub fn retain_verified(&mut self, value: &T) -> impl Iterator<Item = &SignatureOf<T>> {
+        self.retain_verified_by_hash(HashOf::new(value))
     }
 }
 

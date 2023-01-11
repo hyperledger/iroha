@@ -470,7 +470,7 @@ impl WorldStateView {
 
     /// Returns reference for trusted peer ids
     #[inline]
-    pub fn trusted_peers_ids(&self) -> &PeersIds {
+    pub fn peers_ids(&self) -> &PeersIds {
         &self.world.trusted_peers_ids
     }
 

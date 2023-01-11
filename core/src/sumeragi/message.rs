@@ -14,7 +14,9 @@ use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
 use crate::{
-    block::{SignedBlock, VersionedCandidateCommittedBlock},
+    block::{
+        CommittedBlock, SignedBlock, VersionedCandidateCommittedBlock, VersionedCommittedBlock,
+    },
     VersionedAcceptedTransaction, VersionedCandidateBlock,
 };
 
@@ -56,10 +58,10 @@ pub struct MessagePacket {
 
 impl MessagePacket {
     /// Construct [`Self`]
-    pub fn new(view_change_proofs: Vec<view_change::Proof>, message: Message) -> Self {
+    pub fn new(view_change_proofs: Vec<view_change::Proof>, message: impl Into<Message>) -> Self {
         Self {
             view_change_proofs,
-            message,
+            message: message.into(),
         }
     }
 }
@@ -75,8 +77,6 @@ pub enum Message {
     BlockCommitted(BlockCommitted),
     /// This message is sent by `BlockSync` when new block is received
     BlockSyncUpdate(BlockSyncUpdate),
-    /// Tx forwarded from client by a peer to a leader.
-    TransactionForwarded(TransactionForwarded),
     /// View change is suggested due to some faulty peer or general fault in consensus.
     ViewChangeSuggested,
     /// This message is sent by all peers during gossiping.
@@ -91,19 +91,11 @@ pub struct BlockCreated {
     pub block: VersionedCandidateBlock,
 }
 
-impl BlockCreated {
-    /// Construct [`Self`]
-    #[inline]
-    pub fn new(block: impl Into<VersionedCandidateBlock>) -> Self {
+impl From<SignedBlock> for BlockCreated {
+    fn from(block: SignedBlock) -> Self {
         Self {
             block: block.into(),
         }
-    }
-}
-
-impl From<VersionedCandidateBlock> for BlockCreated {
-    fn from(block: VersionedCandidateBlock) -> Self {
-        Self { block }
     }
 }
 
@@ -131,16 +123,16 @@ impl From<SignedBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<SignedBlock>,
+    pub hash: HashOf<VersionedCandidateCommittedBlock>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<SignedBlock>,
+    pub signatures: SignaturesOf<VersionedCandidateCommittedBlock>,
 }
 
-impl From<SignedBlock> for BlockCommitted {
-    fn from(block: SignedBlock) -> Self {
+impl From<CommittedBlock> for BlockCommitted {
+    fn from(block: CommittedBlock) -> Self {
         Self {
             hash: block.hash().transmute(),
-            signatures: block.signatures,
+            signatures: block.signatures.transmute(),
         }
     }
 }
@@ -153,27 +145,10 @@ pub struct BlockSyncUpdate {
     pub block: VersionedCandidateCommittedBlock,
 }
 
-impl From<VersionedCandidateCommittedBlock> for BlockSyncUpdate {
-    fn from(block: VersionedCandidateCommittedBlock) -> Self {
-        Self { block }
-    }
-}
-
-/// `Message` structure describing a transaction that is forwarded from a client by a peer to the leader.
-#[derive(Debug, Clone, Decode, Encode)]
-#[non_exhaustive]
-pub struct TransactionForwarded {
-    /// Transaction that is forwarded from a client by a peer to the leader
-    pub transaction: VersionedSignedTransaction,
-}
-
-impl TransactionForwarded {
-    /// Constructs `TransactionForwarded` message.
-    pub fn new(transaction: VersionedAcceptedTransaction) -> TransactionForwarded {
-        TransactionForwarded {
-            // Converting into non-accepted transaction because it's not possible
-            // to guarantee that the sending peer checked transaction limits
-            transaction: transaction.into(),
+impl From<VersionedCommittedBlock> for BlockSyncUpdate {
+    fn from(block: VersionedCommittedBlock) -> Self {
+        Self {
+            block: block.into(),
         }
     }
 }

@@ -240,10 +240,10 @@ pub mod message {
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
                     use crate::sumeragi::message::{BlockSyncUpdate, Message, MessagePacket};
-                    for block in blocks {
+                    for block in blocks.clone() {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
                             Vec::new(),
-                            Message::BlockSyncUpdate(BlockSyncUpdate::from(block.clone())),
+                            Message::BlockSyncUpdate(BlockSyncUpdate { block }),
                         ));
                     }
                 }

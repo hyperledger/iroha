@@ -276,8 +276,11 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Accepts transaction
+    ///
     /// # Errors
-    /// Can fail if verification of some signature fails
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
     pub fn from_transaction(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
@@ -318,21 +321,23 @@ impl AcceptedTransaction {
     /// Accepts transaction
     ///
     /// # Errors
-    /// Can fail if verification of some signature fails
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
     pub fn from_transaction(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self> {
         transaction
             .check_limits(limits)
-            .wrap_err("Failed to accept transaction")?;
+            .wrap_err("Limits verification failed")?;
         let signatures: SignaturesOf<_> = transaction
             .signatures
             .try_into()
             .map_err(eyre::Error::from)?;
         signatures
             .verify(&transaction.payload)
-            .wrap_err("Failed to verify transaction signatures")?;
+            .wrap_err("Signature verification failed")?;
 
         Ok(Self {
             payload: transaction.payload,
@@ -509,7 +514,7 @@ mod tests {
         let mut chain = err.chain();
         assert_eq!(
             chain.next().unwrap().to_string(),
-            "Failed to accept transaction"
+            "Limits verification failed"
         );
         assert_eq!(
             chain.next().unwrap().to_string(),
