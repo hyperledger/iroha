@@ -416,7 +416,6 @@ impl Txn for Transaction {
     FfiType,
     IntoSchema,
 )]
-#[allow(clippy::use_debug)]
 #[display(fmt = "{self:?}")] // TODO ?
 pub struct SignedTransaction {
     /// [`Transaction`] payload.
