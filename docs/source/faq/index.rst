@@ -8,16 +8,16 @@ I'm new. Where to start?
 Hello, newcomer! You are very welcome :)
 There are 2 ways for you to start with Iroha:
 
- 1. You can see what Iroha is an how it works by building a simple example network following our `Getting Started Guide <../getting_started/index.html>`_
+ 1. You can see what Iroha is and how it works by building a simple example network following our `Getting Started Guide <../getting_started/index.html>`_
  2. You can get acquainted with the `core concepts of Iroha <../concepts_architecture/index.html>`_ and start building your own `Iroha network <../deploy/index.html>`_
 
 Now you have your Iroha blockchain! Congratulations!
-If you have any questions on it, do not hesitate to contact our community here: https://chat.hyperledger.org/channel/iroha
+If you have any questions about it, do not hesitate to contact our community here: https://chat.hyperledger.org/channel/iroha
 
 What type of data can be transferred?
 -------------------------------------
 
-Hyperleder Iroha allows you to send not only assets (you might get such impression due to a highly developed set of commands and queries for serving such assets) but any data that will be stored in the chain as well.
+Hyperledger Iroha allows you to send not only assets (you might get such impression due to a highly developed set of commands and queries for serving such assets) but any data that will be stored in the chain as well.
 
 The current implementation provides that opportunity at least via `SetAccountDetail <../develop/api/commands.html#set-account-detail>`_ command and `GetAccountDetail <../develop/api/queries.html#get-account-detail>`_ query.
 
