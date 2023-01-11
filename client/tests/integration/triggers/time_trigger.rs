@@ -71,9 +71,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
         - core::cmp::min(actual_value, expected_value)) as f32;
     assert!(
         error < acceptable_error,
-        "error = {}, but acceptable error = {}",
-        error,
-        acceptable_error
+        "error = {error}, but acceptable error = {acceptable_error}"
     );
 
     Ok(())

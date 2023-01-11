@@ -99,15 +99,12 @@ fn query_requests(criterion: &mut Criterion) {
                 success_count += 1;
             }
             Err(e) => {
-                eprintln!("Query failed: {}", e);
+                eprintln!("Query failed: {e}");
                 failures_count += 1;
             }
         });
     });
-    println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
-    );
+    println!("Success count: {success_count}, Failures count: {failures_count}");
     group.finish();
     if (failures_count + success_count) > 0 {
         assert!(
@@ -180,16 +177,13 @@ fn instruction_submits(criterion: &mut Criterion) {
             match iroha_client.submit(mint_asset) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
-                    eprintln!("Failed to execute instruction: {}", e);
+                    eprintln!("Failed to execute instruction: {e}");
                     failures_count += 1;
                 }
             };
         })
     });
-    println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
-    );
+    println!("Success count: {success_count}, Failures count: {failures_count}");
     group.finish();
     if (failures_count + success_count) > 0 {
         assert!(

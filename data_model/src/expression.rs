@@ -186,7 +186,7 @@ pub type ExpressionBox = Box<Expression>;
 #[serde(transparent)]
 // As this structure exists only for type checking
 // it makes sense to display `expression` directly
-#[display(fmt = "{}", expression)]
+#[display(fmt = "{expression}")]
 pub struct EvaluatesTo<V: TryFrom<Value>> {
     /// Expression.
     #[serde(flatten)]
@@ -489,7 +489,7 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
     Ord,
     Hash,
 )]
-#[display(fmt = "CONTEXT `{}`", value_name)]
+#[display(fmt = "CONTEXT `{value_name}`")]
 #[serde(transparent)]
 #[repr(transparent)]
 pub struct ContextValue {
@@ -868,10 +868,7 @@ gen_expr_and_impls! {
         Hash,
     )]
     #[display(
-        fmt = "if {} {{ {} }} else {{ {} }}",
-        condition,
-        then_expression,
-        else_expression
+        fmt = "if {condition} {{ {then_expression} }} else {{ {else_expression} }}"
     )]
     pub If(condition: bool, then_expression: Value, else_expression: Value) -> ?
 }
@@ -1053,7 +1050,7 @@ impl core::fmt::Display for Where {
                 write!(f, ", ")?;
             }
             first = false;
-            write!(f, "`{}` : `{}`", key, value)?;
+            write!(f, "`{key}` : `{value}`")?;
         }
 
         write!(f, "]")

@@ -492,8 +492,9 @@ where
 
     fn into_repr_c(self, store: &'itm mut Self::RustStore) -> [C; N] {
         let array: [R; N] = self.into_iter().collect::<Vec<_>>().try_into().map_or_else(
-            |_| // SAFETY: Vec<T> length is N
-                         unsafe { unreachable_unchecked() },
+            |_|
+            // SAFETY: Vec<T> length is N
+            unsafe { unreachable_unchecked() },
             |arr| arr,
         );
         *store = TryFrom::try_from(
@@ -502,8 +503,9 @@ where
                 .collect::<Vec<R::RustStore>>(),
         )
         .map_or_else(
-            |_|  // SAFETY: Vec<T> length is N
-                      unsafe { unreachable_unchecked() },
+            |_|
+            // SAFETY: Vec<T> length is N
+            unsafe { unreachable_unchecked() },
             |arr| arr,
         );
 
@@ -514,8 +516,9 @@ where
             .collect::<Vec<_>>()
             .try_into()
             .map_or_else(
-                |_| // SAFETY: Vec<T> length is N
-                         unsafe { unreachable_unchecked() },
+                |_|
+                // SAFETY: Vec<T> length is N
+                unsafe { unreachable_unchecked() },
                 |arr| arr,
             )
     }

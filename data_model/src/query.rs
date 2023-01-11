@@ -314,7 +314,7 @@ pub mod role {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find `{}` role", id)]
+    #[display(fmt = "Find `{id}` role")]
     pub struct FindRoleByRoleId {
         /// `Id` of the [`Role`] to find
         pub id: EvaluatesTo<<Role as Identifiable>::Id>,
@@ -340,7 +340,7 @@ pub mod role {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find all roles for `{}` account", id)]
+    #[display(fmt = "Find all roles for `{id}` account")]
     pub struct FindRolesByAccountId {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<<Account as Identifiable>::Id>,
@@ -440,7 +440,7 @@ pub mod permissions {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find permission tokens specified for `{}` account", id)]
+    #[display(fmt = "Find permission tokens specified for `{id}` account")]
     pub struct FindPermissionTokensByAccountId {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
@@ -511,7 +511,7 @@ pub mod account {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find `{}` account", id)]
+    #[display(fmt = "Find `{id}` account")]
     pub struct FindAccountById {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
@@ -538,7 +538,7 @@ pub mod account {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find metadata value with `{}` key in `{}` account", key, id)]
+    #[display(fmt = "Find metadata value with `{key}` key in `{id}` account")]
     pub struct FindAccountKeyValueByIdAndKey {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
@@ -567,7 +567,7 @@ pub mod account {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find accounts with `{}` name", name)]
+    #[display(fmt = "Find accounts with `{name}` name")]
     pub struct FindAccountsByName {
         /// `name` of accounts to find.
         pub name: EvaluatesTo<Name>,
@@ -594,7 +594,7 @@ pub mod account {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find accounts under `{}` domain", domain_id)]
+    #[display(fmt = "Find accounts under `{domain_id}` domain")]
     pub struct FindAccountsByDomainId {
         /// `Id` of the domain under which accounts should be found.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -621,7 +621,7 @@ pub mod account {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find accounts with `{}` asset", asset_definition_id)]
+    #[display(fmt = "Find accounts with `{asset_definition_id}` asset")]
     pub struct FindAccountsWithAsset {
         /// `Id` of the definition of the asset which should be stored in founded accounts.
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
@@ -775,7 +775,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find `{}` asset", id)]
+    #[display(fmt = "Find `{id}` asset")]
     pub struct FindAssetById {
         /// `Id` of an [`Asset`] to find.
         pub id: EvaluatesTo<AssetId>,
@@ -801,7 +801,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find `{}` asset definition", id)]
+    #[display(fmt = "Find `{id}` asset definition")]
     pub struct FindAssetDefinitionById {
         /// `Id` of an [`AssetDefinition`] to find.
         pub id: EvaluatesTo<AssetDefinitionId>,
@@ -828,7 +828,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find asset with `{}` name", name)]
+    #[display(fmt = "Find asset with `{name}` name")]
     pub struct FindAssetsByName {
         /// [`Name`] of [`Asset`]s to find.
         pub name: EvaluatesTo<Name>,
@@ -855,7 +855,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find assets owned by the `{}` account", account_id)]
+    #[display(fmt = "Find assets owned by the `{account_id}` account")]
     pub struct FindAssetsByAccountId {
         /// [`AccountId`] under which assets should be found.
         pub account_id: EvaluatesTo<AccountId>,
@@ -882,7 +882,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find assets with `{}` asset definition", asset_definition_id)]
+    #[display(fmt = "Find assets with `{asset_definition_id}` asset definition")]
     pub struct FindAssetsByAssetDefinitionId {
         /// [`AssetDefinitionId`] with type of [`Asset`]s should be found.
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
@@ -909,7 +909,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find assets under the `{}` domain", domain_id)]
+    #[display(fmt = "Find assets under the `{domain_id}` domain")]
     pub struct FindAssetsByDomainId {
         /// `Id` of the domain under which assets should be found.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -938,9 +938,7 @@ pub mod asset {
         Hash,
     )]
     #[display(
-        fmt = "Find assets under the `{}` domain with `{}` asset definition",
-        domain_id,
-        asset_definition_id
+        fmt = "Find assets under the `{domain_id}` domain with `{asset_definition_id}` asset definition"
     )]
     pub struct FindAssetsByDomainIdAndAssetDefinitionId {
         /// `Id` of the domain under which assets should be found.
@@ -970,7 +968,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find quantity of the `{}` asset", id)]
+    #[display(fmt = "Find quantity of the `{id}` asset")]
     pub struct FindAssetQuantityById {
         /// `Id` of an [`Asset`] to find quantity of.
         pub id: EvaluatesTo<AssetId>,
@@ -998,7 +996,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find total quantity of the `{}` asset", id)]
+    #[display(fmt = "Find total quantity of the `{id}` asset")]
     pub struct FindTotalAssetQuantityByAssetDefinitionId {
         /// `Id` of an [`Asset`] to find quantity of.
         pub id: EvaluatesTo<AssetDefinitionId>,
@@ -1025,7 +1023,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find metadata value with `{}` key in `{}` asset", key, id)]
+    #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset")]
     pub struct FindAssetKeyValueByIdAndKey {
         /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store).
         pub id: EvaluatesTo<AssetId>,
@@ -1054,11 +1052,7 @@ pub mod asset {
         Ord,
         Hash,
     )]
-    #[display(
-        fmt = "Find metadata value with `{}` key in `{}` asset definition",
-        key,
-        id
-    )]
+    #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset definition")]
     pub struct FindAssetDefinitionKeyValueByIdAndKey {
         /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store)..
         pub id: EvaluatesTo<AssetDefinitionId>,
@@ -1254,7 +1248,7 @@ pub mod domain {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find `{}` domain", id)]
+    #[display(fmt = "Find `{id}` domain")]
     pub struct FindDomainById {
         /// `Id` of the domain to find.
         pub id: EvaluatesTo<DomainId>,
@@ -1296,7 +1290,7 @@ pub mod domain {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find metadata value with key `{}` in `{}` domain", key, id)]
+    #[display(fmt = "Find metadata value with key `{key}` in `{id}` domain")]
     pub struct FindDomainKeyValueByIdAndKey {
         /// `Id` of an domain to find.
         pub id: EvaluatesTo<DomainId>,
@@ -1467,7 +1461,7 @@ pub mod trigger {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find `{}` trigger", id)]
+    #[display(fmt = "Find `{id}` trigger")]
     pub struct FindTriggerById {
         /// The Identification of the trigger to be found.
         pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
@@ -1493,7 +1487,7 @@ pub mod trigger {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find metadata value with `{}` key in `{}` trigger", key, id)]
+    #[display(fmt = "Find metadata value with `{key}` key in `{id}` trigger")]
     pub struct FindTriggerKeyValueByIdAndKey {
         /// The Identification of the trigger to be found.
         pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
@@ -1521,7 +1515,7 @@ pub mod trigger {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find trigger under `{}` domain", domain_id)]
+    #[display(fmt = "Find trigger under `{domain_id}` domain")]
     pub struct FindTriggersByDomainId {
         /// [`DomainId`] specifies the domain in which to search for triggers.
         pub domain_id: EvaluatesTo<DomainId>,
@@ -1619,7 +1613,7 @@ pub mod transaction {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find all transactions for `{}` account", account_id)]
+    #[display(fmt = "Find all transactions for `{account_id}` account")]
     pub struct FindTransactionsByAccountId {
         /// Signer's [`AccountId`] under which transactions should be found.
         pub account_id: EvaluatesTo<AccountId>,
@@ -1654,7 +1648,7 @@ pub mod transaction {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find transaction with `{}` hash", hash)]
+    #[display(fmt = "Find transaction with `{hash}` hash")]
     pub struct FindTransactionByHash {
         /// Transaction hash.
         pub hash: EvaluatesTo<Hash>,
@@ -1780,7 +1774,7 @@ pub mod block {
         Ord,
         Hash,
     )]
-    #[display(fmt = "Find block header with `{}` hash", hash)]
+    #[display(fmt = "Find block header with `{hash}` hash")]
     pub struct FindBlockHeaderByHash {
         /// Block hash.
         pub hash: EvaluatesTo<Hash>,

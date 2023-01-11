@@ -173,7 +173,7 @@ mod tests {
         let schemas = build_schemas();
 
         let missing_schemas = find_missing_schemas(&schemas);
-        println!("Missing schemas: \n{:#?}", missing_schemas);
+        println!("Missing schemas: \n{missing_schemas:#?}");
 
         assert!(missing_schemas.is_empty());
     }

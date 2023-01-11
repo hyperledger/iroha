@@ -28,16 +28,16 @@ pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum DigestFunction {
     /// Ed25519
-    #[display(fmt = "{}", "ED_25519_PUB_STR")]
+    #[display(fmt = "{ED_25519_PUB_STR}")]
     Ed25519Pub = 0xed,
     /// Secp256k1
-    #[display(fmt = "{}", "SECP_256_K1_PUB_STR")]
+    #[display(fmt = "{SECP_256_K1_PUB_STR}")]
     Secp256k1Pub = 0xe7,
     /// Bls12381G1
-    #[display(fmt = "{}", "BLS12_381_G1_PUB")]
+    #[display(fmt = "{BLS12_381_G1_PUB}")]
     Bls12381G1Pub = 0xea,
     /// Bls12381G2
-    #[display(fmt = "{}", "BLS12_381_G2_PUB")]
+    #[display(fmt = "{BLS12_381_G2_PUB}")]
     Bls12381G2Pub = 0xeb,
 }
 

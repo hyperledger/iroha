@@ -16,7 +16,7 @@ mod signature;
 mod varint;
 
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, borrow::ToOwned, boxed::Box, format, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
@@ -73,16 +73,16 @@ ffi::ffi_item! {
     #[repr(u8)]
     pub enum Algorithm {
         /// Ed25519
-        #[display(fmt = "{}", "ED_25519")]
+        #[display(fmt = "{ED_25519}")]
         Ed25519,
         /// Secp256k1
-        #[display(fmt = "{}", "SECP_256_K1")]
+        #[display(fmt = "{SECP_256_K1}")]
         Secp256k1,
         /// BlsNormal
-        #[display(fmt = "{}", "BLS_NORMAL")]
+        #[display(fmt = "{BLS_NORMAL}")]
         BlsNormal,
         /// BlsSmall
-        #[display(fmt = "{}", "BLS_SMALL")]
+        #[display(fmt = "{BLS_SMALL}")]
         BlsSmall,
     }
 }
@@ -493,7 +493,7 @@ impl Serialize for PublicKey {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("{}", self))
+        serializer.serialize_str(&format!("{self}"))
     }
 }
 
@@ -532,7 +532,7 @@ impl Decode for PublicKey {
 ffi::ffi_item! {
     /// Private Key used in signatures.
     #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, FfiType)]
-    #[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
+    #[debug(fmt = "{{ digest: {digest_function}, payload: {payload:X?}}}")]
     #[display(fmt = "{}", "hex::encode(payload)")]
     #[allow(clippy::multiple_inherent_impl)]
     pub struct PrivateKey {

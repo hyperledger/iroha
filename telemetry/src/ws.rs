@@ -96,7 +96,7 @@ where
                     }
                 }
                 msg = internal_stream.next() => {
-                    if matches!(msg,  Some(InternalMessage::Reconnect)) {
+                    if matches!(msg, Some(InternalMessage::Reconnect)) {
                         self.on_reconnect().await;
                     }
                 }
@@ -189,7 +189,7 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
             let field = field.to_owned();
             let map = if field == "genesis_hash" || field == "best" || field == "finalized_hash" {
                 map.as_str()
-                    .map_or_else(|| unreachable!(), |hash| format!("0x{}", hash).into())
+                    .map_or_else(|| unreachable!(), |hash| format!("0x{hash}").into())
             } else {
                 map
             };
@@ -443,9 +443,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let msg = message_receiver.next().await.unwrap();
-            let bytes = if let Message::Binary(bytes) = msg {
-                bytes
-            } else {
+            let Message::Binary(bytes) = msg else {
                 panic!()
             };
             let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
@@ -479,9 +477,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let msg = message_receiver.next().await.unwrap();
-            let bytes = if let Message::Binary(bytes) = msg {
-                bytes
-            } else {
+            let Message::Binary(bytes) = msg else {
                 panic!()
             };
             let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();

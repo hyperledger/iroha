@@ -56,7 +56,7 @@ pub trait DumpDecoded: Debug + DecodeAll {
     fn dump_decoded(mut input: &[u8], w: &mut dyn io::Write) -> Result<()> {
         let obj = <Self as DecodeAll>::decode_all(&mut input)?;
         #[allow(clippy::use_debug)]
-        writeln!(w, "{:#?}", obj)?;
+        writeln!(w, "{obj:#?}")?;
         Ok(())
     }
 }

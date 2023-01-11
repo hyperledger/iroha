@@ -38,9 +38,7 @@ impl IsAllowed for OnlyOwnedAssets {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> ValidatorVerdict {
-        let transfer_box = if let Instruction::Transfer(transfer) = instruction {
-            transfer
-        } else {
+        let Instruction::Transfer(transfer_box) = instruction else {
             return Skip;
         };
         let source_id: AssetId =
@@ -67,9 +65,7 @@ impl HasToken for GrantedByAssetOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<Self::Token, String> {
-        let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
-            transfer_box
-        } else {
+        let Instruction::Transfer(transfer_box) = instruction else {
             return Err("Instruction is not transfer.".to_owned());
         };
         let source_id = transfer_box

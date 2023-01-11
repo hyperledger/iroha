@@ -1,13 +1,6 @@
 #![allow(clippy::std_instead_of_core)]
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    collections::{btree_map, btree_set},
-    format,
-    string::String,
-    vec,
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::{fmt, marker::PhantomData};
 #[cfg(feature = "std")]
 use std::collections::btree_set;

@@ -128,19 +128,15 @@ impl<R: IsRevokeAllowed + Display> IsAllowed for IsRevokeAllowedAsValidator<R> {
 }
 
 /// Used in `unpack_` functions for role granting and revoking
+#[rustfmt::skip] // Works weirdly with let-else expressions
 macro_rules! unpack {
     ($i:ident, $w:ident, Instruction::$v:ident => $t:ty) => {{
-        let operation = if let Instruction::$v(operation) = &$i {
-            operation
-        } else {
+        let Instruction::$v(operation) = &$i else {
             return Ok(vec![$i]);
         };
-        let id =
-            if let Value::Id(IdBox::RoleId(id)) = operation.object.evaluate($w, &Context::new())? {
-                id
-            } else {
-                return Ok(vec![$i]);
-            };
+        let Value::Id(IdBox::RoleId(id)) = operation.object.evaluate($w, &Context::new())? else {
+            return Ok(vec![$i]);
+        };
 
         let instructions = if let Some(role) = $w.world.roles.get(&id) {
             let destination_id = operation.destination_id.evaluate($w, &Context::new())?;

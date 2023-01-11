@@ -62,7 +62,7 @@ mod accept_all_as_string {
                 if s == "AcceptAll" {
                     Ok(())
                 } else {
-                    Err(E::custom(format!("expected AcceptAll, got {}", s)))
+                    Err(E::custom(format!("expected AcceptAll, got {s}")))
                 }
             }
         }

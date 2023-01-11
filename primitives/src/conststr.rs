@@ -92,7 +92,6 @@ impl ConstString {
     /// Return `true` if [`Self`] is inlined.
     #[inline]
     pub const fn is_inlined(&self) -> bool {
-        // SAFETY: access to the MSB is always safe regardless of the correct variant.
         self.inlined().is_inlined()
     }
 
@@ -493,7 +492,7 @@ mod tests {
                 let len = string.len();
                 let const_string = ConstString::from(string);
                 let is_inlined = len <= MAX_INLINED_STRING_LEN;
-                assert_eq!(const_string.is_inlined(), is_inlined, "with len {}", len);
+                assert_eq!(const_string.is_inlined(), is_inlined, "with len {len}");
             });
         }
 

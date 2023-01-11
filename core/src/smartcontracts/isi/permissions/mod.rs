@@ -186,9 +186,8 @@ impl PredicateSymbol for ValidatorVerdict {
             // Deny OR Deny => Deny(combined reasons)
             (Self::Deny(left), Self::Deny(right)) => {
                 ControlFlow::Continue(ValidatorVerdict::Deny(format!(
-                    "Neither the first validator succeeded: {}, \
-                     nor the second validator : {}",
-                    left, right
+                    "Neither the first validator succeeded: {left}, \
+                     nor the second validator : {right}"
                 )))
             }
             // Deny OR Skip => Deny
@@ -291,7 +290,7 @@ impl ValidatorVerdict {
     /// but won't compute `f` if `self` is [`Allow`](ValidatorVerdict::Allow)
     #[must_use]
     pub fn most_permissive_with(self, f: impl FnOnce() -> Self) -> Self {
-        if matches!(self, Self::Allow) {
+        if matches!(&self, Self::Allow) {
             self
         } else {
             self.most_permissive(f())

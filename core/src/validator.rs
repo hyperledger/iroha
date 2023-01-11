@@ -97,12 +97,11 @@ impl Chain {
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<(), DenialReason> {
         let operation = operation.into();
-        let validators = match self
+        let Some(validators) = self
             .concrete_type_validators
-            .get(&operation.required_validator_type())
+            .get(&operation.required_validator_type()) else
         {
-            Some(validators) => validators,
-            None => return Ok(()),
+            return Ok(())
         };
 
         for validator_id in validators.value() {
@@ -111,10 +110,7 @@ impl Chain {
                  when validating an operation. This is a bug",
             );
             Self::execute_validator(validator.value(), wsv, operation.clone()).map_err(|err| {
-                format!(
-                    "Validator `{}` denied the operation `{operation}`: `{err}`",
-                    validator_id,
-                )
+                format!("Validator `{validator_id}` denied the operation `{operation}`: `{err}`",)
             })?
         }
 

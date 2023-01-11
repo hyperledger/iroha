@@ -2,7 +2,7 @@
 //! transactions and assets.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_map, format, string::String, vec::Vec};
+use alloc::{collections::btree_map, format, string::String, vec::Vec};
 use core::borrow::Borrow;
 #[cfg(feature = "std")]
 use std::collections::btree_map;
@@ -32,7 +32,7 @@ pub struct Limits {
 #[derive(Debug, Clone, Display)]
 pub enum Error {
     /// Metadata entry too big.
-    #[display(fmt = "Metadata entry too big {} - {}", limits, actual)]
+    #[display(fmt = "Metadata entry too big {limits} - {actual}")]
     EntrySize {
         /// The limits that were set for this entry
         limits: Limits,
@@ -40,7 +40,7 @@ pub enum Error {
         actual: usize,
     },
     /// Metadata exceeds overall length limit
-    #[display(fmt = "Metadata exceeds overall length limit {} - {}", limits, actual)]
+    #[display(fmt = "Metadata exceeds overall length limit {limits} - {actual}")]
     OverallSize {
         /// The limits that were set for this entry
         limits: Limits,
@@ -51,10 +51,10 @@ pub enum Error {
     #[display(fmt = "Path specification empty")]
     EmptyPath,
     /// Middle path segment is missing. I.e. nothing was found at that key
-    #[display(fmt = "{}: path segment not found", _0)]
+    #[display(fmt = "{_0}: path segment not found")]
     MissingSegment(Name),
     /// Middle path segment is not nested metadata. I.e. something was found, but isn't an instance of [`Metadata`]
-    #[display(fmt = "{}: path segment not an instance of metadata", _0)]
+    #[display(fmt = "{_0}: path segment not an instance of metadata")]
     InvalidSegment(Name),
 }
 

@@ -112,8 +112,7 @@ impl VarUint {
         }
 
         Err(ConvertError::new(format!(
-            "{:?}: found these bytes following last byte",
-            empty
+            "{empty:?}: found these bytes following last byte"
         )))
     }
 }

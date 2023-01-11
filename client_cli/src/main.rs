@@ -26,7 +26,7 @@ use color_eyre::{
 };
 use dialoguer::Confirm;
 use iroha_client::client::Client;
-use iroha_config::{client::Configuration as ClientConfiguration, path::ConfigPath};
+use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 
@@ -36,7 +36,7 @@ pub struct Metadata(pub UnlimitedMetadata);
 
 impl fmt::Display for Metadata {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -134,6 +134,10 @@ impl RunArgs for Subcommand {
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_CONFIG_PATH: &'static std::path::Path = std::path::Path::new("config");
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
@@ -143,8 +147,7 @@ fn main() -> Result<()> {
     let config = if let Some(config) = config_opt {
         config
     } else {
-        let config_path = ConfigPath::default("config")
-            .expect("Never fails, because default `config` path has no extensions");
+        let config_path = ConfigPath::default(*DEFAULT_CONFIG_PATH);
         #[allow(clippy::expect_used)]
         Configuration::from_str(
             config_path
@@ -184,10 +187,7 @@ pub fn submit(
     let iroha_client = Client::new(cfg)?;
     let instructions = instructions.into();
     #[cfg(debug_assertions)]
-    let err_msg = format!(
-        "Failed to build transaction from instruction {:?}",
-        instructions
-    );
+    let err_msg = format!("Failed to build transaction from instruction {instructions:?}");
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to build transaction.";
     let tx = iroha_client
@@ -209,7 +209,7 @@ pub fn submit(
         _ => tx,
     };
     #[cfg(debug_assertions)]
-    let err_msg = format!("Failed to submit transaction {:?}", tx);
+    let err_msg = format!("Failed to submit transaction {tx:?}");
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
     iroha_client
@@ -245,14 +245,14 @@ mod events {
 
     pub fn listen(filter: FilterBox, cfg: &Configuration) -> Result<()> {
         let iroha_client = Client::new(cfg)?;
-        println!("Listening to events with filter: {:?}", filter);
+        println!("Listening to events with filter: {filter:?}");
         for event in iroha_client
             .listen_for_events(filter)
             .wrap_err("Failed to listen for events.")?
         {
             match event {
-                Ok(event) => println!("{:#?}", event),
-                Err(err) => println!("{:#?}", err),
+                Ok(event) => println!("{event:#?}"),
+                Err(err) => println!("{err:#?}"),
             };
         }
         Ok(())
@@ -281,14 +281,14 @@ mod blocks {
 
     pub fn listen(height: u64, cfg: &Configuration) -> Result<()> {
         let iroha_client = Client::new(cfg)?;
-        println!("Listening to blocks from height: {}", height);
+        println!("Listening to blocks from height: {height}");
         for block in iroha_client
             .listen_for_blocks(height)
             .wrap_err("Failed to listen for blocks.")?
         {
             match block {
-                Ok(block) => println!("{:#?}", block),
-                Err(err) => println!("{:#?}", err),
+                Ok(block) => println!("{block:#?}"),
+                Err(err) => println!("{err:#?}"),
             };
         }
         Ok(())
@@ -355,7 +355,7 @@ mod domain {
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
             }?;
-            println!("{:#?}", vec);
+            println!("{vec:#?}");
             Ok(())
         }
     }
@@ -493,7 +493,7 @@ mod account {
                     .request(client::account::all())
                     .wrap_err("Failed to get all accounts"),
             }?;
-            println!("{:#?}", vec);
+            println!("{vec:#?}");
             Ok(())
         }
     }
@@ -556,7 +556,7 @@ mod account {
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;
-            println!("{:#?}", permissions);
+            println!("{permissions:#?}");
             Ok(())
         }
     }
@@ -724,7 +724,7 @@ mod asset {
             let value = iroha_client
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
-            println!("Get Asset result: {:?}", value);
+            println!("Get Asset result: {value:?}");
             Ok(())
         }
     }
@@ -745,7 +745,7 @@ mod asset {
                     .request(client::asset::all())
                     .wrap_err("Failed to get all assets"),
             }?;
-            println!("{:#?}", vec);
+            println!("{vec:#?}");
             Ok(())
         }
     }

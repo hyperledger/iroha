@@ -19,7 +19,7 @@ fn correct_pagination_assets_after_creating_new_one() {
 
     for i in 0..10_u128 {
         let asset_definition_id =
-            AssetDefinitionId::from_str(&format!("xor{}#wonderland", i)).expect("Valid");
+            AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
         let asset_definition = AssetDefinition::store(asset_definition_id.clone());
         let mut asset_metadata = Metadata::new();
         asset_metadata
@@ -128,7 +128,7 @@ fn correct_sorting_of_asset_definitions() {
 
     for i in 0..10_u128 {
         let asset_definition_id =
-            AssetDefinitionId::from_str(&format!("xor{}#wonderland", i)).expect("Valid");
+            AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
         let mut asset_metadata = Metadata::new();
         asset_metadata
             .insert_with_limits(
@@ -180,7 +180,7 @@ fn correct_sorting_of_asset_definitions() {
     let mut instructions = vec![];
 
     for i in 0..10_u128 {
-        let account_id = AccountId::from_str(&format!("bob{}@wonderland", i)).expect("Valid");
+        let account_id = AccountId::from_str(&format!("bob{i}@wonderland")).expect("Valid");
         let mut account_metadata = Metadata::new();
         account_metadata
             .insert_with_limits(
@@ -237,7 +237,7 @@ fn correct_sorting_of_asset_definitions() {
     let mut instructions = vec![];
 
     for i in 0..10_u128 {
-        let domain_id = DomainId::from_str(&format!("neverland{}", i)).expect("Valid");
+        let domain_id = DomainId::from_str(&format!("neverland{i}")).expect("Valid");
         let mut domain_metadata = Metadata::new();
         domain_metadata
             .insert_with_limits(

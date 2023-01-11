@@ -18,13 +18,13 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
     let key_pair = get_key_pair();
     for i in 0_u32..num_domains {
         builder = builder
-            .domain(format!("wonderland-{}", i).parse().expect("Valid"))
+            .domain(format!("wonderland-{i}").parse().expect("Valid"))
             .account(
-                format!("Alice-{}", i).parse().expect("Valid"),
+                format!("Alice-{i}").parse().expect("Valid"),
                 key_pair.public_key().clone(),
             )
             .asset(
-                format!("xor-{}", i).parse().expect("Valid"),
+                format!("xor-{i}").parse().expect("Valid"),
                 AssetValueType::Quantity,
             )
             .finish_domain();
@@ -64,9 +64,9 @@ fn create_million_accounts_directly() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     for i in 0_u32..1_000_000_u32 {
-        let domain_id: DomainId = format!("wonderland-{}", i).parse().expect("Valid");
+        let domain_id: DomainId = format!("wonderland-{i}").parse().expect("Valid");
         let normal_account_id = AccountId::new(
-            format!("bob-{}", i).parse().expect("Valid"),
+            format!("bob-{i}").parse().expect("Valid"),
             domain_id.clone(),
         );
         let create_domain = RegisterBox::new(Domain::new(domain_id));

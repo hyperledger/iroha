@@ -672,7 +672,7 @@ impl PeerBuilder {
     pub fn build(&mut self) -> Result<Peer> {
         let mut peer = Peer::new()?;
         if let Some(port) = self.port.take() {
-            peer.p2p_address = format!("127.0.0.1:{}", port);
+            peer.p2p_address = format!("127.0.0.1:{port}");
             peer.api_address = format!("127.0.0.1:{}", port + 1);
             peer.telemetry_address = format!("127.0.0.1:{}", port + 2);
             // prevent field desync
@@ -871,9 +871,7 @@ pub mod query {
 
     impl TestQueryResult for QueryResult {
         fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-            let assets = if let QueryResult(Value::Vec(assets)) = self {
-                assets
-            } else {
+            let QueryResult(Value::Vec(assets)) = self else {
                 panic!("Wrong Query Result Type.");
             };
             assets.iter().find_map(|asset| {

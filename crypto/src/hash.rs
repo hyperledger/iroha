@@ -1,5 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{alloc::alloc, format, string::String, vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
@@ -165,7 +165,7 @@ impl<T> From<HashOf<T>> for Hash {
 // Lint triggers when expanding #[codec(skip)]
 #[allow(clippy::default_trait_access)]
 #[derive(DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize)]
-#[display(fmt = "{}", _0)]
+#[display(fmt = "{_0}")]
 #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
 #[serde(transparent)]
 #[repr(transparent)]

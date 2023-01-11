@@ -60,7 +60,7 @@ impl Ord for BlockHeaderValue {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema,
 )]
-#[display(fmt = "({})", header)]
+#[display(fmt = "({header})")]
 pub struct BlockValue {
     /// Block header
     pub header: BlockHeaderValue,

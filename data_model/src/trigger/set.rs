@@ -289,9 +289,8 @@ impl Set {
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::inspect_matched()`] call
     pub fn handle_execute_trigger_event(&self, event: ExecuteTriggerEvent) {
-        let entry = match self.by_call_triggers.get(&event.trigger_id) {
-            Some(entry) => entry,
-            None => return,
+        let Some(entry) = self.by_call_triggers.get(&event.trigger_id) else {
+            return
         };
 
         self.match_and_insert_trigger(event, entry.pair());

@@ -605,13 +605,15 @@ impl WorldStateView {
         if self.block_hashes.borrow().is_empty() {
             None
         } else {
-            self.kura.get_block_by_height(1).map_or_else(
-                || {
-                    error!("Failed to get genesis block from kura.");
-                    None
-                },
-                |genesis_block| Some(genesis_block.as_v1().header.timestamp),
-            )
+            let opt = self
+                .kura
+                .get_block_by_height(1)
+                .map(|genesis_block| genesis_block.as_v1().header.timestamp);
+
+            if opt.is_none() {
+                error!("Failed to get genesis block from Kura.");
+            }
+            opt
         }
     }
 

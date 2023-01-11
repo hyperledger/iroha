@@ -10,7 +10,7 @@ const N_PEERS: usize = 255;
 fn get_n_peers(n: usize) -> Vec<PeerId> {
     (0..n)
         .map(|i| PeerId {
-            address: format!("127.0.0.{}", i),
+            address: format!("127.0.0.{i}"),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key()

@@ -109,8 +109,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as it is in a different domain.",
-                        account_id
+                        "Cannot access account {account_id} as it is in a different domain."
                     ))
                 }
             }
@@ -120,8 +119,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as it is in a different domain.",
-                        account_id
+                        "Cannot access account {account_id} as it is in a different domain."
                     ))
                 }
             }
@@ -131,8 +129,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access accounts from a different domain with name {}.",
-                        domain_id
+                        "Cannot access accounts from a different domain with name {domain_id}."
                     ))
                 }
             }
@@ -142,8 +139,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access asset {} as it is in a different domain.",
-                        asset_id
+                        "Cannot access asset {asset_id} as it is in a different domain."
                     ))
                 }
             }
@@ -153,8 +149,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as it is in a different domain.",
-                        account_id
+                        "Cannot access account {account_id} as it is in a different domain."
                     ))
                 }
             }
@@ -164,8 +159,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access assets from a different domain with name {}.",
-                        domain_id
+                        "Cannot access assets from a different domain with name {domain_id}."
                     ))
                 }
             }
@@ -175,8 +169,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access assets from a different domain with name {}.",
-                        domain_id
+                        "Cannot access assets from a different domain with name {domain_id}."
                     ))
                 }
             }
@@ -198,8 +191,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access asset {} as it is in a different domain.",
-                        asset_id
+                        "Cannot access asset {asset_id} as it is in a different domain."
                     ))
                 }
             }
@@ -209,8 +201,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access asset {} as it is in a different domain.",
-                        asset_id
+                        "Cannot access asset {asset_id} as it is in a different domain."
                     ))
                 }
             }
@@ -220,7 +211,7 @@ impl IsAllowed for OnlyAccountsDomain {
                 if domain_id == authority.domain_id {
                     Allow
                 } else {
-                    Deny(format!("Cannot access a different domain: {}.", domain_id))
+                    Deny(format!("Cannot access a different domain: {domain_id}."))
                 }
             }
             FindAllBlocks(_) => Deny("You are not permitted to access all blocks.".to_owned()),
@@ -239,8 +230,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as it is in a different domain.",
-                        account_id
+                        "Cannot access account {account_id} as it is in a different domain."
                     ))
                 }
             }
@@ -251,8 +241,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as it is in a different domain.",
-                        account_id
+                        "Cannot access account {account_id} as it is in a different domain."
                     ))
                 }
             }
@@ -262,8 +251,7 @@ impl IsAllowed for OnlyAccountsDomain {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as it is in a different domain.",
-                        account_id
+                        "Cannot access account {account_id} as it is in a different domain."
                     ))
                 }
             }
@@ -342,8 +330,7 @@ impl IsAllowed for OnlyAccountsData {
                     return Allow
                 }
                 Deny(format!(
-                    "A trigger with the specified Id: {} is not accessible to you",
-                    id
+                    "A trigger with the specified Id: {id} is not accessible to you"
                 ))
             }
             FindTriggerKeyValueByIdAndKey(query) => {
@@ -355,8 +342,7 @@ impl IsAllowed for OnlyAccountsData {
                     return Allow
                 }
                 Deny(format!(
-                    "A trigger with the specified Id: {} is not accessible to you",
-                    id
+                    "A trigger with the specified Id: {id} is not accessible to you"
                 ))
             }
             FindAccountById(query) => {
@@ -365,9 +351,7 @@ impl IsAllowed for OnlyAccountsData {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as only access to your own account, {} is permitted..",
-                        account_id,
-                        authority
+                        "Cannot access account {account_id} as only access to your own account, {authority} is permitted.."
                     ))
                 }
             }
@@ -377,8 +361,7 @@ impl IsAllowed for OnlyAccountsData {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access account {} as only access to your own account is permitted..",
-                        account_id
+                        "Cannot access account {account_id} as only access to your own account is permitted.."
                     ))
                 }
             }
@@ -388,8 +371,7 @@ impl IsAllowed for OnlyAccountsData {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access asset {} as it is in a different account.",
-                        asset_id
+                        "Cannot access asset {asset_id} as it is in a different account."
                     ))
                 }
             }
@@ -400,8 +382,7 @@ impl IsAllowed for OnlyAccountsData {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access a different account: {}.",
-                        account_id
+                        "Cannot access a different account: {account_id}."
                     ))
                 }
             }
@@ -412,8 +393,7 @@ impl IsAllowed for OnlyAccountsData {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access asset {} as it is in a different account.",
-                        asset_id
+                        "Cannot access asset {asset_id} as it is in a different account."
                     ))
                 }
             }
@@ -423,8 +403,7 @@ impl IsAllowed for OnlyAccountsData {
                     Allow
                 } else {
                     Deny(format!(
-                        "Cannot access asset {} as it is in a different account.",
-                        asset_id
+                        "Cannot access asset {asset_id} as it is in a different account."
                     ))
                 }
             }
@@ -446,7 +425,7 @@ impl IsAllowed for OnlyAccountsData {
                 if &account_id == authority {
                     Allow
                 } else {
-                    Deny(format!("Cannot access another account: {}.", account_id))
+                    Deny(format!("Cannot access another account: {account_id}."))
                 }
             }
             FindTransactionByHash(_query) => Allow,
@@ -455,7 +434,7 @@ impl IsAllowed for OnlyAccountsData {
                 if &account_id == authority {
                     Allow
                 } else {
-                    Deny(format!("Cannot access another account: {}.", account_id))
+                    Deny(format!("Cannot access another account: {account_id}."))
                 }
             }
             FindAllPermissionTokenDefinitions(_) => Deny("Only the access to the permission tokens of your own account is permitted.".to_owned()),
@@ -464,7 +443,7 @@ impl IsAllowed for OnlyAccountsData {
                 if &account_id == authority {
                     Allow
                 } else {
-                    Deny(format!("Cannot access another account: {}.", account_id))
+                    Deny(format!("Cannot access another account: {account_id}."))
                 }
             }
         }

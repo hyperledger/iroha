@@ -35,8 +35,8 @@ fn main() {
         |guard| {
             guard.flush().expect("Flushed data without errors");
             println!("Tracing data outputted to file: {}", &args[1]);
-            println!("TPS was {}", tps);
-            println!("Config was {:?}", config);
+            println!("TPS was {tps}");
+            println!("Config was {config:?}");
         },
     )
 }

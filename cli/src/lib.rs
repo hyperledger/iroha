@@ -12,12 +12,12 @@
 use std::{panic, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use eyre::ContextCompat;
+use eyre::ContextCompat as _;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
-    path::ConfigPath,
+    path::Path as ConfigPath,
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
@@ -57,26 +57,21 @@ pub struct Arguments {
     pub config_path: ConfigPath,
 }
 
-const CONFIGURATION_PATH: &str = "config";
-const GENESIS_PATH: &str = "genesis";
+lazy_static::lazy_static! {
+    /// Default configuration path
+    pub static ref CONFIGURATION_PATH: &'static std::path::Path = std::path::Path::new("config");
+    /// Default genesis path
+    pub static ref GENESIS_PATH : &'static std::path::Path = std::path::Path::new("genesis");
+}
+
 const SUBMIT_GENESIS: bool = false;
 
 impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: Some(ConfigPath::default(GENESIS_PATH).unwrap_or_else(|e| {
-                panic!(
-                    "Default genesis path `{}` has extension, but it should not have one. {e:?}",
-                    GENESIS_PATH
-                )
-            })),
-            config_path: ConfigPath::default(CONFIGURATION_PATH).unwrap_or_else(|e| {
-                panic!(
-                    "Default config path `{}` has extension, but it should not have one. {e:?}",
-                    GENESIS_PATH
-                )
-            }),
+            genesis_path: Some(ConfigPath::default(*GENESIS_PATH)),
+            config_path: ConfigPath::default(*CONFIGURATION_PATH),
         }
     }
 }

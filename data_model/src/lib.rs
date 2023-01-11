@@ -176,11 +176,11 @@ pub mod utils {
         f.write_char(open)?;
 
         if let Some(item) = input.next() {
-            f.write_fmt(format_args!("{}", item))?;
+            f.write_fmt(format_args!("{item}"))?;
         }
 
         for item in input {
-            f.write_fmt(format_args!(", {}", item))?;
+            f.write_fmt(format_args!(", {item}"))?;
         }
 
         f.write_char(close)
@@ -235,17 +235,24 @@ pub trait TryAsRef<T> {
 }
 
 /// Error which occurs when converting an enum reference to a variant reference
-#[derive(Debug, Clone, Copy, Display)]
-#[display(bound = "GOT: Debug")]
-#[display(
-    fmt = "Expected: {}\nGot: {:?}",
-    "core::any::type_name::<EXPECTED>()",
-    got
-)]
+#[derive(Debug, Clone, Copy)]
 pub struct EnumTryAsError<EXPECTED, GOT> {
     expected: core::marker::PhantomData<EXPECTED>,
     /// Actual enum variant which was being converted
     pub got: GOT,
+}
+
+// Manual implementation because this allow annotation does not affect `Display` derive
+#[allow(clippy::use_debug)]
+impl<EXPECTED, GOT: Debug> fmt::Display for EnumTryAsError<EXPECTED, GOT> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Expected: {}\nGot: {:?}",
+            core::any::type_name::<EXPECTED>(),
+            self.got,
+        )
+    }
 }
 
 impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
@@ -280,16 +287,16 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
 )]
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
-    #[display(fmt = "Maximum number of faults is {}", _0)]
+    #[display(fmt = "Maximum number of faults is {_0}")]
     MaximumFaultyPeersAmount(u32),
     /// Maximum time for a leader to create a block.
-    #[display(fmt = "Block time: {}ms", _0)]
+    #[display(fmt = "Block time: {_0}ms")]
     BlockTime(u128),
     /// Maximum time for a proxy tail to send commit message.
-    #[display(fmt = "Commit time: {}ms", _0)]
+    #[display(fmt = "Commit time: {_0}ms")]
     CommitTime(u128),
     /// Time to wait for a transaction Receipt.
-    #[display(fmt = "Transaction receipt time: {}ms", _0)]
+    #[display(fmt = "Transaction receipt time: {_0}ms")]
     TransactionReceiptTime(u128),
 }
 
@@ -669,7 +676,7 @@ impl fmt::Display for Value {
                 // this prints with quotation marks, which is fine 90%
                 // of the time, and helps delineate where a display of
                 // one value stops and another one begins.
-                write!(f, "{:?}", list_of_display)
+                write!(f, "{list_of_display:?}")
             }
             Value::LimitedMetadata(v) => fmt::Display::fmt(&v, f),
             Value::Id(v) => fmt::Display::fmt(&v, f),

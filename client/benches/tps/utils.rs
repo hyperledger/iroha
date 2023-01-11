@@ -252,5 +252,5 @@ fn asset_id(account_name: UnitName) -> AssetId {
 
 #[allow(clippy::expect_used)]
 fn account_id(name: UnitName) -> AccountId {
-    format!("{}@wonderland", name).parse().expect("Valid")
+    format!("{name}@wonderland").parse().expect("Valid")
 }
