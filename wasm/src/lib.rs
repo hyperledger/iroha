@@ -32,6 +32,8 @@ pub mod validator {
         pub use iroha_data_model::{permission::validator::Verdict, prelude::*};
         pub use iroha_wasm_derive::validator_entrypoint as entrypoint;
 
+        #[cfg(feature = "debug")]
+        pub use crate::DebugExpectExt as _;
         pub use crate::EvaluateOnHost as _;
     }
 }
