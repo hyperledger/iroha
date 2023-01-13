@@ -1824,7 +1824,6 @@ dependencies = [
 name = "iroha"
 version = "2.0.0-pre-rc.13"
 dependencies = [
- "anyhow",
  "async-trait",
  "color-eyre",
  "eyre",
@@ -1843,6 +1842,7 @@ dependencies = [
  "iroha_schema_gen",
  "iroha_telemetry",
  "iroha_version",
+ "iroha_wasm_builder",
  "lazy_static",
  "owo-colors",
  "parity-scale-codec",
