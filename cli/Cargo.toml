@@ -68,7 +68,9 @@ supports-color = "2.0.0"
 thread-local-panic-hook = { version = "0.1.0", optional = true }
 
 [build-dependencies]
-anyhow = "1.0.68"
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
+
+eyre = "0.6.8"
 vergen = { version = "7.3.2", default-features = false, features = ["cargo"] }
 
 [package.metadata.cargo-all-features]
