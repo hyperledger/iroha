@@ -35,6 +35,7 @@ members = [
   "tools/parity_scale_decoder",
   "version",
   "version/derive",
+  "wasm_builder",
 ]
 
 [profile.deploy]
