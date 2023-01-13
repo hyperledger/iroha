@@ -7,7 +7,7 @@ extern crate alloc;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_wasm::{validator::prelude::*, DebugExpectExt as _};
+use iroha_wasm::validator::prelude::*;
 
 /// Forbid every new validator registration
 #[entrypoint]
