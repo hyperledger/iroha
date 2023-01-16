@@ -108,3 +108,16 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn validator_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     validator::impl_entrypoint(attr, item)
 }
+
+macro_rules! parse_keywords {
+    ($input:ident, $($kw:path => $var:expr),+ $(,)?) => {
+        $(
+            if $input.parse::<$kw>().is_ok() {
+                Ok($var)
+            } else
+        )+
+        {Err($input.error(format!("expected one of: {}", stringify!($($kw),+))))}
+    };
+}
+
+pub(crate) use parse_keywords;
