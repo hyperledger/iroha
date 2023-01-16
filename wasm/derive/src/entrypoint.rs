@@ -7,8 +7,6 @@ use quote::quote;
 use syn::{parse_macro_input, parse_quote, punctuated::Punctuated};
 
 mod kw {
-    syn::custom_keyword!(params);
-
     pub mod param_types {
         syn::custom_keyword!(authority);
         syn::custom_keyword!(triggering_event);
@@ -18,7 +16,7 @@ mod kw {
 /// Enum representing possible attributes for [`entrypoint`] macro
 enum Attr {
     /// List of parameters
-    Params(ParamsAttr),
+    Params(super::params::ParamsAttr<ParamType>),
     /// Empty attribute. Used when attribute input is empty
     Empty,
 }
@@ -30,45 +28,6 @@ impl syn::parse::Parse for Attr {
         }
 
         Ok(Attr::Params(input.parse()?))
-    }
-}
-
-/// Attribute with expected parameters for smart contract entrypoint function
-struct ParamsAttr {
-    _params_kw: kw::params,
-    _equal: syn::token::Eq,
-    params: Params,
-}
-
-impl syn::parse::Parse for ParamsAttr {
-    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
-        let params_kw = input.parse()?;
-        let equal = input.parse()?;
-        let params_str: syn::LitStr = input.parse()?;
-        let params = syn::parse_str(&params_str.value())?;
-        Ok(ParamsAttr {
-            _params_kw: params_kw,
-            _equal: equal,
-            params,
-        })
-    }
-}
-
-/// Collection of parameter types that the smart contract entrypoint function is expecting
-struct Params {
-    _bracket_token: syn::token::Bracket,
-    types: Punctuated<ParamType, syn::token::Comma>,
-}
-
-impl syn::parse::Parse for Params {
-    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
-        let content;
-        let bracket_token = syn::bracketed!(content in input);
-
-        Ok(Params {
-            _bracket_token: bracket_token,
-            types: content.parse_terminated(ParamType::parse)?,
-        })
     }
 }
 
@@ -93,6 +52,27 @@ impl syn::parse::Parse for ParamType {
     }
 }
 
+impl super::params::ConstructArg for ParamType {
+    fn construct_arg(&self) -> syn::Expr {
+        match self {
+            ParamType::Authority => {
+                parse_quote! {
+                    ::iroha_wasm::query_authority()
+                }
+            }
+            ParamType::TriggeringEvent => {
+                parse_quote! {{
+                    use ::iroha_wasm::debug::DebugExpectExt as _;
+
+                    let top_event = ::iroha_wasm::query_triggering_event();
+                    ::core::convert::TryInto::try_into(top_event)
+                        .dbg_expect("Failed to convert top-level event to the concrete one")
+                }}
+            }
+        }
+    }
+}
+
 /// [`entrypoint`](crate::entrypoint()) macro implementation
 pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
@@ -108,7 +88,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     let args = match syn::parse_macro_input!(attr as Attr) {
-        Attr::Params(param_attr) => construct_args(&param_attr.params.types),
+        Attr::Params(params_attr) => params_attr.construct_args(),
         Attr::Empty => Punctuated::new(),
     };
     let fn_name = &sig.ident;
@@ -133,30 +113,4 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         #block
     }
     .into()
-}
-
-fn construct_args(
-    types: &Punctuated<ParamType, syn::token::Comma>,
-) -> Punctuated<syn::Expr, syn::token::Comma> {
-    types
-        .iter()
-        .map(|param_type| -> syn::Expr {
-            match param_type {
-                ParamType::Authority => {
-                    parse_quote! {
-                        ::iroha_wasm::query_authority()
-                    }
-                }
-                ParamType::TriggeringEvent => {
-                    parse_quote! {{
-                        use ::iroha_wasm::debug::DebugExpectExt as _;
-
-                        let top_event = ::iroha_wasm::query_triggering_event();
-                        ::core::convert::TryInto::try_into(top_event)
-                            .dbg_expect("Failed to convert top-level event to the concrete one")
-                    }}
-                }
-            }
-        })
-        .collect()
 }
