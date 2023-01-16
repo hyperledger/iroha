@@ -23,7 +23,7 @@ mod validator;
 /// ## Authority
 ///
 /// A real function parameter type corresponding to the `authority` should have
-/// `iroha_wasm::iroha_data_model::prelude::AccountId` type.
+/// `iroha_wasm::data_model::prelude::AccountId` type.
 ///
 /// ## Triggering event
 ///
@@ -31,7 +31,7 @@ mod validator;
 /// type implementing `TryFrom<iroha_data_model::prelude::Event>`.
 ///
 /// So any subtype of `Event` can be specified, i.e. `TimeEvent` or `DataEvent`.
-/// For details see `iroha_wasm::iroha_data_model::prelude::Event`.
+/// For details see `iroha_wasm::data_model::prelude::Event`.
 ///
 /// If conversion will fail in runtime then an error message will be printed,
 /// if `debug` feature is enabled.
@@ -82,28 +82,88 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Annotate the user-defined function that starts the execution of a validator.
 ///
-/// Annotated function should have one parameter of the type which implements
-/// `TryFrom<NeedsPermissionBox>`.
-///
-/// Validators are only checking if an operation is **invalid**, not its validness.
+/// Validators are only checking if an operation is **invalid**, not if it is valid.
 /// A validator can either deny the operation or pass it to the next validator if there is one.
+///
+/// # Attributes
+///
+/// This macro must have an attribute describing entrypoint parameters.
+///
+/// The syntax is:
+/// `#[iroha_wasm::validator_entrypoint(params = "[<type>,*]")]`, where `<type>` is one of:
+/// - `authority` is a signer account id who submits an operation
+/// - `transaction` is a transaction that is being validated
+/// - `instruction` is an instruction that is being validated
+/// - `query` is a query that is being validated
+/// - `expression` is an expression that is being validated
+///
+/// Exactly one parameter of *operation to validate* kind must be specified.
+/// `authority` is optional.
+/// Parameters will be passed to the entrypoint function in the order they are specified.
+///
+/// ## Authority
+///
+/// A real function parameter type corresponding to the `authority` should have
+/// `iroha_wasm::data_model::prelude::AccountId` type.
+///
+/// ## Transaction
+///
+/// A real function parameter type corresponding to the `transaction` should have
+/// `iroha_wasm::data_model::prelude::SignedTransaction` type.
+///
+/// ## Instruction
+///
+/// A real function parameter type corresponding to the `instruction` should have
+/// `iroha_wasm::data_model::prelude::Instruction` type.
+///
+/// ## Query
+///
+/// A real function parameter type corresponding to the `query` should have
+/// `iroha_wasm::data_model::prelude::QueryBox` type.
+///
+/// ## Expression
+///
+/// A real function parameter type corresponding to the `expression` should have
+/// `iroha_wasm::data_model::prelude::Expression` type.
 ///
 /// # Panics
 ///
+/// - If got unexpected syntax of attribute
 /// - If the function does not have a return type
 ///
-/// # Example
+/// # Examples
+///
+/// Using only `query` parameter:
 ///
 // `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
 /// ```ignore
 /// use iroha_wasm::validator::prelude::*;
 ///
-/// #[entrypoint]
+/// #[entrypoint(params = "[query]")]
 /// pub fn validate(_: QueryBox) -> Verdict {
 ///     Verdict::Deny("No queries are allowed".to_owned())
 /// }
 /// ```
+///
+/// Using both `authority` and `instruction` parameters:
+///
+/// ```ignore
+/// use iroha_wasm::validator::prelude::*;
+///
+/// #[entrypoint(params = "[authoriy, instruction]")]
+/// pub fn validate(authority: AccountId, _: Instruction) -> Verdict {
+///     let admin_domain = "admin_domain".parse()
+///         .dbg_expect("Failed to parse `admin_domain` as a domain id");
+///
+///     if authority.domain_id != admin_domain {
+///         Verdict::Deny("No queries are allowed".to_owned())
+///     }
+///
+///     Verdict::Pass
+/// }
+/// ```
+///
 #[proc_macro_attribute]
 pub fn validator_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     validator::impl_entrypoint(attr, item)

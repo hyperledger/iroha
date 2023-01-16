@@ -10,7 +10,7 @@ use alloc::borrow::ToOwned as _;
 use iroha_wasm::validator::prelude::*;
 
 /// Forbid every new validator registration
-#[entrypoint]
+#[entrypoint(params = "[instruction]")]
 pub fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register
