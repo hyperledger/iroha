@@ -3,6 +3,7 @@
 use proc_macro::TokenStream;
 
 mod entrypoint;
+mod params;
 mod validator;
 
 /// Annotate the user-defined function that starts the execution of a smart contract.
