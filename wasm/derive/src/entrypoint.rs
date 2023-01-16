@@ -42,13 +42,12 @@ enum ParamType {
 
 impl syn::parse::Parse for ParamType {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
-        if input.parse::<kw::param_types::authority>().is_ok() {
-            Ok(ParamType::Authority)
-        } else if input.parse::<kw::param_types::triggering_event>().is_ok() {
-            Ok(ParamType::TriggeringEvent)
-        } else {
-            Err(input.error("expected `authority` or `triggering_event`"))
-        }
+        use kw::param_types::*;
+
+        super::parse_keywords!(input,
+            authority => ParamType::Authority,
+            triggering_event => ParamType::TriggeringEvent,
+        )
     }
 }
 
