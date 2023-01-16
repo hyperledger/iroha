@@ -6,9 +6,98 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote};
 
+mod kw {
+    pub mod param_types {
+        syn::custom_keyword!(authority);
+        syn::custom_keyword!(transaction);
+        syn::custom_keyword!(instruction);
+        syn::custom_keyword!(query);
+        syn::custom_keyword!(expression);
+    }
+}
+
+/// Enum representing possible attributes for [`entrypoint`] macro
+enum Attr {
+    /// List of parameters
+    Params(super::params::ParamsAttr<ParamType>),
+}
+
+impl syn::parse::Parse for Attr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        Ok(Attr::Params(input.parse()?))
+    }
+}
+
+/// Type of smart contract entrypoint function parameter.
+///
+/// *Type* here means not just *Rust* type but also a purpose of a parameter.
+/// So that it uses [`Authority`](ParamType::Authority) instead of `account::Id`.
+#[derive(PartialEq, Eq)]
+enum ParamType {
+    Authority,
+    Transaction,
+    Instruction,
+    Query,
+    Expression,
+}
+
+impl syn::parse::Parse for ParamType {
+    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
+        use kw::param_types::*;
+
+        super::parse_keywords!(input,
+            authority => ParamType::Authority,
+            transaction => ParamType::Transaction,
+            instruction => ParamType::Instruction,
+            query => ParamType::Query,
+            expression => ParamType::Expression,
+        )
+    }
+}
+
+impl ParamType {
+    fn construct_operation_arg(operation_type: &syn::Type) -> syn::Expr {
+        parse_quote! {{
+            use ::iroha_wasm::debug::DebugExpectExt as _;
+            use ::alloc::format;
+
+            let needs_permission = ::iroha_wasm::query_operation_to_validate();
+            <
+                ::iroha_wasm::data_model::prelude::#operation_type
+                as ::core::convert::TryFrom<
+                    ::iroha_wasm::data_model::permission::validator::NeedsPermissionBox
+                >
+            >::try_from(needs_permission)
+                .dbg_expect(&format!(
+                    "Failed to convert `NeedsPermissionBox` to `{}`. \
+        Have you set right permission validator type?",
+                     stringify!(#operation_type)
+                ))
+        }}
+    }
+}
+
+impl super::params::ConstructArg for ParamType {
+    fn construct_arg(&self) -> syn::Expr {
+        match self {
+            ParamType::Authority => {
+                parse_quote! {
+                    ::iroha_wasm::query_authority()
+                }
+            }
+            ParamType::Transaction => {
+                Self::construct_operation_arg(&parse_quote!(SignedTransaction))
+            }
+            ParamType::Instruction => Self::construct_operation_arg(&parse_quote!(Instruction)),
+            ParamType::Query => Self::construct_operation_arg(&parse_quote!(QueryBox)),
+            ParamType::Expression => Self::construct_operation_arg(&parse_quote!(Expression)),
+        }
+    }
+}
+
 /// [`validator_entrypoint`](crate::validator_entrypoint()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
-pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
@@ -22,12 +111,21 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         "Validator entrypoint must have `Verdict` return type"
     );
 
-    let arg: syn::Expr = parse_quote! {{
-        let needs_permission: ::iroha_wasm::data_model::permission::validator::NeedsPermissionBox =
-            ::iroha_wasm::query_operation_to_validate();
-        ::core::convert::TryInto::try_into(needs_permission)
-            .dbg_expect("Failed to convert `NeedsPermissionBox` to the concrete operation")
-    }};
+    let args = match syn::parse_macro_input!(attr as Attr) {
+        Attr::Params(params_attr) => {
+            let operation_param_count = params_attr
+                .types()
+                .filter(|param_type| *param_type != &ParamType::Authority)
+                .count();
+            assert!(
+                operation_param_count == 1,
+                "Validator entrypoint macro attribute must have exactly one parameter \
+                of some operation type: `transaction`, `instruction`, `query` or `expression`"
+            );
+
+            params_attr.construct_args()
+        }
+    };
 
     block.stmts.insert(
         0,
@@ -49,7 +147,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         {
             use ::iroha_wasm::DebugExpectExt as _;
 
-            let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#arg);
+            let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#args);
             let bytes_box = ::core::mem::ManuallyDrop::new(
                 ::iroha_wasm::encode_with_length_prefix(&verdict).into_boxed_slice()
             );
