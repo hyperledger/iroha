@@ -45,6 +45,11 @@ impl<P: ConstructArg> ParamsAttr<P> {
             .map(ConstructArg::construct_arg)
             .collect()
     }
+
+    /// Get iterator over parameter types
+    pub fn types(&self) -> impl Iterator<Item = &P> {
+        self.params.types.iter()
+    }
 }
 
 /// Collection of parameter types that the smart contract entrypoint function is expecting
