@@ -104,6 +104,7 @@ impl ValidQuery for QueryBox {
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAllPermissionTokenDefinitions(query) => query.execute_into_value(wsv),
+            DoesAccountHavePermissionToken(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAllActiveTriggerIds(query) => query.execute_into_value(wsv),
             FindTriggerById(query) => query.execute_into_value(wsv),
