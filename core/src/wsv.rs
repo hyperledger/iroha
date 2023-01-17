@@ -629,18 +629,6 @@ impl WorldStateView {
         self.block_hashes.borrow().len() as u64
     }
 
-    /// Initializes WSV with the blocks from block storage.
-    #[allow(clippy::expect_used)]
-    pub fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
-        for block in blocks {
-            // TODO: If we cannot apply the block, it is preferred to
-            // signal failure and have the end user figure out what's
-            // wrong.
-            self.apply(&block)
-                .expect("World state View failed to apply.");
-        }
-    }
-
     /// Return the hash of the latest block
     pub fn latest_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
         self.block_hashes.borrow().iter().nth_back(0).copied()
@@ -1120,7 +1108,7 @@ mod tests {
             block.header.height = i as u64;
             let block: VersionedCommittedBlock = block.clone().into();
             wsv.apply(&block).unwrap();
-            kura.store_block_blocking(block);
+            kura.store_block(block);
         }
 
         assert_eq!(

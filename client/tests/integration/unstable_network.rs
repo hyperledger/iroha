@@ -27,6 +27,22 @@ fn unstable_network_4_peers_1_fault() {
         n_transactions as usize,
         polling_max_attempts,
         Configuration::pipeline_time(),
+        false,
+    );
+}
+
+#[test]
+fn soft_fork() {
+    let n_peers = 4;
+    let n_transactions = 20;
+    let polling_max_attempts = n_peers * n_transactions;
+    unstable_network(
+        n_peers,
+        0,
+        n_transactions as usize,
+        polling_max_attempts,
+        Configuration::pipeline_time(),
+        true,
     );
 }
 
@@ -42,13 +58,14 @@ fn unstable_network_7_peers_1_fault() {
         n_transactions as usize,
         polling_max_attempts,
         Configuration::pipeline_time(),
+        false,
     );
 }
 
 #[test]
 #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
 fn unstable_network_7_peers_2_faults() {
-    unstable_network(7, 2, 5, 100, Configuration::pipeline_time());
+    unstable_network(7, 2, 5, 100, Configuration::pipeline_time(), false);
 }
 
 fn unstable_network(
@@ -57,6 +74,7 @@ fn unstable_network(
     n_transactions: usize,
     polling_max_attempts: u32,
     polling_period: Duration,
+    force_soft_fork: bool,
 ) {
     if let Err(error) = iroha_logger::install_panic_hook() {
         eprintln!("Installing panic hook failed: {error}");
@@ -67,6 +85,10 @@ fn unstable_network(
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
         configuration.logger.max_log_level = Level::ERROR.into();
+        #[cfg(debug_assertions)]
+        {
+            configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
+        }
         let network =
             <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers, None)
                 .await

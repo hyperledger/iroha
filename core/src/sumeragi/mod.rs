@@ -16,7 +16,7 @@ use std::{
 use eyre::{Result, WrapErr as _};
 use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
-use iroha_crypto::{KeyPair, SignatureOf};
+use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
@@ -246,8 +246,37 @@ impl Sumeragi {
     pub fn initialize_and_start_thread(
         sumeragi: Arc<Self>,
         genesis_network: Option<GenesisNetwork>,
+        block_hashes: &[HashOf<VersionedCommittedBlock>],
     ) -> ThreadHandler {
         let wsv = sumeragi.wsv_mutex_access().clone();
+
+        for (block_hash, i) in block_hashes
+            .iter()
+            .take(block_hashes.len().saturating_sub(1))
+            .zip(1u64..)
+        {
+            let block_height: u64 = i;
+            let block_ref = sumeragi.internal.kura.get_block_by_height(block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+            assert_eq!(
+                block_ref.hash(),
+                *block_hash,
+                "Kura init correctly reported the block hash."
+            );
+
+            wsv.apply(&block_ref)
+                .expect("Failed to apply block to wsv in init.");
+        }
+        let finalized_wsv = wsv.clone();
+
+        if !block_hashes.is_empty() {
+            let block_ref = sumeragi.internal.kura.get_block_by_height(block_hashes.len() as u64).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+
+            wsv.apply(&block_ref)
+                .expect("Failed to apply block to wsv in init.");
+        }
+        *sumeragi.wsv_mutex_access() = wsv.clone();
+
+        info!("Sumeragi has finished loading blocks and setting up the WSV");
 
         let latest_block_view_change_index = wsv.latest_block_view_change_index();
         let latest_block_height = wsv.height();
@@ -278,6 +307,7 @@ impl Sumeragi {
             latest_block_view_change_index,
             current_topology,
             wsv,
+            finalized_wsv,
             transaction_cache: Vec::new(),
         };
 

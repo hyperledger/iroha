@@ -20,6 +20,7 @@ json5 = "0.4.1"
 thiserror = "1.0.38"
 crossbeam = "0.8.2"
 derive_more = "0.99.17"
+cfg-if = "1.0.0"
 
 [dev-dependencies]
 proptest = "1.0.0"
