@@ -73,8 +73,7 @@ pub fn ffi(input: TokenStream) -> TokenStream {
 #[proc_macro_error::proc_macro_error]
 pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as syn::DeriveInput);
-    let ffi_type_derive = derive_ffi_type(item);
-    quote! { #ffi_type_derive }.into()
+    derive_ffi_type(item).into()
 }
 
 /// Generate FFI functions
