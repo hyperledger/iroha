@@ -68,11 +68,11 @@ impl Token {
 
     /// Return a reference to the parameter corresponding to the given name
     #[inline]
-    pub fn get_param(&self, name: &Name) -> Option<&Value> {
+    pub fn param(&self, name: &Name) -> Option<&Value> {
         self.params.get(name)
     }
 
-    /// Get an iterator over parameters of the [`PermissionToken`].
+    /// Get an iterator over parameters of the [`Token`].
     ///
     /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]
