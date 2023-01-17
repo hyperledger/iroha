@@ -24,19 +24,7 @@ pub use iroha_wasm_derive::entrypoint;
 pub use parity_scale_codec::{DecodeAll, Encode};
 
 pub mod debug;
-
-pub mod validator {
-    //! Contains `prelude` related to validators
-
-    pub mod prelude {
-        pub use iroha_data_model::{permission::validator::Verdict, prelude::*};
-        pub use iroha_wasm_derive::validator_entrypoint as entrypoint;
-
-        #[cfg(feature = "debug")]
-        pub use crate::DebugExpectExt as _;
-        pub use crate::EvaluateOnHost as _;
-    }
-}
+pub mod validator;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
