@@ -16,6 +16,44 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
+cfg_if::cfg_if! {
+    if #[cfg(debug_assertions)] {
+// Generate `ConfigurationView` without keys
+view! {
+    /// `Sumeragi` configuration.
+    /// [`struct@Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
+    /// and a list of `TRUSTED_PEERS`.
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+    #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "SUMERAGI_")]
+    pub struct Configuration {
+        /// The key pair consisting of a private and a public key.
+        //TODO: consider putting a `#[serde(skip)]` on the proxy struct here
+        #[view(ignore)]
+        pub key_pair: KeyPair,
+        /// Current Peer Identification.
+        pub peer_id: PeerId,
+        /// The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+        pub block_time_ms: u64,
+        /// Optional list of predefined trusted peers.
+        pub trusted_peers: TrustedPeers,
+        /// The period of time a peer waits for `CommitMessage` from the proxy tail.
+        pub commit_time_limit_ms: u64,
+        /// The limits to which transactions must adhere
+        pub transaction_limits: TransactionLimits,
+        /// Buffer capacity of actor's MPSC channel
+        pub actor_channel_capacity: u32,
+        /// Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
+        pub gossip_batch_size: u32,
+        /// Period in milliseconds for pending transaction gossiping between peers.
+        pub gossip_period_ms: u64,
+
+        /// Only used in testing. Causes the genesis peer to withhold blocks when it
+        /// is the proxy tail.
+        pub debug_force_soft_fork: bool,
+    }
+}
+    } else {
 // Generate `ConfigurationView` without keys
 view! {
     /// `Sumeragi` configuration.
@@ -47,6 +85,8 @@ view! {
         pub gossip_period_ms: u64,
     }
 }
+    }
+}
 
 impl Default for ConfigurationProxy {
     fn default() -> Self {
@@ -63,6 +103,8 @@ impl Default for ConfigurationProxy {
             actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
             gossip_batch_size: Some(DEFAULT_GOSSIP_BATCH_SIZE),
             gossip_period_ms: Some(DEFAULT_GOSSIP_PERIOD_MS),
+            #[cfg(debug_assertions)]
+            debug_force_soft_fork: Some(false),
         }
     }
 }
@@ -178,6 +220,7 @@ pub mod tests {
     use super::*;
 
     prop_compose! {
+        #[allow(unused_variables)]
         pub fn arb_proxy()
             (key_pair in Just(None),
              peer_id in Just(None),
@@ -191,6 +234,7 @@ pub mod tests {
              actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
              gossip_batch_size in prop::option::of(Just(DEFAULT_GOSSIP_BATCH_SIZE)),
              gossip_period_ms in prop::option::of(Just(DEFAULT_GOSSIP_PERIOD_MS)),
+             debug_force_soft_fork in prop::option::of(Just(false)),
             )
             -> ConfigurationProxy {
             ConfigurationProxy {
@@ -202,7 +246,9 @@ pub mod tests {
                 transaction_limits,
                 actor_channel_capacity,
                 gossip_batch_size,
-                gossip_period_ms
+                gossip_period_ms,
+                #[cfg(debug_assertions)]
+                debug_force_soft_fork
             }
         }
     }
