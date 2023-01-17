@@ -256,6 +256,16 @@ impl IsAllowed for OnlyAccountsDomain {
                     ))
                 }
             }
+            DoesAccountHavePermissionToken(query) => {
+                let account_id = try_evaluate_or_deny!(query.account_id, wsv);
+                if account_id.domain_id == authority.domain_id {
+                    Allow
+                } else {
+                    Deny(format!(
+                        "Cannot access account {account_id} as it is in a different domain."
+                    ))
+                }
+            }
             FindAssetDefinitionById(query) => {
                 let asset_definition_id = try_evaluate_or_deny!(query.id, wsv);
 
@@ -442,6 +452,14 @@ impl IsAllowed for OnlyAccountsData {
             FindAllPermissionTokenDefinitions(_) => Deny("Only the access to the permission tokens of your own account is permitted.".to_owned()),
             FindPermissionTokensByAccountId(query) => {
                 let account_id = try_evaluate_or_deny!(query.id, wsv);
+                if &account_id == authority {
+                    Allow
+                } else {
+                    Deny(format!("Cannot access another account: {account_id}."))
+                }
+            }
+            DoesAccountHavePermissionToken(query) => {
+                let account_id = try_evaluate_or_deny!(query.account_id, wsv);
                 if &account_id == authority {
                     Allow
                 } else {

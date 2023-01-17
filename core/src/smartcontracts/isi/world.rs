@@ -418,7 +418,7 @@ impl Execute for NewParameter<Parameter, Account> {
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
     use eyre::Result;
-    use iroha_data_model::prelude::*;
+    use iroha_data_model::{prelude::*, query::permissions::DoesAccountHavePermissionToken};
 
     use super::*;
     use crate::smartcontracts::query::Error;
@@ -488,6 +488,21 @@ pub mod query {
         #[metrics("find_all_parameters")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             Ok(wsv.parameters())
+        }
+    }
+
+    impl ValidQuery for DoesAccountHavePermissionToken {
+        #[metrics("does_account_have_permission")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            let account_id = self
+                .account_id
+                .evaluate(wsv, &Context::new())
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+
+            wsv.map_account(&account_id, |account| {
+                wsv.account_permission_tokens(account)
+                    .contains(&self.permission_token)
+            })
         }
     }
 }
