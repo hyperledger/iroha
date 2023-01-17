@@ -243,9 +243,6 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     }
 
     /// Wrap expression into parentheses depending on `operation` and get the resulting string.
-    ///
-    /// # Panics
-    /// - If `operation` has [`Other`](Operation::Other) value.
     fn parenthesise(&self, operation: Operation) -> String {
         if self.operation().priority() < operation.priority()
             && !matches!(self.expression.as_ref(), Expression::Raw(_))
