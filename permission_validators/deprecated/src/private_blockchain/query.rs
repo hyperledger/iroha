@@ -206,6 +206,18 @@ impl IsAllowed for OnlyAccountsDomain {
                     ))
                 }
             }
+            IsAssetDefinitionOwner(query) => {
+                let asset_definition_id = try_evaluate_or_deny!(query.asset_definition_id, wsv);
+                if asset_definition_id.domain_id == authority.domain_id {
+                    Allow
+                } else {
+                    Deny(format!(
+                        "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
+                        asset_definition_id.domain_id,
+                        authority.domain_id
+                    ))
+                }
+            }
             FindDomainById(query::FindDomainById { id })
             | FindDomainKeyValueByIdAndKey(query::FindDomainKeyValueByIdAndKey { id, .. }) => {
                 let domain_id = try_evaluate_or_deny!(id, wsv);
@@ -398,7 +410,17 @@ impl IsAllowed for OnlyAccountsData {
                     ))
                 }
             }
-
+            IsAssetDefinitionOwner(query) => {
+                let account_id = try_evaluate_or_deny!(query
+                    .account_id, wsv);
+                if &account_id == authority {
+                    Allow
+                } else {
+                    Deny(format!(
+                        "Cannot access a different account: {account_id}."
+                    ))
+                }
+            }
             FindAssetQuantityById(query) => {
                 let asset_id = try_evaluate_or_deny!(query.id, wsv);
                 if &asset_id.account_id == authority {
