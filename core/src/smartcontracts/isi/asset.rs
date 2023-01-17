@@ -424,6 +424,7 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
+    use iroha_data_model::query::asset::IsAssetDefinitionOwner;
 
     use super::*;
     use crate::smartcontracts::query::Error;
@@ -670,6 +671,25 @@ pub mod query {
                 .get(&key)
                 .ok_or_else(|| Error::Find(Box::new(FindError::MetadataKey(key))))?
                 .clone())
+        }
+    }
+
+    impl ValidQuery for IsAssetDefinitionOwner {
+        #[metrics("is_asset_definition_owner")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            let asset_definition_id = self
+                .asset_definition_id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get asset definition id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let account_id = self
+                .account_id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get account id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+
+            let entry = wsv.asset_definition_entry(&asset_definition_id)?;
+            Ok(entry.owned_by() == &account_id)
         }
     }
 }
