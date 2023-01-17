@@ -75,6 +75,8 @@ pub enum QueryBox {
     FindAssetQuantityById(FindAssetQuantityById),
     /// [`FindTotalAssetQuantityByAssetDefinitionId`] variant.
     FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
+    /// [`IsAssetDefinitionOwner`] variant.
+    IsAssetDefinitionOwner(IsAssetDefinitionOwner),
     /// [`FindAssetKeyValueByIdAndKey`] variant.
     FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
     /// [`FindAssetKeyValueByIdAndKey`] variant.
@@ -1109,6 +1111,47 @@ pub mod asset {
         pub key: EvaluatesTo<Name>,
     }
 
+    /// [`IsAssetDefinitionOwner`] Iroha Query checks if provided account is the asset definition owner.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+        Hash,
+    )]
+    #[display(fmt = "Check if `{account_id}` is creator of `{asset_definition_id}` asset")]
+    pub struct IsAssetDefinitionOwner {
+        /// `Id` of an [`AssetDefinition`] to check.
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+        /// `Id` of a possible owner [`Account`].
+        pub account_id: EvaluatesTo<AccountId>,
+    }
+
+    impl IsAssetDefinitionOwner {
+        /// Construct [`IsAssetDefinitionOwner`].
+        pub fn new(
+            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+            account_id: impl Into<EvaluatesTo<AccountId>>,
+        ) -> Self {
+            Self {
+                asset_definition_id: asset_definition_id.into(),
+                account_id: account_id.into(),
+            }
+        }
+    }
+
+    impl Query for IsAssetDefinitionOwner {
+        type Output = bool;
+    }
+
     impl Query for FindAssetDefinitionKeyValueByIdAndKey {
         type Output = Value;
     }
@@ -1236,7 +1279,7 @@ pub mod asset {
             FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
             FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
             FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
-            FindTotalAssetQuantityByAssetDefinitionId,
+            FindTotalAssetQuantityByAssetDefinitionId, IsAssetDefinitionOwner,
         };
     }
 }
