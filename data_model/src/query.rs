@@ -103,6 +103,8 @@ pub enum QueryBox {
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
     /// [`FindAllPermissionTokenDefinitions`] variant.
     FindAllPermissionTokenDefinitions(FindAllPermissionTokenDefinitions),
+    /// [`DoesAccountHavePermissionToken`] variant.
+    DoesAccountHavePermissionToken(DoesAccountHavePermissionToken),
     /// [`FindAllActiveTriggerIds`] variant.
     FindAllActiveTriggerIds(FindAllActiveTriggerIds),
     /// [`FindTriggerById`] variant.
@@ -452,9 +454,54 @@ pub mod permissions {
         type Output = Vec<permission::Token>;
     }
 
+    /// [`DoesAccountHavePermission`] Iroha Query checks if the account has the specified permission.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        PartialOrd,
+        Ord,
+        Hash,
+    )]
+    #[display(fmt = "Check if `{account_id}` account has `{permission_token}` permission token")]
+    pub struct DoesAccountHavePermissionToken {
+        /// `Id` of an account to check.
+        pub account_id: EvaluatesTo<AccountId>,
+        /// `PermissionToken` to check for.
+        pub permission_token: permission::Token,
+    }
+
+    impl DoesAccountHavePermissionToken {
+        /// Construct [`DoesAccountHavePermissionToken`].
+        pub fn new(
+            account_id: impl Into<EvaluatesTo<AccountId>>,
+            permission_token: permission::Token,
+        ) -> Self {
+            let account_id = account_id.into();
+            DoesAccountHavePermissionToken {
+                account_id,
+                permission_token,
+            }
+        }
+    }
+
+    impl Query for DoesAccountHavePermissionToken {
+        type Output = bool;
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindAllPermissionTokenDefinitions, FindPermissionTokensByAccountId};
+        pub use super::{
+            DoesAccountHavePermissionToken, FindAllPermissionTokenDefinitions,
+            FindPermissionTokensByAccountId,
+        };
     }
 }
 
