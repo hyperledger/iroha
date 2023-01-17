@@ -28,6 +28,12 @@ pub fn derive_ffi_type(mut input: DeriveInput) -> TokenStream {
             }
 
             if is_fieldless_enum(&item) {
+                if item.variants.iter().any(|v| v.discriminant.is_some()) {
+                    abort!(
+                        name,
+                        "fieldless enums with explicit discriminants are prohibited"
+                    );
+                }
                 derive_ffi_type_for_fieldless_enum(&input.ident, &item, &repr)
             } else {
                 let local = !is_non_local(&input.attrs);
@@ -491,22 +497,13 @@ fn gen_discriminants(
     )
 }
 
-fn variant_discriminants(enum_: &DataEnum) -> Vec<syn::Expr> {
-    let mut curr_discriminant: syn::Expr = parse_quote! {0};
-
-    enum_.variants.iter().fold(Vec::new(), |mut acc, variant| {
-        let discriminant = variant.discriminant.as_ref().map_or_else(
-            || curr_discriminant.clone(),
-            |discriminant| discriminant.1.clone(),
-        );
-
-        acc.push(discriminant.clone());
-        curr_discriminant = parse_quote! {
-            1 + #discriminant
-        };
-
-        acc
-    })
+fn variant_discriminants(enum_: &DataEnum) -> Vec<proc_macro2::Literal> {
+    enum_
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(i, _)| proc_macro2::Literal::usize_unsuffixed(i))
+        .collect()
 }
 
 fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&syn::Field) -> TokenStream>(

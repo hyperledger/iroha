@@ -1,0 +1,5 @@
+error: fieldless enums with explicit discriminants are prohibited
+ --> tests/ui_fail/fieldless_enum_with_expicit_discriminant.rs:4:6
+  |
+4 | enum EnumWithExplicitDiscriminant {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
