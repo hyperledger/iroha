@@ -127,87 +127,6 @@ pub mod macros {
         };
     }
 
-    /// Macro to declare a permission token.
-    ///
-    /// TODO: Replace with **derive** macro
-    #[macro_export]
-    macro_rules! declare_token {
-        (
-            $(#[$outer_meta:meta])* // Structure attributes
-            $ident:ident {          // Structure definition
-                $(
-                    $(#[$inner_meta:meta])* // Field attributes
-                    $param_name:ident ($param_string:literal): $param_typ:ty
-                 ),* $(,)? // allow trailing comma
-            },
-            $definition_id:literal // Token definition id
-        ) => {
-
-            // For tokens with no parameters
-            #[allow(missing_copy_implementations)]
-            $(#[$outer_meta])*
-            ///
-            /// A wrapper around [PermissionToken](::iroha_wasm::data_model::permission::Token).
-            pub struct $ident
-            where
-                $(
-                    $param_typ: ::core::convert::Into<::iroha_wasm::data_model::Value>
-                        + ::iroha_wasm::data_model::permission::token::ValueTrait,
-                )*
-            {
-                $(
-                    $(#[$inner_meta])*
-                    #[doc = concat!(
-                        "\nCorresponding parameter name in generic `[PermissionToken]` is `\"",
-                        $param_string,
-                        "\"`.",
-                    )]
-                    pub $param_name : $param_typ
-                 ),*
-            }
-
-            impl $ident {
-                fn into_permission_token(&self) -> ::iroha_wasm::data_model::permission::Token {
-                    ::iroha_wasm::data_model::permission::Token::new(::iroha_wasm::parse!(
-                        $definition_id as <
-                            ::iroha_wasm::data_model::permission::token::Definition
-                            as
-                            ::iroha_wasm::data_model::prelude::Identifiable
-                        >::Id
-                    ))
-                    .with_params([
-                        $((
-                            ::iroha_wasm::parse!($param_string
-                                as ::iroha_wasm::data_model::prelude::Name),
-                            self.$param_name.clone().into()
-                        )),*
-                    ])
-                }
-            }
-
-            impl ::iroha_wasm::validator::traits::Token for $ident {
-                fn is_owned_by(
-                    &self,
-                    account_id: &<
-                        ::iroha_wasm::data_model::prelude::Account
-                        as
-                        ::iroha_wasm::data_model::prelude::Identifiable
-                    >::Id
-                ) -> bool {
-                    use ::iroha_wasm::Execute as _;
-
-                    ::iroha_wasm::data_model::prelude::QueryBox::DoesAccountHavePermissionToken(
-                        ::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken {
-                            account_id: account_id.clone().into(),
-                            permission_token: self.into_permission_token(),
-                        }
-                    )
-                    .execute()
-                    .try_into()
-                    .dbg_expect("Failed to convert `DoesAccountHavePermission` query result into `bool`")
-                }
-            }
-        };
     #[cfg(test)]
     mod tests {
         //! Tests in this modules can't be doc-tests because of `compile_error!` on native target
@@ -278,11 +197,13 @@ pub mod macros {
 pub mod traits {
     //! Contains traits related to validators
 
-    /// Trait for tokens declared with [`declare_token!`] macro inside validator's code.
-    /// Provides a way to check if token is owned by the account.
-    /// Useful for generic functions.
+    /// [`Token`] trait is used to check if the token is owned by the account.
     pub trait Token {
         /// Check if token is owned by the account using evaluation on host.
+        ///
+        /// Basically it's a wrapper around
+        /// [`DoesAccountHavePermissionToken`](crate::data_model::prelude::DoesAccountHavePermissionToken)
+        /// query.
         fn is_owned_by(
             &self,
             account_id: &<
