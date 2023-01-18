@@ -151,7 +151,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```ignore
 /// use iroha_wasm::validator::prelude::*;
 ///
-/// #[entrypoint(params = "[authoriy, instruction]")]
+/// #[entrypoint(params = "[authority, instruction]")]
 /// pub fn validate(authority: AccountId, _: Instruction) -> Verdict {
 ///     let admin_domain = "admin_domain".parse()
 ///         .dbg_expect("Failed to parse `admin_domain` as a domain id");
@@ -166,7 +166,30 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 #[proc_macro_attribute]
 pub fn validator_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
-    validator::impl_entrypoint(attr, item)
+    validator::entrypoint::impl_entrypoint(attr, item)
+}
+
+/// Derive macro for `Token` trait.
+///
+/// # Example
+///
+/// ```ignore
+/// use iroha_wasm::{validator::prelude::*, parse, Token};
+///
+/// #[derive(Token)]
+/// struct CanDoSomething {
+///     some_data: String,
+///     some_asset_id: <Asset as Identifiable>::Id,
+/// }
+///
+/// CanDoSomething {
+///     some_data: "some data".to_owned(),
+///     some_asset_id: parse!("rose#wonderland" as <Asset as Identifiable>::Id),
+/// }.is_owned_by(&authority)
+/// ```
+#[proc_macro_derive(Token)]
+pub fn derive_token(input: TokenStream) -> TokenStream {
+    validator::token::impl_derive_token(input)
 }
 
 macro_rules! parse_keywords {
