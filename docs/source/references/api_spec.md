@@ -34,6 +34,7 @@
 - Query parameters:
   + `start`: Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
   + `limit`: Optional parameter in queries where results can be indexed. Use to return specific number of results.
+  + `sort_by_metadata_key`: Optional parameter in queries. Use to sort results containing metadata with a given key.
 
 **Responses**:
 
