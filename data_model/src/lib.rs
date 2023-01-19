@@ -517,6 +517,7 @@ pub enum Value {
     /// `Id` of `Asset`, `Account`, etc.
     Id(IdBox),
     /// `impl Identifiable` as in `Asset`, `Account` etc.
+    #[serde_partially_tagged(untagged)]
     Identifiable(IdentifiableBox),
     /// [`PublicKey`].
     PublicKey(PublicKey),

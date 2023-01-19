@@ -4,14 +4,12 @@
       "isi": [
         {
           "Register": {
-            "Identifiable": {
-              "NewDomain": {
-                "id": "wonderland",
-                "logo": null,
-                "metadata": {
-                  "key": {
-                    "String": "value"
-                  }
+            "NewDomain": {
+              "id": "wonderland",
+              "logo": null,
+              "metadata": {
+                "key": {
+                  "String": "value"
                 }
               }
             }
@@ -19,16 +17,14 @@
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewAccount": {
-                "id": "alice@wonderland",
-                "signatories": [
-                  "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
-                ],
-                "metadata": {
-                  "key": {
-                    "String": "value"
-                  }
+            "NewAccount": {
+              "id": "alice@wonderland",
+              "signatories": [
+                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+              ],
+              "metadata": {
+                "key": {
+                  "String": "value"
                 }
               }
             }
@@ -36,16 +32,14 @@
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewAccount": {
-                "id": "bob@wonderland",
-                "signatories": [
-                  "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
-                ],
-                "metadata": {
-                  "key": {
-                    "String": "value"
-                  }
+            "NewAccount": {
+              "id": "bob@wonderland",
+              "signatories": [
+                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+              ],
+              "metadata": {
+                "key": {
+                  "String": "value"
                 }
               }
             }
@@ -53,193 +47,161 @@
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewAssetDefinition": {
-                "id": "rose#wonderland",
-                "value_type": "Quantity",
-                "mintable": "Infinitely",
-                "metadata": {}
+            "NewAssetDefinition": {
+              "id": "rose#wonderland",
+              "value_type": "Quantity",
+              "mintable": "Infinitely",
+              "metadata": {}
+            }
+          }
+        },
+        {
+          "Register": {
+            "NewDomain": {
+              "id": "garden_of_live_flowers",
+              "logo": null,
+              "metadata": {}
+            }
+          }
+        },
+        {
+          "Register": {
+            "NewAccount": {
+              "id": "carpenter@garden_of_live_flowers",
+              "signatories": [
+                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+              ],
+              "metadata": {}
+            }
+          }
+        },
+        {
+          "Register": {
+            "NewAssetDefinition": {
+              "id": "cabbage#garden_of_live_flowers",
+              "value_type": "Quantity",
+              "mintable": "Infinitely",
+              "metadata": {}
+            }
+          }
+        },
+        {
+          "Register": {
+            "PermissionTokenDefinition": {
+              "id": "can_unregister_asset_with_definition",
+              "params": {
+                "asset_definition_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewDomain": {
-                "id": "garden_of_live_flowers",
-                "logo": null,
-                "metadata": {}
+            "PermissionTokenDefinition": {
+              "id": "can_burn_asset_with_definition",
+              "params": {
+                "asset_definition_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewAccount": {
-                "id": "carpenter@garden_of_live_flowers",
-                "signatories": [
-                  "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
-                ],
-                "metadata": {}
+            "PermissionTokenDefinition": {
+              "id": "can_burn_user_assets",
+              "params": {
+                "asset_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewAssetDefinition": {
-                "id": "cabbage#garden_of_live_flowers",
-                "value_type": "Quantity",
-                "mintable": "Infinitely",
-                "metadata": {}
+            "PermissionTokenDefinition": {
+              "id": "can_set_key_value_in_user_assets",
+              "params": {
+                "asset_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_unregister_asset_with_definition",
-                "params": {
-                  "asset_definition_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_remove_key_value_in_user_assets",
+              "params": {
+                "asset_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_burn_asset_with_definition",
-                "params": {
-                  "asset_definition_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_set_key_value_in_user_metadata",
+              "params": {
+                "account_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_burn_user_assets",
-                "params": {
-                  "asset_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_remove_key_value_in_user_metadata",
+              "params": {
+                "account_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_set_key_value_in_user_assets",
-                "params": {
-                  "asset_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_set_key_value_in_asset_definition",
+              "params": {
+                "asset_definition_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_remove_key_value_in_user_assets",
-                "params": {
-                  "asset_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_remove_key_value_in_asset_definition",
+              "params": {
+                "asset_definition_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_set_key_value_in_user_metadata",
-                "params": {
-                  "account_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_mint_user_asset_definitions",
+              "params": {
+                "asset_definition_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_remove_key_value_in_user_metadata",
-                "params": {
-                  "account_id": "Id"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_transfer_user_assets",
+              "params": {
+                "asset_id": "Id"
               }
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_set_key_value_in_asset_definition",
-                "params": {
-                  "asset_definition_id": "Id"
-                }
-              }
-            }
-          }
-        },
-        {
-          "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_remove_key_value_in_asset_definition",
-                "params": {
-                  "asset_definition_id": "Id"
-                }
-              }
-            }
-          }
-        },
-        {
-          "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_mint_user_asset_definitions",
-                "params": {
-                  "asset_definition_id": "Id"
-                }
-              }
-            }
-          }
-        },
-        {
-          "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_transfer_user_assets",
-                "params": {
-                  "asset_id": "Id"
-                }
-              }
-            }
-          }
-        },
-        {
-          "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "can_transfer_only_fixed_number_of_times_per_period",
-                "params": {
-                  "count": "Numeric",
-                  "period": "Numeric"
-                }
+            "PermissionTokenDefinition": {
+              "id": "can_transfer_only_fixed_number_of_times_per_period",
+              "params": {
+                "count": "Numeric",
+                "period": "Numeric"
               }
             }
           }
@@ -270,43 +232,39 @@
         },
         {
           "Register": {
-            "Identifiable": {
-              "PermissionTokenDefinition": {
-                "id": "allowed_to_do_stuff",
-                "params": {}
-              }
+            "PermissionTokenDefinition": {
+              "id": "allowed_to_do_stuff",
+              "params": {}
             }
           }
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewRole": {
-                "inner": {
-                  "id": "USER_METADATA_ACCESS",
-                  "permissions": [
-                    {
-                      "definition_id": "can_remove_key_value_in_user_metadata",
-                      "params": {
-                        "account_id": {
-                          "Id": {
-                            "AccountId": "alice@wonderland"
-                          }
-                        }
-                      }
-                    },
-                    {
-                      "definition_id": "can_set_key_value_in_user_metadata",
-                      "params": {
-                        "account_id": {
-                          "Id": {
-                            "AccountId": "alice@wonderland"
-                          }
+            "NewRole": {
+              "inner": {
+                "id": "USER_METADATA_ACCESS",
+                "permissions": [
+                  {
+                    "definition_id": "can_remove_key_value_in_user_metadata",
+                    "params": {
+                      "account_id": {
+                        "Id": {
+                          "AccountId": "alice@wonderland"
                         }
                       }
                     }
-                  ]
-                }
+                  },
+                  {
+                    "definition_id": "can_set_key_value_in_user_metadata",
+                    "params": {
+                      "account_id": {
+                        "Id": {
+                          "AccountId": "alice@wonderland"
+                        }
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
@@ -328,17 +286,15 @@
         },
         {
           "Register": {
-            "Identifiable": {
-              "NewRole": {
-                "inner": {
-                  "id": "staff_that_does_stuff_in_genesis",
-                  "permissions": [
-                    {
-                      "definition_id": "allowed_to_do_stuff",
-                      "params": {}
-                    }
-                  ]
-                }
+            "NewRole": {
+              "inner": {
+                "id": "staff_that_does_stuff_in_genesis",
+                "permissions": [
+                  {
+                    "definition_id": "allowed_to_do_stuff",
+                    "params": {}
+                  }
+                ]
               }
             }
           }
