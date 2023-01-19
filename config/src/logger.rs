@@ -98,6 +98,7 @@ pub struct Configuration {
     pub compact_mode: bool,
     /// If provided, logs will be copied to said file in the
     /// format readable by [bunyan](https://lib.rs/crates/bunyan)
+    #[config(serde_as_str)]
     pub log_file_path: Option<std::path::PathBuf>,
     /// Enable ANSI terminal colors for formatted output.
     pub terminal_colors: bool,
