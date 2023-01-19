@@ -12,30 +12,15 @@ use ursa::blake2::{
     VarBlake2b,
 };
 
-use crate::ffi;
-
-ffi::ffi_item! {
-    /// Hash of Iroha entities. Currently supports only blake2b-32.
-    /// The least significant bit of hash is set to 1.
-    #[derive(
-        Clone,
-        Copy,
-        Display,
-        DebugCustom,
-        Hash,
-        Eq,
-        PartialEq,
-        Ord,
-        PartialOrd,
-        IntoSchema,
-    )]
-    #[display(fmt = "{}", "hex::encode(self.as_ref())")]
-    #[debug(fmt = "{}", "hex::encode(self.as_ref())")]
-    #[repr(C)]
-    pub struct Hash {
-        more_significant_bits: [u8; Self::LENGTH - 1],
-        least_significant_byte: NonZeroU8,
-    }
+/// Hash of Iroha entities. Currently supports only blake2b-32.
+/// The least significant bit of hash is set to 1.
+#[derive(Clone, Copy, Display, DebugCustom, Hash, Eq, PartialEq, Ord, PartialOrd, IntoSchema)]
+#[display(fmt = "{}", "hex::encode(self.as_ref())")]
+#[debug(fmt = "{}", "hex::encode(self.as_ref())")]
+#[repr(C)]
+pub struct Hash {
+    more_significant_bits: [u8; Self::LENGTH - 1],
+    least_significant_byte: NonZeroU8,
 }
 
 // NOTE: Hash is FFI serialized as an array (a pointer in a function call, by value when part of a struct)
@@ -164,7 +149,7 @@ impl<T> From<HashOf<T>> for Hash {
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
 // Lint triggers when expanding #[codec(skip)]
 #[allow(clippy::default_trait_access)]
-#[derive(DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize)]
+#[derive(DebugCustom, Display, Deref, DerefMut, Decode, Encode, Deserialize, Serialize)]
 #[display(fmt = "{_0}")]
 #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
 #[serde(transparent)]
@@ -223,9 +208,9 @@ impl<T> HashOf<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: Encode> HashOf<T> {
     /// Construct typed hash
-    #[cfg(feature = "std")]
     #[must_use]
     pub fn new(value: &T) -> Self {
         Self(Hash::new(value.encode()), PhantomData)
@@ -252,20 +237,19 @@ mod tests {
     #![allow(clippy::restriction)]
 
     #[cfg(feature = "std")]
-    use hex_literal::hex;
-
-    #[cfg(feature = "std")]
     use super::*;
 
     #[test]
     #[cfg(feature = "std")]
     fn blake2_32b() {
         let mut hasher = VarBlake2b::new(32).unwrap();
-        hasher.update(hex!("6920616d2064617461"));
+        hasher.update(hex_literal::hex!("6920616d2064617461"));
         hasher.finalize_variable(|res| {
             assert_eq!(
                 res[..],
-                hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
+                hex_literal::hex!(
+                    "ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2"
+                )[..]
             );
         })
     }

@@ -206,7 +206,6 @@ fn derive_ffi_type_for_data_carrying_enum(
         })
         .collect::<Vec<_>>();
 
-    #[allow(clippy::expect_used)]
     let variants_into_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
         let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let payload_name = gen_repr_c_enum_payload_name(enum_name);
@@ -235,7 +234,6 @@ fn derive_ffi_type_for_data_carrying_enum(
         )
     });
 
-    #[allow(clippy::expect_used)]
     let variants_try_from_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
         let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let variant_name = &variant.ident;

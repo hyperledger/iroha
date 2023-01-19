@@ -157,27 +157,10 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             let impl_descriptor = ImplDescriptor::from_impl(&item);
-            let ffi_fns = impl_descriptor.fns.iter().map(ffi_fn::gen_definition);
-
-            quote! {
-                #item
-                #(#ffi_fns)*
-            }
-        }
-        Item::Struct(item) => {
-            let derived_methods = util::gen_derived_methods(&item);
-            let ffi_fns = derived_methods.iter().map(ffi_fn::gen_definition);
-
-            let repr = find_attr(&item.attrs, "repr");
-            if is_repr_attr(&repr, "C") {
-                abort!(item.ident, "Only opaque structs can export FFI bindings");
-            }
-            if !matches!(item.vis, syn::Visibility::Public(_)) {
-                abort!(item.vis, "Only public structs allowed in FFI");
-            }
-            if !item.generics.params.is_empty() {
-                abort!(item.generics, "Generics are not supported");
-            }
+            let ffi_fns = impl_descriptor
+                .fns
+                .iter()
+                .map(|fn_| ffi_fn::gen_definition(fn_, impl_descriptor.trait_name()));
 
             quote! {
                 #item
@@ -203,13 +186,35 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             let fn_descriptor = FnDescriptor::from_fn(&item);
-            let ffi_fn = ffi_fn::gen_definition(&fn_descriptor);
+            let ffi_fn = ffi_fn::gen_definition(&fn_descriptor, None);
 
             quote! {
                 #item
                 #ffi_fn
             }
         }
+        Item::Struct(item) => {
+            if !is_opaque_struct(&item) {
+                return quote! {#item}.into();
+            }
+
+            // NOTE: Export FFI functions for getters/setters
+            let derived_methods = util::gen_derived_methods(&item);
+            let ffi_fns = derived_methods
+                .iter()
+                .map(|fn_| ffi_fn::gen_definition(fn_, None));
+
+            if !matches!(item.vis, syn::Visibility::Public(_)) {
+                abort!(item.vis, "Only public structs allowed in FFI");
+            }
+
+            quote! {
+                #item
+                #(#ffi_fns)*
+            }
+        }
+        // NOTE: Enum cannot have getters/setters
+        Item::Enum(item) => quote! { #item },
         item => abort!(item, "Item not supported"),
     }
     .into()
@@ -220,30 +225,31 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
     match parse_macro_input!(item) {
         Item::Impl(item) => {
-            let impl_descriptor = ImplDescriptor::from_impl(&item);
-            let ffi_fns = impl_descriptor.fns.iter().map(ffi_fn::gen_declaration);
-            let wrapped_item = wrapper::wrap_impl_items(&impl_descriptor.fns);
+            let impl_desc = ImplDescriptor::from_impl(&item);
+            let wrapped_items = wrapper::wrap_impl_items(&impl_desc);
+            let is_shared_fn = impl_desc
+                .trait_name
+                .filter(|name| {
+                    name.is_ident("Clone")
+                        || name.is_ident("PartialEq")
+                        || name.is_ident("PartialOrd")
+                        || name.is_ident("Eq")
+                        || name.is_ident("Ord")
+                })
+                .is_some();
+
+            let ffi_fns = if is_shared_fn {
+                Vec::new()
+            } else {
+                impl_desc
+                    .fns
+                    .iter()
+                    .map(|fn_| ffi_fn::gen_declaration(fn_, impl_desc.trait_name()))
+                    .collect()
+            };
 
             quote! {
-                #wrapped_item
-                #(#ffi_fns)*
-            }
-        }
-        Item::Struct(item) => {
-            let derived_methods = util::gen_derived_methods(&item);
-            let ffi_fns = derived_methods.iter().map(ffi_fn::gen_declaration);
-            let impl_block = wrapper::wrap_impl_items(&derived_methods);
-
-            if !matches!(item.vis, syn::Visibility::Public(_)) {
-                abort!(item.vis, "Only public structs allowed in FFI");
-            }
-            if !item.generics.params.is_empty() {
-                abort!(item.generics, "Generics are not supported");
-            }
-
-            quote! {
-                #item
-                #impl_block
+                #wrapped_items
                 #(#ffi_fns)*
             }
         }
@@ -262,19 +268,52 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             let fn_descriptor = FnDescriptor::from_fn(&item);
-            let ffi_fn = ffi_fn::gen_declaration(&fn_descriptor);
-            let wrapped_item = wrap_method(&fn_descriptor);
+            let ffi_fn = ffi_fn::gen_declaration(&fn_descriptor, None);
+            let wrapped_item = wrap_method(&fn_descriptor, None);
 
             quote! {
                 #wrapped_item
                 #ffi_fn
             }
         }
+        Item::Struct(item) => {
+            if !is_opaque_struct(&item) {
+                return quote! {#item}.into();
+            }
+
+            // NOTE: Import FFI functions for getters/setters
+            let derived_methods = util::gen_derived_methods(&item);
+            let ffi_fns: Vec<_> = derived_methods
+                .iter()
+                .map(|fn_| ffi_fn::gen_declaration(fn_, None))
+                .collect();
+            let impl_block = wrapper::wrap_impl_items(&ImplDescriptor {
+                attrs: Vec::new(),
+                trait_name: None,
+                associated_types: Vec::new(),
+                fns: derived_methods,
+            });
+
+            if !matches!(item.vis, syn::Visibility::Public(_)) {
+                abort!(item.vis, "Only public structs allowed in FFI");
+            }
+
+            quote! {
+                #item
+                #impl_block
+                #(#ffi_fns)*
+            }
+        }
+        // NOTE: Enum cannot have getters/setters
+        Item::Enum(item) => quote! { #item },
         item => abort!(item, "Item not supported"),
     }
     .into()
 }
 
+fn is_opaque_struct(input: &syn::ItemStruct) -> bool {
+    is_opaque_attr(&input.attrs) || without_repr(&input.attrs)
+}
 fn is_opaque(input: &syn::DeriveInput) -> bool {
     if is_opaque_attr(&input.attrs) {
         return true;

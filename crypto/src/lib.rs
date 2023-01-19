@@ -11,8 +11,10 @@ extern crate alloc;
 
 mod hash;
 mod merkle;
+#[cfg(not(feature = "ffi_import"))]
 mod multihash;
 mod signature;
+#[cfg(not(feature = "ffi_import"))]
 mod varint;
 
 #[cfg(not(feature = "std"))]
@@ -28,6 +30,7 @@ use iroha_ffi::FfiType;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
+#[cfg(not(feature = "ffi_import"))]
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode, Error as ScaleError};
 use serde::{Deserialize, Serialize};
@@ -59,32 +62,29 @@ pub const BLS_NORMAL: &str = "bls_normal";
 pub const BLS_SMALL: &str = "bls_small";
 
 /// Error indicating algorithm could not be found
-#[derive(Debug, Clone, Copy, Display, IntoSchema)]
+#[derive(Debug, Clone, Copy, Display, IntoSchema, FfiType)]
 #[display(fmt = "Algorithm not supported")]
 pub struct NoSuchAlgorithm;
 
-#[allow(clippy::std_instead_of_alloc)]
 #[cfg(feature = "std")]
 impl std::error::Error for NoSuchAlgorithm {}
 
-ffi::ffi_item! {
-    /// Algorithm for hashing
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, FfiType)]
-    #[repr(u8)]
-    pub enum Algorithm {
-        /// Ed25519
-        #[display(fmt = "{ED_25519}")]
-        Ed25519,
-        /// Secp256k1
-        #[display(fmt = "{SECP_256_K1}")]
-        Secp256k1,
-        /// BlsNormal
-        #[display(fmt = "{BLS_NORMAL}")]
-        BlsNormal,
-        /// BlsSmall
-        #[display(fmt = "{BLS_SMALL}")]
-        BlsSmall,
-    }
+/// Algorithm for hashing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, FfiType)]
+#[repr(u8)]
+pub enum Algorithm {
+    /// Ed25519
+    #[display(fmt = "{ED_25519}")]
+    Ed25519,
+    /// Secp256k1
+    #[display(fmt = "{SECP_256_K1}")]
+    Secp256k1,
+    /// BlsNormal
+    #[display(fmt = "{BLS_NORMAL}")]
+    BlsNormal,
+    /// BlsSmall
+    #[display(fmt = "{BLS_SMALL}")]
+    BlsSmall,
 }
 
 impl Default for Algorithm {
@@ -109,6 +109,7 @@ impl FromStr for Algorithm {
 
 /// Options for key generation
 #[derive(Debug, Clone)]
+#[cfg(not(feature = "ffi_import"))]
 pub enum KeyGenOption {
     /// Use seed
     UseSeed(Vec<u8>),
@@ -117,6 +118,7 @@ pub enum KeyGenOption {
 }
 
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
     type Error = NoSuchAlgorithm;
 
@@ -139,6 +141,7 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
 
 /// Configuration of key generation
 #[derive(Debug, Clone, Default)]
+#[cfg(not(feature = "ffi_import"))]
 pub struct KeyGenConfiguration {
     /// Options
     pub key_gen_option: Option<KeyGenOption>,
@@ -146,6 +149,7 @@ pub struct KeyGenConfiguration {
     pub algorithm: Algorithm,
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl KeyGenConfiguration {
     /// Use seed
     #[must_use]
@@ -171,12 +175,13 @@ impl KeyGenConfiguration {
 
 ffi::ffi_item! {
     /// Pair of Public and Private keys.
-    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, FfiType)]
+    #[derive(Clone, PartialEq, Eq, Getters, FfiType)]
+    #[cfg_attr(not(feature = "ffi_import"), derive(Debug, Serialize))]
     #[getset(get = "pub")]
     pub struct KeyPair {
-        /// Public Key.
+        /// Public key.
         public_key: PublicKey,
-        /// Private Key.
+        /// Private key.
         private_key: PrivateKey,
     }
 }
@@ -231,27 +236,25 @@ impl From<NoSuchAlgorithm> for Error {
 #[allow(clippy::std_instead_of_alloc)]
 impl std::error::Error for Error {}
 
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl KeyPair {
     /// Digest function
     pub fn digest_function(&self) -> Algorithm {
         self.private_key.digest_function()
     }
+}
 
-    /// Construct `KeyPair` from a matching pair of public and private key.
-    /// It is up to the user to ensure that the given keys indeed make a pair.
-    #[cfg(not(feature = "std"))]
-    pub fn new_unchecked(public_key: PublicKey, private_key: PrivateKey) -> Self {
-        Self {
-            public_key,
-            private_key,
-        }
-    }
-
+#[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
+impl KeyPair {
     /// Construct `KeyPair`
     ///
     /// # Errors
     /// If public and private key don't match, i.e. if they don't make a pair
-    #[cfg(feature = "std")]
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
         let algorithm = private_key.digest_function();
 
@@ -293,7 +296,6 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
-    #[cfg(feature = "std")]
     pub fn generate() -> Result<Self, Error> {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
@@ -302,7 +304,6 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
-    #[cfg(feature = "std")]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
         let digest_function: ConstString = configuration.algorithm.to_string().into();
 
@@ -331,6 +332,7 @@ impl KeyPair {
 }
 
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 impl<'de> Deserialize<'de> for KeyPair {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -349,34 +351,43 @@ impl<'de> Deserialize<'de> for KeyPair {
     }
 }
 
+// TODO: enable in ffi_import?
+#[cfg(not(feature = "ffi_import"))]
 impl From<KeyPair> for (PublicKey, PrivateKey) {
     fn from(key_pair: KeyPair) -> Self {
         (key_pair.public_key, key_pair.private_key)
     }
 }
 
-/// Error which occurs when parsing [`PublicKey`]
-#[derive(Debug, Clone, Display, From)]
-pub enum KeyParseError {
-    /// Decoding hex failed
-    #[display(fmt = "Failed to decode. {_0}: {_1}")]
-    Decode(String, hex::FromHexError),
-    /// Converting bytes to multihash failed
-    #[display(fmt = "Failed to convert. {_0}: {_1}")]
-    Multihash(String, multihash::ConvertError),
+// TODO: Forced it to be opaque atm
+ffi::ffi_item! {
+    /// Error which occurs when parsing [`PublicKey`]
+    #[derive(Clone, FfiType)]
+    #[cfg_attr(not(feature = "ffi_import"), derive(Debug, From, Display))]
+    #[ffi_type(opaque)]
+    pub enum KeyParseError {
+        /// Decoding hex failed
+        #[cfg_attr(not(feature = "ffi_import"), display(fmt = "Failed to decode. {_0}: {_1}"))]
+        Decode(String, hex::FromHexError),
+        /// Converting bytes to multihash failed
+        #[cfg_attr(not(feature = "ffi_import"), display(fmt = "Failed to convert. {_0}: {_1}"))]
+        Multihash(String, multihash::ConvertError),
+    }
 }
 
 #[cfg(feature = "std")]
-#[allow(clippy::std_instead_of_alloc)]
+#[cfg(not(feature = "ffi_import"))]
 impl std::error::Error for KeyParseError {}
 
 ffi::ffi_item! {
+    // TODO: Enable Debug and Display in ffi_import?
     /// Public Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, FfiType, IntoSchema)]
-    #[debug(
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, FfiType)]
+    #[cfg_attr(not(feature = "ffi_import"), derive(DebugCustom, Hash, Encode, IntoSchema))]
+    #[cfg_attr(not(feature = "ffi_import"), debug(
         fmt = "{{ digest: {digest_function}, payload: {} }}",
         "hex::encode_upper(payload.as_slice())"
-    )]
+    ))]
     pub struct PublicKey {
         /// Digest function
         digest_function: ConstString,
@@ -403,6 +414,11 @@ impl PublicKey {
     }
 }
 
+#[cfg_attr(
+    all(feature = "ffi_export", not(feature = "ffi_import")),
+    iroha_ffi::ffi_export
+)]
+#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl FromStr for PublicKey {
     type Err = KeyParseError;
 
@@ -415,6 +431,7 @@ impl FromStr for PublicKey {
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl fmt::Display for PublicKey {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -429,6 +446,7 @@ impl fmt::Display for PublicKey {
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl From<Multihash> for PublicKey {
     #[inline]
     fn from(multihash: Multihash) -> Self {
@@ -449,28 +467,7 @@ impl From<Multihash> for PublicKey {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<PrivateKey> for PublicKey {
-    #[allow(clippy::expect_used)]
-    fn from(private_key: PrivateKey) -> Self {
-        let digest_function = private_key.digest_function();
-        let key_gen_option = Some(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(
-            private_key.payload,
-        )));
-        let (mut public_key, _) = match digest_function {
-            Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
-            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
-            Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
-            Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
-        }
-        .expect("can't fail for valid `PrivateKey`");
-        PublicKey {
-            digest_function: private_key.digest_function,
-            payload: core::mem::take(&mut public_key.0),
-        }
-    }
-}
-
+#[cfg(not(feature = "ffi_import"))]
 impl From<PublicKey> for Multihash {
     #[inline]
     fn from(public_key: PublicKey) -> Self {
@@ -488,6 +485,7 @@ impl From<PublicKey> for Multihash {
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl Serialize for PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -497,6 +495,7 @@ impl Serialize for PublicKey {
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl<'de> Deserialize<'de> for PublicKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -514,6 +513,7 @@ impl<'de> Deserialize<'de> for PublicKey {
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl Decode for PublicKey {
     fn decode<I: parity_scale_codec::Input>(input: &mut I) -> Result<Self, ScaleError> {
         let digest_function = ConstString::decode(input)?;
@@ -531,10 +531,10 @@ impl Decode for PublicKey {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, FfiType)]
-    #[debug(fmt = "{{ digest: {digest_function}, payload: {payload:X?}}}")]
-    #[display(fmt = "{}", "hex::encode(payload)")]
-    #[allow(clippy::multiple_inherent_impl)]
+    #[derive(Clone, PartialEq, Eq, FfiType)]
+    #[cfg_attr(not(feature = "ffi_import"), derive(DebugCustom, Display, Serialize))]
+    #[cfg_attr(not(feature = "ffi_import"), debug(fmt = "{{ digest: {digest_function}, payload: {payload:X?}}}"))]
+    #[cfg_attr(not(feature = "ffi_import"), display(fmt = "{}", "hex::encode(payload)"))]
     pub struct PrivateKey {
         /// Digest function
         digest_function: ConstString,
@@ -550,7 +550,7 @@ ffi::ffi_item! {
 )]
 #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl PrivateKey {
-    /// Key payload
+    /// Key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }
@@ -560,9 +560,10 @@ impl PrivateKey {
     pub fn digest_function(&self) -> Algorithm {
         self.digest_function.parse().expect("Valid")
     }
-}
 
-impl PrivateKey {
+    // TODO: Enable this method in ffi
+    #[cfg(not(feature = "ffi_import"))]
+    #[cfg(not(feature = "ffi_export"))]
     /// Construct `PrivateKey` from hex encoded string
     ///
     /// # Errors
@@ -570,7 +571,7 @@ impl PrivateKey {
     /// If given payload is not hex encoded
     pub fn from_hex(
         digest_function: Algorithm,
-        payload: &(impl AsRef<[u8]> + ?Sized),
+        payload: &(impl ?Sized + AsRef<[u8]>),
     ) -> Result<Self, hex::FromHexError> {
         #[cfg(not(feature = "std"))]
         use alloc::string::ToString as _;
@@ -589,6 +590,7 @@ impl PrivateKey {
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl<'de> Deserialize<'de> for PrivateKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -622,32 +624,38 @@ pub mod ffi {
     macro_rules! ffi_item {
         ($it: item) => {
             #[cfg(not(feature = "ffi_import"))]
+            #[cfg_attr(feature = "ffi_export", iroha_ffi::ffi_export)]
             $it
 
             #[cfg(feature = "ffi_import")]
-            iroha_ffi::ffi! { $it }
+            iroha_ffi::ffi! {
+                #[iroha_ffi::ffi_import]
+                $it
+            }
         };
     }
 
     #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     macro_rules! ffi_fn {
         ($macro_name: ident) => {
-            iroha_ffi::$macro_name! { Clone: KeyPair, PublicKey, PrivateKey }
+            iroha_ffi::$macro_name! { Clone: KeyPair, PublicKey, PrivateKey, KeyParseError }
             iroha_ffi::$macro_name! { Eq: KeyPair, PublicKey, PrivateKey }
             iroha_ffi::$macro_name! { Ord: PublicKey }
             iroha_ffi::$macro_name! { Drop: KeyPair, PublicKey, PrivateKey }
         };
     }
 
-    iroha_ffi::handles! {KeyPair, PublicKey, PrivateKey}
+    iroha_ffi::handles! {KeyPair, PublicKey, PrivateKey, Signature, KeyParseError}
 
-    #[cfg(feature = "ffi_import")]
-    ffi_fn! {decl_ffi_fn}
-    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-    ffi_fn! {def_ffi_fn}
-
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+    pub(crate) use ffi_fn;
     pub(crate) use ffi_item;
 }
+
+#[cfg(feature = "ffi_import")]
+ffi::ffi_fn! {decl_ffi_fn}
+#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+ffi::ffi_fn! {def_ffi_fn}
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {

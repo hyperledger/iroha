@@ -7,6 +7,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
+use iroha_ffi::FfiType;
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
@@ -15,7 +16,9 @@ use iroha_schema::prelude::*;
 use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
-#[derive(Debug)]
+#[derive(Debug, FfiType)]
+#[ffi_type(unsafe {robust})]
+#[repr(transparent)]
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 
 /// Iterator over leaves of [`MerkleTree`]
@@ -121,7 +124,7 @@ impl<T> IntoIterator for MerkleTree<T> {
         LeafHashIterator::new(self)
     }
 }
-
+#[cfg(not(feature = "ffi_import"))]
 impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
     fn type_name() -> String {
         format!("{}::MerkleTree<{}>", module_path!(), T::type_name())

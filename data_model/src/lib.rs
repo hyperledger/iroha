@@ -1411,10 +1411,14 @@ pub mod ffi {
     macro_rules! declare_item {
         ($it: item) => {
             #[cfg(not(feature = "ffi_import"))]
+            #[cfg_attr(feature = "ffi_export", iroha_ffi::ffi_export)]
             $it
 
             #[cfg(feature = "ffi_import")]
-            iroha_ffi::ffi! { $it }
+            iroha_ffi::ffi! {
+                #[iroha_ffi::ffi_import]
+                $it
+            }
         };
     }
 
@@ -1465,13 +1469,13 @@ pub mod ffi {
         role::Role,
     }
 
-    #[cfg(feature = "ffi_import")]
-    ffi_fn! {decl_ffi_fn}
-    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-    ffi_fn! {def_ffi_fn}
-
     pub(crate) use declare_item;
 }
+
+#[cfg(feature = "ffi_import")]
+ffi::ffi_fn! {decl_ffi_fn}
+#[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+ffi::ffi_fn! {def_ffi_fn}
 
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.

@@ -1,11 +1,11 @@
 use proc_macro2::{Span, TokenStream};
 use proc_macro_error::abort;
 use quote::quote;
-use syn::{visit_mut::VisitMut, Ident};
+use syn::{visit_mut::VisitMut, Ident, Type};
 
 use crate::{
     ffi_fn,
-    impl_visitor::{unwrap_result_type, Arg, FnDescriptor, TypeImplTraitResolver},
+    impl_visitor::{unwrap_result_type, Arg, FnDescriptor, ImplDescriptor, TypeImplTraitResolver},
     util::{gen_resolve_type, gen_store_name},
 };
 
@@ -19,6 +19,69 @@ fn gen_ref_mut_name(name: &Ident) -> Ident {
     Ident::new(&format!("RefMut{name}"), Span::call_site())
 }
 
+fn impl_clone_for_opaque(name: &Ident) -> TokenStream {
+    quote! {
+        impl Clone for #name {
+            fn clone(&self) -> Self {
+                let mut output = core::mem::MaybeUninit::uninit();
+
+                let handle_id = iroha_ffi::FfiConvert::into_ffi(<#name as iroha_ffi::Handle>::ID, &mut ());
+                let clone_result = unsafe { crate::__clone(handle_id, self.__opaque_ptr, output.as_mut_ptr()) };
+
+                if clone_result != iroha_ffi::FfiReturn::Ok  {
+                    panic!("Clone returned: {}", clone_result);
+                }
+
+                unsafe {iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output")}
+            }
+        }
+    }
+}
+
+fn impl_eq_for_opaque(name: &Ident) -> TokenStream {
+    quote! {
+        impl PartialEq for #name {
+            fn eq(&self, other: &Self) -> bool {
+                let mut output = core::mem::MaybeUninit::uninit();
+
+                let handle_id = iroha_ffi::FfiConvert::into_ffi(<#name as iroha_ffi::Handle>::ID, &mut ());
+                let eq_result = unsafe { crate::__eq(handle_id, self.__opaque_ptr, other.__opaque_ptr, output.as_mut_ptr()) };
+
+                if eq_result != iroha_ffi::FfiReturn::Ok  {
+                    panic!("Eq returned: {}", eq_result);
+                }
+
+                unsafe {iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output")}
+            }
+        }
+        impl Eq for #name {}
+    }
+}
+
+fn impl_ord_for_opaque(name: &Ident) -> TokenStream {
+    quote! {
+        impl PartialOrd for #name {
+            fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for #name {
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+                let mut output = core::mem::MaybeUninit::uninit();
+
+                let handle_id = iroha_ffi::FfiConvert::into_ffi(<#name as iroha_ffi::Handle>::ID, &mut ());
+                let cmp_result = unsafe { crate::__ord(handle_id, self.__opaque_ptr, other.__opaque_ptr, output.as_mut_ptr()) };
+
+                if cmp_result != iroha_ffi::FfiReturn::Ok  {
+                    panic!("Ord returned: {}", cmp_result);
+                }
+
+                unsafe {iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output")}
+            }
+        }
+    }
+}
+
 fn gen_shared_fns(name: &Ident, attrs: &[syn::Attribute]) -> Vec<TokenStream> {
     let mut shared_fn_impls = Vec::new();
 
@@ -29,35 +92,22 @@ fn gen_shared_fns(name: &Ident, attrs: &[syn::Attribute]) -> Vec<TokenStream> {
         }
 
         if let syn::Meta::List(derives) = attr.parse_meta().expect("Derive macro invalid") {
-            let mut valid_derives = vec![];
-
-            let mut derive_eq = false;
-            let mut derive_ord = false;
             for derive in derives.nested {
                 if let syn::NestedMeta::Meta(meta) = &derive {
                     if let syn::Meta::Path(path) = meta {
                         if path.is_ident("Clone") {
-                            shared_fn_impls.push(quote! {
-                                impl Clone for #name {
-                                    fn clone(&self) -> Self {
-                                        let mut output = core::mem::MaybeUninit::uninit();
-
-                                        let handle_id = iroha_ffi::FfiConvert::into_ffi(<#name as iroha_ffi::Handle>::ID, &mut ());
-                                        let clone_result = unsafe { crate::__clone(handle_id, self.__opaque_ptr, output.as_mut_ptr()) };
-
-                                        if clone_result != iroha_ffi::FfiReturn::Ok  {
-                                            panic!("Clone returned: {}", clone_result);
-                                        }
-
-                                        unsafe {iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output")}
-                                    }
-                                }
-                            });
+                            shared_fn_impls.push(impl_clone_for_opaque(name));
                         } else if path.is_ident("Eq") {
-                            derive_eq = true;
+                            shared_fn_impls.push(impl_eq_for_opaque(name));
                         } else if path.is_ident("Ord") {
-                            derive_ord = true;
-                        } else if path.is_ident("PartialEq") || path.is_ident("PartialOrd") {
+                            shared_fn_impls.push(impl_ord_for_opaque(name));
+                            // TODO: What to do about getters/setters?
+                        } else if path.is_ident("PartialEq")
+                            || path.is_ident("PartialOrd")
+                            || path.is_ident("Setters")
+                            || path.is_ident("Getters")
+                            || path.is_ident("MutGetters")
+                        {
                             // NOTE: These should be skipped
                         } else {
                             abort!(path, "Unsupported derive for opaque type");
@@ -66,50 +116,6 @@ fn gen_shared_fns(name: &Ident, attrs: &[syn::Attribute]) -> Vec<TokenStream> {
                 } else {
                     unreachable!()
                 }
-            }
-
-            if derive_eq {
-                shared_fn_impls.push(quote! {
-                    impl PartialEq for #name {
-                        fn eq(&self, other: &Self) -> bool {
-                            let mut output = core::mem::MaybeUninit::uninit();
-
-                            let handle_id = iroha_ffi::FfiConvert::into_ffi(<#name as iroha_ffi::Handle>::ID, &mut ());
-                            let eq_result = unsafe { crate::__eq(handle_id, self.__opaque_ptr, other.__opaque_ptr, output.as_mut_ptr()) };
-
-                            if eq_result != iroha_ffi::FfiReturn::Ok  {
-                                panic!("Eq returned: {}", eq_result);
-                            }
-
-                            unsafe {iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output")}
-                        }
-                    }
-                    impl Eq for #name {}
-                });
-            }
-
-            if derive_ord {
-                shared_fn_impls.push(quote! {
-                    impl PartialOrd for #name {
-                        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-                            Some(self.cmp(other))
-                        }
-                    }
-                    impl Ord for #name {
-                        fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-                            let mut output = core::mem::MaybeUninit::uninit();
-
-                            let handle_id = iroha_ffi::FfiConvert::into_ffi(<#name as iroha_ffi::Handle>::ID, &mut ());
-                            let cmp_result = unsafe { crate::__ord(handle_id, self.__opaque_ptr, other.__opaque_ptr, output.as_mut_ptr()) };
-
-                            if cmp_result != iroha_ffi::FfiReturn::Ok  {
-                                panic!("Ord returned: {}", cmp_result);
-                            }
-
-                            unsafe {iroha_ffi::FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output")}
-                        }
-                    }
-                });
             }
         }
     }
@@ -126,8 +132,7 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
     let impl_ffi = gen_impl_ffi(name);
 
     let item_type = match input.data {
-        syn::Data::Enum(_) => quote! {enum},
-        syn::Data::Struct(_) => quote! {struct},
+        syn::Data::Enum(_) | syn::Data::Struct(_) => quote! {struct},
         syn::Data::Union(_) => quote! {union},
     };
 
@@ -138,15 +143,18 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
             quote! {
                 #(#shared_fns)*
 
+                // TODO: Other attributes are missing!
                 #[repr(transparent)]
                 #vis #item_type #name {
                     __opaque_ptr: *mut iroha_ffi::Extern
                 }
 
+                // TODO: Other attributes are missing!
                 #[derive(Clone, Copy)]
                 #[repr(transparent)]
                 #vis #item_type #ref_name<'itm>(*const iroha_ffi::Extern, core::marker::PhantomData<&'itm ()>);
 
+                // TODO: Other attributes are missing!
                 #[repr(transparent)]
                 #vis #item_type #ref_mut_name<'itm>(*mut iroha_ffi::Extern, core::marker::PhantomData<&'itm mut ()>);
 
@@ -161,6 +169,14 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
                     }
                 }
 
+                impl #name {
+                    fn as_ref(&self) -> #ref_name<'_> {
+                        #ref_name(self.__opaque_ptr, core::marker::PhantomData)
+                    }
+                    fn as_mut(&self) -> #ref_mut_name<'_> {
+                        #ref_mut_name(self.__opaque_ptr, core::marker::PhantomData)
+                    }
+                }
                 impl core::ops::Deref for #ref_name<'_> {
                     type Target = #name;
 
@@ -305,48 +321,80 @@ fn gen_impl_ffi(name: &Ident) -> TokenStream {
     }
 }
 
-pub fn wrap_impl_items(fns: &[FnDescriptor]) -> TokenStream {
-    if fns.is_empty() {
+pub fn wrap_impl_items(impl_desc: &ImplDescriptor) -> TokenStream {
+    let impl_attrs = &impl_desc.attrs;
+
+    if impl_desc.fns.is_empty() {
         return quote! {};
     }
-
     let lifetime = gen_lifetime_name_for_opaque();
-    let self_ty_name = fns[0].self_ty_name().expect("Defined");
+    let self_ty_name = impl_desc.fns[0].self_ty_name().expect("Defined");
     let ref_self_ty_name = gen_ref_name(self_ty_name);
     let ref_mut_self_ty_name = gen_ref_mut_name(self_ty_name);
 
     let mut self_methods = Vec::new();
     let mut self_ref_methods = Vec::new();
     let mut self_ref_mut_methods = Vec::new();
+    let impl_trait_for = impl_desc
+        .trait_name
+        .map(|trait_name| quote! { #trait_name for });
+    let (associated_names, associated_types) = impl_desc.associated_types.iter().fold(
+        (Vec::new(), Vec::new()),
+        |(mut names, mut types), (name, ty)| {
+            names.push(name);
+            types.push(ty);
+            (names, types)
+        },
+    );
 
-    for fn_ in fns {
+    for fn_ in &impl_desc.fns {
+        let wrapped = wrap_method(fn_, impl_desc.trait_name());
+
         if let Some(recv) = &fn_.receiver {
-            match recv.src_type() {
-                syn::Type::Reference(ref_ty) => {
-                    if ref_ty.mutability.is_some() {
-                        self_ref_mut_methods.push(wrap_method(fn_));
-                    } else {
-                        self_ref_methods.push(wrap_method(fn_));
-                    }
+            if let Type::Reference(ref_ty) = recv.src_type() {
+                if ref_ty.mutability.is_some() {
+                    self_ref_mut_methods.push(wrapped);
+                } else {
+                    self_ref_methods.push(wrapped);
                 }
-                _ => self_methods.push(wrap_method(fn_)),
+            } else {
+                self_methods.push(wrapped);
             }
         } else {
-            self_methods.push(wrap_method(fn_));
+            self_methods.push(wrapped);
         }
     }
 
-    quote! {
-        impl #self_ty_name {
-            #(#self_methods)*
-        }
-        impl<#lifetime> #ref_self_ty_name<#lifetime> {
-            #(#self_ref_methods)*
-        }
-        impl<#lifetime> #ref_mut_self_ty_name<#lifetime> {
-            #(#self_ref_mut_methods)*
-        }
+    let mut result = Vec::new();
+    if !self_methods.is_empty() {
+        result.push(quote! {
+            #(#impl_attrs)*
+            impl #impl_trait_for #self_ty_name {
+                #(type #associated_names = #associated_types;)*
+                #(#self_methods)*
+            }
+        });
     }
+    if !self_ref_methods.is_empty() {
+        result.push(quote! {
+            #(#impl_attrs)*
+            impl<#lifetime> #impl_trait_for #ref_self_ty_name<#lifetime> {
+                #(type #associated_names = #associated_types;)*
+                #(#self_ref_methods)*
+            }
+        });
+    }
+    if !self_ref_mut_methods.is_empty() {
+        result.push(quote! {
+            #(#impl_attrs)*
+            impl<#lifetime> #impl_trait_for #ref_mut_self_ty_name<#lifetime> {
+                #(type #associated_names = #associated_types;)*
+                #(#self_ref_mut_methods)*
+            }
+        });
+    }
+
+    quote! { #(#result)* }
 }
 
 fn gen_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn::Signature {
@@ -362,7 +410,7 @@ fn gen_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn::Signature {
     let add_lifetime = fn_descriptor
         .receiver
         .as_ref()
-        .filter(|arg| matches!(arg.src_type(), syn::Type::Reference(_)))
+        .filter(|arg| matches!(arg.src_type(), Type::Reference(_)))
         .is_some();
 
     if fn_descriptor.self_ty.is_some() && add_lifetime {
@@ -373,22 +421,47 @@ fn gen_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn::Signature {
     signature
 }
 
-pub fn wrap_method(fn_descriptor: &FnDescriptor) -> TokenStream {
+pub fn wrap_method(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> TokenStream {
+    if let Some(trait_name) = trait_name {
+        let self_ty = fn_descriptor.self_ty_name().expect("Method without Self");
+
+        if trait_name == "PartialEq" || trait_name == "PartialOrd" {
+            return quote! {};
+        }
+        if trait_name == "Clone" {
+            return impl_clone_for_opaque(self_ty);
+        }
+        if trait_name == "Eq" {
+            return impl_eq_for_opaque(self_ty);
+        }
+        if trait_name == "Ord" {
+            return impl_ord_for_opaque(self_ty);
+        }
+    }
+
+    let ffi_fn_attrs = &fn_descriptor.attrs;
     let signature = gen_wrapper_signature(fn_descriptor);
-    let method_body = gen_wrapper_method_body(fn_descriptor);
+    let ffi_fn_name = ffi_fn::gen_fn_name(fn_descriptor, trait_name);
+    let method_body = gen_wrapper_method_body(fn_descriptor, &ffi_fn_name);
     let method_doc = &fn_descriptor.doc;
+    let visibility = if trait_name.is_none() {
+        quote! { pub }
+    } else {
+        quote! {}
+    };
 
     quote! {
-        #method_doc
-        pub #signature {
+        #(#method_doc)*
+        #(#ffi_fn_attrs)*
+        #visibility #signature {
             #method_body
         }
     }
 }
 
-fn gen_wrapper_method_body(fn_descriptor: &FnDescriptor) -> TokenStream {
+fn gen_wrapper_method_body(fn_descriptor: &FnDescriptor, ffi_fn_name: &Ident) -> TokenStream {
     let input_conversions = gen_input_conversion_stmts(fn_descriptor);
-    let ffi_fn_call_stmt = gen_ffi_fn_call_stmt(fn_descriptor);
+    let ffi_fn_call_stmt = gen_ffi_fn_call_stmt(fn_descriptor, ffi_fn_name);
     let return_stmt = gen_return_stmt(fn_descriptor);
 
     quote! {
@@ -419,9 +492,11 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     if let Some(arg) = &fn_descriptor.output_arg {
         let name = &arg.name();
 
-        stmts.extend(quote! {
-            let mut #name = core::mem::MaybeUninit::uninit();
-        });
+        if !arg.src_type_is_empty_tuple() {
+            stmts.extend(quote! {
+                let mut #name = core::mem::MaybeUninit::uninit();
+            });
+        }
     }
 
     stmts
@@ -440,9 +515,7 @@ fn gen_input_arg_src_to_ffi(arg: &Arg) -> TokenStream {
     }
 }
 
-fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
-    let ffi_fn_name = ffi_fn::gen_fn_name(fn_descriptor);
-
+fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor, ffi_fn_name: &Ident) -> TokenStream {
     let mut arg_names = quote! {};
     if let Some(arg) = &fn_descriptor.receiver {
         let arg_name = &arg.name();
@@ -461,9 +534,11 @@ fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     if let Some(arg) = &fn_descriptor.output_arg {
         let arg_name = &arg.name();
 
-        arg_names.extend(quote! {
-            #arg_name.as_mut_ptr()
-        });
+        if !arg.src_type_is_empty_tuple() {
+            arg_names.extend(quote! {
+                #arg_name.as_mut_ptr()
+            });
+        }
     }
 
     let execution_fail_arm = fn_descriptor.output_arg.as_ref().map_or_else(
@@ -473,7 +548,8 @@ fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
                 quote! {
                     iroha_ffi::FfiReturn::ExecutionFail => {
                         // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                        return Err(Default::default());
+                        //return Err(Default::default());
+                        unimplemented!("Error handling is not properly implemented yet");
                     }
                 }
             } else {
@@ -495,6 +571,10 @@ fn gen_ffi_fn_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
 
 fn gen_return_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     fn_descriptor.output_arg.as_ref().map_or_else(|| quote! {}, |output| {
+        if output.src_type_is_empty_tuple() {
+            return quote! {Ok(())};
+        }
+
         let arg_name= output.name();
 
         let return_stmt = unwrap_result_type(output.src_type())

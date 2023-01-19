@@ -5,7 +5,7 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::{parse_quote, visit::Visit, Ident};
 
-use crate::impl_visitor::{find_doc_attr, unwrap_result_type, Arg, FnDescriptor};
+use crate::impl_visitor::{is_doc_attr, unwrap_result_type, Arg, FnDescriptor};
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,14 +99,22 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
         })
 }
 
-#[allow(clippy::expect_used)]
-fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> FnDescriptor {
+fn gen_derived_method<'ast>(
+    item_name: &Ident,
+    field: &'ast syn::Field,
+    derive: Derive,
+) -> FnDescriptor<'ast> {
     let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
     let field_name = field.ident.as_ref().expect_or_abort("Defined").clone();
+    let sig = gen_derived_method_sig(field, derive);
     let self_ty = Some(parse_quote! {#item_name});
 
-    let sig = gen_derived_method_sig(field, derive);
-    let doc = find_doc_attr(&field.attrs).cloned();
+    let mut doc = Vec::new();
+    for attr in &field.attrs {
+        if is_doc_attr(attr) {
+            doc.push(attr);
+        }
+    }
 
     let field_ty = &field.ty;
     let field_ty = match derive {
@@ -134,8 +142,8 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
     };
 
     FnDescriptor {
+        attrs: Vec::new(),
         self_ty,
-        trait_name: None,
         doc,
         sig,
         receiver: Some(receiver),
@@ -144,7 +152,6 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
     }
 }
 
-#[allow(clippy::expect_used)]
 fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature {
     let field_name = field.ident.as_ref().expect("Field name not defined");
     let field_ty = &field.ty;

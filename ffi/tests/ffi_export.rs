@@ -33,6 +33,18 @@ pub struct OpaqueStruct {
     params: BTreeMap<Name, Value>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
+pub struct Kita<T> {
+    inner: T,
+}
+
+#[ffi_export]
+impl<T> Kita<T> {
+    pub fn inner(&self) -> &T {
+        &self.inner
+    }
+}
+
 /// Fieldless enum
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
@@ -123,6 +135,15 @@ impl OpaqueStruct {
     pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
         if flag {
             Ok(42)
+        } else {
+            Err("fail")
+        }
+    }
+
+    /// Fallible empty tuple output
+    pub fn fallible_empty_tuple_output(flag: bool) -> Result<(), &'static str> {
+        if flag {
+            Ok(())
         } else {
             Err("fail")
         }
@@ -446,14 +467,29 @@ fn return_result() {
     unsafe {
         assert_eq!(
             FfiReturn::ExecutionFail,
-            OpaqueStruct__fallible_int_output(From::from(false), output.as_mut_ptr())
+            OpaqueStruct__fallible_int_output(false.into_ffi(&mut ()), output.as_mut_ptr())
         );
         assert_eq!(0, output.assume_init());
         assert_eq!(
             FfiReturn::Ok,
-            OpaqueStruct__fallible_int_output(From::from(true), output.as_mut_ptr())
+            OpaqueStruct__fallible_int_output(true.into_ffi(&mut ()), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn return_empty_tuple_result() {
+    unsafe {
+        assert_eq!(
+            FfiReturn::ExecutionFail,
+            OpaqueStruct__fallible_empty_tuple_output(false.into_ffi(&mut ()))
+        );
+        assert_eq!(
+            FfiReturn::Ok,
+            OpaqueStruct__fallible_empty_tuple_output(true.into_ffi(&mut ()))
+        );
     }
 }
 

@@ -3,31 +3,35 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    impl_visitor::{ffi_output_arg, Arg, FnDescriptor},
+    impl_visitor::{Arg, FnDescriptor},
     util::{gen_resolve_type, gen_store_name},
 };
 
-pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
-    let ffi_fn_name = gen_fn_name(fn_descriptor);
-    let ffi_fn_doc = gen_doc(fn_descriptor);
+pub fn gen_declaration(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> TokenStream {
+    let ffi_fn_attrs = &fn_descriptor.attrs;
+    let ffi_fn_name = gen_fn_name(fn_descriptor, trait_name);
+    let ffi_fn_doc = gen_doc(fn_descriptor, trait_name);
     let fn_signature = gen_decl_signature(&ffi_fn_name, fn_descriptor);
 
     quote! {
         extern {
             #[doc = #ffi_fn_doc]
+            #(#ffi_fn_attrs)*
             #fn_signature;
         }
     }
 }
 
-pub fn gen_definition(fn_descriptor: &FnDescriptor) -> TokenStream {
-    let ffi_fn_name = gen_fn_name(fn_descriptor);
-    let ffi_fn_doc = gen_doc(fn_descriptor);
+pub fn gen_definition(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> TokenStream {
+    let ffi_fn_attrs = &fn_descriptor.attrs;
+    let ffi_fn_name = gen_fn_name(fn_descriptor, trait_name);
+    let ffi_fn_doc = gen_doc(fn_descriptor, trait_name);
     let fn_signature = gen_def_signature(&ffi_fn_name, fn_descriptor);
-    let ffi_fn_body = gen_body(fn_descriptor);
+    let ffi_fn_body = gen_body(fn_descriptor, trait_name);
 
     quote! {
         #[no_mangle]
+        #(#ffi_fn_attrs)*
         #[doc = #ffi_fn_doc]
         pub unsafe extern "C" #fn_signature {
             #[allow(clippy::shadow_unrelated)]
@@ -52,14 +56,13 @@ pub fn gen_definition(fn_descriptor: &FnDescriptor) -> TokenStream {
     }
 }
 
-pub fn gen_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
+pub fn gen_fn_name(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> Ident {
     let method_name = format!("__{}", &fn_descriptor.sig.ident);
     let self_ty_name = fn_descriptor
         .self_ty_name()
         .map_or_else(Default::default, ToString::to_string);
-    let trait_name = fn_descriptor
-        .trait_name()
-        .map_or_else(Default::default, |trait_name| format!("__{trait_name}"));
+    let trait_name =
+        trait_name.map_or_else(Default::default, |trait_name| format!("__{trait_name}"));
 
     Ident::new(
         &format!("{self_ty_name}{trait_name}{method_name}"),
@@ -67,15 +70,10 @@ pub fn gen_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
     )
 }
 
-fn gen_doc(fn_descriptor: &FnDescriptor) -> String {
-    // NOTE: [#docs = "some_doc"] expands to ///some_doc, therefore the leading space
+fn gen_doc(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> String {
     let method_name = &fn_descriptor.sig.ident;
     let self_type = fn_descriptor
         .self_ty
-        .as_ref()
-        .and_then(syn::Path::get_ident);
-    let trait_name = fn_descriptor
-        .trait_name
         .as_ref()
         .and_then(syn::Path::get_ident);
 
@@ -90,6 +88,7 @@ fn gen_doc(fn_descriptor: &FnDescriptor) -> String {
         },
     );
 
+    // NOTE: [#docs = "some_doc"] expands to ///some_doc, therefore the leading space
     format!(
         " FFI function equivalent of [`{path}`]\n \
           \n \
@@ -159,9 +158,9 @@ fn gen_decl_out_ptr_arg(arg: &Arg) -> TokenStream {
     quote! { #arg_name: *mut <<#arg_type as iroha_ffi::FfiWrapperType>::ReturnType as iroha_ffi::FfiOutPtr>::OutPtr }
 }
 
-fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
+fn gen_body(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> syn::Block {
     let input_conversions = gen_input_conversion_stmts(fn_descriptor);
-    let method_call_stmt = gen_method_call_stmt(fn_descriptor);
+    let method_call_stmt = gen_method_call_stmt(fn_descriptor, trait_name);
     let output_assignment = gen_output_assignment_stmts(fn_descriptor);
 
     syn::parse_quote! {{
@@ -197,10 +196,9 @@ pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
     }
 }
 
-fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
+fn gen_method_call_stmt(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> TokenStream {
     let ident = &fn_descriptor.sig.ident;
     let self_type = &fn_descriptor.self_ty;
-    let trait_name = &fn_descriptor.trait_name;
 
     let receiver = fn_descriptor.receiver.as_ref();
     let self_arg_name = receiver.map_or_else(Vec::new, |arg| vec![arg.name().clone()]);
@@ -222,6 +220,10 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
         |output_arg| {
             let output_arg_name = &output_arg.name();
 
+            if output_arg.src_type_is_empty_tuple() {
+                return quote! { let #output_arg_name = #method_call; };
+            }
+
             quote! {
                 let __out_ptr = #output_arg_name;
                 let #output_arg_name = #method_call;
@@ -237,10 +239,30 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             let (arg_name, arg_type) = (out_arg.name(), out_arg.src_type_resolved());
             let resolve_impl_trait = gen_resolve_type(out_arg);
 
+            if out_arg.src_type_is_empty_tuple() {
+                return quote! { #resolve_impl_trait };
+            }
+
             quote! {
                 #resolve_impl_trait
                 <#arg_type as iroha_ffi::FfiOutPtrWrite>::write_out(#arg_name, __out_ptr);
             }
         },
     )
+}
+
+fn ffi_output_arg<'ast>(fn_descriptor: &'ast FnDescriptor<'ast>) -> Option<&'ast Arg> {
+    fn_descriptor.output_arg.as_ref().and_then(|output_arg| {
+        if output_arg.src_type_is_empty_tuple() {
+            return None;
+        }
+
+        if let Some(receiver) = &fn_descriptor.receiver {
+            if receiver.name() == output_arg.name() {
+                return None;
+            }
+        }
+
+        Some(output_arg)
+    })
 }

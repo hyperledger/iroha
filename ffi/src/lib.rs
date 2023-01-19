@@ -511,6 +511,10 @@ impl<'itm, R: Ir + CTypeConvert<'itm, R::Type, C>, C: ReprC> FfiConvert<'itm, C>
     }
 }
 
+impl FfiWrapperType for () {
+    type InputType = ();
+    type ReturnType = ();
+}
 impl<R: Ir + CWrapperType<R::Type>> FfiWrapperType for R {
     type InputType = R::InputType;
     type ReturnType = R::ReturnType;
