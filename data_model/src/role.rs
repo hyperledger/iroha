@@ -122,6 +122,7 @@ impl Registered for Role {
     FfiType,
     IntoSchema,
 )]
+#[serde(transparent)]
 pub struct NewRole {
     #[id(transparent)]
     inner: Role,
