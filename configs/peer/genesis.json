@@ -212,9 +212,7 @@
               "U32": 13
             },
             "destination_id": {
-              "Id": {
-                "AssetId": "rose##alice@wonderland"
-              }
+              "AssetId": "rose##alice@wonderland"
             }
           }
         },
@@ -224,9 +222,7 @@
               "U32": 44
             },
             "destination_id": {
-              "Id": {
-                "AssetId": "cabbage#garden_of_live_flowers#alice@wonderland"
-              }
+              "AssetId": "cabbage#garden_of_live_flowers#alice@wonderland"
             }
           }
         },
@@ -248,9 +244,7 @@
                     "definition_id": "can_remove_key_value_in_user_metadata",
                     "params": {
                       "account_id": {
-                        "Id": {
-                          "AccountId": "alice@wonderland"
-                        }
+                        "AccountId": "alice@wonderland"
                       }
                     }
                   },
@@ -258,9 +252,7 @@
                     "definition_id": "can_set_key_value_in_user_metadata",
                     "params": {
                       "account_id": {
-                        "Id": {
-                          "AccountId": "alice@wonderland"
-                        }
+                        "AccountId": "alice@wonderland"
                       }
                     }
                   }
@@ -278,9 +270,7 @@
               }
             },
             "destination_id": {
-              "Id": {
-                "AccountId": "alice@wonderland"
-              }
+              "AccountId": "alice@wonderland"
             }
           }
         },

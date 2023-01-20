@@ -515,6 +515,7 @@ pub enum Value {
     /// Recursive inclusion of LimitedMetadata,
     LimitedMetadata(metadata::Metadata),
     /// `Id` of `Asset`, `Account`, etc.
+    #[serde_partially_tagged(untagged)]
     Id(IdBox),
     /// `impl Identifiable` as in `Asset`, `Account` etc.
     #[serde_partially_tagged(untagged)]
