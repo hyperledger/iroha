@@ -233,27 +233,25 @@
         {
           "Register": {
             "NewRole": {
-              "inner": {
-                "id": "USER_METADATA_ACCESS",
-                "permissions": [
-                  {
-                    "definition_id": "can_remove_key_value_in_user_metadata",
-                    "params": {
-                      "account_id": {
-                        "AccountId": "alice@wonderland"
-                      }
-                    }
-                  },
-                  {
-                    "definition_id": "can_set_key_value_in_user_metadata",
-                    "params": {
-                      "account_id": {
-                        "AccountId": "alice@wonderland"
-                      }
+              "id": "USER_METADATA_ACCESS",
+              "permissions": [
+                {
+                  "definition_id": "can_remove_key_value_in_user_metadata",
+                  "params": {
+                    "account_id": {
+                      "AccountId": "alice@wonderland"
                     }
                   }
-                ]
-              }
+                },
+                {
+                  "definition_id": "can_set_key_value_in_user_metadata",
+                  "params": {
+                    "account_id": {
+                      "AccountId": "alice@wonderland"
+                    }
+                  }
+                }
+              ]
             }
           }
         },
@@ -271,15 +269,13 @@
         {
           "Register": {
             "NewRole": {
-              "inner": {
-                "id": "staff_that_does_stuff_in_genesis",
-                "permissions": [
-                  {
-                    "definition_id": "allowed_to_do_stuff",
-                    "params": {}
-                  }
-                ]
-              }
+              "id": "staff_that_does_stuff_in_genesis",
+              "permissions": [
+                {
+                  "definition_id": "allowed_to_do_stuff",
+                  "params": {}
+                }
+              ]
             }
           }
         }
