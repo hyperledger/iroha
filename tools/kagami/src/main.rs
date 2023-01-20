@@ -271,9 +271,9 @@ mod genesis {
         let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
             token.definition_id().clone(),
         ));
-        let register_role = RegisterBox::new(
-            Role::new("staff_that_does_stuff_in_genesis".parse()?).add_permission(token.clone()),
-        );
+        let role_id: RoleId = "staff_that_does_stuff_in_genesis".parse()?;
+        let register_role =
+            RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
 
         let register_user_metadata_access = RegisterBox::new(
             Role::new("USER_METADATA_ACCESS".parse()?)
@@ -285,7 +285,8 @@ mod genesis {
                 )),
         );
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-        let grant_permission = GrantBox::new(token, alice_id);
+        let grant_permission = GrantBox::new(token, alice_id.clone());
+        let grant_role = GrantBox::new(role_id, alice_id);
 
         result.transactions[0].isi.extend(
             public_blockchain::default_permission_token_definitions()
@@ -300,6 +301,7 @@ mod genesis {
             .push(register_user_metadata_access.into());
         result.transactions[0].isi.push(grant_permission.into());
         result.transactions[0].isi.push(register_role.into());
+        result.transactions[0].isi.push(grant_role.into());
         Ok(result)
     }
 

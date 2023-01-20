@@ -278,6 +278,14 @@
               ]
             }
           }
+        },
+        {
+          "Grant": {
+            "RoleId": "staff_that_does_stuff_in_genesis",
+            "destination_id": {
+              "AccountId": "alice@wonderland"
+            }
+          }
         }
       ]
     }
