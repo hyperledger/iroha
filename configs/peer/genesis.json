@@ -208,9 +208,7 @@
         },
         {
           "Mint": {
-            "object": {
-              "U32": 13
-            },
+            "U32": 13,
             "destination_id": {
               "AssetId": "rose##alice@wonderland"
             }
@@ -218,9 +216,7 @@
         },
         {
           "Mint": {
-            "object": {
-              "U32": 44
-            },
+            "U32": 44,
             "destination_id": {
               "AssetId": "cabbage#garden_of_live_flowers#alice@wonderland"
             }
@@ -263,11 +259,9 @@
         },
         {
           "Grant": {
-            "object": {
-              "PermissionToken": {
-                "definition_id": "allowed_to_do_stuff",
-                "params": {}
-              }
+            "PermissionToken": {
+              "definition_id": "allowed_to_do_stuff",
+              "params": {}
             },
             "destination_id": {
               "AccountId": "alice@wonderland"
