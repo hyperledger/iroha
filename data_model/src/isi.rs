@@ -92,6 +92,7 @@ impl Instruction {
 #[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
 pub struct SetKeyValueBox {
     /// Where to set this key value.
+    #[serde(flatten)]
     pub object_id: EvaluatesTo<IdBox>,
     /// Key string.
     pub key: EvaluatesTo<Name>,
@@ -106,6 +107,7 @@ pub struct SetKeyValueBox {
 #[display(fmt = "REMOVE `{key}` from `{object_id}`")]
 pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
+    #[serde(flatten)]
     pub object_id: EvaluatesTo<IdBox>,
     /// Key string.
     pub key: EvaluatesTo<Name>,
@@ -128,6 +130,8 @@ pub struct RegisterBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
 )]
 #[display(fmt = "UNREGISTER `{object_id}`")]
+#[serde(transparent)]
+#[repr(transparent)]
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
@@ -140,6 +144,7 @@ pub struct UnregisterBox {
 #[display(fmt = "MINT `{object}` TO `{destination_id}`")]
 pub struct MintBox {
     /// Object to mint.
+    #[serde(flatten)]
     pub object: EvaluatesTo<Value>,
     /// Entity to mint to.
     pub destination_id: EvaluatesTo<IdBox>,
@@ -152,6 +157,7 @@ pub struct MintBox {
 #[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
 pub struct BurnBox {
     /// Object to burn.
+    #[serde(flatten)]
     pub object: EvaluatesTo<Value>,
     /// Entity to burn from.
     pub destination_id: EvaluatesTo<IdBox>,
@@ -166,6 +172,7 @@ pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
     /// Object to transfer.
+    #[serde(flatten)]
     pub object: EvaluatesTo<Value>,
     /// Entity to transfer to.
     pub destination_id: EvaluatesTo<IdBox>,
@@ -245,6 +252,7 @@ pub struct FailBox {
 #[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
 pub struct GrantBox {
     /// Object to grant.
+    #[serde(flatten)]
     pub object: EvaluatesTo<Value>,
     /// Entity to which to grant this token.
     pub destination_id: EvaluatesTo<IdBox>,
@@ -257,6 +265,7 @@ pub struct GrantBox {
 #[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
 pub struct RevokeBox {
     /// Object to grant.
+    #[serde(flatten)]
     pub object: EvaluatesTo<Value>,
     /// Entity to which to grant this token.
     pub destination_id: EvaluatesTo<IdBox>,

@@ -5,15 +5,9 @@
             "Instructions": [
                 {
                     "Mint": {
-                        "object": {
-                            "Numeric": {
-                                "U32": 1
-                            }
-                        },
+                        "U32": 1,
                         "destination_id": {
-                            "Id": {
-                                "AssetId": "rose##alice@wonderland"
-                            }
+                            "AssetId": "rose##alice@wonderland"
                         }
                     }
                 }
