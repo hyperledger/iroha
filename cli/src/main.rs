@@ -86,7 +86,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         }
     }
 
-    <iroha::Iroha>::new(&args, default_permissions(), Box::new(AllowAll::new()))
+    <iroha::Iroha>::new(&args, Box::new(AllowAll::new()), Box::new(AllowAll::new()))
         .await?
         .start()
         .await?;
