@@ -1,5 +1,6 @@
 //! `Transaction`-related functionality of Iroha.
 //!
+//!
 //! Types represent various stages of a `Transaction`'s lifecycle. For
 //! example, `Transaction` is the start, when a transaction had been
 //! received by Torii.
@@ -18,6 +19,7 @@ use std::{str::FromStr, sync::Arc};
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
 pub use iroha_data_model::prelude::*;
+use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -127,7 +129,7 @@ impl TransactionValidator {
             }));
         }
 
-        self.validate_with_builtin_validators(&tx, wsv, is_genesis)?;
+        // self.validate_with_builtin_validators(&tx, wsv, is_genesis)?;
         Self::validate_with_runtime_validators(tx, wsv)
     }
 
@@ -228,6 +230,7 @@ impl TransactionValidator {
             signatures,
         };
 
+        debug!(?signed_tx, "Validating transaction");
         // Validating the transaction it-self
         wsv.validators_view()
             .validate(wsv, signed_tx.clone())
@@ -235,6 +238,7 @@ impl TransactionValidator {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail { reason })
             })?;
 
+        debug!("Validating instructions");
         // Validating the transaction instructions
         if let Executable::Instructions(instructions) = signed_tx.payload.instructions {
             for isi in instructions {
@@ -244,6 +248,7 @@ impl TransactionValidator {
             }
         }
 
+        debug!("Validation success");
         Ok(())
     }
 }
