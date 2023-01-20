@@ -147,6 +147,7 @@ pub mod entrypoint {
             /// This function transfers the ownership of allocated
             /// [`Verdict`](::iroha_wasm::data_model::permission::validator::Verdict)
             #[no_mangle]
+            #[doc(hidden)]
             pub unsafe extern "C" fn _iroha_validator_main()
                 -> *const u8
             {
