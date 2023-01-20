@@ -341,7 +341,7 @@ impl Sumeragi {
     pub fn incoming_message(&self, msg: MessagePacket) {
         if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
-            error!(%error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+            error!(?error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }
 }
