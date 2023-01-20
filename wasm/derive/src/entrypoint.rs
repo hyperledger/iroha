@@ -102,6 +102,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         /// Smart contract entrypoint
         #[no_mangle]
+        #[doc(hidden)]
         pub unsafe extern "C" fn _iroha_wasm_main(
         ) {
             #fn_name(#args)
