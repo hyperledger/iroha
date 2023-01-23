@@ -5,6 +5,14 @@ Hyperledger Iroha documentation
 .. image:: ../image_assets/iroha_logo.png
 
 .. warning::
+    Please note that support for Hyperledger Iroha v1 is limited because it's no longer actively developed.
+
+    The core team focuses on `Hyperledger Iroha v2 <https://github.com/hyperledger/iroha/tree/iroha2-dev#hyperledger-iroha>`_, a complete rewrite of Iroha in Rust.
+
+    These versions are incompatible, so you will have to use Iroha 2 instead of Iroha 1 for the new projects.
+    You can read about the differences in the `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_.
+
+.. warning::
     For secure deployment on platforms other than new Linux versions, please read `this note <deploy/index.html#security-notice>`_ first before deploying Iroha in production.
 
 Welcome! Hyperledger Iroha is a simple blockchain platform you can use to make trusted, secure, and fast applications by bringing the power of permission-based blockchain with Crash fault-tolerant consensus. It's free, open-source, and works on Linux and Mac OS, with a variety of mobile and desktop libraries.
@@ -14,11 +22,6 @@ You can download the source code of Hyperledger Iroha and latest releases from `
 This documentation will guide you through the installation, deployment, and launch of Iroha network, and explain to you how to write an application for it. We will also see which use case scenarios are feasible now, and are going to be implemented in the future.
 
 As Hyperledger Iroha is an open-source project, we will also cover contribution part and explain you a working process.
-
-.. note::
-    Please note that there exists a complete rewrite of Hyperledger Iroha in Rust, `Iroha 2 <https://github.com/hyperledger/iroha/tree/iroha2-dev#hyperledger-iroha>`_. Both projects are developed concurrently in the same repository. However, they are not compatible. You can read about their differences in `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_.
-    
-    For all new projects, we recommend using Iroha 2 instead of Iroha 1.
 
 .. toctree::
     :maxdepth: 2
