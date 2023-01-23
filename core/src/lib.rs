@@ -1,4 +1,5 @@
 //! Iroha — A simple, enterprise-grade decentralized ledger.
+#![feature(adt_const_params)]
 
 pub mod block;
 pub mod block_sync;

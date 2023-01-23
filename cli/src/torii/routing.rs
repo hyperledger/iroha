@@ -26,6 +26,7 @@ use iroha_core::{
         isi::query::{Error as QueryError, ValidQueryRequest},
         permissions::prelude::*,
     },
+    tx::TransactionOrigin,
 };
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
@@ -108,10 +109,9 @@ pub(crate) async fn handle_instructions(
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction = VersionedAcceptedTransaction::from_transaction(
-        transaction,
-        &iroha_cfg.sumeragi.transaction_limits,
-    )
+    let transaction = VersionedAcceptedTransaction::from_transaction::<
+        { TransactionOrigin::ConsensusBlock },
+    >(transaction, &iroha_cfg.sumeragi.transaction_limits)
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
     queue

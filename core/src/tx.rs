@@ -113,9 +113,6 @@ impl TransactionValidator {
         let account_id = &tx.payload.account_id;
         Self::validate_signatures(&tx, is_genesis, wsv)?;
 
-        // Sanity check - should have been checked by now
-        tx.check_limits(&self.transaction_limits)?;
-
         if !wsv
             .domain(&account_id.domain_id)
             .map_err(|_e| {
@@ -281,11 +278,11 @@ impl VersionedAcceptedTransaction {
     ///
     /// - if it does not adhere to limits
     /// - if signature verification fails
-    pub fn from_transaction(
+    pub fn from_transaction<const TX_ORIGIN: TransactionOrigin>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
-        AcceptedTransaction::from_transaction(transaction, limits).map(Into::into)
+        AcceptedTransaction::from_transaction::<TX_ORIGIN>(transaction, limits).map(Into::into)
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
@@ -327,13 +324,16 @@ impl AcceptedTransaction {
     ///
     /// - if it does not adhere to limits
     /// - if signature verification fails
-    pub fn from_transaction(
+    pub fn from_transaction<const TX_ORIGIN: TransactionOrigin>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self> {
-        transaction
-            .check_limits(limits)
-            .wrap_err("Limits verification failed")?;
+        // NOTE: genesis block is unlimited
+        if matches!(TX_ORIGIN, TransactionOrigin::ConsensusBlock) {
+            transaction
+                .check_limits(limits)
+                .wrap_err("Limits verification failed")?;
+        }
         let signatures: SignaturesOf<_> = transaction
             .signatures
             .try_into()
@@ -482,6 +482,15 @@ impl From<RejectedTransaction> for AcceptedTransaction {
     }
 }
 
+/// Enum used as const generic parameter to distinguish transaction origin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransactionOrigin {
+    /// Transaction is part of genesis block
+    GenesisBlock,
+    /// Transaction is part of block produced during consensus
+    ConsensusBlock,
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
@@ -511,8 +520,9 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let result: Result<AcceptedTransaction> =
-            AcceptedTransaction::from_transaction(tx, &tx_limits);
+        let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction::<
+            { TransactionOrigin::ConsensusBlock },
+        >(tx, &tx_limits);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -529,5 +539,29 @@ mod tests {
                 DEFAULT_MAX_INSTRUCTION_NUMBER + 1
             )
         );
+    }
+
+    #[test]
+    fn genesis_transaction_ignore_limits() {
+        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
+        let inst: Instruction = FailBox {
+            message: "Will fail".to_owned(),
+        }
+        .into();
+        let tx = Transaction::new(
+            AccountId::from_str("root@global").expect("Valid"),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
+            1000,
+        )
+        .sign(key_pair)
+        .expect("Valid");
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction::<
+            { TransactionOrigin::GenesisBlock },
+        >(tx, &tx_limits);
+        assert!(result.is_ok());
     }
 }

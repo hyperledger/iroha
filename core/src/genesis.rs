@@ -11,7 +11,7 @@
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
 use derive_more::Deref;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{bail, eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
@@ -26,7 +26,7 @@ use tokio::{time, time::Duration};
 
 use crate::{
     sumeragi::network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-    tx::VersionedAcceptedTransaction,
+    tx::{TransactionOrigin, VersionedAcceptedTransaction},
     IrohaNetwork,
 };
 
@@ -147,55 +147,43 @@ impl GenesisNetworkTrait for GenesisNetwork {
         genesis_config: Option<&Configuration>,
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
-        #![allow(clippy::unwrap_in_result)]
-        #![allow(clippy::expect_used)]
         if !submit_genesis {
             iroha_logger::debug!("Not submitting genesis");
             return Ok(None);
         }
         iroha_logger::debug!("Submitting genesis.");
+        let genesis_config =
+            genesis_config.expect("Should be `Some` when `submit_genesis` is true");
+        let genesis_key_pair = KeyPair::new(
+            genesis_config.account_public_key.clone(),
+            genesis_config
+                .account_private_key
+                .clone()
+                .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
+        )?;
+        let transactions = raw_block
+            .transactions
+            .iter()
+            .map(|raw_transaction| {
+                raw_transaction.sign_and_accept(genesis_key_pair.clone(), tx_limits)
+            })
+            .enumerate()
+            .filter_map(|(i, res)| {
+                res.map_err(|error| {
+                    let error_msg = format!("{error:#}");
+                    iroha_logger::error!(error = %error_msg, transaction_num=i, "Genesis transaction failed")
+                })
+                .ok()
+            })
+            .collect::<Vec<_>>();
+        if transactions.is_empty() {
+            bail!("Genesis transaction set contains no valid transactions");
+        }
         Ok(Some(GenesisNetwork {
-            transactions: raw_block
-                .transactions
-                .iter()
-                .map(|raw_transaction| {
-                    let genesis_key_pair = KeyPair::new(
-                        genesis_config
-                            .as_ref()
-                            .expect("Should be `Some` when `submit_genesis` is true")
-                            .account_public_key
-                            .clone(),
-                        genesis_config
-                            .as_ref()
-                            .expect("Should be `Some` when `submit_genesis` is true")
-                            .account_private_key
-                            .clone()
-                            .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
-                    )?;
-
-                    raw_transaction.sign_and_accept(genesis_key_pair, tx_limits)
-                })
-                .enumerate()
-                .filter_map(|(i, res)| {
-                    res.map_err(|error| {
-                        let error_msg = format!("{error:#}");
-                        iroha_logger::error!(error = %error_msg, "Genesis transaction #{i} failed")
-                    })
-                    .ok()
-                })
-                .collect(),
-            wait_for_peers_retry_count_limit: genesis_config
-                .as_ref()
-                .expect("Should be `Some` when `submit_genesis` is true")
-                .wait_for_peers_retry_count_limit,
-            wait_for_peers_retry_period_ms: genesis_config
-                .as_ref()
-                .expect("Should be `Some` when `submit_genesis` is true")
-                .wait_for_peers_retry_period_ms,
-            genesis_submission_delay_ms: genesis_config
-                .as_ref()
-                .expect("Should be `Some` when `submit_genesis` is true")
-                .genesis_submission_delay_ms,
+            transactions,
+            wait_for_peers_retry_count_limit: genesis_config.wait_for_peers_retry_count_limit,
+            wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
+            genesis_submission_delay_ms: genesis_config.genesis_submission_delay_ms,
         }))
     }
 
@@ -292,7 +280,10 @@ impl GenesisTransaction {
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;
-        VersionedAcceptedTransaction::from_transaction(transaction, limits)
+        VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::GenesisBlock }>(
+            transaction,
+            limits,
+        )
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
@@ -435,19 +426,20 @@ mod tests {
 
     #[test]
     #[allow(clippy::expect_used)]
-    fn load_default_genesis_block() -> Result<()> {
-        let (public_key, private_key) = KeyPair::generate()?.into();
+    fn load_new_genesis_block() -> Result<()> {
+        let (genesis_public_key, genesis_private_key) = KeyPair::generate()?.into();
+        let (alice_public_key, _) = KeyPair::generate()?.into();
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
-            RawGenesisBlock::default(),
+            RawGenesisBlock::new("alice".parse()?, "wonderland".parse()?, alice_public_key),
             Some(
                 &ConfigurationProxy {
-                    account_public_key: Some(public_key),
-                    account_private_key: Some(Some(private_key)),
+                    account_public_key: Some(genesis_public_key),
+                    account_private_key: Some(Some(genesis_private_key)),
                     ..ConfigurationProxy::default()
                 }
                 .build()

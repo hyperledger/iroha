@@ -330,7 +330,7 @@ mod tests {
     use rand::Rng as _;
 
     use super::*;
-    use crate::{kura::Kura, wsv::World, PeersIds};
+    use crate::{kura::Kura, tx::TransactionOrigin, wsv::World, PeersIds};
 
     fn accepted_tx(
         account_id: &str,
@@ -352,8 +352,10 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        VersionedAcceptedTransaction::from_transaction(tx, &limits)
-            .expect("Failed to accept Transaction.")
+        VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::ConsensusBlock }>(
+            tx, &limits,
+        )
+        .expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains(
@@ -706,8 +708,10 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            VersionedAcceptedTransaction::from_transaction(signed_tx, &tx_limits)
-                .expect("Failed to accept Transaction.")
+            VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::ConsensusBlock }>(
+                signed_tx, &tx_limits,
+            )
+            .expect("Failed to accept Transaction.")
         };
         // Check that fully signed transaction pass signature check
         assert!(matches!(
@@ -716,7 +720,7 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            VersionedAcceptedTransaction::from_transaction(
+            VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::ConsensusBlock }>(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
                 &tx_limits,
             )
