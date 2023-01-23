@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
 use super::*;
-use crate::{genesis::GenesisNetwork, sumeragi::tracing::instrument};
+use crate::{genesis::GenesisNetwork, sumeragi::tracing::instrument, tx::TransactionOrigin};
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {}
@@ -329,7 +329,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
                                     "Genesis Round Peer is revalidating the block."
                                 );
                                 let _enter = span.enter();
-                                match block.revalidate(
+                                match block.revalidate::<{ TransactionOrigin::GenesisBlock }>(
                                     &self.transaction_validator,
                                     &state.wsv,
                                     state.latest_block_hash,
@@ -481,7 +481,10 @@ fn enqueue_transaction<F: FaultInjection>(
     let tx = tx.into_v1();
 
     let addr = &sumeragi.peer_id.address;
-    match VersionedAcceptedTransaction::from_transaction(tx, &sumeragi.transaction_limits) {
+    match VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::ConsensusBlock }>(
+        tx,
+        &sumeragi.transaction_limits,
+    ) {
         Ok(tx) => match sumeragi.queue.push(tx, wsv) {
             Ok(_) => {}
             Err(crate::queue::Failure {
@@ -964,7 +967,7 @@ fn vote_for_block<F: FaultInjection>(
         let span = span!(Level::TRACE, "block revalidation");
         let _enter = span.enter();
 
-        match block.revalidate(
+        match block.revalidate::<{ TransactionOrigin::ConsensusBlock }>(
             &sumeragi.transaction_validator,
             &state.wsv,
             state.latest_block_hash,

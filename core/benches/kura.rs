@@ -4,7 +4,12 @@ use std::{str::FromStr as _, sync::Arc};
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_core::{kura::BlockStore, prelude::*, tx::TransactionValidator, wsv::World};
+use iroha_core::{
+    kura::BlockStore,
+    prelude::*,
+    tx::{TransactionOrigin, TransactionValidator},
+    wsv::World,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use iroha_version::scale::EncodeVersioned;
@@ -33,7 +38,11 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         max_instruction_number: 4096,
         max_wasm_size_bytes: 0,
     };
-    let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
+    let tx =
+        VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::ConsensusBlock }>(
+            tx,
+            &transaction_limits,
+        )
         .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
     let kura =
