@@ -336,7 +336,10 @@ pub mod isi {
             let validator_id = validator.id().clone();
 
             wsv.modify_validators(|validator_chain| {
-                if !validator_chain.add_validator(validator) {
+                let inserted = validator_chain
+                    .add_validator(validator)
+                    .map_err(|err| ValidationError::new(err.to_string()))?;
+                if !*inserted {
                     return Err(Error::Repetition(
                         InstructionType::Register,
                         IdBox::ValidatorId(validator_id),
