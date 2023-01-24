@@ -9,7 +9,7 @@ Hyperledger Iroha documentation
     
     For new projects, **we recommend using Iroha v2 instead of Iroha v1**. If you are using Iroha v1, we encourage you to plan an upgrade and switch to using Iroha v2.
     
-    The long-term supported version of Iroha v2 (`iroha2-lts`) is your best choice if you want to use Iroha in production and get tech support from our side. Unfortunately, we cannot offer the same support for Iroha v1, so please consider using Iroha v2.
+    The long-term supported version of Iroha v2 (`iroha2-lts`) is your best choice if you want to use Iroha in production and receive tech support from our side. Unfortunately, we cannot offer the same support for Iroha v1, so please consider using Iroha v2.
 
     Note that Iroha v1 and Iroha v2 are incompatible. You can read about their differences in the `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_.
 
