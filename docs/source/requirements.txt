@@ -34,5 +34,6 @@ urllib3
 watchdog==0.8.3
 yarg==0.1.9
 mistune==2.0.3
+m2r2==0.3.2
 pygments-lexer-solidity
 sphinxext-remoteliteralinclude
