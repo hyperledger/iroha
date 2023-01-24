@@ -130,7 +130,10 @@ impl TransactionValidator {
         }
 
         // self.validate_with_builtin_validators(&tx, wsv, is_genesis)?;
-        Self::validate_with_runtime_validators(tx, wsv)
+        debug!(?tx, "Start validation");
+        let res = Self::validate_with_runtime_validators(tx, wsv);
+        debug!("End validation");
+        res
     }
 
     /// Validate signatures for the given transaction
@@ -193,7 +196,8 @@ impl TransactionValidator {
                 Ok(())
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime = wasm::Runtime::new()
+                let mut wasm_runtime = wasm::RuntimeBuilder::new()
+                    .build()
                     .map_err(|reason| WasmExecutionFail {
                         reason: reason.to_string(),
                     })

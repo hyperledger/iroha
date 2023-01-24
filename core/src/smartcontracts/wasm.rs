@@ -95,10 +95,34 @@ pub enum Error {
     Other(eyre::Error),
 }
 
+/// [`Result`] type for this module
+pub type Result<T, E = Error> = core::result::Result<T, E>;
+
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
         Self::Parse(err)
     }
+}
+
+/// Create [`Engine`] with a predefined configuration.
+///
+/// # Panics
+///
+/// Panics if something is wrong with the configuration.
+/// Configuration is hardcoded and tested, so this function should never panic.
+pub fn create_engine() -> Engine {
+    create_config()
+        .and_then(|config| Engine::new(&config).map_err(Error::Initialization))
+        .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
+}
+
+fn create_config() -> Result<Config> {
+    let mut config = Config::new();
+    config
+        .consume_fuel(true)
+        .cache_config_load_default()
+        .map_err(Error::Initialization)?;
+    Ok(config)
 }
 
 #[derive(Clone)]
@@ -234,51 +258,7 @@ pub struct Runtime<'wrld> {
 }
 
 impl<'wrld> Runtime<'wrld> {
-    /// `Runtime` constructor with default configuration.
-    ///
-    /// # Errors
-    ///
-    /// If unable to construct runtime
-    #[allow(clippy::unwrap_in_result)]
-    pub fn new() -> Result<Self, Error> {
-        let engine = Self::create_engine()?;
-        let config = ConfigurationProxy::default()
-            .build()
-            .expect("Wasm proxy always builds");
-
-        let linker = Self::create_linker(&engine)?;
-
-        Ok(Self {
-            engine,
-            linker,
-            config,
-        })
-    }
-
-    /// `Runtime` constructor.
-    ///
-    /// # Errors
-    ///
-    /// See [`Runtime::new`]
-    pub fn from_configuration(config: Configuration) -> Result<Self, Error> {
-        Ok(Self {
-            config,
-            ..Runtime::new()?
-        })
-    }
-
-    fn create_config() -> Config {
-        let mut config = Config::new();
-        config.consume_fuel(true);
-        //config.cache_config_load_default();
-        config
-    }
-
-    fn create_engine() -> Result<Engine, Error> {
-        Engine::new(&Self::create_config()).map_err(Error::Initialization)
-    }
-
-    fn create_store(&self, state: State<'wrld>) -> Result<Store<State<'wrld>>, Error> {
+    fn create_store(&self, state: State<'wrld>) -> Result<Store<State<'wrld>>> {
         let mut store = Store::new(&self.engine, state);
 
         store.limiter(|stat| &mut stat.store_limits);
@@ -459,7 +439,7 @@ impl<'wrld> Runtime<'wrld> {
         Ok(())
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld>>, Error> {
+    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld>>> {
         let mut linker = Linker::new(engine);
 
         linker
@@ -538,7 +518,7 @@ impl<'wrld> Runtime<'wrld> {
         max_instruction_count: u64,
         instruction_judge: InstructionJudgeArc,
         query_judge: QueryJudgeArc,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let state = State::new(wsv, account_id.clone(), self.config).with_validator(
             max_instruction_count,
             instruction_judge,
@@ -561,7 +541,7 @@ impl<'wrld> Runtime<'wrld> {
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         event: Event,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let state = State::new(wsv, account_id, self.config).with_triggering_event(event);
         self.execute_main_with_state(bytes, state)
     }
@@ -613,16 +593,12 @@ impl<'wrld> Runtime<'wrld> {
         wsv: &WorldStateView,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let state = State::new(wsv, account_id, self.config);
         self.execute_main_with_state(bytes, state)
     }
 
-    fn execute_main_with_state(
-        &mut self,
-        bytes: impl AsRef<[u8]>,
-        state: State,
-    ) -> Result<(), Error> {
+    fn execute_main_with_state(&mut self, bytes: impl AsRef<[u8]>, state: State) -> Result<()> {
         let mut store = self.create_store(state)?;
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
@@ -666,7 +642,7 @@ impl<'wrld> Runtime<'wrld> {
         dealloc_fn: &wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>,
         mut context: &mut C,
         offset: WasmUsize,
-    ) -> Result<T, Error> {
+    ) -> Result<T> {
         const U32_TO_USIZE_ERROR_MES: &str = "`u32` should always fit in `usize`";
 
         let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
@@ -742,6 +718,56 @@ impl<'wrld> Runtime<'wrld> {
         r[..len_size_bytes].copy_from_slice(&len.to_le_bytes());
 
         Ok(r)
+    }
+}
+
+/// `Runtime` builder
+#[derive(Default)]
+pub struct RuntimeBuilder {
+    engine: Option<Engine>,
+    config: Option<Configuration>,
+}
+
+impl RuntimeBuilder {
+    /// Creates a new `RuntimeBuilder`
+    pub fn new() -> Self {
+        Self {
+            engine: None,
+            config: None,
+        }
+    }
+
+    /// Sets the [`Engine`] to be used by the [`Runtime`]
+    #[must_use]
+    pub fn with_engine(mut self, engine: Engine) -> Self {
+        self.engine = Some(engine);
+        self
+    }
+
+    /// Sets the [`Configuration`] to be used by the [`Runtime`]
+    #[must_use]
+    pub fn with_configuration(mut self, config: Configuration) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// Builds the [`Runtime`]
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build<'wrld>(self) -> Result<Runtime<'wrld>> {
+        let engine = self.engine.unwrap_or_else(create_engine);
+        let linker = Runtime::create_linker(&engine)?;
+        Ok(Runtime {
+            engine,
+            linker,
+            config: self.config.unwrap_or_else(|| {
+                ConfigurationProxy::default()
+                    .build()
+                    .expect("Error building WASM Runtime configuration from proxy. This is a bug")
+            }),
+        })
     }
 }
 
@@ -857,7 +883,7 @@ mod tests {
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
-        let mut runtime = Runtime::new()?;
+        let mut runtime = RuntimeBuilder::new().build()?;
         runtime
             .execute(&wsv, account_id, wat)
             .expect("Execution failed");
@@ -898,7 +924,7 @@ mod tests {
             isi_len = query_hex.len() / 3,
         );
 
-        let mut runtime = Runtime::new()?;
+        let mut runtime = RuntimeBuilder::new().build()?;
         runtime
             .execute(&wsv, account_id, wat)
             .expect("Execution failed");
@@ -941,7 +967,7 @@ mod tests {
             isi2_end = 2 * isi_hex.len() / 3,
         );
 
-        let mut runtime = Runtime::new()?;
+        let mut runtime = RuntimeBuilder::new().build()?;
         let res = runtime.validate(
             &wsv,
             &account_id,
@@ -995,7 +1021,7 @@ mod tests {
             isi_len = isi_hex.len() / 3,
         );
 
-        let mut runtime = Runtime::new()?;
+        let mut runtime = RuntimeBuilder::new().build()?;
         let res = runtime.validate(
             &wsv,
             &account_id,
@@ -1048,7 +1074,7 @@ mod tests {
             isi_len = query_hex.len() / 3,
         );
 
-        let mut runtime = Runtime::new()?;
+        let mut runtime = RuntimeBuilder::new().build()?;
         let res = runtime.validate(
             &wsv,
             &account_id,
