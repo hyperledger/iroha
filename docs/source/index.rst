@@ -5,7 +5,7 @@ Hyperledger Iroha documentation
 .. image:: ../image_assets/iroha_logo.png
 
 .. warning::
-    Please note that Hyperledger Iroha v1 is **no longer under active development** and the support for Iroha v1 is limited. The core development team focuses on `Hyperledger Iroha v2 <https://github.com/hyperledger/iroha/tree/iroha2-dev#hyperledger-iroha>`_, a complete rewrite of Iroha in Rust.
+    Please note that Hyperledger Iroha v1 is **no longer under active development** therefore, support for Iroha v1 is limited. The core development team is focused on `Hyperledger Iroha v2 <https://github.com/hyperledger/iroha/tree/iroha2-dev#hyperledger-iroha>`_, a complete rewrite of Iroha in Rust.
     
     For new projects, **we recommend using Iroha v2 instead of Iroha v1**. If you are using Iroha v1, we encourage you to plan an upgrade and switch to using Iroha v2.
     
