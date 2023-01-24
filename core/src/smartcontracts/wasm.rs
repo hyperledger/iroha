@@ -116,6 +116,17 @@ pub fn create_engine() -> Engine {
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
+/// Create [`Module`] from bytes.
+///
+/// # Errors
+///
+/// See [`Module::new`]
+///
+// TODO: Probably we can do some checks here such as searching for entrypoint function
+pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
+    Module::new(engine, bytes).map_err(Error::Instantiation)
+}
+
 fn create_config() -> Result<Config> {
     let mut config = Config::new();
     config
@@ -273,10 +284,12 @@ impl<'wrld> Runtime<'wrld> {
         &self,
         store: &mut Store<State<'wrld>>,
         bytes: impl AsRef<[u8]>,
-    ) -> Result<wasmtime::Instance, Error> {
-        Module::new(&self.engine, bytes)
-            .and_then(|module| self.linker.instantiate(store, &module))
-            .map_err(Error::Instantiation)
+    ) -> Result<wasmtime::Instance> {
+        load_module(&self.engine, bytes).and_then(|module| {
+            self.linker
+                .instantiate(store, &module)
+                .map_err(Error::Instantiation)
+        })
     }
 
     /// Host defined function which executes query. When calling this function, module
@@ -546,26 +559,28 @@ impl<'wrld> Runtime<'wrld> {
         self.execute_main_with_state(bytes, state)
     }
 
-    /// Execute the given wasm runtime permission validator
+    /// Execute the given module of runtime permission validator
     ///
     /// # Errors
     ///
-    /// - if unable to construct wasm module or instance of wasm module
+    /// - if module instantiation fails
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
-    #[allow(unsafe_code)]
-    pub fn execute_permission_validator(
-        &mut self,
+    pub fn execute_permission_validator_module(
+        &self,
         wsv: &WorldStateView,
         account_id: AccountId,
-        bytes: impl AsRef<[u8]>,
+        module: &wasmtime::Module,
         operation: permission::validator::NeedsPermissionBox,
-    ) -> Result<permission::validator::Verdict, Error> {
+    ) -> Result<permission::validator::Verdict> {
         let state = State::new(wsv, account_id, self.config).with_operation_to_validate(operation);
         let mut store = self.create_store(state)?;
-        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+        let instance = self
+            .linker
+            .instantiate(&mut store, module)
+            .map_err(Error::Instantiation)?;
 
-        let validate_fn = smart_contract
+        let validate_fn = instance
             .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_VALIDATOR_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
@@ -574,8 +589,8 @@ impl<'wrld> Runtime<'wrld> {
             .call(&mut store, ())
             .map_err(Error::ExportFnCall)?;
 
-        let memory = Self::get_memory(&mut (&smart_contract, &mut store))?;
-        let dealloc_fn = smart_contract
+        let memory = Self::get_memory(&mut (&instance, &mut store))?;
+        let dealloc_fn = instance
             .get_typed_func(&mut store, export::WASM_DEALLOC_FN)
             .map_err(Error::ExportNotFound)?;
         Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)

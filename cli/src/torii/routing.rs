@@ -75,6 +75,7 @@ impl VerifiedQueryRequest {
             .and_then(|_| {
                 wsv.validators_view()
                     .validate(wsv, self.payload.query.clone())
+                    .map_err(|err| err.to_string())
             })
             .map_err(QueryError::Permission)?;
         Ok((
