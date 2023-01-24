@@ -9,7 +9,7 @@ Hyperledger Iroha documentation
 
     The core team focuses on `Hyperledger Iroha v2 <https://github.com/hyperledger/iroha/tree/iroha2-dev#hyperledger-iroha>`_, a complete rewrite of Iroha in Rust.
 
-    These versions are incompatible, so you will have to use Iroha 2 instead of Iroha 1 for the new projects.
+    These versions are incompatible. We recommend using Iroha 2 instead of Iroha 1 for new projects.
     You can read about the differences in the `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_.
 
 .. warning::
