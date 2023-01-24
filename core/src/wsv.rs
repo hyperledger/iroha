@@ -220,8 +220,9 @@ impl WorldStateView {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime =
-                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
+                let mut wasm_runtime = wasm::RuntimeBuilder::new()
+                    .with_configuration(self.config.wasm_runtime_config)
+                    .build()?;
                 wasm_runtime
                     .execute_trigger(self, authority.clone(), bytes, event)
                     .map_err(Into::into)
@@ -235,8 +236,9 @@ impl WorldStateView {
                 self.process_instructions(instructions.iter().cloned(), &authority)
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime =
-                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
+                let mut wasm_runtime = wasm::RuntimeBuilder::new()
+                    .with_configuration(self.config.wasm_runtime_config)
+                    .build()?;
                 wasm_runtime
                     .execute(self, authority, bytes)
                     .map_err(Into::into)
