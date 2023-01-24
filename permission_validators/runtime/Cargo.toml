@@ -4,6 +4,7 @@ members = [
   "asset/burn",
   "asset/mint",
   "asset/transfer",
+  "asset/unregister",
 ]
 
 [workspace.package]
