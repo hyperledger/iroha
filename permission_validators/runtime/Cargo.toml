@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "asset/burn",
   "asset/mint",
+  "asset/transfer",
 ]
 
 [workspace.package]
