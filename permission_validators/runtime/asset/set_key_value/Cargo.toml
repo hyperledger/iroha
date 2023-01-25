@@ -1,0 +1,13 @@
+[package]
+name = "iroha_asset_set_key_value_validator"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ['rlib']
+
+[dependencies]
+iroha_wasm.workspace = true
