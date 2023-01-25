@@ -8,16 +8,16 @@ I'm new. Where to start?
 Hello, newcomer! You are very welcome :)
 There are 2 ways for you to start with Iroha:
 
- 1. You can see what Iroha is an how it works by building a simple example network following our `Getting Started Guide <../getting_started/index.html>`_
+ 1. You can see what Iroha is and how it works by building a simple example network following our `Getting Started Guide <../getting_started/index.html>`_
  2. You can get acquainted with the `core concepts of Iroha <../concepts_architecture/index.html>`_ and start building your own `Iroha network <../deploy/index.html>`_
 
 Now you have your Iroha blockchain! Congratulations!
-If you have any questions on it, do not hesitate to contact our community here: https://chat.hyperledger.org/channel/iroha
+If you have any questions about it, do not hesitate to contact our community here: https://chat.hyperledger.org/channel/iroha
 
 What type of data can be transferred?
 -------------------------------------
 
-Hyperleder Iroha allows you to send not only assets (you might get such impression due to a highly developed set of commands and queries for serving such assets) but any data that will be stored in the chain as well.
+Hyperledger Iroha allows you to send not only assets (you might get such impression due to a highly developed set of commands and queries for serving such assets) but any data that will be stored in the chain as well.
 
 The current implementation provides that opportunity at least via `SetAccountDetail <../develop/api/commands.html#set-account-detail>`_ command and `GetAccountDetail <../develop/api/queries.html#get-account-detail>`_ query.
 
@@ -44,4 +44,7 @@ What is the throughput (TPS)? Are there any performance test results?
 The efficiency of your Iroha network will depend on the configuration, hardware and number of nodes.
 You are welcome to try out the load test in `test/load` directory and report the results.
 
-.. note::We will be adding new frequent questions here!
+What is the difference between Iroha and Iroha 2?
+-------------------------------------------------
+
+Iroha 2 is a rewrite of Iroha in Rust with a few major changes to the consensus mechanism. `Iroha 2 documentation <https://hyperledger.github.io/iroha-2-docs/guide/iroha-2.html>`_ offers a summary of differences between the two projects.
