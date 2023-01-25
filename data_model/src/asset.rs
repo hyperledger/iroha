@@ -219,9 +219,9 @@ declare_item! {
     pub struct Asset {
         /// Component Identification.
         #[getset(skip)]
-        id: Id,
+        pub id: Id,
         /// Asset's Quantity.
-        value: AssetValue,
+        pub value: AssetValue,
     }
 }
 
@@ -501,9 +501,13 @@ declare_item! {
     )]
     #[display(fmt = "{id} {mintable}{value_type}")]
     pub struct NewAssetDefinition {
+        /// The identification associated with the asset definition builder.
         id: <AssetDefinition as Identifiable>::Id,
+        /// The type value associated with the asset definition builder.
         value_type: AssetValueType,
+        /// The mintablility associated with the asset definition builder.
         mintable: Mintable,
+        /// Metadata associated with the asset definition builder.
         metadata: Metadata,
     }
 }

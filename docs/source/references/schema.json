@@ -1676,7 +1676,7 @@
         {
           "name": "Created",
           "discriminant": 1,
-          "ty": "iroha_data_model::account::Id"
+          "ty": "iroha_data_model::account::NewAccount"
         },
         {
           "name": "Deleted",
@@ -1849,7 +1849,7 @@
         {
           "name": "Created",
           "discriminant": 0,
-          "ty": "iroha_data_model::asset::DefinitionId"
+          "ty": "iroha_data_model::asset::NewAssetDefinition"
         },
         {
           "name": "MintabilityChanged",
@@ -1949,7 +1949,7 @@
         {
           "name": "Created",
           "discriminant": 0,
-          "ty": "iroha_data_model::asset::Id"
+          "ty": "iroha_data_model::asset::Asset"
         },
         {
           "name": "Deleted",
@@ -2045,7 +2045,7 @@
         {
           "name": "Created",
           "discriminant": 2,
-          "ty": "iroha_data_model::domain::Id"
+          "ty": "iroha_data_model::domain::NewDomain"
         },
         {
           "name": "Deleted",
@@ -2213,7 +2213,7 @@
         {
           "name": "Created",
           "discriminant": 0,
-          "ty": "iroha_data_model::role::Id"
+          "ty": "iroha_data_model::role::NewRole"
         },
         {
           "name": "Deleted",

@@ -25,7 +25,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let account: Account = self.object.build();
+            let account: Account = self.object.clone().build();
             let account_id = account.id().clone();
 
             account_id
@@ -42,7 +42,7 @@ pub mod isi {
                 }
 
                 domain.add_account(account);
-                Ok(DomainEvent::Account(AccountEvent::Created(account_id)))
+                Ok(DomainEvent::Account(AccountEvent::Created(self.object)))
             })
         }
     }
@@ -77,7 +77,7 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let asset_definition = self.object.build();
+            let asset_definition = self.object.clone().build();
             asset_definition
                 .id()
                 .name
@@ -111,7 +111,7 @@ pub mod isi {
 
                 domain.add_asset_definition(asset_definition, authority);
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
-                    asset_definition_id,
+                    self.object,
                 )))
             })
         }

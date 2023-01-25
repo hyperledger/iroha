@@ -159,11 +159,11 @@ declare_item! {
     #[display(fmt = "[{id}]")]
     pub struct NewAccount {
         /// Identification
-        id: <Account as Identifiable>::Id,
+        pub id: <Account as Identifiable>::Id,
         /// Signatories, i.e. signatures attached to this message.
-        signatories: Signatories,
+        pub signatories: Signatories,
         /// Metadata that should be submitted with the builder
-        metadata: Metadata,
+        pub metadata: Metadata,
     }
 }
 

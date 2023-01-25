@@ -381,11 +381,10 @@ impl WorldStateView {
 
         // This function is strictly infallible.
         self.modify_account(&id.account_id, |account| {
-            assert!(account
-                .add_asset(Asset::new(id.clone(), default_asset_value.into()))
-                .is_none());
+            let asset = Asset::new(id.clone(), default_asset_value.into());
+            assert!(account.add_asset(asset.clone()).is_none());
 
-            Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
+            Ok(AccountEvent::Asset(AssetEvent::Created(asset)))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);
