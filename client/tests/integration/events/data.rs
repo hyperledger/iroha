@@ -123,7 +123,8 @@ fn transaction_execution_should_produce_events(executable: Executable, port: u16
     // assertion
     for i in 0..4_usize {
         let domain_id = DomainId::new(i.to_string().parse().expect("Valid"));
-        let expected_event = DomainEvent::Created(domain_id).into();
+        let domain = Domain::new(domain_id);
+        let expected_event = DomainEvent::Created(domain).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);
     }
@@ -168,7 +169,7 @@ fn produce_multiple_events() -> Result<()> {
     let instructions = [
         RegisterBox::new(permission_token_definition_1.clone()).into(),
         RegisterBox::new(permission_token_definition_2.clone()).into(),
-        RegisterBox::new(role).into(),
+        RegisterBox::new(role.clone()).into(),
     ];
     client.submit_all_blocking(instructions)?;
 
@@ -189,7 +190,7 @@ fn produce_multiple_events() -> Result<()> {
         WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
             permission_token_definition_2,
         )),
-        WorldEvent::Role(RoleEvent::Created(role_id.clone())),
+        WorldEvent::Role(RoleEvent::Created(role)),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: alice_id.clone(),
