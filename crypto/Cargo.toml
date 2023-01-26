@@ -1,6 +1,6 @@
 [package]
 name = "iroha_crypto"
-version = "2.0.0-pre-rc.11"
+version = "2.0.0-pre-rc.13"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -20,8 +20,8 @@ vendored = ["openssl-sys"]
 ffi_export = ["std"]
 
 [dependencies]
-iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.11", default-features = false }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.11" }
+iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.13", default-features = false }
+iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.13" }
 iroha_schema = { path = "../schema" }
 
 derive_more = { version = "0.99.17", default-features = false, features = ["deref", "deref_mut", "display"] }
