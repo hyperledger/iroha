@@ -7,12 +7,12 @@
 
 use std::{alloc, collections::BTreeMap, mem::MaybeUninit};
 
-iroha_ffi::def_ffi_fn! { dealloc }
-
 use iroha_ffi::{
     def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, FfiConvert, FfiOutPtrRead, FfiReturn,
     FfiTuple1, FfiType, LocalRef,
 };
+
+iroha_ffi::def_ffi_fn! { dealloc }
 
 pub trait Target {
     type Target;
@@ -26,7 +26,7 @@ pub struct Name(String);
 pub struct Value(String);
 
 /// Opaque structure
-#[derive(Debug, Clone, PartialEq, Eq, FfiType)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, FfiType)]
 pub struct OpaqueStruct {
     name: Option<Name>,
     tokens: Vec<Value>,
@@ -180,6 +180,12 @@ pub fn get_vec_of_boxed_opaques() -> Vec<Box<OpaqueStruct>> {
     vec![Box::new(get_new_struct())]
 }
 
+/// Take and return array
+#[ffi_export]
+pub fn take_and_return_array_of_opaques(a: [OpaqueStruct; 2]) -> [OpaqueStruct; 2] {
+    a
+}
+
 /// Receive nested vector
 #[ffi_export]
 pub fn freestanding_with_nested_vec(_vec: Vec<Vec<Vec<u8>>>) {}
@@ -274,9 +280,7 @@ fn non_robust_ref_mut() {
             __take_non_robust_ref_mut(ffi_type, output.as_mut_ptr())
         );
 
-        let mut out_store = Default::default();
-        let output: &mut str =
-            FfiConvert::try_from_ffi(output.assume_init(), &mut out_store).unwrap();
+        let output: &mut str = FfiOutPtrRead::try_read_out(output.assume_init()).unwrap();
         assert_eq!(output, owned.as_mut());
     }
 }
@@ -363,7 +367,7 @@ fn mutate_opaque() {
         );
 
         let removed = removed.assume_init();
-        let removed: Option<Value> = FfiConvert::try_from_ffi(removed, &mut ()).unwrap();
+        let removed = Option::try_from_ffi(removed, &mut ()).unwrap();
         assert_eq!(Some(Value(String::from("Omen"))), removed);
         assert!(!ffi_struct.params.contains_key(&param_name));
     }
@@ -458,7 +462,7 @@ fn return_result() {
 fn array_to_pointer() {
     let array = [1_u8];
     let mut store = Default::default();
-    let ptr: *mut u8 = array.into_ffi(&mut store);
+    let ptr: *mut [u8; 1] = array.into_ffi(&mut store);
     let mut output = MaybeUninit::new([0_u8]);
 
     unsafe {
@@ -478,8 +482,7 @@ fn array_to_pointer() {
 #[webassembly_test::webassembly_test]
 fn array_in_struct() {
     let array = ([1_u8],);
-    let mut store = Default::default();
-    let ffi_arr: FfiTuple1<[u8; 1]> = array.into_ffi(&mut store);
+    let ffi_arr: FfiTuple1<[u8; 1]> = array.into_ffi(&mut ((),));
     let mut output = MaybeUninit::new(FfiTuple1([0; 1]));
 
     unsafe {
@@ -570,7 +573,7 @@ fn fieldless_enum_conversion() {
             )
         );
 
-        let ret_val = FfiConvert::try_from_ffi(output.assume_init(), &mut ());
+        let ret_val = FfiOutPtrRead::try_read_out(output.assume_init());
         assert_eq!(FieldlessEnum::A, ret_val.expect("Conversion failed"));
     }
 }
@@ -613,8 +616,7 @@ fn data_carrying_enum_conversion() {
             )
         );
 
-        let mut store = Default::default();
-        let ret_val = FfiConvert::try_from_ffi(output.assume_init(), &mut store);
+        let ret_val = FfiOutPtrRead::try_read_out(output.assume_init());
         assert_eq!(data_carrying_enum, ret_val.expect("Conversion failed"));
     }
 }
@@ -671,6 +673,27 @@ fn return_vec_of_boxed_opaques() {
 
 #[test]
 #[webassembly_test::webassembly_test]
+fn array_of_opaques() {
+    let input = [OpaqueStruct::default(), OpaqueStruct::default()];
+    let mut output = MaybeUninit::new([core::ptr::null_mut(), core::ptr::null_mut()]);
+    let mut store = Default::default();
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __take_and_return_array_of_opaques(
+                input.clone().into_ffi(&mut store),
+                output.as_mut_ptr()
+            )
+        );
+        let output = output.assume_init();
+        let output = <[OpaqueStruct; 2]>::try_from_ffi(output, &mut ()).unwrap();
+        assert_eq!(input, output);
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
 fn borrow_vec() {
     let a = vec![1, 2];
 
@@ -698,9 +721,7 @@ fn return_reference_from_slice() {
             __reference_from_slice(<&[u8]>::into_ffi(&a, &mut in_store), output.as_mut_ptr())
         );
 
-        let mut out_store = ();
-        let output = output.assume_init();
-        let output = <&u8>::try_from_ffi(output, &mut out_store).unwrap();
+        let output = <&u8>::try_read_out(output.assume_init()).unwrap();
         assert_eq!(output, &a[0]);
     }
 }
@@ -720,8 +741,7 @@ fn borrow_local() {
                 __take_tuple_ref(<&(u8, u8)>::into_ffi(&a, &mut store), output.as_mut_ptr())
             );
 
-            let output = output.assume_init();
-            FfiOutPtrRead::try_read_out(output).expect("Valid")
+            FfiOutPtrRead::try_read_out(output.assume_init()).expect("Valid")
         }
     };
 

@@ -2,8 +2,8 @@
 
 use crate::{
     ir::Ir,
-    repr_c::{COutPtr, COutPtrRead, COutPtrWrite, CType, CTypeConvert, CWrapperOutput, NonLocal},
-    FfiConvert, FfiOutPtr, FfiOutPtrRead, FfiOutPtrWrite, FfiType, FfiWrapperOutput, ReprC, Result,
+    repr_c::{COutPtr, COutPtrRead, COutPtrWrite, CType, CTypeConvert, CWrapperType, NonLocal},
+    FfiConvert, FfiOutPtr, FfiOutPtrRead, FfiOutPtrWrite, FfiType, FfiWrapperType, ReprC, Result,
 };
 
 /// Type that has at least one trap representation that can be used as a niche value. The
@@ -62,8 +62,9 @@ where
     }
 }
 
-impl<R: Niche + FfiWrapperOutput> CWrapperOutput<Self> for Option<R> {
-    type ReturnType = Self;
+impl<R: FfiWrapperType> CWrapperType<Self> for Option<R> {
+    type InputType = Option<R::InputType>;
+    type ReturnType = Option<R::ReturnType>;
 }
 impl<R: Niche + FfiOutPtr> COutPtr<Self> for Option<R> {
     type OutPtr = R::OutPtr;

@@ -20,31 +20,35 @@ impl Arg {
     pub fn src_type_resolved(&self) -> Type {
         resolve_type(self.self_ty.as_ref(), self.type_.clone())
     }
-    pub fn ffi_type_resolved(&self, is_output: bool) -> Type {
-        let src_type = if let Type::Array(array) = &self.type_ {
-            if is_output {
-                self.type_.clone()
-            } else {
-                let elem = &array.elem;
-                parse_quote! {Box<#elem>}
-            }
-        } else {
-            self.type_.clone()
-        };
+    pub fn ffi_type_resolved(&self) -> Type {
+        let mut src_type = resolve_type(self.self_ty.as_ref(), self.type_.clone());
 
-        let arg_type = resolve_type(self.self_ty.as_ref(), src_type);
-        parse_quote! {<#arg_type as iroha_ffi::FfiType>::ReprC}
+        if matches!(src_type, Type::Array(_)) {
+            src_type = parse_quote! {Box<#src_type>}
+        }
+
+        parse_quote! {<#src_type as iroha_ffi::FfiType>::ReprC}
+    }
+    // TODO: Probably can be removed?
+    pub fn wrapper_ffi_type_resolved(&self) -> Type {
+        let mut src_type = resolve_type(self.self_ty.as_ref(), self.type_.clone());
+
+        if matches!(src_type, Type::Array(_)) {
+            src_type = parse_quote! {Box<#src_type>}
+        }
+
+        parse_quote! {<<#src_type as iroha_ffi::FfiWrapperType>::InputType as iroha_ffi::FfiType>::ReprC}
     }
 }
 
 fn resolve_type(self_type: Option<&syn::Path>, mut arg_type: Type) -> Type {
-    ImplTraitResolver.visit_type_mut(&mut arg_type);
+    TypeImplTraitResolver.visit_type_mut(&mut arg_type);
 
     if let Some(self_ty) = self_type {
         SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
     }
-    if let Some(result_type) = unwrap_result_type(&arg_type) {
-        arg_type = result_type.clone();
+    if let Some((ok, _)) = unwrap_result_type(&arg_type) {
+        arg_type = ok.clone();
     }
 
     arg_type
@@ -427,8 +431,8 @@ impl VisitMut for SelfResolver<'_> {
     }
 }
 
-struct ImplTraitResolver;
-impl VisitMut for ImplTraitResolver {
+pub struct TypeImplTraitResolver;
+impl VisitMut for TypeImplTraitResolver {
     fn visit_type_mut(&mut self, node: &mut Type) {
         let mut new_node = None;
 
@@ -443,7 +447,7 @@ impl VisitMut for ImplTraitResolver {
                                 if let syn::GenericArgument::Binding(binding) = arg {
                                     if binding.ident == "Item" {
                                         let mut ty = binding.ty.clone();
-                                        ImplTraitResolver.visit_type_mut(&mut ty);
+                                        TypeImplTraitResolver.visit_type_mut(&mut ty);
                                         new_node = Some(parse_quote! { Vec<#ty> });
                                     }
                                 }
@@ -472,14 +476,16 @@ fn get_ident(path: &syn::Path) -> &Ident {
     &path.segments.last().expect_or_abort("Defined").ident
 }
 
-pub fn unwrap_result_type(node: &Type) -> Option<&Type> {
+pub fn unwrap_result_type(node: &Type) -> Option<(&Type, &Type)> {
     if let Type::Path(type_) = node {
         let last_seg = type_.path.segments.last().expect_or_abort("Defined");
 
         if last_seg.ident == "Result" {
             if let syn::PathArguments::AngleBracketed(args) = &last_seg.arguments {
-                if let syn::GenericArgument::Type(result_type) = &args.args[0] {
-                    return Some(result_type);
+                if let (syn::GenericArgument::Type(ok), syn::GenericArgument::Type(err)) =
+                    (&args.args[0], &args.args[1])
+                {
+                    return Some((ok, err));
                 }
             }
         }

@@ -4,13 +4,13 @@ use syn::Ident;
 
 use crate::{
     impl_visitor::{ffi_output_arg, Arg, FnDescriptor},
-    util::gen_resolve_type,
+    util::{gen_resolve_type, gen_store_name},
 };
 
 pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_fn_name(fn_descriptor);
     let ffi_fn_doc = gen_doc(fn_descriptor);
-    let fn_signature = gen_signature(&ffi_fn_name, fn_descriptor);
+    let fn_signature = gen_decl_signature(&ffi_fn_name, fn_descriptor);
 
     quote! {
         extern {
@@ -23,7 +23,7 @@ pub fn gen_declaration(fn_descriptor: &FnDescriptor) -> TokenStream {
 pub fn gen_definition(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_fn_name(fn_descriptor);
     let ffi_fn_doc = gen_doc(fn_descriptor);
-    let fn_signature = gen_signature(&ffi_fn_name, fn_descriptor);
+    let fn_signature = gen_def_signature(&ffi_fn_name, fn_descriptor);
     let ffi_fn_body = gen_body(fn_descriptor);
 
     quote! {
@@ -99,30 +99,64 @@ fn gen_doc(fn_descriptor: &FnDescriptor) -> String {
     )
 }
 
-fn gen_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStream {
+fn gen_decl_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStream {
     let self_arg = fn_descriptor
         .receiver
         .as_ref()
-        .map(gen_input_arg)
+        .map(gen_decl_input_arg)
         .map_or_else(Vec::new, |self_arg| vec![self_arg]);
-    let fn_args: Vec<_> = fn_descriptor.input_args.iter().map(gen_input_arg).collect();
-    let output_arg = ffi_output_arg(fn_descriptor).map(gen_out_ptr_arg);
+    let fn_args: Vec<_> = fn_descriptor
+        .input_args
+        .iter()
+        .map(gen_decl_input_arg)
+        .collect();
+    let output_arg = ffi_output_arg(fn_descriptor).map(gen_decl_out_ptr_arg);
 
     quote! {
         fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
     }
 }
 
-fn gen_input_arg(arg: &Arg) -> TokenStream {
+fn gen_def_signature(ffi_fn_name: &Ident, fn_descriptor: &FnDescriptor) -> TokenStream {
+    let self_arg = fn_descriptor
+        .receiver
+        .as_ref()
+        .map(gen_def_input_arg)
+        .map_or_else(Vec::new, |self_arg| vec![self_arg]);
+    let fn_args: Vec<_> = fn_descriptor
+        .input_args
+        .iter()
+        .map(gen_def_input_arg)
+        .collect();
+    let output_arg = ffi_output_arg(fn_descriptor).map(gen_def_out_ptr_arg);
+
+    quote! {
+        fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiReturn
+    }
+}
+
+fn gen_def_input_arg(arg: &Arg) -> TokenStream {
     let arg_name = arg.name();
-    let arg_type = arg.ffi_type_resolved(false);
+    let arg_type = arg.ffi_type_resolved();
 
     quote! { #arg_name: #arg_type }
 }
 
-fn gen_out_ptr_arg(arg: &Arg) -> TokenStream {
+fn gen_def_out_ptr_arg(arg: &Arg) -> TokenStream {
     let (arg_name, arg_type) = (arg.name(), arg.src_type_resolved());
     quote! { #arg_name: *mut <#arg_type as iroha_ffi::FfiOutPtr>::OutPtr }
+}
+
+fn gen_decl_input_arg(arg: &Arg) -> TokenStream {
+    let arg_name = arg.name();
+    let arg_type = arg.wrapper_ffi_type_resolved();
+
+    quote! { #arg_name: #arg_type }
+}
+
+fn gen_decl_out_ptr_arg(arg: &Arg) -> TokenStream {
+    let (arg_name, arg_type) = (arg.name(), arg.src_type_resolved());
+    quote! { #arg_name: *mut <<#arg_type as iroha_ffi::FfiWrapperType>::ReturnType as iroha_ffi::FfiOutPtr>::OutPtr }
 }
 
 fn gen_body(fn_descriptor: &FnDescriptor) -> syn::Block {
@@ -143,14 +177,24 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     let mut stmts = quote! {};
 
     if let Some(arg) = &fn_descriptor.receiver {
-        stmts = crate::util::gen_arg_ffi_to_src(arg)
+        stmts = gen_arg_ffi_to_src(arg)
     }
 
     for arg in &fn_descriptor.input_args {
-        stmts.extend(crate::util::gen_arg_ffi_to_src(arg));
+        stmts.extend(gen_arg_ffi_to_src(arg));
     }
 
     stmts
+}
+
+pub fn gen_arg_ffi_to_src(arg: &Arg) -> TokenStream {
+    let (arg_name, src_type) = (arg.name(), arg.src_type_resolved());
+    let store_name = gen_store_name(arg_name);
+
+    quote! {
+        let mut #store_name = Default::default();
+        let #arg_name: #src_type = iroha_ffi::FfiConvert::try_from_ffi(#arg_name, &mut #store_name)?;
+    }
 }
 
 fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
@@ -191,7 +235,7 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
         || quote! {},
         |out_arg| {
             let (arg_name, arg_type) = (out_arg.name(), out_arg.src_type_resolved());
-            let resolve_impl_trait = gen_resolve_type(out_arg, true);
+            let resolve_impl_trait = gen_resolve_type(out_arg);
 
             quote! {
                 #resolve_impl_trait

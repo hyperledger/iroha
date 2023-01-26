@@ -5,13 +5,10 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::{parse_quote, Data, DataEnum, DeriveInput, Generics, Ident, Type};
 
-use crate::{find_attr, is_extern, is_opaque, is_repr_attr};
+use crate::{find_attr, is_opaque, is_repr_attr};
 
 pub fn derive_ffi_type(mut input: DeriveInput) -> TokenStream {
     let name = &input.ident;
-    if is_extern(&input.attrs) {
-        return derive_ffi_type_for_extern_item(name, &mut input.generics);
-    }
     if is_opaque(&input) {
         return derive_ffi_type_for_opaque_item(name, &mut input.generics);
     }
@@ -63,22 +60,6 @@ pub fn derive_ffi_type(mut input: DeriveInput) -> TokenStream {
     }
 }
 
-fn derive_ffi_type_for_extern_item(name: &Ident, generics: &mut Generics) -> TokenStream {
-    let ref_name = Ident::new(&format!("{name}Ref"), proc_macro2::Span::call_site());
-
-    let (impl_generics, ty_generics, where_clause) = split_for_impl(generics);
-
-    quote! {
-        impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
-            // NOTE: It's ok to get null pointer, dereferencing opaque pointer is UB anyhow
-            type Type = iroha_ffi::ir::Robust;
-        }
-        impl<#impl_generics> iroha_ffi::ir::Ir for #ref_name #ty_generics #where_clause {
-            type Type = iroha_ffi::ir::Transparent;
-        }
-    }
-}
-
 fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &mut Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -123,42 +104,25 @@ fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> TokenSt
             iroha_ffi::ffi_type! { unsafe impl #impl_generics Transparent for #name #ty_generics[#inner] #where_clause validated with {|_| true} }
             // SAFETY: If the type is robust then there are no trap representations that it can be set to
             unsafe impl #impl_generics iroha_ffi::ir::InfallibleTransmute for #name #ty_generics #where_clause {}
+
+            impl #impl_generics iroha_ffi::WrapperTypeOf<#name #ty_generics> for #inner #where_clause {
+                type Type = #name #ty_generics;
+            }
         }
     } else {
         let (impl_generics, ty_generics, where_clause) = split_for_impl(&mut input.generics);
-        let lifetime = quote! {'__iroha_ffi_itm};
 
         quote! {
-            unsafe impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime #name #ty_generics #where_clause {
-                type Target = &#lifetime #inner;
-
-                #[inline]
-                unsafe fn is_valid(target: &Self::Target) -> bool {
-                    <#name #ty_generics as iroha_ffi::ir::Transmute>::is_valid(target)
-                }
-            }
-
-            unsafe impl<#lifetime, #impl_generics> iroha_ffi::ir::Transmute for &#lifetime mut #name #ty_generics #where_clause {
-                type Target = &#lifetime mut #inner;
-
-                #[inline]
-                unsafe fn is_valid(target: &Self::Target) -> bool {
-                    <#name #ty_generics as iroha_ffi::ir::Transmute>::is_valid(target)
-                }
-            }
-
             impl<#impl_generics> iroha_ffi::ir::Ir for #name #ty_generics #where_clause {
                 type Type = iroha_ffi::ir::Transparent;
             }
-            impl<#impl_generics> iroha_ffi::ir::Ir for &#name #ty_generics #where_clause {
-                type Type = iroha_ffi::ir::Transparent;
-            }
 
-            impl iroha_ffi::ReturnTypeOf<#name #ty_generics> for #inner #where_clause {
-                type Type = #name #ty_generics;
-            }
             impl iroha_ffi::option::Niche for #name #ty_generics #where_clause {
                 const NICHE_VALUE: <#inner as iroha_ffi::FfiType>::ReprC = <#inner as iroha_ffi::option::Niche>::NICHE_VALUE;
+            }
+
+            impl<#impl_generics> iroha_ffi::WrapperTypeOf<#name #ty_generics> for #inner #where_clause {
+                type Type = #name #ty_generics;
             }
         }
     }
@@ -190,6 +154,10 @@ fn derive_ffi_type_for_fieldless_enum(
                     _ => false,
                 }
             }}
+        }
+
+        impl iroha_ffi::WrapperTypeOf<#enum_name> for #ffi_type {
+            type Type = #enum_name;
         }
     }
 }
@@ -334,7 +302,8 @@ fn derive_ffi_type_for_data_carrying_enum(
         quote! {
             unsafe impl<#impl_generics> iroha_ffi::repr_c::NonLocal<Self> for #enum_name #ty_generics #non_local_where_clause {}
 
-            impl<#impl_generics> iroha_ffi::repr_c::CWrapperOutput<Self> for #enum_name #ty_generics #non_local_where_clause {
+            impl<#impl_generics> iroha_ffi::repr_c::CWrapperType<Self> for #enum_name #ty_generics #non_local_where_clause {
+                type InputType = Self;
                 type ReturnType = Self;
             }
             impl<#impl_generics> iroha_ffi::repr_c::COutPtr<Self> for #enum_name #ty_generics #non_local_where_clause {
@@ -355,9 +324,6 @@ fn derive_ffi_type_for_data_carrying_enum(
 
     quote! {
         #repr_c_enum
-
-        // TODO: Enum can be transmutable if all variants are transmutable and the enum is `repr(C)`
-        impl<#impl_generics> iroha_ffi::repr_c::Cloned for #enum_name #ty_generics #where_clause where Self: Clone {}
 
         // NOTE: Data-carrying enum cannot implement `ReprC` unless it is robust `repr(C)`
         impl<#impl_generics> iroha_ffi::ir::Ir for #enum_name #ty_generics #where_clause {
@@ -388,6 +354,9 @@ fn derive_ffi_type_for_data_carrying_enum(
                 }
             }
         }
+
+        // TODO: Enum can be transmutable if all variants are transmutable and the enum is `repr(C)`
+        impl<#impl_generics> iroha_ffi::repr_c::Cloned for #enum_name #ty_generics #where_clause where Self: Clone {}
 
         #non_locality
     }

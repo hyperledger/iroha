@@ -55,10 +55,35 @@ pub fn ffi(input: TokenStream) -> TokenStream {
         .iter_mut()
         .filter(|item| is_opaque(item))
         .map(|item| &mut item.attrs)
-        .for_each(|attrs| attrs.push(parse_quote! {#[ffi_type(r#extern)]}));
+        .for_each(|attrs| {
+            for attr in attrs.iter_mut() {
+                if !attr.path.is_ident("derive") {
+                    continue;
+                }
+
+                // Remove FfiType derive because it'll be auto generated for extern structs
+                if let syn::Meta::List(derives) = attr.parse_meta().expect("Derive macro invalid") {
+                    let mut valid_derives = vec![];
+
+                    for derive in derives.nested {
+                        if let syn::NestedMeta::Meta(meta) = &derive {
+                            if let syn::Meta::Path(path) = meta {
+                                if !path.is_ident("FfiType") {
+                                    valid_derives.push(derive);
+                                }
+                            }
+                        } else {
+                            valid_derives.push(derive);
+                        }
+                    }
+
+                    *attr = parse_quote! { #[derive(#(#valid_derives),*)] };
+                }
+            }
+        });
 
     let items = items.iter().map(|item| {
-        if is_extern(&item.attrs) {
+        if is_opaque(item) {
             wrapper::wrap_as_opaque(item)
         } else {
             quote! {#item}
@@ -197,7 +222,7 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Impl(item) => {
             let impl_descriptor = ImplDescriptor::from_impl(&item);
             let ffi_fns = impl_descriptor.fns.iter().map(ffi_fn::gen_declaration);
-            let wrapped_item = wrapper::wrap_impl_item(&impl_descriptor.fns);
+            let wrapped_item = wrapper::wrap_impl_items(&impl_descriptor.fns);
 
             quote! {
                 #wrapped_item
@@ -207,7 +232,7 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Struct(item) => {
             let derived_methods = util::gen_derived_methods(&item);
             let ffi_fns = derived_methods.iter().map(ffi_fn::gen_declaration);
-            let impl_block = wrapper::wrap_impl_item(&derived_methods);
+            let impl_block = wrapper::wrap_impl_items(&derived_methods);
 
             if !matches!(item.vis, syn::Visibility::Public(_)) {
                 abort!(item.vis, "Only public structs allowed in FFI");
@@ -248,11 +273,6 @@ pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {
         item => abort!(item, "Item not supported"),
     }
     .into()
-}
-
-fn is_extern(attrs: &[syn::Attribute]) -> bool {
-    let opaque_attr = parse_quote! {#[ffi_type(r#extern)]};
-    attrs.iter().any(|a| *a == opaque_attr)
 }
 
 fn is_opaque(input: &syn::DeriveInput) -> bool {

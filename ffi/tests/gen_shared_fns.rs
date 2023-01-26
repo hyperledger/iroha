@@ -2,7 +2,9 @@
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{def_ffi_fn, ffi_export, handles, FfiConvert, FfiReturn, FfiType, Handle};
+use iroha_ffi::{
+    def_ffi_fn, ffi_export, handles, FfiConvert, FfiOutPtrRead, FfiReturn, FfiType, Handle,
+};
 
 /// Struct without a repr attribute is opaque by default
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FfiType)]
@@ -72,7 +74,7 @@ fn gen_shared_fns() {
             cloned_ptr.cast(),
             is_equal.as_mut_ptr(),
         );
-        let is_equal: bool = FfiConvert::try_from_ffi(is_equal.assume_init(), &mut ()).unwrap();
+        let is_equal: bool = FfiOutPtrRead::try_read_out(is_equal.assume_init()).unwrap();
         assert!(is_equal);
 
         let mut ordering = MaybeUninit::new(1);
@@ -82,7 +84,7 @@ fn gen_shared_fns() {
             cloned_ptr.cast(),
             ordering.as_mut_ptr(),
         );
-        let ordering: Ordering = FfiConvert::try_from_ffi(ordering.assume_init(), &mut ()).unwrap();
+        let ordering: Ordering = FfiOutPtrRead::try_read_out(ordering.assume_init()).unwrap();
         assert_eq!(ordering, Ordering::Equal);
 
         assert_eq!(
