@@ -1,6 +1,6 @@
 [package]
 name = "iroha_primitives"
-version = "2.0.0-pre-rc.11"
+version = "2.0.0-pre-rc.13"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "Data primitives used in iroha_data_model."
@@ -28,9 +28,9 @@ ffi_import = []
 ffi_export = ["std"]
 
 [dependencies]
-iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.11", default-features = false }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.11", default-features = false }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.11" }
+iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.13", default-features = false }
+iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.13", default-features = false }
+iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.13" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
 fixnum = { version = "0.9.1", default-features = false, features = ["serde", "parity", "i64"] }

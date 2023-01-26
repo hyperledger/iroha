@@ -1,6 +1,6 @@
 [package]
 name = "iroha_ffi"
-version = "2.0.0-pre-rc.11"
+version = "2.0.0-pre-rc.13"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -11,7 +11,7 @@ edition = "2021"
 non_robust_ref_mut = []
 
 [dependencies]
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.11", path = "derive" }
+iroha_ffi_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
 
 derive_more = { version = "0.99.17", default-features = false, features = ["display"] }
 
