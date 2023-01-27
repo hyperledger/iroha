@@ -174,22 +174,126 @@ pub fn validator_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream
 /// # Example
 ///
 /// ```ignore
-/// use iroha_wasm::{validator::prelude::*, parse, Token};
+/// use iroha_wasm::{parse, validator::{pass_conditions, prelude::*}};
 ///
-/// #[derive(Token)]
-/// struct CanDoSomething {
+/// #[derive(Token, Validate, pass_conditions::derive_conversions::asset::Owner)]
+/// #[validate(pass_conditions::asset::Owner)]
+/// struct CanDoSomethingWithAsset {
 ///     some_data: String,
-///     some_asset_id: <Asset as Identifiable>::Id,
+///     asset_id: <Asset as Identifiable>::Id,
 /// }
 ///
-/// CanDoSomething {
-///     some_data: "some data".to_owned(),
-///     some_asset_id: parse!("rose#wonderland" as <Asset as Identifiable>::Id),
-/// }.is_owned_by(&authority)
+/// #[entrypoint(params = "[authority, instruction]")]
+/// fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+///     validate_grant_revoke!(<CanDoSomethingWithAsset>, (authority, instruction));
+///
+///     CanDoSomethingWithAsset {
+///        some_data: "some data".to_owned(),
+///        asset_id: parse!("rose#wonderland" as <Asset as Identifiable>::Id),
+///     }.is_owned_by(&authority)
+/// }
 /// ```
 #[proc_macro_derive(Token)]
 pub fn derive_token(input: TokenStream) -> TokenStream {
     validator::token::impl_derive_token(input)
+}
+
+/// Derive macro for `Validate` trait.
+///
+/// # Attributes
+///
+/// This macro requires `validate` or a group of `validate_grant` and `validate_revoke` attributes.
+///
+/// ## `validate` attribute
+///
+/// Use `validate` to specify *Pass Condition* (see below) for both `Grant` and `Revoke`
+/// instructions validation.
+///
+/// ## `validate_grant` and `validate_revoke` attributes
+///
+/// Use `validate_grant` together with `validate_revoke` to specify *pass condition* for
+/// `Grant` and `Revoke` instructions validation separately.
+///
+/// # Pass conditions
+///
+/// You can pass any type implementing `iroha_wasm::validator::pass_conditions::PassCondition`
+/// and `From<&YourToken>` traits.
+///
+/// ## Builtin
+///
+/// There are some builtin pass conditions:
+///
+/// - `asset_definition::Owner` - checks if the authority is the asset definition owner;
+/// - `asset::Owner` - checks if the authority is the asset owner;
+/// - `account::Owner` - checks if the authority is the account owner.
+///
+/// Also check out `iroha_wasm::validator::pass_conditions::derive_conversion` module
+/// for conversion derive macros from your token to this *Pass Conditions*.
+///
+/// ## Why *Pass Conditions*?
+///
+/// With that you can easily derive one of most popular implementations to remove boilerplate code.
+///
+/// ## Manual `Validate` implementation VS Custom *Pass Condition*
+///
+/// General advice is to use custom *Pass Condition* if you need this custom validation
+/// multiple times in different tokens. Otherwise, you can implement `Validate` trait manually.
+///
+/// In future there will be combinators like `&&` and `||` to combine multiple *Pass Conditions*.
+///
+/// # Example
+///
+/// See [`Token`] derive macro example.
+//
+// TODO: Add combinators (#3255).
+// Example:
+//
+// ```
+// #[derive(Token, Validate)]
+// #[validate(Creator || Admin)]
+// pub struct CanDoSomethingWithAsset {
+//     ...
+// }
+// ```
+#[proc_macro_derive(Validate, attributes(validate, validate_grant, validate_revoke))]
+pub fn derive_validate(input: TokenStream) -> TokenStream {
+    validator::validate::impl_derive_validate(input)
+}
+
+/// Should be used together with [`Validate`] derive macro to derive a conversion
+/// from your token to a `pass_conditions::asset_definition::Owner` type.
+///
+/// Requires `asset_definition_id` field in the token.
+///
+/// Implements [`From`] for `pass_conditions::asset_definition::Owner`
+/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[proc_macro_derive(RefIntoAssetDefinitionOwner)]
+pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenStream {
+    validator::conversion::asset_definition::impl_derive_ref_into_asset_definition_owner(input)
+}
+
+/// Should be used together with [`Validate`] derive macro to derive a conversion
+/// from your token to a `pass_conditions::asset::Owner` type.
+///
+/// Requires `asset_id` field in the token.
+///
+/// Implements [`From`] for `pass_conditions::asset::Owner`
+/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[proc_macro_derive(RefIntoAssetOwner)]
+pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
+    validator::conversion::asset::impl_derive_ref_into_asset_owner(input)
+}
+
+/// Should be used together with [`Validate`] derive macro to derive a conversion
+/// from your token to a `pass_conditions::account::Owner` type.
+///
+/// Requires `account_id` field in the token.
+///
+/// Implements [`From`] for `pass_conditions::asset::Owner`
+/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[proc_macro_derive(RefIntoAccountOwner)]
+pub fn derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
+    validator::conversion::account::impl_derive_ref_into_account_owner(input)
 }
 
 macro_rules! parse_keywords {

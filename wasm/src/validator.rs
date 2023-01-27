@@ -1,15 +1,19 @@
 //! Contains functionality related to validators
 
+use alloc::string::String;
+
+use crate::data_model::{permission::validator::Verdict, prelude::*};
+
 pub mod prelude {
     //! Contains useful re-exports
 
     pub use iroha_data_model::{permission::validator::Verdict, prelude::*};
-    pub use iroha_wasm_derive::validator_entrypoint as entrypoint;
+    pub use iroha_wasm_derive::{validator_entrypoint as entrypoint, Token, Validate};
 
-    pub use super::traits::Token;
+    pub use super::traits::{Token, Validate};
     #[cfg(feature = "debug")]
     pub use crate::DebugExpectExt as _;
-    pub use crate::EvaluateOnHost as _;
+    pub use crate::{deny, pass, pass_if, validate_grant_revoke, EvaluateOnHost as _};
 }
 
 pub mod macros {
@@ -19,7 +23,7 @@ pub mod macros {
     #[macro_export]
     macro_rules! pass {
         () => {
-            return ::iroha_wasm::data_model::permission::validator::Verdict::Pass;
+            return $crate::data_model::permission::validator::Verdict::Pass
         };
     }
 
@@ -127,6 +131,91 @@ pub mod macros {
         };
     }
 
+    /// Macro to create [`Grant`](crate::data_model::prelude::Grant) and
+    /// [`Revoke`](crate::data_model::prelude::Revoke) instructions validation
+    /// for a given token type using its [`Validate`](super::traits::Validate) implementation.
+    ///
+    /// Generated code will do early return with `instruction` validation verdict
+    /// only if it is a `Grant` or `Revoke` instruction.
+    ///
+    /// Otherwise it will proceed with the rest of the function.
+    ///
+    /// # Syntax
+    ///
+    /// ```no_run
+    /// validate_grant_revoke!(<Token1, Token2, ...>, (authority_ident, instruction_ident));
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// #[derive(Token, Validate)]
+    /// #[validate(Creator)]
+    /// struct CanMintAssetsWithDefinition {
+    ///     asset_definition_id: <AssetDefinition as Identifiable>::Id,
+    /// }
+    ///
+    /// #[entrypoint(params = "[authority, instruction]")]
+    /// pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+    ///    validate_grant_revoke!(<CanMintAssetsWithDefinition>, (authority, instruction));
+    ///    // ...
+    /// }
+    /// ```
+    #[macro_export]
+    macro_rules! validate_grant_revoke {
+        (< $($token:ty),+ $(,)?>, ($authority:ident, $instruction:ident $(,)?)) => {
+            match &$instruction {
+                $crate::data_model::prelude::Instruction::Grant(grant) => {
+                    let value = <
+                        $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
+                        as
+                        $crate::EvaluateOnHost
+                    >::evaluate_on_host(&grant.object)
+                    .dbg_expect("Failed to evaluate `Grant` object");
+
+                    if let $crate::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
+                        if let Ok(concrete_token) =
+                            <$token as ::core::convert::TryFrom<_>>::try_from(
+                                <
+                                    $crate::data_model::permission::token::Token as ::core::clone::Clone
+                                >::clone(&permission_token)
+                            )
+                        {
+                            return <$token as ::iroha_wasm::validator::traits::Validate>::validate_grant(
+                                &concrete_token,
+                                &$authority
+                            );
+                        }
+                    )+}
+                }
+                $crate::data_model::prelude::Instruction::Revoke(revoke) => {
+                    let value = <
+                        $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
+                        as
+                        $crate::EvaluateOnHost
+                    >::evaluate_on_host(&revoke.object)
+                    .dbg_expect("Failed to evaluate `Revoke` object");
+
+                    if let $crate::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
+                        if let Ok(concrete_token) =
+                            <$token as ::core::convert::TryFrom<_>>::try_from(
+                                <
+                                    $crate::data_model::permission::token::Token as ::core::clone::Clone
+                                >::clone(&permission_token)
+                            )
+                        {
+                            return <$token as ::iroha_wasm::validator::traits::Validate>::validate_revoke(
+                                &concrete_token,
+                                &$authority
+                            );
+                        }
+                    )+}
+                }
+                _ => {}
+            }
+        };
+    }
+
     #[cfg(test)]
     mod tests {
         //! Tests in this modules can't be doc-tests because of `compile_error!` on native target
@@ -194,30 +283,180 @@ pub mod macros {
     }
 }
 
+/// Error type for `TryFrom<PermissionToken>` implementations.
+#[derive(Debug, Clone)]
+pub enum PermissionTokenConversionError {
+    /// Unexpected token id.
+    Id(PermissionTokenId),
+    /// Missing parameter.
+    Param(&'static str),
+    /// Unexpected parameter value. TODO: Improve this error.
+    Value(String),
+}
+
 pub mod traits {
     //! Contains traits related to validators
 
+    use super::*;
+
     /// [`Token`] trait is used to check if the token is owned by the account.
-    pub trait Token {
+    pub trait Token:
+        TryFrom<PermissionToken, Error = PermissionTokenConversionError> + Validate
+    {
+        /// Get definition id of this token
+        fn definition_id() -> PermissionTokenId;
+
         /// Check if token is owned by the account using evaluation on host.
         ///
-        /// Basically it's a wrapper around
-        /// [`DoesAccountHavePermissionToken`](crate::data_model::prelude::DoesAccountHavePermissionToken)
-        /// query.
-        fn is_owned_by(
-            &self,
-            account_id: &<
-                crate::data_model::prelude::Account
-                as
-                crate::data_model::prelude::Identifiable
-            >::Id,
-        ) -> bool;
+        /// Basically it's a wrapper around [`DoesAccountHavePermissionToken`] query.
+        fn is_owned_by(&self, account_id: &<Account as Identifiable>::Id) -> bool;
+    }
+
+    /// Trait that should be implemented for all permission tokens.
+    /// Provides a function to check validity of [`Grant`] and [`Revoke`]
+    /// instructions containing implementing token.
+    pub trait Validate {
+        /// Validate [`Grant`] instruction for this token.
+        fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
+
+        /// Validate [`Revoke`] instruction for this token.
+        fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
+    }
+}
+
+pub mod pass_conditions {
+    //! Contains some common pass conditions used in [`Validate`](crate::validator::prelude::Validate)
+
+    use super::*;
+    use crate::*;
+
+    /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
+    pub trait PassCondition {
+        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
+    }
+
+    pub mod derive_conversions {
+        //! Module with derive macros to generate conversion from custom strongly-typed token
+        //! to some pass condition to successfully derive [`Validate`](iroha_wasm_derive::Validate)
+
+        pub mod asset {
+            //! Module with derives related to asset tokens
+
+            pub use iroha_wasm_derive::RefIntoAssetOwner as Owner;
+        }
+
+        pub mod asset_definition {
+            //! Module with derives related to asset definition tokens
+
+            pub use iroha_wasm_derive::RefIntoAssetDefinitionOwner as Owner;
+        }
+
+        pub mod account {
+            //! Module with derives related to account tokens
+
+            pub use iroha_wasm_derive::RefIntoAccountOwner as Owner;
+        }
+    }
+
+    pub mod asset {
+        //! Module with pass conditions for assets-related to tokens
+
+        use super::*;
+
+        /// Pass condition that checks if `authority` is the owner of `asset_id`.
+        #[derive(Debug, Clone)]
+        pub struct Owner<'asset> {
+            pub asset_id: &'asset <Asset as Identifiable>::Id,
+        }
+
+        impl PassCondition for Owner<'_> {
+            fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+                pass_if!(&self.asset_id.account_id == authority);
+                deny!("Can't give permission to access asset owned by another account")
+            }
+        }
+    }
+
+    pub mod asset_definition {
+        //! Module with pass conditions for asset definitions related to tokens
+
+        use super::*;
+
+        /// Pass condition that checks if `authority` is the owner of `asset_definition_id`.
+        #[derive(Debug, Clone)]
+        pub struct Owner<'asset_definition> {
+            pub asset_definition_id: &'asset_definition <AssetDefinition as Identifiable>::Id,
+        }
+
+        impl PassCondition for Owner<'_> {
+            fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+                pass_if!(utils::is_asset_definition_owner(
+                    self.asset_definition_id,
+                    authority
+                ));
+                deny!("Can't give permission to access asset definition owned by another account")
+            }
+        }
+    }
+
+    pub mod account {
+        //! Module with pass conditions for assets-related to tokens
+
+        use super::*;
+
+        /// Pass condition that checks if `authority` is the owner of `account_id`.
+        #[derive(Debug, Clone)]
+        pub struct Owner<'asset> {
+            pub account_id: &'asset <Account as Identifiable>::Id,
+        }
+
+        impl PassCondition for Owner<'_> {
+            fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+                pass_if!(self.account_id == authority);
+                deny!("Can't give permission to access another account")
+            }
+        }
+    }
+
+    /// Pass condition that always passes.
+    #[derive(Debug, Default, Copy, Clone)]
+    pub struct AlwaysPass;
+
+    impl PassCondition for AlwaysPass {
+        fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
+            pass!()
+        }
+    }
+
+    impl<T: traits::Token> From<&T> for AlwaysPass {
+        fn from(_: &T) -> Self {
+            Self::default()
+        }
+    }
+
+    /// Pass condition that always denies.
+    ///
+    /// That means, that [`Grant`] and/or [`Revoke`] can be executed only in genesis block.
+    #[derive(Debug, Default, Copy, Clone)]
+    pub struct AlwaysDeny;
+
+    impl PassCondition for AlwaysDeny {
+        fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
+            deny!("This operation is always denied and only allowed inside the genesis block")
+        }
+    }
+
+    impl<T: traits::Token> From<&T> for AlwaysDeny {
+        fn from(_: &T) -> Self {
+            Self::default()
+        }
     }
 }
 
 pub mod utils {
     //! Contains some utils for validators
 
+    use super::*;
     use crate::*;
 
     /// Check if `authority` is the owner of `asset_definition_id`.
