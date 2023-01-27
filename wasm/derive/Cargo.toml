@@ -12,4 +12,4 @@ proc-macro = true
 syn = {version = "1", default-features = false, features = ["full", "extra-traits", "derive"] }
 quote = "1.0"
 proc-macro2 = "1.0.50"
-convert_case = "0.6.0"
+heck = "0.4.1"
