@@ -3,7 +3,16 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr as _, sync::mpsc, thread, time};
+use std::{
+    fmt,
+    fs::File,
+    io::BufReader,
+    path::Path,
+    str::FromStr as _,
+    sync::mpsc,
+    thread::{self, JoinHandle},
+    time,
+};
 
 use eyre::{Result, WrapErr};
 use iroha_client::client::Client;
@@ -70,27 +79,38 @@ impl Config {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let mut handles = Vec::new();
-        for unit in &units {
-            let handle = unit.spawn_event_counter();
-            handles.push(handle)
-        }
-        // Sleep to let the blocks produced by units to be committed on all peers
-        thread::sleep(core::time::Duration::from_secs(1));
+        let event_counter_handles = units
+            .iter()
+            .map(MeasurerUnit::spawn_event_counter)
+            .collect::<Vec<_>>();
 
         // START
         let timer = time::Instant::now();
-        for unit in &units {
-            unit.spawn_transaction_submitter();
-        }
-        for handle in handles {
+        let transaction_submitter_handles = units
+            .iter()
+            .map(|unit| {
+                let (shutdown_sender, shutdown_reciever) = mpsc::channel();
+                let handle = unit.spawn_transaction_submitter(shutdown_reciever);
+                (handle, shutdown_sender)
+            })
+            .collect::<Vec<_>>();
+
+        // Wait for slowest peer to commit required number of blocks
+        for handle in event_counter_handles {
             handle.join().expect("Event counter panicked")?;
         }
 
         // END
         let elapsed_secs = timer.elapsed().as_secs_f64();
-        // Sleep to let the blocks to be committed on all peers
-        thread::sleep(core::time::Duration::from_secs(5));
+
+        // Stop transaction submitters
+        for (handle, shutdown_sender) in transaction_submitter_handles {
+            shutdown_sender
+                .send(())
+                .expect("Failed to send shutdown signal");
+            handle.join().expect("Transaction submitter panicked");
+        }
+
         let blocks_out_of_measure = 1 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
         let blocks_wsv = network
             .genesis
@@ -183,11 +203,13 @@ impl MeasurerUnit {
             .status_kind(PipelineStatusKind::Committed)
             .into();
         let blocks_expected = self.config.blocks as usize;
+        let name = self.name;
         let handle = thread::spawn(move || -> Result<()> {
             let mut event_iterator = listener.listen_for_events(event_filter)?;
             init_sender.send(())?;
-            for _ in 0..blocks_expected {
+            for i in 1..=blocks_expected {
                 let _event = event_iterator.next().expect("Event stream closed")?;
+                iroha_logger::info!(name, block = i, "Received block committed event");
             }
             Ok(())
         });
@@ -199,17 +221,39 @@ impl MeasurerUnit {
     }
 
     /// Spawn who periodically submits transactions
-    fn spawn_transaction_submitter(&self) {
+    fn spawn_transaction_submitter(&self, shutdown_signal: mpsc::Receiver<()>) -> JoinHandle<()> {
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;
         let instructions = self.instructions();
-        thread::spawn(move || -> Result<()> {
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")
+            .expect("Failed to parse account id");
+        let mut nonce = 0;
+        thread::spawn(move || {
             for instruction in instructions {
-                submitter.submit(instruction)?;
-                thread::sleep(core::time::Duration::from_micros(interval_us_per_tx));
+                match shutdown_signal.try_recv() {
+                    Err(mpsc::TryRecvError::Empty) => {
+                        let transaction =
+                            Transaction::new(alice_id.clone(), [instruction].into(), u64::MAX)
+                                .with_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
+                        let transaction = submitter
+                            .sign_transaction(transaction)
+                            .expect("Failed to sign transaction");
+                        if let Err(error) = submitter.submit_transaction(transaction) {
+                            iroha_logger::error!(?error, "Failed to submit transaction");
+                        }
+                        nonce = nonce.wrapping_add(1);
+                        thread::sleep(core::time::Duration::from_micros(interval_us_per_tx));
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        panic!("Unexpected disconnection of shutdown sender");
+                    }
+                    Ok(()) => {
+                        iroha_logger::info!("Shutdown transaction submitter");
+                        return;
+                    }
+                }
             }
-            Ok(())
-        });
+        })
     }
 
     #[allow(clippy::expect_used)]
@@ -233,12 +277,22 @@ impl MeasurerUnit {
     }
 
     fn relay_a_rose(&self) -> Instruction {
-        TransferBox::new(
+        // Save at least one rose
+        // because if asset value hits 0 it's automatically deleted from account
+        // and query `FindAssetQuantityById` return error
+        let enough_to_transfer = Greater::new(
+            EvaluatesTo::new_unchecked(
+                Expression::Query(FindAssetQuantityById::new(asset_id(self.name)).into()).into(),
+            ),
+            1_u32,
+        );
+        let transfer_rose = TransferBox::new(
             asset_id(self.name),
             1_u32.to_value(),
             asset_id(self.next_name),
-        )
-        .into()
+        );
+
+        IfInstruction::new(enough_to_transfer, transfer_rose).into()
     }
 }
 
