@@ -8,6 +8,7 @@ members = [
   "asset/transfer",
   "asset/unregister",
   "asset_definition/set_key_value",
+  "asset_definition/remove_key_value",
   "account/set_key_value",
   "account/remove_key_value",
 ]
