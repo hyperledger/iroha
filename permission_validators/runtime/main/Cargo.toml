@@ -1,0 +1,30 @@
+[package]
+name = "iroha_main_validator"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# A smartcontract should be linked dynamically so that it may link to functions exported
+# from the host environment. Also, host environment executes the smartcontract by
+# calling the function which smartcontract exports (entry point of execution)
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_wasm.workspace = true
+
+iroha_asset_burn_validator = { path = "../asset/burn" }
+iroha_asset_mint_validator = { path = "../asset/mint" }
+iroha_asset_set_key_value_validator = { path = "../asset/set_key_value" }
+iroha_asset_remove_key_value_validator = { path = "../asset/remove_key_value" }
+iroha_asset_transfer_validator = { path = "../asset/transfer" }
+iroha_asset_unregister_validator = { path = "../asset/unregister" }
+iroha_asset_definition_set_key_value_validator = { path = "../asset_definition/set_key_value" }
+iroha_asset_definition_remove_key_value_validator = { path = "../asset_definition/remove_key_value" }
+iroha_asset_definition_unregister_validator = { path = "../asset_definition/unregister" }
+iroha_asset_definition_transfer_validator = { path = "../asset_definition/transfer" }
+iroha_account_set_key_value_validator = { path = "../account/set_key_value" }
+iroha_account_remove_key_value_validator = { path = "../account/remove_key_value" }
+iroha_parameter_set_validator = { path = "../parameter/set" }

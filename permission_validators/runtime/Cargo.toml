@@ -14,6 +14,7 @@ members = [
   "account/set_key_value",
   "account/remove_key_value",
   "parameter/set",
+  "main",
 ]
 
 [workspace.package]
