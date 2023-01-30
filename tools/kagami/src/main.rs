@@ -83,6 +83,7 @@ mod crypto {
     /// Use `Kagami` to generate cryptographic key-pairs.
     #[derive(StructOpt, Debug, Clone)]
     #[structopt(group = ArgGroup::new("generate_from").required(false))]
+    #[structopt(group = ArgGroup::new("format").required(false))]
     pub struct Args {
         /// Algorithm used to generate the key-pair.
         /// Options: `ed25519`, `secp256k1`, `bls_normal`, `bls_small`.
@@ -95,16 +96,25 @@ mod crypto {
         #[clap(long, short, group = "generate_from")]
         seed: Option<String>,
         /// Output the key-pair in JSON format
-        #[clap(long, short)]
+        #[clap(long, short, group = "format")]
         json: bool,
+        /// Output the key-pair without additional text
+        #[clap(long, short, group = "format")]
+        compact: bool,
     }
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
             if self.json {
-                let output = serde_json::to_string_pretty(&self.key_pair()?)
+                let key_pair = self.key_pair()?;
+                let output = serde_json::to_string_pretty(&key_pair)
                     .wrap_err("Failed to serialise to JSON.")?;
                 writeln!(writer, "{output}")?;
+            } else if self.compact {
+                let key_pair = self.key_pair()?;
+                writeln!(writer, "{}", &key_pair.public_key())?;
+                writeln!(writer, "{}", &key_pair.private_key())?;
+                writeln!(writer, "{}", &key_pair.public_key().digest_function())?;
             } else {
                 let key_pair = self.key_pair()?;
                 writeln!(writer, "Public key (multihash): {}", &key_pair.public_key())?;

@@ -7,61 +7,63 @@ TEST=${TEST:-"./test"}
 HOST=${HOST:-"127.0.0.1"}
 IROHA2_CONFIG_PATH="$TEST/peers/config.json"
 IROHA2_GENESIS_PATH="$TEST/peers/genesis.json"
+IROHA2_PEER_COUNT=${IROHA2_PEER_COUNT:-"4"}
 
-# TODO: don't hard-code these, instead, generate them.
 declare -A public_keys
-public_keys[iroha0]='ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b'
-public_keys[iroha1]='ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1'
-public_keys[iroha2]='ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020'
-public_keys[iroha3]='ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f'
 
 declare -A private_keys
-private_keys[iroha0]='282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b'
-private_keys[iroha1]='3bac34cda9e3763fa069c1198312d1ec73b53023b8180c822ac355435edc4a24cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1'
-private_keys[iroha2]='1261a436d36779223d7d6cf20e8b644510e488e6a50bafd77a7485264d27197dfaca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020'
-private_keys[iroha3]='a70dab95c7482eb9f159111b65947e482108cfe67df877bd8d3b9441a781c7c98e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f'
 
 declare -A p2p_ports
-p2p_ports[iroha0]='1337'
-p2p_ports[iroha1]='1338'
-p2p_ports[iroha2]='1339'
-p2p_ports[iroha3]='1340'
+P2P_STARTING_PORT='1337'
 
 declare -A api_ports
-api_ports[iroha0]='8080'
-api_ports[iroha1]='8081'
-api_ports[iroha2]='8082'
-api_ports[iroha3]='8083'
+API_STARTING_PORT='8080'
 
 declare -A telemetry_ports
-telemetry_ports[iroha0]='8180'
-telemetry_ports[iroha1]='8181'
-telemetry_ports[iroha2]='8182'
-telemetry_ports[iroha3]='8183'
+TELEMETRY_STARTING_PORT='8180'
 
-IROHA_GENESIS_ACCOUNT_PUBLIC_KEY='ed01203f4e3e98571b55514edc5ccf7e53ca7509d89b2868e62921180a6f57c2f4e255'
-IROHA_GENESIS_ACCOUNT_PRIVATE_KEY="{ \"digest_function\": \"ed25519\", \"payload\": \"038ae16b219da35aa036335ed0a43c28a2cc737150112c78a7b8034b9d99c9023f4e3e98571b55514edc5ccf7e53ca7509d89b2868e62921180a6f57c2f4e255\" }"
+function generate_p2p_port {
+    P2P_PORT=$(($P2P_STARTING_PORT + $1))
+    p2p_ports[$1]=$P2P_PORT
+}
+
+function generate_api_port {
+    API_PORT=$(($API_STARTING_PORT + $1))
+    api_ports[$1]=$API_PORT
+}
+
+function generate_telemetry_port {
+    TELEMETRY_PORT=$(($TELEMETRY_STARTING_PORT + $1))
+    telemetry_ports[$1]=$TELEMETRY_PORT
+}
+
+function generate_peer_key_pair {
+    mapfile -t -n 3 buffer < <($TEST/kagami crypto -c)
+    public_keys[$1]="${buffer[0]}"
+    private_keys[$1]=$(printf '{"digest_function": "%s", "payload": "%s"}' "${buffer[2]}" "${buffer[1]}")
+}
+
+function generate_genesis_key_pair {
+    mapfile -t -n 3 buffer < <($TEST/kagami crypto -c)
+    IROHA_GENESIS_ACCOUNT_PUBLIC_KEY="${buffer[0]}"
+    IROHA_GENESIS_ACCOUNT_PRIVATE_KEY=$(printf '{"digest_function": "%s", "payload": "%s"}' "${buffer[2]}" "${buffer[1]}")
+}
 
 function trusted_peer_entry {
     # This way it's easier to read when debugging the script
-    echo "{"
-    echo "\"address\": \"$HOST:${p2p_ports[$1]}\","
-    echo -n "\"public_key\": \"${public_keys[$1]}\""
-    echo -n "}"
+    printf '{"address": "%s", "public_key": "%s"}' "$HOST:${p2p_ports[$1]}" "${public_keys[$1]}"
 }
 
 function generate_trusted_peers {
-    echo -n "["
-    for iter in {0..2}
+    printf "["
+    for iter in $(seq 0 $(($1-2)))
     do
-        trusted_peer_entry "iroha$iter"
-        echo -n ","
+        trusted_peer_entry "$iter"
+       printf ","
     done
-    trusted_peer_entry iroha3
-    echo "]"
+    trusted_peer_entry $(($1-1))
+    printf "]"
 }
-
-SUMERAGI_TRUSTED_PEERS="$(generate_trusted_peers)"
 
 function set_up_peers_common {
     PEERS="$TEST/peers"
@@ -90,7 +92,7 @@ function bulk_export {
 }
 
 function run_peer () {
-    PEER="$TEST/peers/$1"
+    PEER="$TEST/peers/iroha$1"
     mkdir -p "$PEER"
     STORAGE="$PEER/storage"
     mkdir -p "$STORAGE"
@@ -98,16 +100,26 @@ function run_peer () {
     TORII_P2P_ADDR="$HOST:${p2p_ports[$1]}"
     TORII_API_URL="$HOST:${api_ports[$1]}"
     TORII_TELEMETRY_URL="$HOST:${telemetry_ports[$1]}"
-    IROHA_PUBLIC_KEY=${public_keys[$1]}
-    IROHA_PRIVATE_KEY="{ \"digest_function\": \"ed25519\", \"payload\": \"${private_keys[$1]}\" }"
-    exec -a "$1" "$TEST/peers/iroha" "$2" > "$PEER/.log" & disown
+    IROHA_PUBLIC_KEY="${public_keys[$1]}"
+    IROHA_PRIVATE_KEY="${private_keys[$1]}"
+    exec -a "iroha$1" "$TEST/peers/iroha" "$2" > "$PEER/.log" & disown
 }
 
-function run_4_peers {
-    run_peer iroha1
-    run_peer iroha2
-    run_peer iroha3
-    run_peer iroha0 --submit-genesis
+function run_n_peers {
+    generate_genesis_key_pair
+    for peer in $(seq 0 $(($1-1)))
+    do
+       generate_p2p_port $peer
+       generate_api_port $peer
+       generate_telemetry_port $peer
+       generate_peer_key_pair $peer
+    done
+    SUMERAGI_TRUSTED_PEERS="$(generate_trusted_peers $1)"
+    for peer in $(seq 1 $(($1-1)))
+    do
+        run_peer $peer
+    done
+    run_peer 0 --submit-genesis
 }
 
 function clean_up_peers {
@@ -118,8 +130,24 @@ function clean_up_peers {
 }
 
 case $1 in
-
     setup)
+        declare -i N_PEERS
+        if [ -z "$2" ]
+        then 
+            echo "Number of peers is not provided, using default value of $IROHA2_PEER_COUNT"
+            N_PEERS="$IROHA2_PEER_COUNT"
+        else
+            N_PEERS="$2"
+        fi
+
+        if [ "$N_PEERS" -le 0 ]
+        then
+            echo "Expected number of peers as non-zero positive number (> 0)."
+            exit 1
+        fi
+
+        echo "Starting iroha network with $N_PEERS peers"
+
         ## Set client up to communicate with the first peer.
         mkdir "$TEST" || echo "$TEST Already exists"
         cp ./target/debug/iroha_client_cli "$TEST" || {
@@ -129,23 +157,18 @@ case $1 in
         }
         echo '{"comment":{"String": "Hello Meta!"}}' >"$TEST/metadata.json"
         cp ./configs/client_cli/config.json "$TEST"
-        case $2 in
-            docker)
-                docker-compose up;;
-            *)
-                set_up_peers_common
-                bulk_export
-                run_4_peers
-        esac
-        ;;
+        cp ./target/debug/kagami "$TEST" || {
+            echo 'Please build `kagami` by running'
+            echo '`cargo build --bin kagami`'
+            exit
+        }
 
+        set_up_peers_common
+        bulk_export
+        run_n_peers "$N_PEERS"
+        ;;
     cleanup)
-        case $2 in
-            docker)
-                docker-compose rm -s -f;;
-            *)
-                clean_up_peers
-        esac
+        clean_up_peers
         rm -rf "$TEST"
         ;;
 
