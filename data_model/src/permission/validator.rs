@@ -220,6 +220,37 @@ pub enum Verdict {
     Deny(DenialReason),
 }
 
+impl Verdict {
+    /// Returns [`Deny`] if the verdict is [`Deny`], otherwise returns `other`.
+    ///
+    /// Arguments passed to and are eagerly evaluated;
+    /// if you are passing the result of a function call,
+    /// it is recommended to use [`and_then`](Verdict::and_then()), which is lazily evaluated.
+    ///
+    /// [`Deny`]: Verdict::Deny
+    #[must_use]
+    pub fn and(self, other: Verdict) -> Verdict {
+        match self {
+            Verdict::Pass => other,
+            Verdict::Deny(_) => self,
+        }
+    }
+
+    /// Returns [`Deny`] if the verdict is [`Deny`], otherwise calls `f` and returns the result.
+    ///
+    /// [`Deny`]: Verdict::Deny
+    #[must_use]
+    pub fn and_then<F>(self, f: F) -> Verdict
+    where
+        F: FnOnce() -> Verdict,
+    {
+        match self {
+            Verdict::Pass => f(),
+            Verdict::Deny(_) => self,
+        }
+    }
+}
+
 impl From<Verdict> for Result<(), DenialReason> {
     fn from(verdict: Verdict) -> Self {
         match verdict {
