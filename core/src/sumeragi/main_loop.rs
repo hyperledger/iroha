@@ -669,9 +669,16 @@ fn reset_state(
     voting_block: &mut Option<VotingBlock>,
     voting_signatures: &mut Vec<SignatureOf<SignedBlock>>,
     round_start_time: &mut Instant,
+    last_view_change_time: &mut Instant,
     view_change_time: &mut Duration,
 ) {
-    let mut was_commit_or_view_change = current_latest_block_height != *old_latest_block_height;
+    let mut was_commit_or_view_change = false;
+    if current_latest_block_height != *old_latest_block_height {
+        // Round is only restarted on a block commit, so that in the case of
+        // a view change a new block is immediately created by the leader
+        *round_start_time = Instant::now();
+        was_commit_or_view_change = true;
+    }
 
     if current_view_change_index != *old_view_change_index {
         current_topology.rebuild_with_new_view_change_count(current_view_change_index);
@@ -685,7 +692,7 @@ fn reset_state(
 
         *voting_block = None;
         voting_signatures.clear();
-        *round_start_time = Instant::now();
+        *last_view_change_time = Instant::now();
         *view_change_time = pipeline_time;
         info!(addr=%peer_id.address, role=%current_topology.role(peer_id), %current_view_change_index, "View change updated");
     }
@@ -749,6 +756,8 @@ pub(crate) fn run<F: FaultInjection>(
     let mut view_change_time = sumeragi.pipeline_time();
     // Instant when the current round started
     let mut round_start_time = Instant::now();
+    // Instant when the previous view change or round happened.
+    let mut last_view_change_time = Instant::now();
 
     while !should_terminate(&mut shutdown_receiver) {
         if should_sleep {
@@ -797,10 +806,11 @@ pub(crate) fn run<F: FaultInjection>(
             &mut voting_block,
             &mut voting_signatures,
             &mut round_start_time,
+            &mut last_view_change_time,
             &mut view_change_time,
         );
 
-        if round_start_time.elapsed() > view_change_time {
+        if last_view_change_time.elapsed() > view_change_time {
             let role = state.current_topology.role(&sumeragi.peer_id);
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
@@ -912,6 +922,17 @@ pub(crate) fn run<F: FaultInjection>(
             Role::ObservingPeer => match message {
                 Some(Message::BlockCreated(BlockCreated { block })) => {
                     if let Some(block) = vote_for_block(sumeragi, &state, block) {
+                        if current_view_change_index >= 1 {
+                            let block_hash = block.block.hash();
+
+                            let msg = MessagePacket::new(
+                                view_change_proof_chain.clone(),
+                                BlockSigned::from(block.block.clone()),
+                            );
+
+                            sumeragi.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
+                            info!(%addr, %block_hash, "Block validated, signed and forwarded");
+                        }
                         voting_block = Some(block);
                     }
                 }
@@ -933,8 +954,13 @@ pub(crate) fn run<F: FaultInjection>(
                     Some(Message::BlockSigned(BlockSigned { hash, signatures })) => {
                         trace!(block_hash=%hash, "Received block signatures");
 
-                        let valid_signatures = current_topology
-                            .filter_signatures_by_roles(&[Role::ValidatingPeer], &signatures);
+                        let roles: &[Role] = if current_view_change_index >= 1 {
+                            &[Role::ValidatingPeer, Role::ObservingPeer]
+                        } else {
+                            &[Role::ValidatingPeer]
+                        };
+                        let valid_signatures =
+                            current_topology.filter_signatures_by_roles(roles, &signatures);
 
                         if let Some(voted_block) = voting_block.as_mut() {
                             let voting_block_hash = voted_block.block.hash();
