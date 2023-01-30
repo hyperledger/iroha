@@ -41,37 +41,6 @@ jobs:
       - name: Panic on invalid genesis test
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
-  docker:
-    # This workflow is too unreliable to enable. Even for
-    # releases. The communication with docker from inside docker fails
-    # sometimes, works other times it doesn't. In the interest of not
-    # burning CI hours, we will instead run these tests locally, and
-    # push the docker image from main only after QA passes.
-    if: false
-    runs-on: ubuntu-latest #[self-hosted, Linux]
-    container:
-      image: 7272721/i2-ci:nightly
-    steps:
-      - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v2
-      - name: Build iroha_client_cli
-        working-directory: client_cli
-        run: mold --run cargo build
-      - name: Build docker image
-        uses: docker/build-push-action@v3
-        with:
-          load: true
-          tags: hyperledger/iroha2:dev
-      - name: Setup test environment
-        run: bash -c './scripts/test_env.sh setup docker'
-      - name: Genesis test
-        run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0.log; false )'
-      - name: Basic register and mint
-        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0.log; false )'
-        if: always()
-      - name: Cleanup test environment
-        run: bash -c './scripts/test_env.sh cleanup docker'
-
   bench:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:

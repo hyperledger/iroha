@@ -42,11 +42,12 @@ The `crypto` command generate cryptographic key pairs using the given algorithm 
 | `--private_key` | The `private_key` used to generate the key-pair                                                | Not applicable | String |
 | `--seed`        | The `seed` used to generate the key-pair                                                       | Not applicable | String |
 
-You can also choose to output the key-pair in JSON format:
+You can also choose output format:
 
-|   Flag   |                                                                          Description                                                                           |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--json` | A flag to specify whether or not to output the key-pair in JSON format.<br />By default, the generated key-pair is printed to `stdout` **not** in JSON format. |
+|   Flag      |                Description                                              |
+| ----------- | ----------------------------------------------------------------------- |
+| `--json`    | A flag to specify whether or not to output the key-pair in JSON format. |
+| `--compact` | A flag to specify whether or not to output the key-pair compact format. |
 
 ### `crypto` usage examples
 
@@ -85,6 +86,40 @@ You can also choose to output the key-pair in JSON format:
     Public key (multihash): e70121031c59a9cabaf58f3b8a6157362b9f6feac3dd47ee947fbf2f335805e1a7f96bde
     Private key: b32129af69b829a88ab9bac60b2a33cc57f8843e93aae0478e93f2285059c236
     Digest function: secp256k1
+    ```
+  </details>
+
+- Generate a key in JSON format:
+
+    ```bash
+    ./kagami crypto --json
+    ```
+
+  <details> <summary>Expand to see the output</summary>
+
+    ```json
+    {
+        "public_key": "ed01203189e4982f98dc293ab9e32cf2b2d75fba49adbc345318a576377b75cc9e15c1",
+        "private_key": {
+            "digest_function": "ed25519",
+            "payload": "d2162546e2025d28b680d062b91043a1e990de7da7861ee5e8039a6b39c9551f3189e4982f98dc293ab9e32cf2b2d75fba49adbc345318a576377b75cc9e15c1"
+        }
+    }
+    ```
+  </details>
+
+- Generate a key in compact format:
+
+    ```bash
+    ./kagami crypto --compact
+    ```
+
+  <details> <summary>Expand to see the output</summary>
+
+    ```bash
+    ed01208c8a612f0d20f339a0ea8df21fea777cbbe3604281e5f52311e5c5602cd38d8e
+    878f0fc05183857871a17605fe8f63b4aaf72ac9af4a5d8dd22536f6d016dff18c8a612f0d20f339a0ea8df21fea777cbbe3604281e5f52311e5c5602cd38d8e
+    ed25519
     ```
   </details>
 
