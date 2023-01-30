@@ -7,6 +7,7 @@ members = [
   "asset/remove_key_value",
   "asset/transfer",
   "asset/unregister",
+  "account/set_key_value"
 ]
 
 [workspace.package]
