@@ -12,6 +12,7 @@ use iroha_logger::info;
 use test_network::*;
 
 #[test]
+#[allow(clippy::cognitive_complexity)]
 fn deny_new_validators() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);

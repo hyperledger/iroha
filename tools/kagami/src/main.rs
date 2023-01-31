@@ -189,11 +189,6 @@ mod genesis {
         tx::{AssetValueType, MintBox, RegisterBox},
     };
     use iroha_data_model::{metadata::Limits, prelude::AssetId, IdBox};
-    use iroha_permissions_validators::public_blockchain::{
-        self,
-        key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
-        set_parameter::CanChangeConfigParameters,
-    };
 
     use super::*;
 
@@ -286,16 +281,6 @@ mod genesis {
         let register_role =
             RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
 
-        let register_user_metadata_access = RegisterBox::new(
-            Role::new("CONFIG_AND_USER_METADATA_ACCESS".parse()?)
-                .add_permission(CanSetKeyValueInUserMetadata::new(
-                    "alice@wonderland".parse()?,
-                ))
-                .add_permission(CanRemoveKeyValueInUserMetadata::new(
-                    "alice@wonderland".parse()?,
-                ))
-                .add_permission(CanChangeConfigParameters::new("alice@wonderland".parse()?)),
-        );
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
 
         let parameter_defaults = vec![
@@ -332,17 +317,11 @@ mod genesis {
         let grant_permission = GrantBox::new(token, alice_id.clone());
         let grant_role = GrantBox::new(role_id, alice_id);
 
-        result.transactions[0].isi.extend(
-            public_blockchain::default_permission_token_definitions()
-                .into_iter()
-                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
-        );
+        // TODO: Add default permission token definitions
+        // genesis.transactions[0].isi.extend(/* default permission tokens*/);
         result.transactions[0].isi.push(mint.into());
         result.transactions[0].isi.push(mint_cabbage.into());
         result.transactions[0].isi.push(register_permission.into());
-        result.transactions[0]
-            .isi
-            .push(register_user_metadata_access.into());
         result.transactions[0].isi.push(grant_permission.into());
         result.transactions[0].isi.push(register_role.into());
         result.transactions[0].isi.push(grant_role.into());
@@ -400,11 +379,8 @@ mod genesis {
         .into_iter()
         .map(Into::into);
 
-        genesis.transactions[0].isi.extend(
-            public_blockchain::default_permission_token_definitions()
-                .into_iter()
-                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
-        );
+        // TODO: Add default permission token definitions
+        // genesis.transactions[0].isi.extend(/* default permission tokens*/);
         genesis.transactions[0].isi.extend(mints);
         Ok(genesis)
     }
@@ -638,15 +614,7 @@ mod tokens {
     use std::collections::HashMap;
 
     use clap::ArgEnum;
-    use color_eyre::{
-        eyre::{bail, eyre, WrapErr},
-        Result,
-    };
-    use iroha_permissions_validators::{
-        private_blockchain::register::CanRegisterDomains,
-        public_blockchain::PredefinedPermissionToken,
-    };
-    use iroha_schema::{IntoSchema, Metadata};
+    use color_eyre::{eyre::WrapErr, Result};
 
     use super::*;
 
@@ -664,53 +632,11 @@ mod tokens {
     }
 
     fn public_blockchain_tokens() -> Result<HashMap<String, HashMap<String, String>>> {
-        let mut schema = PredefinedPermissionToken::get_schema();
-
-        let enum_variants = match schema
-            .remove("iroha_permissions_validators::public_blockchain::PredefinedPermissionToken")
-            .ok_or_else(|| eyre!("Token enum is not in schema"))?
-        {
-            Metadata::Enum(meta) => meta.variants,
-            _ => bail!("Expected enum"),
-        };
-
-        enum_variants
-            .into_iter()
-            .map(|variant| {
-                let ty = variant.ty.ok_or_else(|| eyre!("Empty enum variant"))?;
-                let fields = match schema
-                    .remove(&ty)
-                    .ok_or_else(|| eyre!("Token is not in schema"))?
-                {
-                    Metadata::Struct(meta) => meta
-                        .declarations
-                        .into_iter()
-                        .map(|decl| (decl.name, decl.ty))
-                        .collect::<HashMap<_, _>>(),
-                    _ => bail!("Token is not a struct"),
-                };
-                Ok((ty, fields))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()
+        unimplemented!("Public blockchain tokens are not implemented yet.")
     }
 
     fn private_blockchain_tokens() -> Result<HashMap<String, HashMap<String, String>>> {
-        let schema = CanRegisterDomains::get_schema();
-
-        schema
-            .into_iter()
-            .map(|(ty, meta)| {
-                let fields = match meta {
-                    Metadata::Struct(meta) => meta
-                        .declarations
-                        .into_iter()
-                        .map(|decl| (decl.name, decl.ty))
-                        .collect::<HashMap<_, _>>(),
-                    _ => bail!("Token is not a struct"),
-                };
-                Ok((ty, fields))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()
+        unimplemented!("Private blockchain tokens are not implemented yet.")
     }
 
     impl<T: Write> RunArgs<T> for Args {

@@ -124,7 +124,7 @@ impl ValidQuery for QueryBox {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{str::FromStr, sync::Arc};
+    use std::str::FromStr;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
     use iroha_data_model::transaction::TransactionLimits;
@@ -134,7 +134,6 @@ mod tests {
     use crate::{
         block::{PendingBlock, VersionedCommittedBlock},
         kura::Kura,
-        prelude::AllowAll,
         tx::TransactionValidator,
         wsv::World,
         PeersIds,
@@ -243,14 +242,7 @@ mod tests {
 
         let first_block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
             .chain_first()
-            .validate(
-                &TransactionValidator::new(
-                    limits,
-                    Arc::new(AllowAll::new()),
-                    Arc::new(AllowAll::new()),
-                ),
-                &wsv,
-            )
+            .validate(&TransactionValidator::new(limits), &wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit_unchecked()
@@ -264,14 +256,7 @@ mod tests {
         for height in 1u64..blocks {
             let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
                 .chain(height, Some(curr_hash), 0)
-                .validate(
-                    &TransactionValidator::new(
-                        limits,
-                        Arc::new(AllowAll::new()),
-                        Arc::new(AllowAll::new()),
-                    ),
-                    &wsv,
-                )
+                .validate(&TransactionValidator::new(limits), &wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
                 .commit_unchecked()
@@ -410,14 +395,7 @@ mod tests {
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
-            .validate(
-                &TransactionValidator::new(
-                    tx_limits,
-                    Arc::new(AllowAll::new()),
-                    Arc::new(AllowAll::new()),
-                ),
-                &wsv,
-            )
+            .validate(&TransactionValidator::new(tx_limits), &wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit_unchecked()

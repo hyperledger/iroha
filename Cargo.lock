@@ -1838,7 +1838,6 @@ dependencies = [
  "iroha_logger",
  "iroha_macro",
  "iroha_p2p",
- "iroha_permissions_validators",
  "iroha_schema_gen",
  "iroha_telemetry",
  "iroha_version",
@@ -1915,7 +1914,6 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_logger",
- "iroha_permissions_validators",
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
@@ -2220,20 +2218,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_permissions_validators"
-version = "2.0.0-pre-rc.13"
-dependencies = [
- "derive_more",
- "iroha_core",
- "iroha_data_model",
- "iroha_macro",
- "iroha_schema",
- "once_cell",
- "parity-scale-codec",
- "serde",
-]
-
-[[package]]
 name = "iroha_primitives"
 version = "2.0.0-pre-rc.13"
 dependencies = [
@@ -2463,7 +2447,6 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_permissions_validators",
  "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
@@ -4077,7 +4060,6 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_logger",
- "iroha_permissions_validators",
  "iroha_primitives",
  "rand 0.8.5",
  "tempfile",

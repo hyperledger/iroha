@@ -20,12 +20,9 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::{permissions::judge::InstructionJudgeArc, Evaluate};
+use super::Evaluate;
 use crate::{
-    smartcontracts::{
-        permissions::{check_instruction_permissions, prelude::*},
-        Execute, ValidQuery,
-    },
+    smartcontracts::{Execute, ValidQuery as _},
     wsv::WorldStateView,
 };
 
@@ -142,10 +139,6 @@ struct Validator {
     instruction_count: u64,
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
-    /// If this particular instruction is allowed
-    instruction_judge: InstructionJudgeArc,
-    /// If this particular query is allowed
-    query_judge: QueryJudgeArc,
 }
 
 impl Validator {
@@ -176,25 +169,17 @@ impl Validator {
     ) -> Result<(), Trap> {
         self.check_instruction_len()?;
 
-        check_instruction_permissions(
-            account_id,
-            instruction,
-            self.instruction_judge.as_ref(),
-            self.query_judge.as_ref(),
-            wsv,
-        )
-        .map_err(|error| Trap::new(error.to_string()))
+        super::isi::permissions::check_instruction_permissions(account_id, instruction, wsv)
+            .map_err(|err| Trap::new(err.to_string()))
     }
 
     fn validate_query(
-        &self,
         account_id: &AccountId,
         query: &QueryBox,
         wsv: &WorldStateView,
     ) -> Result<(), Trap> {
-        self.query_judge
-            .judge(account_id, query, wsv)
-            .map_err(Trap::new)
+        super::isi::permissions::check_query_permissions(account_id, query, wsv)
+            .map_err(|err| Trap::new(err.to_string()))
     }
 }
 
@@ -230,17 +215,10 @@ impl<'wrld> State<'wrld> {
         }
     }
 
-    fn with_validator(
-        mut self,
-        max_instruction_count: u64,
-        instruction_judge: InstructionJudgeArc,
-        query_judge: QueryJudgeArc,
-    ) -> Self {
+    fn with_validator(mut self, max_instruction_count: u64) -> Self {
         let validator = Validator {
             instruction_count: 0,
             max_instruction_count,
-            instruction_judge,
-            query_judge,
         };
 
         self.validator = Some(validator);
@@ -313,11 +291,8 @@ impl<'wrld> Runtime<'wrld> {
 
         let query = Self::decode_from_memory(&memory, &caller, offset, len)?;
 
-        if let Some(validator) = &caller.data().validator {
-            validator
-                .validate_query(&caller.data().account_id, &query, caller.data().wsv)
-                .map_err(|error| Trap::new(error.to_string()))?;
-        }
+        Validator::validate_query(&caller.data().account_id, &query, caller.data().wsv)
+            .map_err(|error| Trap::new(error.to_string()))?;
 
         let res_bytes = Self::encode_with_length_prefix(
             &query
@@ -529,14 +504,9 @@ impl<'wrld> Runtime<'wrld> {
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
-        instruction_judge: InstructionJudgeArc,
-        query_judge: QueryJudgeArc,
     ) -> Result<()> {
-        let state = State::new(wsv, account_id.clone(), self.config).with_validator(
-            max_instruction_count,
-            instruction_judge,
-            query_judge,
-        );
+        let state =
+            State::new(wsv, account_id.clone(), self.config).with_validator(max_instruction_count);
 
         self.execute_main_with_state(bytes, state)
     }
@@ -808,16 +778,12 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{str::FromStr as _, sync::Arc};
+    use std::str::FromStr as _;
 
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{
-        kura::Kura,
-        smartcontracts::permissions::judge::{AllowAll, DenyAll},
-        PeersIds, World,
-    };
+    use crate::{kura::Kura, PeersIds, World};
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
@@ -983,14 +949,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(
-            &wsv,
-            &account_id,
-            wat,
-            1,
-            Arc::new(AllowAll::new()),
-            Arc::new(AllowAll::new()),
-        );
+        let res = runtime.validate(&wsv, &account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
@@ -1037,14 +996,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(
-            &wsv,
-            &account_id,
-            wat,
-            1,
-            Arc::new(DenyAll::new()),
-            Arc::new(AllowAll::new()),
-        );
+        let res = runtime.validate(&wsv, &account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
@@ -1090,14 +1042,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(
-            &wsv,
-            &account_id,
-            wat,
-            1,
-            Arc::new(AllowAll::new()),
-            Arc::new(DenyAll::new()),
-        );
+        let res = runtime.validate(&wsv, &account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap

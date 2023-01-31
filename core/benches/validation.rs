@@ -121,11 +121,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failure_count = 0;
     let _ = criterion.bench_function("validate", move |b| {
-        let transaction_validator = TransactionValidator::new(
-            TRANSACTION_LIMITS,
-            Arc::new(AllowAll::new()),
-            Arc::new(AllowAll::new()),
-        );
+        let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
         b.iter(|| {
             match transaction_validator.validate(
                 transaction.clone(),
@@ -170,11 +166,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         &TRANSACTION_LIMITS,
     )
     .expect("Failed to accept transaction.");
-    let transaction_validator = TransactionValidator::new(
-        TRANSACTION_LIMITS,
-        Arc::new(AllowAll::new()),
-        Arc::new(AllowAll::new()),
-    );
+    let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
     let block = PendingBlock::new(vec![transaction.into()], Vec::new())
         .chain_first()
         .validate(
@@ -214,11 +206,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     )
     .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
-    let transaction_validator = TransactionValidator::new(
-        TRANSACTION_LIMITS,
-        Arc::new(AllowAll::new()),
-        Arc::new(AllowAll::new()),
-    );
+    let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let _ = criterion.bench_function("validate_block", |b| {
         b.iter(|| {

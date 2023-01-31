@@ -115,7 +115,6 @@ pub mod prelude {
             CommittedBlock, PendingBlock, SignedBlock, VersionedCandidateBlock,
             VersionedCommittedBlock, DEFAULT_CONSENSUS_ESTIMATION_MS,
         },
-        smartcontracts::permissions::prelude::*,
         smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,

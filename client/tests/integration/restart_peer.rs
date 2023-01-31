@@ -4,7 +4,6 @@ use std::{str::FromStr, sync::Arc};
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
 use test_network::*;
@@ -32,8 +31,6 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         rt.block_on(
             PeerBuilder::new()
                 .with_configuration(configuration.clone())
-                .with_instruction_judge(Box::new(AllowAll::new()))
-                .with_query_judge(Box::new(AllowAll::new()))
                 .with_dir(temp_dir.clone())
                 .start_with_peer(&mut peer),
         );
@@ -63,8 +60,6 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         rt.block_on(
             PeerBuilder::new()
                 .with_configuration(configuration)
-                .with_instruction_judge(Box::new(AllowAll::new()))
-                .with_query_judge(Box::new(AllowAll::new()))
                 .with_dir(temp_dir)
                 .start_with_peer(&mut peer),
         );
