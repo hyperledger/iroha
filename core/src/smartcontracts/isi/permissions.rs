@@ -74,12 +74,12 @@ fn check_permission_recursively(
 ///
 /// If given query is not permitted to execute
 pub fn check_query_permissions(
-    _account_id: &AccountId,
+    account_id: &AccountId,
     query: &QueryBox,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     wsv.validators_view()
-        .validate(wsv, query.clone())
+        .validate(wsv, account_id.clone(), query.clone())
         .map_err(|error| NotPermittedFail {
             reason: error.to_string(),
         })
@@ -87,13 +87,13 @@ pub fn check_query_permissions(
 }
 
 fn check_permissions_directly(
-    _account_id: &AccountId,
+    account_id: &AccountId,
     instructions: &[Instruction],
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
         wsv.validators_view()
-            .validate(wsv, isi.clone())
+            .validate(wsv, account_id.clone(), isi.clone())
             .map_err(|error| NotPermittedFail {
                 reason: error.to_string(),
             })

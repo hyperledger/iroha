@@ -157,10 +157,11 @@ impl TransactionValidator {
             signatures,
         };
 
+        let account_id = signed_tx.payload.account_id.clone();
         debug!(?signed_tx, "Validating transaction");
         // Validating the transaction it-self
         wsv.validators_view()
-            .validate(wsv, signed_tx.clone())
+            .validate(wsv, account_id.clone(), signed_tx.clone())
             .map_err(|err| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {
                     reason: err.to_string(),
@@ -171,11 +172,13 @@ impl TransactionValidator {
         // Validating the transaction instructions
         if let Executable::Instructions(instructions) = signed_tx.payload.instructions {
             for isi in instructions {
-                wsv.validators_view().validate(wsv, isi).map_err(|err| {
-                    TransactionRejectionReason::NotPermitted(NotPermittedFail {
-                        reason: err.to_string(),
-                    })
-                })?;
+                wsv.validators_view()
+                    .validate(wsv, account_id.clone(), isi)
+                    .map_err(|err| {
+                        TransactionRejectionReason::NotPermitted(NotPermittedFail {
+                            reason: err.to_string(),
+                        })
+                    })?;
             }
         }
 
