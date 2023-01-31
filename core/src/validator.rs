@@ -7,6 +7,7 @@ use iroha_data_model::{
     permission::validator::{
         DenialReason, Id, NeedsPermission as _, NeedsPermissionBox, Type, Validator,
     },
+    prelude::Account,
     Identifiable,
 };
 use iroha_logger::trace;
@@ -174,6 +175,7 @@ impl Chain {
     pub fn validate(
         &self,
         wsv: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<()> {
         let operation = operation.into();
@@ -195,8 +197,13 @@ impl Chain {
                 "Validator chain internal collections inconsistency error \
                  when validating an operation. This is a bug",
             );
-            let res =
-                Self::execute_validator(&runtime, loaded_validator.value(), wsv, operation.clone());
+            let res = Self::execute_validator(
+                &runtime,
+                loaded_validator.value(),
+                wsv,
+                authority.clone(),
+                operation.clone(),
+            );
             trace!(%validator_id, "Validator Executed");
             res?;
         }
@@ -213,13 +220,14 @@ impl Chain {
         runtime: &wasm::Runtime,
         loaded_validator: &LoadedValidator,
         wsv: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
         operation: NeedsPermissionBox,
     ) -> Result<()> {
         let validator_id = &loaded_validator.id;
 
         let verdict = runtime.execute_permission_validator_module(
             wsv,
-            validator_id.account_id.clone(),
+            authority,
             &loaded_validator.module,
             operation.clone(),
         )?;
@@ -247,8 +255,9 @@ impl ChainView<'_> {
     pub fn validate(
         self,
         wsv: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<()> {
-        self.chain.validate(wsv, operation)
+        self.chain.validate(wsv, authority, operation)
     }
 }
