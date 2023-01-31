@@ -1146,7 +1146,7 @@ pub mod stream {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{str::FromStr, sync::Arc};
+    use std::str::FromStr;
 
     use iroha_data_model::prelude::*;
 
@@ -1184,11 +1184,7 @@ mod tests {
             max_instruction_number: 100,
             max_wasm_size_bytes: 0,
         };
-        let transaction_validator = TransactionValidator::new(
-            transaction_limits,
-            Arc::new(AllowAll::new()),
-            Arc::new(AllowAll::new()),
-        );
+        let transaction_validator = TransactionValidator::new(transaction_limits);
         let tx = Transaction::new(alice_id, [create_asset_definition].into(), 4000)
             .sign(alice_keys)
             .expect("Valid");

@@ -6,30 +6,19 @@ use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
-use iroha_permissions_validators::public_blockchain::{
-    key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
-    transfer,
-};
 use test_network::*;
 
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn add_role_to_limit_transfer_count() -> Result<()> {
+    // TODO: Rewrite with runtime permission validators
+
     const PERIOD_MS: u64 = 5000;
     const COUNT: u32 = 2;
 
     // Setting up client and peer.
     // Peer has a special permission validator we need for this test
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
-        .with_instruction_judge(Box::new(
-            JudgeBuilder::with_recursive_validator(transfer::ExecutionCountFitsInLimit)
-                .with_validator(AllowAll::new().into_validator())
-                .no_denies()
-                .at_least_one_allow()
-                .build(),
-        ))
-        .with_query_judge(Box::new(AllowAll::new()))
-        .start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
@@ -50,11 +39,10 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
 
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
-    let permission_token =
-        transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT);
-    let register_role =
-        RegisterBox::new(Role::new(role_id.clone()).add_permission(permission_token));
-    test_client.submit_blocking(register_role)?;
+    // let permission_token = transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT);
+    // let register_role =
+    //     RegisterBox::new(Role::new(role_id.clone()).add_permission(permission_token));
+    // test_client.submit_blocking(register_role)?;
 
     // Granting new role to Alice
     let grant_role = GrantBox::new(role_id, alice_id);
@@ -150,11 +138,12 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Registering role
     let role_id = <Role as Identifiable>::Id::from_str("ACCESS_TO_MOUSE_METADATA")?;
-    let role = iroha_data_model::role::Role::new(role_id.clone())
-        .add_permission(CanSetKeyValueInUserMetadata::new(mouse_id.clone()))
-        .add_permission(CanRemoveKeyValueInUserMetadata::new(mouse_id.clone()));
-    let register_role = RegisterBox::new(role);
-    test_client.submit_blocking(register_role)?;
+    // TODO
+    // let role = iroha_data_model::role::Role::new(role_id.clone())
+    //     .add_permission(CanSetKeyValueInUserMetadata::new(mouse_id.clone()))
+    //     .add_permission(CanRemoveKeyValueInUserMetadata::new(mouse_id.clone()));
+    // let register_role = RegisterBox::new(role);
+    // test_client.submit_blocking(register_role)?;
 
     // Mouse grants role to Alice
     let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
@@ -183,7 +172,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
-    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    // let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
     let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
 
     // Registering Mouse
@@ -191,10 +180,11 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = RegisterBox::new(
-        Role::new(role_id.clone()).add_permission(CanSetKeyValueInUserMetadata::new(alice_id)),
-    );
-    test_client.submit_blocking(register_role)?;
+    // TODO
+    // let register_role = RegisterBox::new(
+    //     Role::new(role_id.clone()).add_permission(CanSetKeyValueInUserMetadata::new(alice_id)),
+    // );
+    // test_client.submit_blocking(register_role)?;
 
     // Grant root role to Mouse
     let grant_role = GrantBox::new(role_id.clone(), mouse_id.clone());
