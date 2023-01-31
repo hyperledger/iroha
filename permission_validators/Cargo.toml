@@ -23,7 +23,7 @@ authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 [workspace.dependencies]
-iroha_wasm = { path = "../../wasm", features = ["debug"]}
+iroha_wasm = { path = "../wasm", features = ["debug"]}
 
 [profile.dev]
 panic = "abort"

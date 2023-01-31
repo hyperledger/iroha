@@ -36,7 +36,6 @@ pub struct Torii {
     iroha_cfg: super::Configuration,
     queue: Arc<Queue>,
     events: EventsSender,
-    query_judge: QueryJudgeArc,
     notify_shutdown: Arc<Notify>,
     sumeragi: Arc<Sumeragi>,
     kura: Arc<Kura>,

@@ -27,7 +27,6 @@ use iroha_core::{
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
-    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::Sumeragi,
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
@@ -166,11 +165,7 @@ impl Iroha {
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
     #[allow(clippy::non_ascii_literal)]
-    pub async fn new(
-        args: &Arguments,
-        instruction_judge: InstructionJudgeBoxed,
-        query_judge: QueryJudgeBoxed,
-    ) -> Result<Self> {
+    pub async fn new(args: &Arguments) -> Result<Self> {
         let mut config = args
             .config_path
             .first_existing_path()
@@ -221,15 +216,7 @@ impl Iroha {
             None
         };
 
-        Self::with_genesis(
-            genesis,
-            config,
-            instruction_judge,
-            query_judge,
-            Broker::new(),
-            telemetry,
-        )
-        .await
+        Self::with_genesis(genesis, config, Broker::new(), telemetry).await
     }
 
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
@@ -289,8 +276,6 @@ impl Iroha {
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
-        instruction_judge: InstructionJudgeBoxed,
-        query_judge: QueryJudgeBoxed,
         broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
@@ -325,13 +310,7 @@ impl Iroha {
         )?;
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
-        let query_judge = Arc::from(query_judge);
-
-        let transaction_validator = TransactionValidator::new(
-            config.sumeragi.transaction_limits,
-            Arc::from(instruction_judge),
-            Arc::clone(&query_judge),
-        );
+        let transaction_validator = TransactionValidator::new(config.sumeragi.transaction_limits);
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
@@ -398,7 +377,6 @@ impl Iroha {
         let torii = Torii::from_configuration(
             config.clone(),
             Arc::clone(&queue),
-            query_judge,
             events_sender,
             Arc::clone(&notify_shutdown),
             Arc::clone(&sumeragi),

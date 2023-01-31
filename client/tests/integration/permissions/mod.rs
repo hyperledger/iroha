@@ -3,12 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::{prelude::*, smartcontracts::permissions::HasToken};
 use iroha_data_model::prelude::*;
-use iroha_permissions_validators::{
-    private_blockchain,
-    public_blockchain::{self, key_value::CanSetKeyValueInUserAssets},
-};
 use test_network::{PeerBuilder, *};
 
 use super::Configuration;
@@ -24,9 +19,7 @@ fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> 
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_require_registration_before_grant() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new()
-        .with_instruction_judge(public_blockchain::default_permissions())
-        .start_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     // Given
@@ -59,9 +52,7 @@ fn permissions_require_registration_before_grant() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_disallow_asset_transfer() {
-    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
-        .with_instruction_judge(public_blockchain::default_permissions())
-        .start_with_runtime();
+    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
@@ -114,9 +105,7 @@ fn permissions_disallow_asset_transfer() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_disallow_asset_burn() {
-    let (_rt, _not_drop, mut iroha_client) = <PeerBuilder>::new()
-        .with_instruction_judge(public_blockchain::default_permissions())
-        .start_with_runtime();
+    let (_rt, _not_drop, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -172,13 +161,7 @@ fn permissions_disallow_asset_burn() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn account_can_query_only_its_own_domain() {
-    let query_judge = JudgeBuilder::with_validator(private_blockchain::query::OnlyAccountsDomain)
-        .at_least_one_allow()
-        .build();
-
-    let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
-        .with_query_judge(Box::new(query_judge))
-        .start_with_runtime();
+    let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new().start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -210,23 +193,14 @@ fn account_can_query_only_its_own_domain() {
 // If permissions are checked after instruction is executed during validation this introduces
 // a potential security liability that gives an attacker a backdoor for gaining root access
 fn permissions_checked_before_transaction_execution() {
-    let instruction_judge = JudgeBuilder::with_validator(
-        private_blockchain::register::GrantedAllowedRegisterDomains.into_validator(),
-    )
-    .at_least_one_allow()
-    .build();
-
-    let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new()
-        .with_instruction_judge(Box::new(instruction_judge))
-        .with_query_judge(Box::new(DenyAll::new()))
-        .start_with_runtime();
+    let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new().start_with_runtime();
 
     let isi = [
         // Grant instruction is not allowed
-        Instruction::Grant(GrantBox::new(
-            PermissionToken::from(private_blockchain::register::CanRegisterDomains::new()),
-            IdBox::AccountId("alice@wonderland".parse().expect("Valid")),
-        )),
+        // Instruction::Grant(GrantBox::new(
+        //     PermissionToken::from(private_blockchain::register::CanRegisterDomains::new()),
+        //     IdBox::AccountId("alice@wonderland".parse().expect("Valid")),
+        // )),
         Instruction::Register(RegisterBox::new(Domain::new(
             "new_domain".parse().expect("Valid"),
         ))),
@@ -244,19 +218,9 @@ fn permissions_checked_before_transaction_execution() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let instruction_judge = JudgeBuilder::with_recursive_validator(
-        public_blockchain::key_value::AssetSetOnlyForSignerAccount
-            .or(public_blockchain::key_value::SetGrantedByAssetOwner.into_validator()),
-    )
-    .no_denies()
-    .build();
+    let (_rt, _not_drop, client) = <PeerBuilder>::new().start_with_runtime();
 
-    let (_rt, _not_drop, client) = <PeerBuilder>::new()
-        .with_instruction_judge(Box::new(instruction_judge))
-        .with_query_judge(Box::new(DenyAll::new()))
-        .start_with_runtime();
-
-    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    // let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
     let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
 
     // Registering `Store` asset definitions
@@ -281,12 +245,13 @@ fn permissions_differ_not_only_by_names() {
 
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
-    client
-        .submit_blocking(GrantBox::new(
-            PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_hat_id.clone())),
-            alice_id.clone(),
-        ))
-        .expect("Failed grant permission to modify Mouse's hats");
+    // TODO
+    // client
+    //     .submit_blocking(GrantBox::new(
+    //         PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_hat_id.clone())),
+    //         alice_id.clone(),
+    //     ))
+    //     .expect("Failed grant permission to modify Mouse's hats");
 
     // Checking that Alice can modify Mouse's hats ...
     client
@@ -300,7 +265,7 @@ fn permissions_differ_not_only_by_names() {
     // ... but not shoes
     let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id);
     let set_shoes_color = SetKeyValueBox::new(
-        mouse_shoes_id.clone(),
+        mouse_shoes_id,
         Name::from_str("color").expect("Valid"),
         "yellow".to_owned(),
     );
@@ -309,12 +274,13 @@ fn permissions_differ_not_only_by_names() {
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
-    client
-        .submit_blocking(GrantBox::new(
-            PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_shoes_id)),
-            alice_id,
-        ))
-        .expect("Failed grant permission to modify Mouse's shoes");
+    // TODO
+    // client
+    //     .submit_blocking(GrantBox::new(
+    //         PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_shoes_id)),
+    //         alice_id,
+    //     ))
+    //     .expect("Failed grant permission to modify Mouse's shoes");
 
     // Checking that Alice can modify Mouse's shoes
     client

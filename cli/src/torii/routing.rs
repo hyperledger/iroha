@@ -21,10 +21,7 @@ use iroha_core::{
         BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
         VersionedBlockSubscriptionRequest,
     },
-    smartcontracts::{
-        isi::query::{Error as QueryError, ValidQueryRequest},
-        permissions::prelude::*,
-    },
+    smartcontracts::isi::query::{Error as QueryError, ValidQueryRequest},
 };
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
@@ -60,7 +57,6 @@ impl VerifiedQueryRequest {
     pub fn validate(
         self,
         wsv: &WorldStateView,
-        query_judge: &dyn Judge<Operation = QueryBox>,
     ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.contains_signatory(self.signature.public_key())
@@ -70,14 +66,9 @@ impl VerifiedQueryRequest {
                 "Signature public key doesn't correspond to the account.",
             )));
         }
-        query_judge
-            .judge(&self.payload.account_id, &self.payload.query, wsv)
-            .and_then(|_| {
-                wsv.validators_view()
-                    .validate(wsv, self.payload.query.clone())
-                    .map_err(|err| err.to_string())
-            })
-            .map_err(QueryError::Permission)?;
+        wsv.validators_view()
+            .validate(wsv, self.payload.query.clone())
+            .map_err(|err| QueryError::Permission(err.to_string()))?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
             self.payload.filter,
@@ -131,7 +122,6 @@ pub(crate) async fn handle_instructions(
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_queries(
     sumeragi: Arc<Sumeragi>,
-    query_judge: QueryJudgeArc,
     pagination: Pagination,
     sorting: Sorting,
     request: VersionedSignedQueryRequest,
@@ -141,7 +131,7 @@ pub(crate) async fn handle_queries(
 
     let (result, filter) = {
         let wsv = sumeragi.wsv_mutex_access().clone();
-        let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
+        let (valid_request, filter) = request.validate(&wsv)?;
         let original_result = valid_request.execute(&wsv)?;
         (filter.filter(original_result), filter)
     };
@@ -476,7 +466,6 @@ impl Torii {
     pub fn from_configuration(
         iroha_cfg: Configuration,
         queue: Arc<Queue>,
-        query_judge: QueryJudgeArc,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
         sumeragi: Arc<Sumeragi>,
@@ -485,7 +474,6 @@ impl Torii {
         Self {
             iroha_cfg,
             events,
-            query_judge,
             queue,
             notify_shutdown,
             sumeragi,
@@ -563,10 +551,10 @@ impl Torii {
                 ))
                 .and(body::versioned()),
         )
-        .or(endpoint5(
+        .or(endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state!(self.sumeragi, self.query_judge))
+                .and(add_state!(self.sumeragi))
                 .and(paginate())
                 .and(sorting())
                 .and(body::versioned()),

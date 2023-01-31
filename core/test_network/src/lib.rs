@@ -23,16 +23,9 @@ use iroha_config::{
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
-    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
-use iroha_permissions_validators::{
-    private_blockchain,
-    public_blockchain::{
-        self, burn::CanBurnAssetWithDefinition, mint::CanMintUserAssetDefinitions,
-    },
-};
 use iroha_primitives::small;
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
@@ -90,29 +83,25 @@ impl TestGenesis for GenesisNetwork {
             .expect("valid names");
         let alice_id =
             <Account as Identifiable>::Id::from_str("alice@wonderland").expect("valid names");
-        let mint_rose_permission: PermissionToken =
-            CanMintUserAssetDefinitions::new(rose_definition_id.clone()).into();
-        let burn_rose_permission: PermissionToken =
-            CanBurnAssetWithDefinition::new(rose_definition_id.clone()).into();
 
-        genesis.transactions[0].isi.extend(
-            public_blockchain::default_permission_token_definitions()
-                .into_iter()
-                .chain(private_blockchain::default_permission_token_definitions().into_iter())
-                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
-        );
+        // TODO: Bring back this alice permissions
+        // let mint_rose_permission: PermissionToken =
+        //     CanMintUserAssetDefinitions::new(rose_definition_id.clone()).into();
+        // let burn_rose_permission: PermissionToken =
+        //     CanBurnAssetWithDefinition::new(rose_definition_id.clone()).into();
+        // genesis.transactions[0]
+        //     .isi
+        //     .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
+        // genesis.transactions[0]
+        //     .isi
+        //     .push(GrantBox::new(burn_rose_permission, alice_id.clone()).into());
+
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::quantity(
                 AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
             ))
             .into(),
         );
-        genesis.transactions[0]
-            .isi
-            .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
-        genesis.transactions[0]
-            .isi
-            .push(GrantBox::new(burn_rose_permission, alice_id.clone()).into());
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::quantity(
                 AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
@@ -493,8 +482,6 @@ impl Peer {
         &mut self,
         configuration: Configuration,
         genesis: Option<GenesisNetwork>,
-        instruction_judge: InstructionJudgeBoxed,
-        query_judge: QueryJudgeBoxed,
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
@@ -515,16 +502,9 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(
-                    genesis,
-                    configuration,
-                    instruction_judge,
-                    query_judge,
-                    broker,
-                    telemetry,
-                )
-                .await
-                .expect("Failed to start iroha");
+                let mut iroha = Iroha::with_genesis(genesis, configuration, broker, telemetry)
+                    .await
+                    .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
                 sender.send(iroha).unwrap();
                 job_handle.await.unwrap().unwrap();
@@ -618,8 +598,6 @@ impl From<Option<GenesisNetwork>> for WithGenesis {
 pub struct PeerBuilder {
     configuration: Option<Configuration>,
     genesis: WithGenesis,
-    instruction_judge: Option<InstructionJudgeBoxed>,
-    query_judge: Option<QueryJudgeBoxed>,
     temp_dir: Option<Arc<TempDir>>,
     port: Option<u16>,
 }
@@ -667,20 +645,6 @@ impl PeerBuilder {
         self
     }
 
-    /// Set permissions for instructions.
-    #[must_use]
-    pub fn with_instruction_judge(mut self, instruction_judge: InstructionJudgeBoxed) -> Self {
-        self.instruction_judge.replace(instruction_judge);
-        self
-    }
-
-    /// Set permissions for queries.
-    #[must_use]
-    pub fn with_query_judge(mut self, query_judge: QueryJudgeBoxed) -> Self {
-        self.query_judge.replace(query_judge);
-        self
-    }
-
     /// Set the directory to be used as a stub.
     #[must_use]
     pub fn with_dir(mut self, temp_dir: Arc<TempDir>) -> Self {
@@ -722,24 +686,11 @@ impl PeerBuilder {
             WithGenesis::None => None,
             WithGenesis::Has(genesis) => Some(genesis),
         };
-        let instruction_validator = self.instruction_judge.unwrap_or_else(|| {
-            iroha_permissions_validators::public_blockchain::default_permissions()
-        });
-        let query_validator = self
-            .query_judge
-            .unwrap_or_else(|| Box::new(AllowAll::new()));
         let temp_dir = self
             .temp_dir
             .unwrap_or_else(|| Arc::new(TempDir::new().expect("Failed to create temp dir.")));
 
-        peer.start(
-            configuration,
-            genesis,
-            instruction_validator,
-            query_validator,
-            temp_dir,
-        )
-        .await;
+        peer.start(configuration, genesis, temp_dir).await;
     }
 
     /// Create and start a peer with preapplied arguments.

@@ -4,8 +4,6 @@ use std::env;
 
 use iroha::style::Styling;
 use iroha_config::path::Path as ConfigPath;
-use iroha_core::prelude::AllowAll;
-use iroha_permissions_validators::public_blockchain::default_permissions;
 use owo_colors::OwoColorize as _;
 
 const HELP_ARG: [&str; 2] = ["--help", "-h"];
@@ -86,10 +84,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         }
     }
 
-    <iroha::Iroha>::new(&args, Box::new(AllowAll::new()), Box::new(AllowAll::new()))
-        .await?
-        .start()
-        .await?;
+    <iroha::Iroha>::new(&args).await?.start().await?;
     Ok(())
 }
 

@@ -43,11 +43,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let block = PendingBlock::new(vec![tx], Vec::new())
         .chain_first()
         .validate(
-            &TransactionValidator::new(
-                transaction_limits,
-                Arc::new(AllowAll::new()),
-                Arc::new(AllowAll::new()),
-            ),
+            &TransactionValidator::new(transaction_limits),
             &Arc::new(WorldStateView::new(World::new(), kura)),
         );
     let mut block = block

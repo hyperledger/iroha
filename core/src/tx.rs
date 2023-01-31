@@ -14,7 +14,7 @@
     clippy::std_instead_of_alloc,
     clippy::arithmetic_side_effects
 )]
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
@@ -25,39 +25,21 @@ use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::Serialize;
 
-use crate::{
-    prelude::*,
-    smartcontracts::{
-        permissions::{check_instruction_permissions, judge::InstructionJudgeArc, prelude::*},
-        wasm, Evaluate, Execute,
-    },
-};
+use crate::{prelude::*, smartcontracts::Evaluate};
 
 /// Used to validate transaction and thus move transaction lifecycle forward
 ///
 /// Permission validation is skipped for genesis.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct TransactionValidator {
     /// [`TransactionLimits`] field
     pub transaction_limits: TransactionLimits,
-    /// [`InstructionJudgeArc`] field
-    pub instruction_judge: InstructionJudgeArc,
-    /// [`QueryJudgeArc`] field
-    pub query_judge: QueryJudgeArc,
 }
 
 impl TransactionValidator {
     /// Construct [`TransactionValidator`]
-    pub fn new(
-        transaction_limits: TransactionLimits,
-        instruction_judge: InstructionJudgeArc,
-        query_judge: QueryJudgeArc,
-    ) -> Self {
-        Self {
-            transaction_limits,
-            instruction_judge,
-            query_judge,
-        }
+    pub fn new(transaction_limits: TransactionLimits) -> Self {
+        Self { transaction_limits }
     }
 
     /// Move transaction lifecycle forward by checking if the
@@ -129,7 +111,6 @@ impl TransactionValidator {
             }));
         }
 
-        // self.validate_with_builtin_validators(&tx, wsv, is_genesis)?;
         debug!(?tx, "Start validation");
         let res = Self::validate_with_runtime_validators(tx, wsv);
         debug!("End validation");
@@ -159,64 +140,6 @@ impl TransactionValidator {
         }
 
         Ok(())
-    }
-
-    // TODO: Remove when runtime validators will replace the builtin ones
-    // Should we move executable execution to runtime-checks as well?
-    fn validate_with_builtin_validators(
-        &self,
-        tx: &AcceptedTransaction,
-        wsv: &WorldStateView,
-        is_genesis: bool,
-    ) -> Result<(), TransactionRejectionReason> {
-        let account_id = &tx.payload.account_id;
-
-        match &tx.payload.instructions {
-            Executable::Instructions(instructions) => {
-                for instruction in instructions {
-                    if !is_genesis {
-                        check_instruction_permissions(
-                            account_id,
-                            instruction,
-                            self.instruction_judge.as_ref(),
-                            self.query_judge.as_ref(),
-                            wsv,
-                        )?;
-                    }
-
-                    instruction
-                        .clone()
-                        .execute(account_id.clone(), wsv)
-                        .map_err(|reason| InstructionExecutionFail {
-                            instruction: instruction.clone(),
-                            reason: reason.to_string(),
-                        })
-                        .map_err(TransactionRejectionReason::InstructionExecution)?;
-                }
-                Ok(())
-            }
-            Executable::Wasm(bytes) => {
-                let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .build()
-                    .map_err(|reason| WasmExecutionFail {
-                        reason: reason.to_string(),
-                    })
-                    .map_err(TransactionRejectionReason::WasmExecution)?;
-                wasm_runtime
-                    .validate(
-                        wsv,
-                        account_id,
-                        bytes,
-                        self.transaction_limits.max_instruction_number,
-                        Arc::clone(&self.instruction_judge),
-                        Arc::clone(&self.query_judge),
-                    )
-                    .map_err(|reason| WasmExecutionFail {
-                        reason: reason.to_string(),
-                    })
-                    .map_err(TransactionRejectionReason::WasmExecution)
-            }
-        }
     }
 
     fn validate_with_runtime_validators(
