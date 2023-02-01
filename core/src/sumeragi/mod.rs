@@ -36,7 +36,7 @@ use parking_lot::{Mutex, MutexGuard};
 use self::{
     main_loop::{NoFault, SumeragiWithFault},
     message::{Message, *},
-    view_change::{Proof, ProofChain as ViewChangeProofs},
+    view_change::{Proof, ProofChain},
 };
 use crate::{
     block::VersionedPendingBlock, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator,

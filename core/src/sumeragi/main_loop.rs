@@ -199,7 +199,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         self.broadcast_packet_to(msg, topology.sorted_peers());
     }
 
-    fn gossip_transactions(&self, state: &State, view_change_proof_chain: &[Proof]) {
+    fn gossip_transactions(&self, state: &State, view_change_proof_chain: &ProofChain) {
         let current_topology = &state.current_topology;
         let role = current_topology.role(&self.peer_id);
 
@@ -212,10 +212,8 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         if !txs.is_empty() {
             debug!(%role, tx_count = txs.len(), "Gossiping transactions");
 
-            let msg = MessagePacket::new(
-                view_change_proof_chain.to_vec(),
-                TransactionGossip::new(txs),
-            );
+            let msg =
+                MessagePacket::new(view_change_proof_chain.clone(), TransactionGossip::new(txs));
 
             self.broadcast_packet(msg, current_topology);
         }
@@ -281,24 +279,18 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     fn receive_network_packet(
         &self,
         state: &State,
-        view_change_proof_chain: &mut Vec<Proof>,
+        view_change_proof_chain: &mut ProofChain,
     ) -> Option<Message> {
         let current_topology = &state.current_topology;
-        let role = current_topology.role(&self.peer_id);
-
         match self.message_receiver.lock().try_recv() {
             Ok(packet) => {
-                let peer_list = current_topology.sorted_peers();
-
-                for proof in packet.view_change_proofs {
-                    if let Err(err) = view_change_proof_chain.insert_proof(
-                        peer_list,
-                        current_topology.max_faults(),
-                        state.latest_block_hash,
-                        &proof,
-                    ) {
-                        trace!(%role, ?err, "Failed to insert view change proof");
-                    }
+                if let Err(error) = view_change_proof_chain.merge(
+                    packet.view_change_proofs,
+                    current_topology.sorted_peers(),
+                    current_topology.max_faults(),
+                    state.latest_block_hash,
+                ) {
+                    trace!(%error, "Failed to add proofs into view change proof chain")
                 }
                 Some(packet.message)
             }
@@ -482,7 +474,7 @@ fn cache_transaction<F: FaultInjection>(state: &mut State, sumeragi: &SumeragiWi
 fn suggest_view_change<F: FaultInjection>(
     sumeragi: &SumeragiWithFault<F>,
     state: &State,
-    view_change_proof_chain: &mut Vec<Proof>,
+    view_change_proof_chain: &mut ProofChain,
     current_view_change_index: u64,
 ) {
     let suspect_proof = {
@@ -502,7 +494,7 @@ fn suggest_view_change<F: FaultInjection>(
             state.current_topology.sorted_peers(),
             state.current_topology.max_faults(),
             state.latest_block_hash,
-            &suspect_proof,
+            suspect_proof,
         )
         .unwrap_or_else(|err| error!("{err}"));
 
@@ -515,7 +507,7 @@ fn suggest_view_change<F: FaultInjection>(
 
 fn prune_view_change_proofs_and_calculate_current_index(
     state: &State,
-    view_change_proof_chain: &mut Vec<Proof>,
+    view_change_proof_chain: &mut ProofChain,
 ) -> u64 {
     view_change_proof_chain.prune(state.latest_block_hash);
     view_change_proof_chain.verify_with_state(
@@ -747,7 +739,7 @@ pub(crate) fn run<F: FaultInjection>(
     let mut voting_signatures = Vec::new();
     let mut should_sleep = false;
     let mut last_sent_transaction_gossip_time = Instant::now();
-    let mut view_change_proof_chain = Vec::new();
+    let mut view_change_proof_chain = ProofChain::default();
     let mut old_view_change_index = 0;
     let mut old_latest_block_height = 0;
     // Duration after which a view change is suggested
@@ -785,12 +777,10 @@ pub(crate) fn run<F: FaultInjection>(
             last_sent_transaction_gossip_time = Instant::now();
         }
 
-        let current_view_change_index = {
-            prune_view_change_proofs_and_calculate_current_index(
-                &state,
-                &mut view_change_proof_chain,
-            )
-        };
+        let current_view_change_index = prune_view_change_proofs_and_calculate_current_index(
+            &state,
+            &mut view_change_proof_chain,
+        );
 
         reset_state(
             &sumeragi.peer_id,
@@ -1117,7 +1107,10 @@ fn sumeragi_init_commit_genesis<F: FaultInjection>(
             .expect("Genesis signing failed");
 
         sumeragi.send_events(&signed_block);
-        let msg = MessagePacket::new(Vec::new(), BlockCreated::from(signed_block.clone()));
+        let msg = MessagePacket::new(
+            ProofChain::default(),
+            BlockCreated::from(signed_block.clone()),
+        );
         sumeragi.broadcast_packet(msg, &state.current_topology);
         // Omit signature verification during genesis round
         commit_block(sumeragi, state, signed_block.commit_unchecked());
