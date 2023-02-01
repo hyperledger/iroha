@@ -762,7 +762,6 @@ pub(crate) fn run<F: FaultInjection>(
             let span = span!(Level::TRACE, "Sumeragi Main Thread Sleep");
             let _enter = span.enter();
             std::thread::sleep(std::time::Duration::from_millis(5));
-            should_sleep = false;
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
@@ -837,6 +836,7 @@ pub(crate) fn run<F: FaultInjection>(
         }
 
         let mut message = sumeragi.receive_network_packet(&state, &mut view_change_proof_chain);
+        should_sleep = message.is_none();
         handle_role_agnostic_message(sumeragi, &mut state, &mut message, &mut voting_block);
 
         let current_topology = &state.current_topology;
@@ -845,10 +845,10 @@ pub(crate) fn run<F: FaultInjection>(
         match role {
             Role::Leader => {
                 // Looks uniform this way
-                #[allow(clippy::option_if_let_else)]
+                #[allow(clippy::single_match, clippy::option_if_let_else)]
                 match message {
                     Some(msg) => trace!(%addr, role=%Role::Leader, ?msg, "message not handled"),
-                    None => should_sleep = true,
+                    None => {}
                 }
 
                 if voting_block.is_none() {
@@ -915,7 +915,7 @@ pub(crate) fn run<F: FaultInjection>(
                     }
                 }
                 Some(msg) => trace!(%addr, role=%Role::ValidatingPeer, ?msg, "message not handled"),
-                None => should_sleep = true,
+                None => {}
             },
             Role::ObservingPeer => match message {
                 Some(Message::BlockCreated(BlockCreated { block })) => {
@@ -935,7 +935,7 @@ pub(crate) fn run<F: FaultInjection>(
                     }
                 }
                 Some(msg) => trace!(%addr, role=%Role::ObservingPeer, ?msg, "message not handled"),
-                None => should_sleep = true,
+                None => {}
             },
             Role::ProxyTail => {
                 match message {
@@ -975,7 +975,7 @@ pub(crate) fn run<F: FaultInjection>(
                         }
                     }
                     Some(msg) => trace!(role=%Role::ProxyTail, ?msg, "message ignored"),
-                    None => should_sleep = true,
+                    None => {}
                 }
 
                 if let Some(voted_block) = voting_block.take() {
