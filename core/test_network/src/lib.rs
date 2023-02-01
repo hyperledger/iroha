@@ -4,6 +4,7 @@
 use core::{fmt::Debug, str::FromStr as _, sync::atomic::AtomicBool, time::Duration};
 use std::{
     collections::{HashMap, HashSet},
+    path::Path,
     sync::Arc,
     thread,
 };
@@ -74,67 +75,43 @@ pub trait TestGenesis: Sized {
 impl TestGenesis for GenesisNetwork {
     fn test(submit_genesis: bool) -> Option<Self> {
         let cfg = Configuration::test();
-        let mut genesis = RawGenesisBlock::new(
-            "alice".parse().expect("Valid"),
-            "wonderland".parse().expect("Valid"),
-            get_key_pair().public_key().clone(),
-        );
+
+        // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let content = std::fs::read_to_string(manifest_dir.join("../../configs/peer/genesis.json"))
+            .expect("Failed to read data from configs/peer/genesis.json");
+        let mut genesis: RawGenesisBlock =
+            json5::from_str(&content).expect("Failed to deserialize genesis block from config");
+
         let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
             .expect("valid names");
         let alice_id =
             <Account as Identifiable>::Id::from_str("alice@wonderland").expect("valid names");
 
-        // TODO: Bring back this alice permissions
-        // let mint_rose_permission: PermissionToken =
-        //     CanMintUserAssetDefinitions::new(rose_definition_id.clone()).into();
-        // let burn_rose_permission: PermissionToken =
-        //     CanBurnAssetWithDefinition::new(rose_definition_id.clone()).into();
-        // genesis.transactions[0]
-        //     .isi
-        //     .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
-        // genesis.transactions[0]
-        //     .isi
-        //     .push(GrantBox::new(burn_rose_permission, alice_id.clone()).into());
-
-        genesis.transactions[0].isi.push(
-            RegisterBox::new(AssetDefinition::quantity(
-                AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
-            ))
-            .into(),
-        );
-        genesis.transactions[0].isi.push(
-            RegisterBox::new(AssetDefinition::quantity(
-                AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
-            ))
-            .into(),
-        );
-        genesis.transactions[0].isi.push(
-            MintBox::new(
-                13_u32.to_value(),
-                IdBox::AssetId(AssetId::new(rose_definition_id, alice_id.clone())),
-            )
-            .into(),
-        );
-
-        // TODO add more parameters?
-        genesis.transactions[0].isi.extend(
-            [
-                Parameter::from_str("?BlockSyncGossipPeriod=10000")
-                    .expect("Invalid parameter string"),
-                Parameter::from_str("?NetworkActorChannelCapacity=100")
-                    .expect("Invalid parameter string"),
-                Parameter::from_str("?MaxTransactionsInBlock=512")
-                    .expect("Invalid parameter string"),
-                Parameter::from_str("?MaxTransactionsInQueue=65536")
-                    .expect("Invalid parameter string"),
-                Parameter::from_str("?TransactionTimeToLive=86400000")
-                    .expect("Invalid parameter string"),
-            ]
-            .into_iter()
-            .map(|param| NewParameterBox::new(param))
-            .map(Instruction::NewParameter)
-            .map(Into::into),
-        );
+        let mint_rose_permission = PermissionToken::new(
+            "can_mint_assets_with_definition"
+                .parse()
+                .expect("valid names"),
+        )
+        .with_params([(
+            "asset_definition_id".parse().expect("valid names"),
+            IdBox::from(rose_definition_id.clone()).into(),
+        )]);
+        let burn_rose_permission = PermissionToken::new(
+            "can_burn_assets_with_definition"
+                .parse()
+                .expect("valid names"),
+        )
+        .with_params([(
+            "asset_definition_id".parse().expect("valid names"),
+            IdBox::from(rose_definition_id).into(),
+        )]);
+        genesis.transactions[0]
+            .isi
+            .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
+        genesis.transactions[0]
+            .isi
+            .push(GrantBox::new(burn_rose_permission, alice_id).into());
 
         GenesisNetwork::from_configuration(
             submit_genesis,
