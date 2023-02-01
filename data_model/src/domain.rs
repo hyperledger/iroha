@@ -90,11 +90,11 @@ declare_item! {
     #[display(fmt = "[{id}]")]
     pub struct NewDomain {
         /// The identification associated with the domain builder.
-        id: <Domain as Identifiable>::Id,
+        pub id: <Domain as Identifiable>::Id,
         /// The (IPFS) link to the logo of this domain.
-        logo: Option<IpfsPath>,
+        pub logo: Option<IpfsPath>,
         /// Metadata associated with the domain builder.
-        metadata: Metadata,
+        pub metadata: Metadata,
     }
 }
 

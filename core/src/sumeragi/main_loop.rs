@@ -75,6 +75,9 @@ pub struct SumeragiWithFault<F: FaultInjection> {
     /// Receiver channel.
     // TODO: Mutex shouldn't be required and must be removed
     pub message_receiver: Mutex<mpsc::Receiver<MessagePacket>>,
+    /// Only used in testing. Causes the genesis peer to withhold blocks when it
+    /// is the proxy tail.
+    pub debug_force_soft_fork: bool,
 }
 
 impl<F: FaultInjection> Debug for SumeragiWithFault<F> {
@@ -105,6 +108,11 @@ pub struct State {
     /// as of now we keep them seperate for greater flexibility when
     /// optimizing.
     pub wsv: WorldStateView,
+    /// A copy of wsv that is kept one block behind at all times. Because
+    /// we currently don't support rolling back wsv block application we
+    /// reset to a copy of the finalized_wsv instead. This is expensive but
+    /// enables us to handle soft-forks.
+    pub finalized_wsv: WorldStateView,
     /// In order to *be fast*, we must minimize communication with
     /// other subsystems where we can. This way the performance of
     /// sumeragi is more dependent on the code that is internal to the
@@ -125,6 +133,11 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         network: Addr<IrohaNetwork>,
         message_receiver: mpsc::Receiver<MessagePacket>,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        let soft_fork = configuration.debug_force_soft_fork;
+        #[cfg(not(debug_assertions))]
+        let soft_fork = false;
+
         Self {
             key_pair: configuration.key_pair.clone(),
             queue,
@@ -143,6 +156,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             gossip_period: Duration::from_millis(configuration.gossip_period_ms),
             current_online_peers: Mutex::new(Vec::new()),
             message_receiver: Mutex::new(message_receiver),
+            debug_force_soft_fork: soft_fork,
         }
     }
 
@@ -387,18 +401,16 @@ fn commit_block<F: FaultInjection>(
     let committed_block = block.into();
     let block_hash = committed_block.hash();
 
+    state.finalized_wsv = state.wsv.clone();
     state
         .wsv
         .apply(&committed_block)
-        .expect("Failed to apply block on WSV. This is absolutely not acceptable.");
+        .expect("Failed to apply block on WSV. Bailing.");
     sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
     sumeragi.send_events(&committed_block);
 
-    {
-        // Update WSV copy that is public facing
-        let mut wsv = sumeragi.wsv.lock();
-        *wsv = state.wsv.clone();
-    }
+    // Update WSV copy that is public facing
+    *sumeragi.wsv.lock() = state.wsv.clone();
 
     state.previous_block_hash = state.latest_block_hash;
     state.latest_block_height = committed_block.header().height;
@@ -414,10 +426,50 @@ fn commit_block<F: FaultInjection>(
         %block_hash, "Committing block"
     );
 
-    sumeragi.kura.store_block_blocking(committed_block);
+    sumeragi.kura.store_block(committed_block);
     current_topology.recreate(&state.wsv, block_hash);
 
     cache_transaction(state, sumeragi);
+}
+
+fn replace_top_block<F: FaultInjection>(
+    sumeragi: &SumeragiWithFault<F>,
+    state: &mut State,
+    block: impl Into<VersionedCommittedBlock>,
+) {
+    let committed_block = block.into();
+    let block_hash = committed_block.hash();
+
+    state.wsv = state.finalized_wsv.clone();
+    state
+        .wsv
+        .apply(&committed_block)
+        .expect("Failed to apply block on WSV. Bailing.");
+
+    sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
+    sumeragi.send_events(&committed_block);
+
+    // state.previous_block_hash stays the same.
+    state.latest_block_height = committed_block.header().height;
+    state.latest_block_hash = Some(block_hash);
+    state.latest_block_view_change_index = committed_block.header().view_change_index;
+
+    // Update WSV copy that is public facing
+    *sumeragi.wsv.lock() = state.wsv.clone();
+
+    let current_topology = &mut state.current_topology;
+    let role = current_topology.role(&sumeragi.peer_id);
+
+    info!(
+        addr=%sumeragi.peer_id.address, %role,
+        block_height=%state.latest_block_height,
+        %block_hash, "Replacing top block"
+    );
+
+    sumeragi.kura.replace_top_block(committed_block);
+    current_topology.recreate(&state.wsv, block_hash);
+
+    cache_transaction(state, sumeragi)
 }
 
 fn cache_transaction<F: FaultInjection>(state: &mut State, sumeragi: &SumeragiWithFault<F>) {
@@ -543,8 +595,9 @@ fn handle_role_agnostic_message<F: FaultInjection>(
                         peer_latest_block_view_change_index=?state.latest_block_view_change_index,
                         consensus_latest_block_hash=%block.hash(),
                         consensus_latest_block_view_change_index=%block.header().view_change_index,
-                        "Soft fork occurred: peer in inconsistent state. Currently only reload with wipe of the block storage will help."
+                        "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
                     );
+                    replace_top_block(sumeragi, state, block);
                     return;
                 }
                 if state.latest_block_hash != block.header().previous_block_hash {
@@ -616,9 +669,16 @@ fn reset_state(
     voting_block: &mut Option<VotingBlock>,
     voting_signatures: &mut Vec<SignatureOf<SignedBlock>>,
     round_start_time: &mut Instant,
+    last_view_change_time: &mut Instant,
     view_change_time: &mut Duration,
 ) {
-    let mut was_commit_or_view_change = current_latest_block_height != *old_latest_block_height;
+    let mut was_commit_or_view_change = false;
+    if current_latest_block_height != *old_latest_block_height {
+        // Round is only restarted on a block commit, so that in the case of
+        // a view change a new block is immediately created by the leader
+        *round_start_time = Instant::now();
+        was_commit_or_view_change = true;
+    }
 
     if current_view_change_index != *old_view_change_index {
         current_topology.rebuild_with_new_view_change_count(current_view_change_index);
@@ -632,7 +692,7 @@ fn reset_state(
 
         *voting_block = None;
         voting_signatures.clear();
-        *round_start_time = Instant::now();
+        *last_view_change_time = Instant::now();
         *view_change_time = pipeline_time;
         info!(addr=%peer_id.address, role=%current_topology.role(peer_id), %current_view_change_index, "View change updated");
     }
@@ -660,15 +720,19 @@ pub(crate) fn run<F: FaultInjection>(
 ) {
     let addr = &sumeragi.peer_id.address;
 
-    if state.latest_block_height == 0 || state.latest_block_hash.is_none() {
+    let is_genesis_peer = if state.latest_block_height == 0 || state.latest_block_hash.is_none() {
         if let Some(genesis_network) = genesis_network {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
+            true
         } else {
             sumeragi
                 .init_listen_for_genesis(&mut state, &mut shutdown_receiver)
                 .unwrap_or_else(|err| assert_ne!(EarlyReturn::Disconnected, err, "Disconnected"));
+            false
         }
-    }
+    } else {
+        false
+    };
 
     // Assert initialization was done properly.
     assert_eq!(state.latest_block_hash, state.wsv.latest_block_hash());
@@ -692,6 +756,8 @@ pub(crate) fn run<F: FaultInjection>(
     let mut view_change_time = sumeragi.pipeline_time();
     // Instant when the current round started
     let mut round_start_time = Instant::now();
+    // Instant when the previous view change or round happened.
+    let mut last_view_change_time = Instant::now();
 
     while !should_terminate(&mut shutdown_receiver) {
         if should_sleep {
@@ -740,10 +806,11 @@ pub(crate) fn run<F: FaultInjection>(
             &mut voting_block,
             &mut voting_signatures,
             &mut round_start_time,
+            &mut last_view_change_time,
             &mut view_change_time,
         );
 
-        if round_start_time.elapsed() > view_change_time {
+        if last_view_change_time.elapsed() > view_change_time {
             let role = state.current_topology.role(&sumeragi.peer_id);
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
@@ -855,6 +922,17 @@ pub(crate) fn run<F: FaultInjection>(
             Role::ObservingPeer => match message {
                 Some(Message::BlockCreated(BlockCreated { block })) => {
                     if let Some(block) = vote_for_block(sumeragi, &state, block) {
+                        if current_view_change_index >= 1 {
+                            let block_hash = block.block.hash();
+
+                            let msg = MessagePacket::new(
+                                view_change_proof_chain.clone(),
+                                BlockSigned::from(block.block.clone()),
+                            );
+
+                            sumeragi.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
+                            info!(%addr, %block_hash, "Block validated, signed and forwarded");
+                        }
                         voting_block = Some(block);
                     }
                 }
@@ -876,8 +954,13 @@ pub(crate) fn run<F: FaultInjection>(
                     Some(Message::BlockSigned(BlockSigned { hash, signatures })) => {
                         trace!(block_hash=%hash, "Received block signatures");
 
-                        let valid_signatures = current_topology
-                            .filter_signatures_by_roles(&[Role::ValidatingPeer], &signatures);
+                        let roles: &[Role] = if current_view_change_index >= 1 {
+                            &[Role::ValidatingPeer, Role::ObservingPeer]
+                        } else {
+                            &[Role::ValidatingPeer]
+                        };
+                        let valid_signatures =
+                            current_topology.filter_signatures_by_roles(roles, &signatures);
 
                         if let Some(voted_block) = voting_block.as_mut() {
                             let voting_block_hash = voted_block.block.hash();
@@ -909,7 +992,17 @@ pub(crate) fn run<F: FaultInjection>(
                                 BlockCommitted::from(committed_block.clone()),
                             );
 
-                            sumeragi.broadcast_packet(msg, current_topology);
+                            #[cfg(debug_assertions)]
+                            if is_genesis_peer && sumeragi.debug_force_soft_fork {
+                                std::thread::sleep(sumeragi.pipeline_time() * 2);
+                            } else {
+                                sumeragi.broadcast_packet(msg, current_topology);
+                            }
+
+                            #[cfg(not(debug_assertions))]
+                            {
+                                sumeragi.broadcast_packet(msg, current_topology);
+                            }
                             commit_block(sumeragi, &mut state, committed_block);
                         }
                         Err((block, err)) => {

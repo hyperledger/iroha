@@ -32,6 +32,7 @@ mod asset {
     //! This module contains `AssetEvent`, `AssetDefinitionEvent` and its impls
 
     use super::*;
+    use crate::asset::NewAssetDefinition;
 
     // type alias required by `Filter` macro
     type AssetMetadataChanged = MetadataChanged<AssetId>;
@@ -55,7 +56,7 @@ mod asset {
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum AssetEvent {
-        Created(AssetId),
+        Created(Asset),
         Deleted(AssetId),
         Added(AssetChanged),
         Removed(AssetChanged),
@@ -68,8 +69,8 @@ mod asset {
 
         fn origin_id(&self) -> &<Asset as Identifiable>::Id {
             match self {
-                Self::Created(id)
-                | Self::Deleted(id)
+                Self::Created(asset) => asset.id(),
+                Self::Deleted(id)
                 | Self::Added(AssetChanged { asset_id: id, .. })
                 | Self::Removed(AssetChanged { asset_id: id, .. })
                 | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
@@ -96,7 +97,7 @@ mod asset {
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum AssetDefinitionEvent {
-        Created(AssetDefinitionId),
+        Created(NewAssetDefinition),
         MintabilityChanged(AssetDefinitionId),
         Deleted(AssetDefinitionId),
         MetadataInserted(AssetDefinitionMetadataChanged),
@@ -109,8 +110,8 @@ mod asset {
 
         fn origin_id(&self) -> &<AssetDefinition as Identifiable>::Id {
             match self {
-                Self::Created(id)
-                | Self::Deleted(id)
+                Self::Created(asset_definition) => asset_definition.id(),
+                Self::Deleted(id)
                 | Self::MintabilityChanged(id)
                 | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
                 | Self::MetadataRemoved(MetadataChanged { target_id: id, .. })
@@ -226,7 +227,7 @@ mod role {
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum RoleEvent {
-        Created(RoleId),
+        Created(NewRole),
         Deleted(RoleId),
         /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::Id) were
         /// removed from the role.
@@ -260,8 +261,8 @@ mod role {
 
         fn origin_id(&self) -> &<Role as Identifiable>::Id {
             match self {
-                Self::Created(role_id)
-                | Self::Deleted(role_id)
+                Self::Created(role) => role.id(),
+                Self::Deleted(role_id)
                 | Self::PermissionRemoved(PermissionRemoved { role_id, .. }) => role_id,
             }
         }
@@ -344,6 +345,7 @@ mod account {
     //! This module contains `AccountEvent` and its impls
 
     use super::*;
+    use crate::account::NewAccount;
 
     // type alias required by `Filter` macro
     type AccountMetadataChanged = MetadataChanged<AccountId>;
@@ -368,7 +370,7 @@ mod account {
     #[allow(missing_docs)]
     pub enum AccountEvent {
         Asset(AssetEvent),
-        Created(AccountId),
+        Created(NewAccount),
         Deleted(AccountId),
         AuthenticationAdded(AccountId),
         AuthenticationRemoved(AccountId),
@@ -386,8 +388,8 @@ mod account {
         fn origin_id(&self) -> &<Account as Identifiable>::Id {
             match self {
                 Self::Asset(asset) => &asset.origin_id().account_id,
-                Self::Created(id)
-                | Self::Deleted(id)
+                Self::Created(account) => account.id(),
+                Self::Deleted(id)
                 | Self::AuthenticationAdded(id)
                 | Self::AuthenticationRemoved(id)
                 | Self::PermissionAdded(AccountPermissionChanged { account_id: id, .. })
@@ -447,6 +449,7 @@ mod domain {
     //! This module contains `DomainEvent` and its impls
 
     use super::*;
+    use crate::domain::NewDomain;
 
     // type alias required by `Filter` macro
     type DomainMetadataChanged = MetadataChanged<DomainId>;
@@ -472,7 +475,7 @@ mod domain {
     pub enum DomainEvent {
         Account(AccountEvent),
         AssetDefinition(AssetDefinitionEvent),
-        Created(DomainId),
+        Created(NewDomain),
         Deleted(DomainId),
         MetadataInserted(DomainMetadataChanged),
         MetadataRemoved(DomainMetadataChanged),
@@ -485,8 +488,8 @@ mod domain {
             match self {
                 Self::Account(account) => &account.origin_id().domain_id,
                 Self::AssetDefinition(asset_definition) => &asset_definition.origin_id().domain_id,
-                Self::Created(id)
-                | Self::Deleted(id)
+                Self::Created(domain) => domain.id(),
+                Self::Deleted(id)
                 | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
                 | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
             }

@@ -223,15 +223,18 @@ mod tests {
         let asset_name = "rose".parse().expect("Valid");
 
         let domain_id = DomainId::new(domain_name);
+        let domain = Domain::new(domain_id.clone());
         let account_id = AccountId::new(account_name, domain_id.clone());
+        let account = Account::new(account_id.clone(), []);
         let asset_id = AssetId::new(
-            AssetDefinitionId::new(asset_name, domain_id.clone()),
+            AssetDefinitionId::new(asset_name, domain_id),
             account_id.clone(),
         );
+        let asset = Asset::new(asset_id, 0u32);
 
-        let domain_created = DomainEvent::Created(domain_id);
-        let account_created = AccountEvent::Created(account_id.clone());
-        let asset_created = AssetEvent::Created(asset_id);
+        let domain_created = DomainEvent::Created(domain);
+        let account_created = AccountEvent::Created(account);
+        let asset_created = AssetEvent::Created(asset);
         let account_asset_created = AccountEvent::Asset(asset_created.clone());
         let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountFilter::new(
             BySome(OriginFilter(account_id)),

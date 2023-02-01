@@ -47,7 +47,7 @@ impl<V: IsAllowed<Operation = Instruction>> IsAllowed for CheckNested<V> {
                     if_box
                         .otherwise
                         .as_ref()
-                        .map_or(ValidatorVerdict::Skip, |otherwise| {
+                        .map_or(ValidatorVerdict::Allow, |otherwise| {
                             self.check(authority, otherwise, wsv)
                         })
                 }),

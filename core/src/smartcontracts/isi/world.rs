@@ -65,7 +65,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let domain: Domain = self.object.build();
+            let domain: Domain = self.object.clone().build();
             let domain_id = domain.id().clone();
 
             domain_id
@@ -82,7 +82,7 @@ pub mod isi {
                 }
 
                 world.domains.insert(domain_id.clone(), domain);
-                Ok(DomainEvent::Created(domain_id).into())
+                Ok(DomainEvent::Created(self.object).into())
             })?;
 
             Ok(())
@@ -121,7 +121,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let role = self.object.build();
+            let role = self.object.clone().build();
 
             for permission in role.permissions() {
                 let definition = wsv
@@ -144,7 +144,7 @@ pub mod isi {
             let role_id = role.id().clone();
             wsv.modify_world(|world| {
                 world.roles.insert(role_id.clone(), role);
-                Ok(RoleEvent::Created(role_id).into())
+                Ok(RoleEvent::Created(self.object).into())
             })
         }
     }

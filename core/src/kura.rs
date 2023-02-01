@@ -126,8 +126,8 @@ impl Kura {
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[allow(clippy::expect_used)]
-    pub fn init(&self) -> Result<Vec<VersionedCommittedBlock>> {
-        let mut blocks = Vec::new();
+    pub fn init(&self) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
+        let mut block_hashes = Vec::new();
 
         let block_store = self.block_store.lock();
 
@@ -151,7 +151,7 @@ impl Kura {
             match block_store.read_block_data(block_start, &mut block_data_buffer) {
                 Ok(_) => match VersionedCommittedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        blocks.push(decoded_block);
+                        block_hashes.push(decoded_block.hash());
                     }
                     Err(error) => {
                         error!(?error, "Encountered malformed block. Not reading any blocks beyond this height.");
@@ -165,14 +165,14 @@ impl Kura {
             }
         }
 
-        info!("Loaded {} blocks at init.", blocks.len());
+        info!(block_count = block_hashes.len(), "Init complete");
 
         {
             // The none value is set in order to indicate that the blocks exist on disk but
             // are not yet loaded.
-            let data_array = blocks
+            let data_array = block_hashes
                 .iter()
-                .map(VersionedCommittedBlock::hash)
+                .copied()
                 .map(|hash| (hash, None))
                 .collect();
 
@@ -180,7 +180,7 @@ impl Kura {
             *guard = data_array;
         }
 
-        Ok(blocks)
+        Ok(block_hashes)
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
@@ -188,7 +188,10 @@ impl Kura {
         kura: &Kura,
         mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
     ) {
-        let mut written_block_count = kura.block_data.lock().len();
+        let (mut written_block_count, mut latest_block_hash) = {
+            let block_data_guard = kura.block_data.lock();
+            (block_data_guard.len(), block_data_guard.last().map(|d| d.0))
+        };
         let mut should_exit = false;
         loop {
             // If kura receive shutdown then close block channel and write remaining blocks to the storage
@@ -198,7 +201,16 @@ impl Kura {
             }
 
             let block_data_guard = kura.block_data.lock();
-            if block_data_guard.len() <= written_block_count {
+
+            let new_latest_block_hash = block_data_guard.last().map(|d| d.0);
+            if block_data_guard.len() == written_block_count
+                && new_latest_block_hash != latest_block_hash
+            {
+                written_block_count -= 1; // There has been a soft-fork and we need to rewrite the top block.
+            }
+            latest_block_hash = new_latest_block_hash;
+
+            if written_block_count >= block_data_guard.len() {
                 if should_exit {
                     info!("Kura has written remaining blocks to disk and is shutting down.");
                     return;
@@ -321,19 +333,27 @@ impl Kura {
         &self,
         block_hash: &HashOf<VersionedCommittedBlock>,
     ) -> Option<Arc<VersionedCommittedBlock>> {
-        self.block_data
+        let index = self
+            .block_data
             .lock()
             .iter()
-            .position(|(hash, _arc)| hash == block_hash)
-            .and_then(|index| self.get_block_by_height(index as u64 + 1))
+            .position(|(hash, _arc)| hash == block_hash);
+
+        index.and_then(|index| self.get_block_by_height(index as u64 + 1))
     }
 
-    /// Put a block in kura's in memory block store. Kura will write the block
-    /// to disk in due time.
-    pub fn store_block_blocking(&self, block: VersionedCommittedBlock) {
+    /// Put a block in kura's in memory block store.
+    pub fn store_block(&self, block: VersionedCommittedBlock) {
         self.block_data
             .lock()
             .push((block.hash(), Some(Arc::new(block))));
+    }
+
+    /// Replace the block in `Kura`'s in memory block store.
+    pub fn replace_top_block(&self, block: VersionedCommittedBlock) {
+        let mut data = self.block_data.lock();
+        data.pop();
+        data.push((block.hash(), Some(Arc::new(block))));
     }
 }
 

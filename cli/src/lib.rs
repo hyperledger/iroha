@@ -293,7 +293,7 @@ impl Iroha {
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
 
-        wsv.init(kura.init()?);
+        let block_hashes = kura.init()?;
 
         let notify_shutdown = Arc::new(Notify::new());
 
@@ -329,7 +329,7 @@ impl Iroha {
         .expect_running();
 
         let sumeragi_thread_handler =
-            Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis);
+            Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis, &block_hashes);
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,

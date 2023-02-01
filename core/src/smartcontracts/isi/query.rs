@@ -260,7 +260,7 @@ mod tests {
         let mut curr_hash = first_block.hash();
 
         wsv.apply(&first_block)?;
-        kura.store_block_blocking(first_block);
+        kura.store_block(first_block);
 
         for height in 1u64..blocks {
             let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
@@ -279,7 +279,7 @@ mod tests {
                 .into();
             curr_hash = block.hash();
             wsv.apply(&block)?;
-            kura.store_block_blocking(block);
+            kura.store_block(block);
         }
 
         Ok(wsv)
@@ -425,7 +425,7 @@ mod tests {
             .commit_unchecked()
             .into();
         wsv.apply(&vcb)?;
-        kura.store_block_blocking(vcb);
+        kura.store_block(vcb);
 
         let wrong_hash: Hash = HashOf::new(&2_u8).into();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);

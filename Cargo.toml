@@ -36,7 +36,6 @@ members = [
   "version/derive",
 ]
 
-
 [profile.deploy]
 inherits = "release"
 opt-level = 3

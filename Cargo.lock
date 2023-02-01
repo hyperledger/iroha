@@ -1947,6 +1947,7 @@ dependencies = [
 name = "iroha_config"
 version = "2.0.0-pre-rc.11"
 dependencies = [
+ "cfg-if",
  "crossbeam",
  "derive_more",
  "eyre",
