@@ -101,7 +101,7 @@ pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
 
     use super::*;
-    use crate::block::VersionedCandidateCommittedBlock;
+    use crate::{block::VersionedCandidateCommittedBlock, sumeragi::view_change::ProofChain};
 
     /// Message to initiate receiving of latest blocks from other peers
     ///
@@ -242,7 +242,7 @@ pub mod message {
                     use crate::sumeragi::message::{BlockSyncUpdate, Message, MessagePacket};
                     for block in blocks.clone() {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
-                            Vec::new(),
+                            ProofChain::default(),
                             Message::BlockSyncUpdate(BlockSyncUpdate { block }),
                         ));
                     }

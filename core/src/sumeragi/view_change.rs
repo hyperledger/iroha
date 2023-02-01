@@ -8,13 +8,25 @@
 )]
 use std::collections::HashSet;
 
+use derive_more::{Deref, DerefMut};
 use eyre::Result;
 use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, Signature};
 use iroha_data_model::prelude::PeerId;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
+use thiserror::Error;
 
 use crate::block::VersionedCommittedBlock;
+
+/// Error emerge during insertion of `Proof` into `ProofChain`
+#[derive(Error, Debug, Clone, Copy)]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Block hash of proof doesn't match hash of proof chain")]
+    BlockHashMismatch,
+    #[error("View change index is not present in proof chain")]
+    ViewChangeNotFound,
+}
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
@@ -52,27 +64,21 @@ impl Proof {
     }
 
     /// Verify the signatures of `other` and add them to this proof.
-    pub fn merge_signatures(&mut self, other: &Vec<Signature>) {
+    pub fn merge_signatures(&mut self, other: Vec<Signature>) {
         let signature_payload = self.signature_payload();
         for signature in other {
             if signature.verify(signature_payload.as_ref()).is_ok()
-                && !self.signatures.contains(signature)
+                && !self.signatures.contains(&signature)
             {
-                self.signatures.push(signature.clone());
+                self.signatures.push(signature);
             }
         }
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
-    pub fn verify<'a>(
-        &self,
-        peers: impl IntoIterator<Item = &'a PeerId>,
-        max_faults: usize,
-    ) -> bool {
-        let peer_public_keys: HashSet<&PublicKey> = peers
-            .into_iter()
-            .map(|peer_id| &peer_id.public_key)
-            .collect();
+    pub fn verify(&self, peers: &[PeerId], max_faults: usize) -> bool {
+        let peer_public_keys: HashSet<&PublicKey> =
+            peers.iter().map(|peer_id| &peer_id.public_key).collect();
 
         let signature_payload = self.signature_payload();
         let valid_count = self
@@ -92,54 +98,30 @@ impl Proof {
     }
 }
 
-/// Trait used to add proof chain manipulating functions
-/// to `Vec<Proof>`. There is no other implementor of `ProofChain`.
-pub trait ProofChain {
+/// Structure representing sequence of view change proofs.
+#[derive(Debug, Clone, Encode, Decode, Deref, DerefMut, IntoSchema, Default)]
+pub struct ProofChain(Vec<Proof>);
+
+impl ProofChain {
     /// Verify the view change proof chain.
-    fn verify_with_state<'a>(
+    pub fn verify_with_state(
         &self,
-        peers: impl IntoIterator<Item = &'a PeerId>,
-        max_faults: usize,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-    ) -> usize;
-
-    /// Remove invalid proofs from the chain.
-    fn prune(&mut self, latest_block: Option<HashOf<VersionedCommittedBlock>>);
-
-    /// Attempt to insert a view chain proof into this `ProofChain`.
-    ///
-    /// # Errors
-    /// Implementation-dependent
-    fn insert_proof<'a>(
-        &mut self,
-        peers: impl IntoIterator<Item = &'a PeerId>,
-        max_faults: usize,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        new_proof: &Proof,
-    ) -> Result<(), &'static str>;
-}
-
-impl ProofChain for Vec<Proof> {
-    fn verify_with_state<'a>(
-        &self,
-        peers: impl IntoIterator<Item = &'a PeerId>,
+        peers: &[PeerId],
         max_faults: usize,
         latest_block: Option<HashOf<VersionedCommittedBlock>>,
     ) -> usize {
-        let peers = peers.into_iter().collect::<Vec<_>>();
-
         self.iter()
             .enumerate()
             .take_while(|(i, proof)| {
                 proof.latest_block_hash == latest_block
                     && proof.view_change_index == (*i as u64)
-                    // TODO: Remove this clone
-                    && proof.verify(peers.clone(), max_faults)
+                    && proof.verify(peers, max_faults)
             })
             .count()
     }
 
-    fn prune(&mut self, latest_block: Option<HashOf<VersionedCommittedBlock>>) {
+    /// Remove invalid proofs from the chain.
+    pub fn prune(&mut self, latest_block: Option<HashOf<VersionedCommittedBlock>>) {
         let valid_count = self
             .iter()
             .enumerate()
@@ -150,29 +132,80 @@ impl ProofChain for Vec<Proof> {
         self.truncate(valid_count);
     }
 
+    /// Attempt to insert a view chain proof into this `ProofChain`.
+    ///
+    /// # Errors
+    /// - If proof latest block hash doesn't match peer latest block hash
+    /// - If proof view change number differs from view change number
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    fn insert_proof<'a>(
+    pub fn insert_proof(
         &mut self,
-        peers: impl IntoIterator<Item = &'a PeerId>,
+        peers: &[PeerId],
         max_faults: usize,
         latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        new_proof: &Proof,
-    ) -> Result<(), &'static str> {
+        new_proof: Proof,
+    ) -> Result<(), Error> {
         if new_proof.latest_block_hash != latest_block {
-            return Err("Block hash didn't match");
+            return Err(Error::BlockHashMismatch);
         }
         let next_unfinished_view_change = self.verify_with_state(peers, max_faults, latest_block);
         if new_proof.view_change_index != (next_unfinished_view_change as u64) {
-            return Err("Wrong view change index."); // We only care about the current view change that may or may not happen.
+            return Err(Error::ViewChangeNotFound); // We only care about the current view change that may or may not happen.
         }
-        self.truncate(next_unfinished_view_change + 1);
-        if self.len() == next_unfinished_view_change + 1 {
-            self.last_mut()
-                .expect("size must always be more than zero")
-                .merge_signatures(&new_proof.signatures);
+
+        let is_proof_chain_incomplete = next_unfinished_view_change < self.len();
+        if is_proof_chain_incomplete {
+            self[next_unfinished_view_change].merge_signatures(new_proof.signatures);
         } else {
-            self.push(new_proof.clone());
+            self.push(new_proof);
         }
+        Ok(())
+    }
+
+    /// Add latest proof from other chain into current.
+    ///
+    /// # Errors
+    /// - If there is mismatch between `other` proof chain latest block hash and peer's latest block hash
+    /// - If `other` proof chain doesn't have proof for current view chain
+    pub fn merge(
+        &mut self,
+        mut other: Self,
+        peers: &[PeerId],
+        max_faults: usize,
+        latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
+    ) -> Result<(), Error> {
+        // Prune to exclude invalid proofs
+        other.prune(latest_block_hash);
+        if other.is_empty() {
+            return Err(Error::BlockHashMismatch);
+        }
+
+        let next_unfinished_view_change =
+            self.verify_with_state(peers, max_faults, latest_block_hash);
+        let is_proof_chain_incomplete = next_unfinished_view_change < self.len();
+        let other_contain_additional_proofs = next_unfinished_view_change < other.len();
+
+        match (is_proof_chain_incomplete, other_contain_additional_proofs) {
+            // Case 1: proof chain is incomplete and other have corresponding proof.
+            (true, true) => {
+                let new_proof = other.swap_remove(next_unfinished_view_change);
+                self[next_unfinished_view_change].merge_signatures(new_proof.signatures);
+            }
+            // Case 2: proof chain is complete, but other have additional proof.
+            (false, true) => {
+                let new_proof = other.swap_remove(next_unfinished_view_change);
+                self.push(new_proof);
+            }
+            // Case 3: proof chain is incomplete, but other doesn't contain corresponding proof.
+            // Usually this mean that sender peer is behind receiver peer.
+            (true, false) => {
+                return Err(Error::ViewChangeNotFound);
+            }
+            // Case 4: proof chain is complete, but other doesn't have any new peer.
+            // This considered normal course of action.
+            (false, false) => {}
+        }
+
         Ok(())
     }
 }

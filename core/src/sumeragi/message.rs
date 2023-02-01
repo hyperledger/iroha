@@ -51,14 +51,14 @@ impl VersionedPacket {
 pub struct MessagePacket {
     /// Proof of view change. As part of this message handling, all
     /// peers which agree with view change should sign it.
-    pub view_change_proofs: Vec<view_change::Proof>,
+    pub view_change_proofs: view_change::ProofChain,
     /// Actual Sumeragi message in this packet.
     pub message: Message,
 }
 
 impl MessagePacket {
     /// Construct [`Self`]
-    pub fn new(view_change_proofs: Vec<view_change::Proof>, message: impl Into<Message>) -> Self {
+    pub fn new(view_change_proofs: view_change::ProofChain, message: impl Into<Message>) -> Self {
         Self {
             view_change_proofs,
             message: message.into(),
