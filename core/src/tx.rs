@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
+use iroha_data_model::permission::validator::NeedsPermissionBox;
 pub use iroha_data_model::prelude::*;
 use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
@@ -25,7 +26,10 @@ use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::Serialize;
 
-use crate::{prelude::*, smartcontracts::Evaluate};
+use crate::{
+    prelude::*,
+    smartcontracts::{wasm, Evaluate, Execute as _},
+};
 
 /// Used to validate transaction and thus move transaction lifecycle forward
 ///
@@ -73,6 +77,9 @@ impl TransactionValidator {
 
     /// Validate every transaction in `txs`
     ///
+    /// # Note
+    /// Be advised that this function applies `txs` to `wsv`
+    ///
     /// # Errors
     /// Fails if validation of any transaction fails
     //
@@ -111,10 +118,30 @@ impl TransactionValidator {
             }));
         }
 
-        debug!(?tx, "Start validation");
-        let res = Self::validate_with_runtime_validators(tx, wsv);
-        debug!("End validation");
-        res
+        if !is_genesis {
+            debug!("Validating transaction: {:?}", tx);
+
+            let AcceptedTransaction {
+                payload,
+                signatures,
+            } = tx.clone();
+            let signatures = signatures.into_iter().collect();
+
+            let signed_tx = SignedTransaction {
+                payload,
+                signatures,
+            };
+            Self::validate_with_runtime_validators(
+                signed_tx.payload.account_id.clone(),
+                signed_tx,
+                wsv,
+            )?;
+        }
+
+        self.validate_and_execute_instructions(tx, wsv, is_genesis)?;
+
+        (!is_genesis).then(|| debug!("Validation successful"));
+        Ok(())
     }
 
     /// Validate signatures for the given transaction
@@ -142,48 +169,71 @@ impl TransactionValidator {
         Ok(())
     }
 
-    fn validate_with_runtime_validators(
+    fn validate_and_execute_instructions(
+        &self,
         tx: AcceptedTransaction,
         wsv: &WorldStateView,
+        is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
-        let AcceptedTransaction {
-            payload,
-            signatures,
-        } = tx;
-        let signatures = signatures.into_iter().collect();
+        let account_id = tx.payload.account_id;
 
-        let signed_tx = SignedTransaction {
-            payload,
-            signatures,
-        };
+        match tx.payload.instructions {
+            Executable::Instructions(instructions) => {
+                for instruction in instructions {
+                    if !is_genesis {
+                        debug!("Validating instruction: {:?}", instruction);
+                        Self::validate_with_runtime_validators(
+                            account_id.clone(),
+                            instruction.clone(),
+                            wsv,
+                        )?;
+                    }
 
-        let account_id = signed_tx.payload.account_id.clone();
-        debug!(?signed_tx, "Validating transaction");
-        // Validating the transaction it-self
+                    instruction
+                        .clone()
+                        .execute(account_id.clone(), wsv)
+                        .map_err(|reason| InstructionExecutionFail {
+                            instruction,
+                            reason: reason.to_string(),
+                        })
+                        .map_err(TransactionRejectionReason::InstructionExecution)?;
+                }
+                Ok(())
+            }
+            Executable::Wasm(bytes) => {
+                let mut wasm_runtime = wasm::RuntimeBuilder::new()
+                    .build()
+                    .map_err(|reason| WasmExecutionFail {
+                        reason: reason.to_string(),
+                    })
+                    .map_err(TransactionRejectionReason::WasmExecution)?;
+                wasm_runtime
+                    .validate(
+                        wsv,
+                        &account_id,
+                        bytes,
+                        self.transaction_limits.max_instruction_number,
+                    )
+                    .map_err(|reason| WasmExecutionFail {
+                        reason: reason.to_string(),
+                    })
+                    .map_err(TransactionRejectionReason::WasmExecution)
+            }
+        }
+    }
+
+    fn validate_with_runtime_validators(
+        authority: <Account as Identifiable>::Id,
+        operation: impl Into<NeedsPermissionBox>,
+        wsv: &WorldStateView,
+    ) -> Result<(), TransactionRejectionReason> {
         wsv.validators_view()
-            .validate(wsv, account_id.clone(), signed_tx.clone())
+            .validate(wsv, authority, operation)
             .map_err(|err| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {
                     reason: err.to_string(),
                 })
-            })?;
-
-        debug!("Validating instructions");
-        // Validating the transaction instructions
-        if let Executable::Instructions(instructions) = signed_tx.payload.instructions {
-            for isi in instructions {
-                wsv.validators_view()
-                    .validate(wsv, account_id.clone(), isi)
-                    .map_err(|err| {
-                        TransactionRejectionReason::NotPermitted(NotPermittedFail {
-                            reason: err.to_string(),
-                        })
-                    })?;
-            }
-        }
-
-        debug!("Validation success");
-        Ok(())
+            })
     }
 }
 
