@@ -188,7 +188,12 @@ mod genesis {
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
         tx::{AssetValueType, MintBox, RegisterBox},
     };
-    use iroha_data_model::{metadata::Limits, prelude::AssetId, IdBox};
+    use iroha_data_model::{
+        metadata::Limits,
+        permission::{validator, Validator},
+        prelude::AssetId,
+        IdBox,
+    };
 
     use super::*;
 
@@ -242,7 +247,7 @@ mod genesis {
             Limits::new(1024, 1024),
         )?;
 
-        let mut result = RawGenesisBlockBuilder::new()
+        let mut genesis = RawGenesisBlockBuilder::new()
             .domain_with_metadata("wonderland".parse()?, meta.clone())
             .account_with_metadata(
                 "alice".parse()?,
@@ -319,14 +324,37 @@ mod genesis {
 
         // TODO: Add default permission token definitions
         // genesis.transactions[0].isi.extend(/* default permission tokens*/);
-        result.transactions[0].isi.push(mint.into());
-        result.transactions[0].isi.push(mint_cabbage.into());
-        result.transactions[0].isi.push(register_permission.into());
-        result.transactions[0].isi.push(grant_permission.into());
-        result.transactions[0].isi.push(register_role.into());
-        result.transactions[0].isi.push(grant_role.into());
-        result.transactions[0].isi.push(param_seq.into());
-        Ok(result)
+        genesis.transactions[0].isi.push(mint.into());
+        genesis.transactions[0].isi.push(mint_cabbage.into());
+        genesis.transactions[0].isi.push(register_permission.into());
+        genesis.transactions[0].isi.push(grant_permission.into());
+        genesis.transactions[0].isi.push(register_role.into());
+        genesis.transactions[0]
+            .isi
+            .push(register_validator()?.into());
+
+        Ok(genesis)
+    }
+
+    fn register_validator() -> color_eyre::Result<RegisterBox> {
+        const MAIN_PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators/runtime/main";
+
+        let build_dir = tempfile::tempdir()
+            .wrap_err("Failed to create temp dir for runtime validator output")?;
+
+        let wasm_blob = iroha_wasm_builder::Builder::new(MAIN_PERMISSION_VALIDATOR_PATH)
+            .out_dir(build_dir.path())
+            .build()?
+            .optimize()?
+            .into_bytes();
+
+        Ok(RegisterBox::new(Validator::new(
+            "permission_validator%genesis@genesis".parse()?,
+            validator::Type::Instruction,
+            WasmSmartContract {
+                raw_data: wasm_blob,
+            },
+        )))
     }
 
     fn generate_synthetic(

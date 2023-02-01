@@ -2450,7 +2450,9 @@ dependencies = [
  "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
+ "iroha_wasm_builder",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
