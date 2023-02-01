@@ -29,7 +29,7 @@ use serde::Serialize;
 use crate::{
     prelude::*,
     sumeragi::network_topology::{Role, Topology},
-    tx::{TransactionOrigin, TransactionValidator, VersionedAcceptedTransaction},
+    tx::{TransactionValidator, VersionedAcceptedTransaction},
 };
 
 /// Default estimation of consensus duration
@@ -482,14 +482,14 @@ impl VersionedCandidateBlock {
     /// # Errors
     /// Forward errors from [`CandidateBlock::revalidate`]
     #[inline]
-    pub fn revalidate<const TX_ORIGIN: TransactionOrigin>(
+    pub fn revalidate<const IS_GENESIS: bool>(
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
         latest_block: Option<HashOf<VersionedCommittedBlock>>,
         block_height: u64,
     ) -> Result<SignedBlock, eyre::Report> {
-        self.into_v1().revalidate::<TX_ORIGIN>(
+        self.into_v1().revalidate::<IS_GENESIS>(
             transaction_validator,
             wsv,
             latest_block,
@@ -554,7 +554,7 @@ impl CandidateBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    pub fn revalidate<const TX_ORIGIN: TransactionOrigin>(
+    pub fn revalidate<const IS_GENESIS: bool>(
         self,
         transaction_validator: &TransactionValidator,
         wsv: &WorldStateView,
@@ -620,7 +620,7 @@ impl CandidateBlock {
             .into_iter()
             .map(VersionedSignedTransaction::into_v1)
             .map(|tx| {
-                AcceptedTransaction::from_transaction::<TX_ORIGIN>(
+                AcceptedTransaction::from_transaction::<IS_GENESIS>(
                     tx,
                     &transaction_validator.transaction_limits,
                 )
@@ -646,7 +646,7 @@ impl CandidateBlock {
             .into_iter()
             .map(VersionedSignedTransaction::into_v1)
             .map(|tx| {
-                AcceptedTransaction::from_transaction::<TX_ORIGIN>(
+                AcceptedTransaction::from_transaction::<IS_GENESIS>(
                     tx,
                     &transaction_validator.transaction_limits,
                 )
@@ -1192,10 +1192,9 @@ mod tests {
         let tx = Transaction::new(alice_id, [create_asset_definition].into(), 4000)
             .sign(alice_keys)
             .expect("Valid");
-        let tx = crate::VersionedAcceptedTransaction::from_transaction::<
-            { TransactionOrigin::ConsensusBlock },
-        >(tx, &transaction_limits)
-        .expect("Valid");
+        let tx =
+            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &transaction_limits)
+                .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];

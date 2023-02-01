@@ -1,8 +1,5 @@
 //! Iroha — A simple, enterprise-grade decentralized ledger.
 
-#![allow(incomplete_features)] // This feature is minor and breakage to be expected is going to be minimal.
-#![feature(adt_const_params)]
-
 pub mod block;
 pub mod block_sync;
 pub mod genesis;

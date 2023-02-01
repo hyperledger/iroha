@@ -278,11 +278,11 @@ impl VersionedAcceptedTransaction {
     ///
     /// - if it does not adhere to limits
     /// - if signature verification fails
-    pub fn from_transaction<const TX_ORIGIN: TransactionOrigin>(
+    pub fn from_transaction<const IS_GENESIS: bool>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
-        AcceptedTransaction::from_transaction::<TX_ORIGIN>(transaction, limits).map(Into::into)
+        AcceptedTransaction::from_transaction::<IS_GENESIS>(transaction, limits).map(Into::into)
     }
 
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
@@ -324,12 +324,11 @@ impl AcceptedTransaction {
     ///
     /// - if it does not adhere to limits
     /// - if signature verification fails
-    pub fn from_transaction<const TX_ORIGIN: TransactionOrigin>(
+    pub fn from_transaction<const IS_GENESIS: bool>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self> {
-        // NOTE: genesis block is unlimited
-        if matches!(TX_ORIGIN, TransactionOrigin::ConsensusBlock) {
+        if !IS_GENESIS {
             transaction
                 .check_limits(limits)
                 .wrap_err("Limits verification failed")?;
@@ -482,22 +481,12 @@ impl From<RejectedTransaction> for AcceptedTransaction {
     }
 }
 
-/// Enum used as const generic parameter to distinguish transaction origin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransactionOrigin {
-    /// Transaction is part of genesis block
-    GenesisBlock,
-    /// Transaction is part of block produced during consensus
-    ConsensusBlock,
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
     use std::str::FromStr as _;
 
-    use eyre::Result;
     use iroha_data_model::transaction::DEFAULT_MAX_INSTRUCTION_NUMBER;
 
     use super::*;
@@ -520,9 +509,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction::<
-            { TransactionOrigin::ConsensusBlock },
-        >(tx, &tx_limits);
+        let result = AcceptedTransaction::from_transaction::<false>(tx, &tx_limits);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -559,9 +546,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction::<
-            { TransactionOrigin::GenesisBlock },
-        >(tx, &tx_limits);
-        assert!(result.is_ok());
+
+        assert!(AcceptedTransaction::from_transaction::<true>(tx, &tx_limits).is_ok());
     }
 }
