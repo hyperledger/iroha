@@ -46,7 +46,6 @@ fn soft_fork() {
     );
 }
 
-#[ignore = "ignore, more in #2851"]
 #[test]
 fn unstable_network_7_peers_1_fault() {
     let n_peers = 7;
@@ -84,7 +83,7 @@ fn unstable_network(
     let (network, mut iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
-        configuration.logger.max_log_level = Level::ERROR.into();
+        configuration.logger.max_log_level = Level::INFO.into();
         #[cfg(debug_assertions)]
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
