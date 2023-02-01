@@ -4063,6 +4063,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_primitives",
+ "json5",
  "rand 0.8.5",
  "tempfile",
  "tokio",
