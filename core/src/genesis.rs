@@ -26,7 +26,7 @@ use tokio::{time, time::Duration};
 
 use crate::{
     sumeragi::network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-    tx::{TransactionOrigin, VersionedAcceptedTransaction},
+    tx::VersionedAcceptedTransaction,
     IrohaNetwork,
 };
 
@@ -280,10 +280,8 @@ impl GenesisTransaction {
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;
-        VersionedAcceptedTransaction::from_transaction::<{ TransactionOrigin::GenesisBlock }>(
-            transaction,
-            limits,
-        )
+
+        VersionedAcceptedTransaction::from_transaction::<true>(transaction, limits)
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].

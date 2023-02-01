@@ -132,7 +132,7 @@ mod tests {
         block::{PendingBlock, VersionedCommittedBlock},
         kura::Kura,
         prelude::AllowAll,
-        tx::{TransactionOrigin, TransactionValidator},
+        tx::TransactionValidator,
         wsv::World,
         PeersIds,
     };
@@ -226,17 +226,13 @@ mod tests {
         let valid_tx = {
             let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000)
                 .sign(ALICE_KEYS.clone())?;
-            crate::VersionedAcceptedTransaction::from_transaction::<
-                { TransactionOrigin::ConsensusBlock },
-            >(tx, &limits)?
+            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &limits)?
         };
         let invalid_tx = {
             let isi = Instruction::Fail(FailBox::new("fail"));
             let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi].into(), 4000)
                 .sign(ALICE_KEYS.clone())?;
-            crate::VersionedAcceptedTransaction::from_transaction::<
-                { TransactionOrigin::ConsensusBlock },
-            >(tx, &huge_limits)?
+            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &huge_limits)?
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -404,9 +400,8 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx = crate::VersionedAcceptedTransaction::from_transaction::<
-            { TransactionOrigin::ConsensusBlock },
-        >(signed_tx, &tx_limits)?;
+        let va_tx =
+            crate::VersionedAcceptedTransaction::from_transaction::<false>(signed_tx, &tx_limits)?;
 
         let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());
