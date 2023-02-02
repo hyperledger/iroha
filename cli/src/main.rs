@@ -30,7 +30,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     for arg in std::env::args().skip(1) {
         if !arg.is_empty() && !is_help(&arg) && !is_submit(&arg) {
             print_help();
-            return Err(eyre::eyre!("Unrecognised command-line flag `{}`", arg));
+            eyre::bail!("Unrecognised command-line flag `{}`", arg);
         }
     }
 

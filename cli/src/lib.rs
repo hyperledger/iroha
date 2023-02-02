@@ -350,7 +350,6 @@ impl Iroha {
             Arc::clone(&queue),
             query_judge,
             events_sender,
-            network_addr.clone(),
             Arc::clone(&notify_shutdown),
             Arc::clone(&sumeragi),
             Arc::clone(&kura),

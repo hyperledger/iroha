@@ -97,6 +97,8 @@ function run_peer () {
     STORAGE="$PEER/storage"
     mkdir -p "$STORAGE"
     KURA_BLOCK_STORE_PATH="$STORAGE"
+	LOG_FILE_PATH="$PEER/log.json"
+	MAX_LOG_LEVEL="TRACE"
     TORII_P2P_ADDR="$HOST:${p2p_ports[$1]}"
     TORII_API_URL="$HOST:${api_ports[$1]}"
     TORII_TELEMETRY_URL="$HOST:${telemetry_ports[$1]}"

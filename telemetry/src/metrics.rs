@@ -83,7 +83,7 @@ pub struct Metrics {
     pub queue_size: GenericGauge<AtomicU64>,
     /// Number of sumeragi dropped messages
     pub dropped_messages: IntCounter,
-    // Internal use only.
+    /// Internal use only. Needed for generating the response.
     registry: Registry,
 }
 
@@ -187,7 +187,7 @@ impl Metrics {
     /// - If [`Encoder`] fails to encode the data
     /// - If the buffer produced by [`Encoder`] causes [`String::from_utf8`] to fail.
     pub fn try_to_string(&self) -> eyre::Result<String> {
-        let mut buffer = vec![];
+        let mut buffer = Vec::new();
         let encoder = prometheus::TextEncoder::new();
         let metric_families = self.registry.gather();
         Encoder::encode(&encoder, &metric_families, &mut buffer)?;
@@ -198,7 +198,7 @@ impl Metrics {
     ///
     /// # Panics
     /// Never
-    #[allow(clippy::unused_self, clippy::expect_used)]
+    #[allow(clippy::unused_self)]
     pub fn current_time(&self) -> Duration {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

@@ -15,7 +15,7 @@ use iroha_core::{
     prelude::*,
     queue::{self, Queue},
     sumeragi::Sumeragi,
-    EventsSender, IrohaNetwork,
+    EventsSender,
 };
 use thiserror::Error;
 use tokio::sync::Notify;
@@ -37,7 +37,6 @@ pub struct Torii {
     queue: Arc<Queue>,
     events: EventsSender,
     query_judge: QueryJudgeArc,
-    network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
     sumeragi: Arc<Sumeragi>,
     kura: Arc<Kura>,
