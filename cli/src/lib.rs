@@ -174,7 +174,7 @@ impl Iroha {
             .override_with(ConfigurationProxy::from_env())
             .build()?;
 
-        if style::should_enable_colour() {
+        if style::should_disable_color() {
             config.disable_panic_terminal_colors = true;
             // Remove terminal colors to comply with XDG
             // specifications, Rust's conventions as well as remove
@@ -476,7 +476,7 @@ impl Iroha {
     }
 }
 
-/// Returns the `domain_name: domain` mapping, for initial domains.
+/// Return the `domain_name: domain` mapping, for initial domains.
 ///
 /// # Errors
 /// - Genesis account public key not specified.
@@ -514,7 +514,7 @@ pub mod style {
     }
 
     /// Determine if message colourisation is to be enabled
-    pub fn should_enable_colour() -> bool {
+    pub fn should_disable_color() -> bool {
         supports_color::on(supports_color::Stream::Stdout).is_none()
             || std::env::var("TERMINAL_COLORS")
                 .map(|s| !s.as_str().parse().unwrap_or(true))
@@ -525,7 +525,7 @@ pub mod style {
         #[must_use]
         /// Constructor
         pub fn new() -> Self {
-            if should_enable_colour() {
+            if should_disable_color() {
                 Self::no_color()
             } else {
                 Self::default()
@@ -551,7 +551,7 @@ pub mod style {
         }
 
         /// Convenience method for ".json or .json5" pattern
-        pub fn json_ext(&self, name: &str) -> String {
+        pub fn with_json_file_ext(&self, name: &str) -> String {
             let json = format!("{name}.json");
             let json5 = format!("{name}.json5");
             format!(

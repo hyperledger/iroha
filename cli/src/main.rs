@@ -8,11 +8,11 @@ use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 use owo_colors::OwoColorize as _;
 
-static HELP_ARG: [&str; 2] = ["--help", "-h"];
-static SUBMIT_ARG: [&str; 2] = ["--submit-genesis", "-s"];
-static VERSION_ARG: [&str; 2] = ["--version", "-V"];
+const HELP_ARG: [&str; 2] = ["--help", "-h"];
+const SUBMIT_ARG: [&str; 2] = ["--submit-genesis", "-s"];
+const VERSION_ARG: [&str; 2] = ["--version", "-V"];
 
-static REQUIRED_ENV_VARS: [(&str, &str); 7] = [
+const REQUIRED_ENV_VARS: [(&str, &str); 7] = [
     ("IROHA_TORII", "Torii (gateway) endpoint configuration"),
     (
         "IROHA_SUMERAGI",
@@ -119,13 +119,13 @@ fn print_help(styling: &Styling) -> Result<(), std::io::Error> {
         buffer,
         "    {} is the location of your {}",
         "IROHA2_CONFIG_PATH".style(styling.highlight),
-        styling.json_ext("config")
+        styling.with_json_file_ext("config")
     )?;
     writeln!(
         buffer,
         "    {} is the location of your {}",
         "IROHA2_GENESIS_PATH".style(styling.highlight),
-        styling.json_ext("genesis")
+        styling.with_json_file_ext("genesis")
     )?;
     writeln!(
         buffer,
@@ -138,8 +138,8 @@ fn print_help(styling: &Styling) -> Result<(), std::io::Error> {
 in the current directory, all the variables from {} should be set via the environment
 as follows:",
         "IROHA2_CONFIG_PATH".style(styling.highlight),
-        styling.json_ext("config"),
-        styling.json_ext("config")
+        styling.with_json_file_ext("config"),
+        styling.with_json_file_ext("config")
     )?;
     for var in REQUIRED_ENV_VARS {
         writeln!(buffer, "    {}: {}", var.0.style(styling.highlight), var.1)?;
