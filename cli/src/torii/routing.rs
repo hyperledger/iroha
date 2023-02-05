@@ -459,10 +459,9 @@ async fn handle_status_precise(sumeragi: Arc<Sumeragi>, segment: String) -> Resu
     // behind the mutex.
     let status = Status::from(&sumeragi.metrics());
     match serde_json::to_value(status) {
-        Ok(value) =>
-			Ok(value
-			   .get(segment)
-			   .map_or_else(|| reply::json(&value), reply::json)),
+        Ok(value) => Ok(value
+            .get(segment)
+            .map_or_else(|| reply::json(&value), reply::json)),
         Err(err) => {
             iroha_logger::error!(%err, "Error while converting to JSON value");
             Ok(reply::json(&None::<String>))
@@ -509,7 +508,7 @@ impl Torii {
         let get_router_status_bare =
             status_path
                 .and(add_state!(self.sumeragi))
-                .and_then(|sumeragi:Arc<_>| async move {
+                .and_then(|sumeragi: Arc<_>| async move {
                     Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi)))
                 });
         let get_router_metrics = warp::path(uri::METRICS)

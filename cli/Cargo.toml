@@ -63,6 +63,8 @@ tokio = { version = "1.23.0", features = ["sync", "time", "rt", "io-util", "rt-m
 warp = "0.3.3"
 serial_test = "0.8.0"
 lazy_static = "1.4.0"
+owo-colors = { version = "3.5.0", features = ["supports-colors"] }
+supports-color = "2.0.0"
 
 [build-dependencies]
 anyhow = "1.0.68"
