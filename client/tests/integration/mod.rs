@@ -8,6 +8,7 @@ mod add_domain;
 mod asset;
 mod asset_propagation;
 mod burn_public_keys;
+mod cancellation;
 mod config;
 mod connected_peers;
 mod events;

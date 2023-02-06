@@ -36,8 +36,13 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
         })
     })?;
 
+    let res = test_client.submit_blocking(register_asset);
+    if let Ok(hash) = res {
+        dbg!("some shit", hash);
+    }
+
     // But registering an asset to account already having one should fail
-    assert!(test_client.submit_blocking(register_asset).is_err());
+    assert!(res.is_err());
 
     Ok(())
 }
