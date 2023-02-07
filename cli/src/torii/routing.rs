@@ -417,7 +417,7 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
     }
     sumeragi
-        .metrics_mutex_access()
+        .metrics()
         .try_to_string()
         .map_err(Error::Prometheus)
 }
@@ -429,7 +429,7 @@ async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) ->
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
-    let status = Status::from(&sumeragi.metrics_mutex_access());
+    let status = Status::from(&sumeragi.metrics());
     Ok(reply::json(&status))
 }
 
