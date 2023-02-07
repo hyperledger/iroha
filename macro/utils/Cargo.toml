@@ -1,0 +1,25 @@
+[package]
+name = "iroha_macro_utils"
+version = "2.0.0-pre-rc.13"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+description = "This crate contains various functions and structs for creating macros in Iroha project."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha", "macro"]
+categories = ["cryptography::cryptocurrencies", "encoding", "development-tools::profiling", "development-tools::debugging"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
+[features]
+
+[dependencies]
+syn = "1.0.107"
+quote = "1.0.23"
+proc-macro2 = "1.0.49"
+proc-macro-error = "1.0.4"
