@@ -22,6 +22,7 @@ members = [
   "logger",
   "macro",
   "macro/derive",
+  "macro/utils",
   "p2p",
   "permissions_validators",
   "schema",

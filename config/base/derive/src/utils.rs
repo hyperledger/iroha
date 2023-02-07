@@ -1,3 +1,4 @@
+pub use iroha_macro_utils::{attr_struct, AttrParser};
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
@@ -16,66 +17,6 @@ mod kw {
     syn::custom_keyword!(into);
     // builder keywords
     syn::custom_keyword!(parent);
-}
-
-/// Trait for attribute parsing generalization
-pub trait AttrParser<Inner: Parse> {
-    const IDENT: &'static str;
-
-    fn parse(attr: &syn::Attribute) -> syn::Result<Inner> {
-        attr.path
-            .is_ident(&<Self as AttrParser<_>>::IDENT)
-            .then(|| attr.parse_args::<Inner>())
-            .map_or_else(
-                || {
-                    Err(syn::Error::new_spanned(
-                        attr,
-                        format!(
-                            "Attribute must be in form #[{}...]",
-                            <Self as AttrParser<_>>::IDENT
-                        ),
-                    ))
-                },
-                |inner| inner,
-            )
-    }
-}
-
-// Macro for automatic [`syn::parse::Parse`] impl generation for keyword
-// attribute structs in derive macros. Put in parent crate as
-// `#[macro_export]` is disallowed from proc macro crates.
-macro_rules! attr_struct {
-    // Matching struct with named fields
-    (
-        $( #[$meta:meta] )*
-    //  ^~~~attributes~~~~^
-        $vis:vis struct $name:ident {
-            $(
-                $( #[$field_meta:meta] )*
-    //          ^~~~field attributes~~~!^
-                $field_vis:vis $field_name:ident : $field_ty:ty
-    //          ^~~~~~~~~~~~~~~~~a single field~~~~~~~~~~~~~~~^
-            ),*
-        $(,)? }
-    ) => {
-        $( #[$meta] )*
-        $vis struct $name {
-            $(
-                $( #[$field_meta] )*
-                $field_vis $field_name : $field_ty
-            ),*
-        }
-
-        impl syn::parse::Parse for $name {
-            fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-                Ok(Self {
-                    $(
-                        $field_name: input.parse()?,
-                    )*
-                })
-            }
-        }
-    };
 }
 
 /// Structure to parse `#[view(...)]` attributes.
