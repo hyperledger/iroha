@@ -67,7 +67,7 @@ struct LastUpdateMetricsData {
 pub struct Sumeragi {
     internal: SumeragiWithFault<NoFault>,
     config: Configuration,
-    metrics_mutex: Mutex<Metrics>,
+    metrics: Metrics,
     last_update_metrics_mutex: Mutex<LastUpdateMetricsData>,
     message_sender: mpsc::SyncSender<MessagePacket>,
 }
@@ -101,7 +101,7 @@ impl Sumeragi {
             ),
             message_sender,
             config: configuration.clone(),
-            metrics_mutex: Mutex::new(Metrics::default()),
+            metrics: Metrics::default(),
             last_update_metrics_mutex: Mutex::new(LastUpdateMetricsData {
                 block_height: 0,
                 metric_tx_amounts: 0.0_f64,
@@ -135,8 +135,6 @@ impl Sumeragi {
 
         let wsv_guard = self.internal.wsv.lock();
 
-        let metrics_guard = self.metrics_mutex.lock();
-
         let mut last_guard = self.last_update_metrics_mutex.lock();
 
         let start_index = last_guard.block_height;
@@ -150,24 +148,24 @@ impl Sumeragi {
                 let block_txs_accepted = block.as_v1().transactions.len() as u64;
                 let block_txs_rejected = block.as_v1().rejected_transactions.len() as u64;
 
-                metrics_guard
+                self.metrics
                     .txs
                     .with_label_values(&["accepted"])
                     .inc_by(block_txs_accepted);
-                metrics_guard
+                self.metrics
                     .txs
                     .with_label_values(&["rejected"])
                     .inc_by(block_txs_rejected);
-                metrics_guard
+                self.metrics
                     .txs
                     .with_label_values(&["total"])
                     .inc_by(block_txs_accepted + block_txs_rejected);
-                metrics_guard.block_height.inc();
+                self.metrics.block_height.inc();
             }
             last_guard.block_height = block_index;
         }
 
-        metrics_guard.domains.set(wsv_guard.domains().len() as u64);
+        self.metrics.domains.set(wsv_guard.domains().len() as u64);
 
         let diff_count =
             wsv_guard.metric_tx_amounts_counter.get() - last_guard.metric_tx_amounts_counter;
@@ -178,32 +176,32 @@ impl Sumeragi {
             last_guard.metric_tx_amounts_counter += 1;
             last_guard.metric_tx_amounts += diff_amount_per_count;
 
-            metrics_guard.tx_amounts.observe(diff_amount_per_count);
+            self.metrics.tx_amounts.observe(diff_amount_per_count);
         }
 
         #[allow(clippy::cast_possible_truncation)]
         if let Some(timestamp) = wsv_guard.genesis_timestamp() {
             // this will overflow in 584942417years.
-            metrics_guard
+            self.metrics
                 .uptime_since_genesis_ms
                 .set((current_time().as_millis() - timestamp) as u64)
         };
         let domains = wsv_guard.domains();
-        metrics_guard.domains.set(domains.len() as u64);
-        metrics_guard.connected_peers.set(online_peers_count);
+        self.metrics.domains.set(domains.len() as u64);
+        self.metrics.connected_peers.set(online_peers_count);
         for domain in domains {
-            metrics_guard
+            self.metrics
                 .accounts
                 .get_metric_with_label_values(&[domain.id().name.as_ref()])
                 .wrap_err("Failed to compose domains")?
                 .set(domain.accounts().len() as u64);
         }
 
-        metrics_guard
+        self.metrics
             .view_changes
             .set(wsv_guard.latest_block_view_change_index());
 
-        metrics_guard
+        self.metrics
             .queue_size
             .set(self.internal.queue.tx_len() as u64);
 
@@ -211,9 +209,8 @@ impl Sumeragi {
     }
 
     /// Access node metrics.
-    #[allow(clippy::expect_used)]
-    pub fn metrics_mutex_access(&self) -> MutexGuard<Metrics> {
-        self.metrics_mutex.lock()
+    pub fn metrics(&self) -> &Metrics {
+        &self.metrics
     }
 
     /// Get a random online peer for use in block synchronization.
@@ -343,7 +340,7 @@ impl Sumeragi {
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
         if let Err(error) = self.message_sender.try_send(msg) {
-            self.metrics_mutex.lock().dropped_messages.inc();
+            self.metrics.dropped_messages.inc();
             error!(%error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }
