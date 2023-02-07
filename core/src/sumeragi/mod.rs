@@ -342,8 +342,9 @@ impl Sumeragi {
     /// Deposit a sumeragi network message.
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
-        if self.message_sender.try_send(msg).is_err() {
-            error!("This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+        if let Err(error) = self.message_sender.try_send(msg) {
+            self.metrics_mutex.lock().dropped_messages.inc();
+            error!(%error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }
 }
