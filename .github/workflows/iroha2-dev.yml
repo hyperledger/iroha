@@ -17,7 +17,7 @@ env:
 # `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
   dockerhub:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha2-dev-push]
     container:
       image: 7272721/i2-ci:nightly
     steps:
@@ -46,9 +46,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-# FIXME: This workflow never worked properly. Should we remove it? 
   load-rs:
-    if: false
+    continue-on-error: true
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:nightly
