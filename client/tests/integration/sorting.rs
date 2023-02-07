@@ -1,9 +1,12 @@
 #![allow(clippy::restriction, clippy::pedantic)]
 
-use std::str::FromStr as _;
+use std::{collections::HashSet, str::FromStr as _};
 
 use iroha_client::client;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    predicate::{string, value, PredicateBox},
+    prelude::*,
+};
 use test_network::*;
 
 #[test]
@@ -52,7 +55,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let res = test_client
         .request_with_pagination_and_sorting(
             client::asset::by_account_id(account_id.clone()),
-            Pagination::new(Some(1), Some(5)),
+            Pagination::new(None, Some(5)),
             sorting.clone(),
         )
         .expect("Valid");
@@ -94,7 +97,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let res = test_client
         .request_with_pagination_and_sorting(
             client::asset::by_account_id(account_id),
-            Pagination::new(Some(6), None),
+            Pagination::new(Some(5), Some(6)),
             sorting,
         )
         .expect("Valid");
@@ -116,7 +119,7 @@ fn correct_pagination_assets_after_creating_new_one() {
 }
 
 #[test]
-fn correct_sorting_of_asset_definitions() {
+fn correct_sorting_of_entities() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_640).start_with_runtime();
 
     let sort_by_metadata_key = Name::from_str("test_sort").expect("Valid");
@@ -125,22 +128,22 @@ fn correct_sorting_of_asset_definitions() {
 
     let mut asset_definitions = vec![];
     let mut instructions: Vec<Instruction> = vec![];
-
-    for i in 0..10_u128 {
+    let n = 10u128;
+    for i in 0..n {
         let asset_definition_id =
-            AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
+            AssetDefinitionId::from_str(&format!("xor_{i}#wonderland")).expect("Valid");
         let mut asset_metadata = Metadata::new();
         asset_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                i.to_value(),
+                (n - i - 1).to_value(),
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
         let asset_definition =
             AssetDefinition::quantity(asset_definition_id.clone()).with_metadata(asset_metadata);
 
-        asset_definitions.push(asset_definition.clone());
+        asset_definitions.push(asset_definition.clone().build());
 
         let create_asset_definition = RegisterBox::new(asset_definition);
         instructions.push(create_asset_definition.into());
@@ -150,28 +153,19 @@ fn correct_sorting_of_asset_definitions() {
         .submit_all_blocking(instructions)
         .expect("Valid");
 
-    asset_definitions.sort_by_key(|definition| {
-        definition
-            .metadata()
-            .get(&sort_by_metadata_key)
-            .unwrap()
-            .clone()
-    });
-
     let res = test_client
-        .request_with_sorting(
+        .request_with_sorting_and_filter(
             client::asset::all_definitions(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
+            PredicateBox::new(value::Predicate::Identifiable(
+                string::Predicate::starts_with("xor_"),
+            )),
         )
         .expect("Valid");
 
     assert_eq!(
-        // skip rose and tulip
-        res.output.into_iter().skip(2).collect::<Vec<_>>(),
-        asset_definitions
-            .into_iter()
-            .map(Registrable::build)
-            .collect::<Vec<_>>()
+        res.output,
+        asset_definitions.into_iter().rev().collect::<Vec<_>>()
     );
 
     // Test sorting accounts
@@ -179,13 +173,14 @@ fn correct_sorting_of_asset_definitions() {
     let mut accounts = vec![];
     let mut instructions = vec![];
 
-    for i in 0..10_u128 {
+    let n = 10u32;
+    for i in 0..n {
         let account_id = AccountId::from_str(&format!("bob{i}@wonderland")).expect("Valid");
         let mut account_metadata = Metadata::new();
         account_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                i.to_value(),
+                (n - i - 1).to_value(),
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
@@ -201,48 +196,30 @@ fn correct_sorting_of_asset_definitions() {
         .submit_all_blocking(instructions)
         .expect("Valid");
 
-    accounts.sort_by_key(|account| {
-        account
-            .metadata()
-            .get(&sort_by_metadata_key)
-            .unwrap()
-            .clone()
-    });
-
     let res = test_client
-        .request_with_sorting(
+        .request_with_sorting_and_filter(
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
+            PredicateBox::new(value::Predicate::Identifiable(
+                string::Predicate::starts_with("bob"),
+            )),
         )
         .expect("Valid");
 
-    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-    let genesis_id = AccountId::from_str("genesis@genesis").expect("Valid");
-
-    assert_eq!(
-        res.output
-            .into_iter()
-            .map(|acc| acc.id().clone())
-            .filter(|id| id != &alice_id && id != &genesis_id)
-            .collect::<Vec<_>>(),
-        accounts
-            .into_iter()
-            .map(|acc| acc.id().clone())
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(res.output, accounts.into_iter().rev().collect::<Vec<_>>());
 
     // Test sorting domains
 
     let mut domains = vec![];
     let mut instructions = vec![];
-
-    for i in 0..10_u128 {
+    let n = 10u32;
+    for i in 0..n {
         let domain_id = DomainId::from_str(&format!("neverland{i}")).expect("Valid");
         let mut domain_metadata = Metadata::new();
         domain_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                i.to_value(),
+                (n - i - 1).to_value(),
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
@@ -258,29 +235,118 @@ fn correct_sorting_of_asset_definitions() {
         .submit_all_blocking(instructions)
         .expect("Valid");
 
-    domains.sort_by_key(|account| {
-        account
-            .metadata()
-            .get(&sort_by_metadata_key)
-            .unwrap()
-            .clone()
-    });
-
     let res = test_client
-        .request_with_sorting(
+        .request_with_pagination_and_filter_and_sorting(
             client::domain::all(),
-            Sorting::by_metadata_key(sort_by_metadata_key),
+            Pagination::default(),
+            Sorting::by_metadata_key(sort_by_metadata_key.clone()),
+            PredicateBox::new(value::Predicate::Identifiable(
+                string::Predicate::starts_with("neverland"),
+            )),
         )
         .expect("Valid");
 
-    let genesis_id = DomainId::from_str("genesis").expect("Valid");
-    let wonderland_id = DomainId::from_str("wonderland").expect("Valid");
+    assert_eq!(res.output, domains.into_iter().rev().collect::<Vec<_>>());
 
-    assert_eq!(
-        res.output
-            .into_iter()
-            .filter(|domain| domain.id() != &wonderland_id && domain.id() != &genesis_id)
-            .collect::<Vec<_>>(),
-        domains
-    );
+    // Naive test sorting of domains
+    let input = vec![(0i32, 1u128), (2, 0), (1, 2)];
+    let mut domains = vec![];
+    let mut instructions = vec![];
+    for (idx, val) in input {
+        let domain_id = DomainId::from_str(&format!("neverland_{idx}")).expect("Valid");
+        let mut domain_metadata = Metadata::new();
+        domain_metadata
+            .insert_with_limits(
+                sort_by_metadata_key.clone(),
+                val.to_value(),
+                MetadataLimits::new(10, 28),
+            )
+            .expect("Valid");
+        let domain = Domain::new(domain_id).with_metadata(domain_metadata);
+
+        domains.push(domain.clone().build());
+
+        let create_account = RegisterBox::new(domain);
+        instructions.push(create_account.into());
+    }
+    test_client
+        .submit_all_blocking(instructions)
+        .expect("Valid");
+
+    let filter = PredicateBox::new(value::Predicate::Identifiable(
+        string::Predicate::starts_with("neverland_"),
+    ));
+    let res = test_client
+        .request_with_pagination_and_filter_and_sorting(
+            client::domain::all(),
+            Pagination::default(),
+            Sorting::by_metadata_key(sort_by_metadata_key),
+            filter,
+        )
+        .expect("Valid");
+
+    assert_eq!(res.output[0], domains[1]);
+    assert_eq!(res.output[1], domains[0]);
+    assert_eq!(res.output[2], domains[2]);
+}
+
+#[test]
+fn sort_only_elements_which_have_sorting_key() {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_680).start_with_runtime();
+
+    let sort_by_metadata_key = Name::from_str("test_sort").expect("Valid");
+
+    let mut accounts_a = vec![];
+    let mut accounts_b = vec![];
+    let mut instructions = vec![];
+
+    let mut skip_set = HashSet::new();
+    skip_set.insert(4);
+    skip_set.insert(7);
+
+    let n = 10u32;
+    for i in 0..n {
+        let account_id = AccountId::from_str(&format!("bob{i}@wonderland")).expect("Valid");
+        let account = if !skip_set.contains(&i) {
+            let mut account_metadata = Metadata::new();
+            account_metadata
+                .insert_with_limits(
+                    sort_by_metadata_key.clone(),
+                    (n - i - 1).to_value(),
+                    MetadataLimits::new(10, 28),
+                )
+                .expect("Valid");
+            let account = Account::new(account_id, []).with_metadata(account_metadata);
+            accounts_a.push(account.clone().build());
+            account
+        } else {
+            let account = Account::new(account_id, []);
+            accounts_b.push(account.clone().build());
+            account
+        };
+
+        let create_account = RegisterBox::new(account);
+        instructions.push(create_account.into());
+    }
+
+    test_client
+        .submit_all_blocking(instructions)
+        .expect("Valid");
+
+    let res = test_client
+        .request_with_sorting_and_filter(
+            client::account::all(),
+            Sorting::by_metadata_key(sort_by_metadata_key),
+            PredicateBox::new(value::Predicate::Identifiable(
+                string::Predicate::starts_with("bob"),
+            )),
+        )
+        .expect("Valid");
+
+    let accounts = accounts_a
+        .into_iter()
+        .rev()
+        .chain(accounts_b.into_iter())
+        .collect::<Vec<_>>();
+    assert_eq!(res.output, accounts);
 }

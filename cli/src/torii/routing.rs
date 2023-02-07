@@ -6,7 +6,7 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
-use std::num::TryFromIntError;
+use std::{cmp::Ordering, num::TryFromIntError};
 
 use eyre::WrapErr;
 use futures::TryStreamExt;
@@ -170,32 +170,44 @@ pub(crate) async fn handle_queries(
 }
 
 fn apply_sorting_and_pagination(
-    mut vec_of_val: Vec<Value>,
+    vec_of_val: Vec<Value>,
     sorting: &Sorting,
     pagination: Pagination,
 ) -> Vec<Value> {
     if let Some(ref key) = sorting.sort_by_metadata_key {
-        let f = |value1: &Value| {
-            if let Value::Numeric(NumericValue::U128(num)) = value1 {
-                *num
-            } else {
-                0
-            }
-        };
-
-        vec_of_val.sort_by_key(|value0| match value0 {
-            Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
-                AssetValue::Store(store) => store.get(key).map_or(0, f),
-                _ => 0,
+        let mut pairs: Vec<(Option<Value>, Value)> = vec_of_val
+            .into_iter()
+            .map(|value| {
+                let key = match &value {
+                    Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
+                        AssetValue::Store(store) => store.get(key).cloned(),
+                        _ => None,
+                    },
+                    Value::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
+                        .ok()
+                        .and_then(|has_metadata| has_metadata.metadata().get(key))
+                        .cloned(),
+                    _ => None,
+                };
+                (key, value)
+            })
+            .collect();
+        pairs.sort_by(
+            |(left_key, _), (right_key, _)| match (left_key, right_key) {
+                (Some(l), Some(r)) => l.cmp(r),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
             },
-            Value::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
-                .map(|has_metadata| has_metadata.metadata().get(key).map_or(0, f))
-                .unwrap_or(0),
-            _ => 0,
-        });
+        );
+        pairs
+            .into_iter()
+            .map(|(_, val)| val)
+            .paginate(pagination)
+            .collect()
+    } else {
+        vec_of_val.into_iter().paginate(pagination).collect()
     }
-
-    vec_of_val.into_iter().paginate(pagination).collect()
 }
 
 #[derive(serde::Serialize)]

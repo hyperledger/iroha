@@ -777,6 +777,47 @@ impl Client {
         )
     }
 
+    /// Create a request with sorting and the given filter.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
+    pub fn request_with_sorting_and_filter<R>(
+        &self,
+        request: R,
+        sorting: Sorting,
+        filter: PredicateBox,
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
+    {
+        self.request_with_pagination_and_filter_and_sorting(
+            request,
+            Pagination::default(),
+            sorting,
+            filter,
+        )
+    }
+
+    /// Query API entry point. Requests quieries from `Iroha` peers with filter.
+    ///
+    /// Uses default blocking http-client. If you need some custom integration, look at
+    /// [`Self::prepare_query_request`].
+    ///
+    /// # Errors
+    /// Fails if sending request fails
+    pub fn request_with_filter<R>(
+        &self,
+        request: R,
+        filter: PredicateBox,
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    {
+        self.request_with_pagination_and_filter(request, Pagination::default(), filter)
+    }
+
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
     ///
     /// Uses default blocking http-client. If you need some custom integration, look at
