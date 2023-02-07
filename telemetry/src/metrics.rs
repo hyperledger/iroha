@@ -81,6 +81,8 @@ pub struct Metrics {
     pub view_changes: GenericGauge<AtomicU64>,
     /// Number of transactions in the queue
     pub queue_size: GenericGauge<AtomicU64>,
+    /// Number of sumeragi dropped messages
+    pub dropped_messages: IntCounter,
     // Internal use only.
     registry: Registry,
 }
@@ -131,6 +133,8 @@ impl Default for Metrics {
         .expect("Infallible");
         let queue_size = GenericGauge::new("queue_size", "Number of the transactions in the queue")
             .expect("Infallible");
+        let dropped_messages =
+            IntCounter::new("dropped_messages", "Sumeragi dropped messages").expect("Infallible");
         let registry = Registry::new();
 
         macro_rules! register {
@@ -154,7 +158,8 @@ impl Default for Metrics {
             isi,
             isi_times,
             view_changes,
-            queue_size
+            queue_size,
+            dropped_messages
         );
 
         Self {
@@ -170,6 +175,7 @@ impl Default for Metrics {
             isi_times,
             view_changes,
             queue_size,
+            dropped_messages,
         }
     }
 }
