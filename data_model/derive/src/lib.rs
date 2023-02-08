@@ -5,6 +5,7 @@ use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
 mod filter;
+mod has_origin;
 mod id;
 mod partially_tagged;
 
@@ -148,13 +149,11 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[derive(Debug, Clone, IdOrdEqHash)]
-/// #[id(type = "LayerId")]
 /// pub struct Layer {
 ///     id: <Self as Identifiable>::Id,
 /// }
 ///
 /// #[derive(Debug, Clone, IdOrdEqHash)]
-/// #[id(type = "SubLayerId")]
 /// pub struct SubLayer {
 ///     id: <Self as Identifiable>::Id,
 /// }
@@ -340,4 +339,81 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(PartiallyTaggedDeserialize, attributes(serde_partially_tagged, serde))]
 pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
     partially_tagged::impl_partially_tagged_deserialize(&parse_macro_input!(input))
+}
+
+/// Derive macro for `HasOrigin`.
+///
+/// Works only with enums containing single unnamed fields.
+///
+/// # Attributes
+///
+/// ## Container attributes
+///
+/// ### `#[has_origin(origin = Type)]`
+///
+/// Required attribute. Used to determine type of `Origin` in `HasOrigin` trait.
+///
+/// ## Field attributes
+///
+/// ### `#[has_origin(ident => expr)]`
+///
+/// This attribute is used to determine how to extract origin id from enum variant.
+/// By default variant is assumed to by origin id.
+///
+/// # Examples
+///
+/// ```
+/// use iroha_data_model_derive::{IdOrdEqHash, HasOrigin};
+/// use iroha_data_model::prelude::{Identifiable, HasOrigin};
+///
+///
+/// #[derive(HasOrigin, Clone, Debug)]
+/// #[has_origin(origin = Layer)]
+/// pub enum LayerEvent {
+///     #[has_origin(sub_layer_event => &sub_layer_event.origin_id().parent_id)]
+///     SubLayer(SubLayerEvent),
+///     Created(LayerId),
+/// }
+///
+/// #[derive(HasOrigin, Clone, Debug)]
+/// #[has_origin(origin = SubLayer)]
+/// pub enum SubLayerEvent {
+///     Created(SubLayerId),
+/// }
+///
+/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+/// pub struct LayerId {
+///     name: u32,
+/// }
+///
+/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+/// pub struct SubLayerId {
+///     name: u32,
+///     parent_id: LayerId,
+/// }
+///
+/// #[derive(IdOrdEqHash, Debug, Clone)]
+/// pub struct Layer {
+///     id: LayerId,
+/// }
+///
+/// #[derive(IdOrdEqHash, Debug, Clone)]
+/// pub struct SubLayer {
+///     id: SubLayerId,
+/// }
+///
+/// let layer_id = LayerId { name: 42 };
+/// let sub_layer_id = SubLayerId { name: 24, parent_id: layer_id.clone() };
+/// let layer_created_event = LayerEvent::Created(layer_id.clone());
+/// let sub_layer_created_event = SubLayerEvent::Created(sub_layer_id.clone());
+/// let layer_sub_layer_event = LayerEvent::SubLayer(sub_layer_created_event.clone());
+///
+/// assert_eq!(&layer_id, layer_created_event.origin_id());
+/// assert_eq!(&layer_id, layer_sub_layer_event.origin_id());
+/// assert_eq!(&sub_layer_id, sub_layer_created_event.origin_id());
+/// ```
+#[proc_macro_error::proc_macro_error]
+#[proc_macro_derive(HasOrigin, attributes(has_origin))]
+pub fn has_origin_derive(input: TokenStream) -> TokenStream {
+    has_origin::impl_has_origin(&parse_macro_input!(input))
 }

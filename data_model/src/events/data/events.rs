@@ -1,6 +1,6 @@
 //! This module contains data events
 
-use iroha_data_model_derive::Filter;
+use iroha_data_model_derive::{Filter, HasOrigin};
 use iroha_primitives::small::SmallVec;
 
 use super::*;
@@ -52,31 +52,23 @@ mod asset {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Asset)]
     pub enum AssetEvent {
+        #[has_origin(asset => asset.id())]
         Created(Asset),
         Deleted(AssetId),
+        #[has_origin(asset_changed => &asset_changed.asset_id)]
         Added(AssetChanged),
+        #[has_origin(asset_changed => &asset_changed.asset_id)]
         Removed(AssetChanged),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataInserted(AssetMetadataChanged),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataRemoved(AssetMetadataChanged),
-    }
-
-    impl HasOrigin for AssetEvent {
-        type Origin = Asset;
-
-        fn origin_id(&self) -> &<Asset as Identifiable>::Id {
-            match self {
-                Self::Created(asset) => asset.id(),
-                Self::Deleted(id)
-                | Self::Added(AssetChanged { asset_id: id, .. })
-                | Self::Removed(AssetChanged { asset_id: id, .. })
-                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
-            }
-        }
     }
 
     #[derive(
@@ -93,34 +85,22 @@ mod asset {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = AssetDefinition)]
     pub enum AssetDefinitionEvent {
+        #[has_origin(asset_definition => asset_definition.id())]
         Created(NewAssetDefinition),
         MintabilityChanged(AssetDefinitionId),
         Deleted(AssetDefinitionId),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataInserted(AssetDefinitionMetadataChanged),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataRemoved(AssetDefinitionMetadataChanged),
+        #[has_origin(total_quantity_changed => &total_quantity_changed.asset_definition_id)]
         TotalQuantityChanged(AssetDefinitionTotalQuantityChanged),
-    }
-
-    impl HasOrigin for AssetDefinitionEvent {
-        type Origin = AssetDefinition;
-
-        fn origin_id(&self) -> &<AssetDefinition as Identifiable>::Id {
-            match self {
-                Self::Created(asset_definition) => asset_definition.id(),
-                Self::Deleted(id)
-                | Self::MintabilityChanged(id)
-                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. })
-                | Self::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
-                    asset_definition_id: id,
-                    ..
-                }) => id,
-            }
-        }
     }
 
     /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
@@ -185,22 +165,14 @@ mod peer {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Peer)]
     pub enum PeerEvent {
         Added(PeerId),
         Removed(PeerId),
-    }
-
-    impl HasOrigin for PeerEvent {
-        type Origin = Peer;
-
-        fn origin_id(&self) -> &<Peer as Identifiable>::Id {
-            match self {
-                Self::Added(id) | Self::Removed(id) => id,
-            }
-        }
     }
 }
 
@@ -223,14 +195,18 @@ mod role {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Role)]
     pub enum RoleEvent {
+        #[has_origin(role => role.id())]
         Created(NewRole),
         Deleted(RoleId),
         /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::Id) were
         /// removed from the role.
+        #[has_origin(permission_removed => &permission_removed.role_id)]
         PermissionRemoved(PermissionRemoved),
     }
 
@@ -255,18 +231,6 @@ mod role {
         /// [`PermissionTokenDefinition`] id. All [`PermissionToken`]s with this definition id were removed.
         pub permission_definition_id: <PermissionTokenDefinition as Identifiable>::Id,
     }
-
-    impl HasOrigin for RoleEvent {
-        type Origin = Role;
-
-        fn origin_id(&self) -> &<Role as Identifiable>::Id {
-            match self {
-                Self::Created(role) => role.id(),
-                Self::Deleted(role_id)
-                | Self::PermissionRemoved(PermissionRemoved { role_id, .. }) => role_id,
-            }
-        }
-    }
 }
 
 mod permission {
@@ -289,23 +253,16 @@ mod permission {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = PermissionTokenDefinition)]
     pub enum PermissionTokenEvent {
+        #[has_origin(permission_token_definition => permission_token_definition.id())]
         DefinitionCreated(PermissionTokenDefinition),
+        #[has_origin(permission_token_definition => permission_token_definition.id())]
         DefinitionDeleted(PermissionTokenDefinition),
-    }
-
-    impl HasOrigin for PermissionTokenEvent {
-        type Origin = PermissionTokenDefinition;
-
-        fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id {
-            match self {
-                PermissionTokenEvent::DefinitionCreated(definition)
-                | PermissionTokenEvent::DefinitionDeleted(definition) => definition.id(),
-            }
-        }
     }
 
     #[derive(
@@ -322,22 +279,14 @@ mod permission {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Validator)]
     pub enum PermissionValidatorEvent {
         Added(ValidatorId),
         Removed(ValidatorId),
-    }
-
-    impl HasOrigin for PermissionValidatorEvent {
-        type Origin = Validator;
-
-        fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id {
-            match self {
-                PermissionValidatorEvent::Added(id) | PermissionValidatorEvent::Removed(id) => id,
-            }
-        }
     }
 }
 
@@ -365,41 +314,31 @@ mod account {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Account)]
     pub enum AccountEvent {
+        #[has_origin(asset_event => &asset_event.origin_id().account_id)]
         Asset(AssetEvent),
+        #[has_origin(account => account.id())]
         Created(NewAccount),
         Deleted(AccountId),
         AuthenticationAdded(AccountId),
         AuthenticationRemoved(AccountId),
+        #[has_origin(permission_changed => &permission_changed.account_id)]
         PermissionAdded(AccountPermissionChanged),
+        #[has_origin(permission_changed => &permission_changed.account_id)]
         PermissionRemoved(AccountPermissionChanged),
+        #[has_origin(role_changed => &role_changed.account_id)]
         RoleRevoked(AccountRoleChanged),
+        #[has_origin(role_changed => &role_changed.account_id)]
         RoleGranted(AccountRoleChanged),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataInserted(AccountMetadataChanged),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataRemoved(AccountMetadataChanged),
-    }
-
-    impl HasOrigin for AccountEvent {
-        type Origin = Account;
-
-        fn origin_id(&self) -> &<Account as Identifiable>::Id {
-            match self {
-                Self::Asset(asset) => &asset.origin_id().account_id,
-                Self::Created(account) => account.id(),
-                Self::Deleted(id)
-                | Self::AuthenticationAdded(id)
-                | Self::AuthenticationRemoved(id)
-                | Self::PermissionAdded(AccountPermissionChanged { account_id: id, .. })
-                | Self::PermissionRemoved(AccountPermissionChanged { account_id: id, .. })
-                | Self::RoleRevoked(AccountRoleChanged { account_id: id, .. })
-                | Self::RoleGranted(AccountRoleChanged { account_id: id, .. })
-                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
-            }
-        }
     }
 
     /// Depending on the wrapping event, [`AccountPermissionChanged`] role represents the added or removed account role
@@ -469,31 +408,23 @@ mod domain {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Domain)]
     pub enum DomainEvent {
+        #[has_origin(account_event => &account_event.origin_id().domain_id)]
         Account(AccountEvent),
+        #[has_origin(asset_definition_event => &asset_definition_event.origin_id().domain_id)]
         AssetDefinition(AssetDefinitionEvent),
+        #[has_origin(domain => domain.id())]
         Created(NewDomain),
         Deleted(DomainId),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataInserted(DomainMetadataChanged),
+        #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataRemoved(DomainMetadataChanged),
-    }
-
-    impl HasOrigin for DomainEvent {
-        type Origin = Domain;
-
-        fn origin_id(&self) -> &<Domain as Identifiable>::Id {
-            match self {
-                Self::Account(account) => &account.origin_id().domain_id,
-                Self::AssetDefinition(asset_definition) => &asset_definition.origin_id().domain_id,
-                Self::Created(domain) => domain.id(),
-                Self::Deleted(id)
-                | Self::MetadataInserted(MetadataChanged { target_id: id, .. })
-                | Self::MetadataRemoved(MetadataChanged { target_id: id, .. }) => id,
-            }
-        }
     }
 }
 
@@ -517,27 +448,18 @@ mod trigger {
         Serialize,
         IntoSchema,
         Filter,
+        HasOrigin,
     )]
     #[non_exhaustive]
     #[allow(missing_docs)]
+    #[has_origin(origin = Trigger<FilterBox>)]
     pub enum TriggerEvent {
         Created(TriggerId),
         Deleted(TriggerId),
+        #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger_id)]
         Extended(TriggerNumberOfExecutionsChanged),
+        #[has_origin(number_of_executions_changed => &number_of_executions_changed.trigger_id)]
         Shortened(TriggerNumberOfExecutionsChanged),
-    }
-
-    impl HasOrigin for TriggerEvent {
-        type Origin = Trigger<FilterBox>;
-
-        fn origin_id(&self) -> &<Trigger<FilterBox> as Identifiable>::Id {
-            match self {
-                Self::Created(id)
-                | Self::Deleted(id)
-                | Self::Extended(TriggerNumberOfExecutionsChanged { trigger_id: id, .. })
-                | Self::Shortened(TriggerNumberOfExecutionsChanged { trigger_id: id, .. }) => id,
-            }
-        }
     }
 
     /// Depending on the wrapping event, [`Self`] represents the increased or decreased number of event executions.
