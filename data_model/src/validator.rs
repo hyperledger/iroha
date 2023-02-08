@@ -46,7 +46,8 @@ pub mod model {
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
-    #[getset(get = "pub")]
+    // TODO: Derive with getset once FFI impl is fixed
+    //#[getset(get = "pub")]
     pub struct Validator {
         /// WASM code of the validator
         pub wasm: WasmSmartContract,

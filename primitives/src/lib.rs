@@ -13,6 +13,7 @@ extern crate alloc;
 
 pub mod addr;
 pub mod atomic;
+#[cfg(not(feature = "ffi_import"))]
 pub mod conststr;
 pub mod fixed;
 pub mod must_use;
@@ -109,11 +110,13 @@ mod ffi {
 
             #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
             #[derive(iroha_ffi::FfiType)]
+            #[iroha_ffi::ffi_export]
             $(#[$attr])?
             $it
 
             #[cfg(feature = "ffi_import")]
             iroha_ffi::ffi! {
+                #[iroha_ffi::ffi_import]
                 $(#[$attr])?
                 $it
             }

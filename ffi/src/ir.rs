@@ -36,7 +36,7 @@ pub unsafe trait External {
 /// # Safety
 ///
 /// * `Self` and `Self::Target` must be mutually transmutable
-/// * `Transmute::is_valid` must not return false positives, i.e. return `true` for trap representations
+/// * `Self::is_valid` must not return false positives, i.e. return `true` for trap representations
 pub unsafe trait Transmute {
     /// Type that [`Self`] can be transmuted into
     type Target;
@@ -96,84 +96,84 @@ pub enum Robust {}
 /// When implemented for a type, defines how dependent types are mapped into [`Ir`]
 pub trait IrTypeFamily {
     /// [`Ir`] type that `&T` is mapped into
-    type RefType<'itm>
+    type Ref<'itm>
     where
         Self: 'itm;
     /// [`Ir`] type that `&mut T` is mapped into
-    type RefMutType<'itm>
+    type RefMut<'itm>
     where
         Self: 'itm;
     /// [`Ir`] type that [`Box<T>`] is mapped into
-    type BoxType;
+    type Box;
     /// [`Ir`] type that `&[T]` is mapped into
-    type SliceRefType<'itm>
+    type SliceRef<'itm>
     where
         Self: 'itm;
     /// [`Ir`] type that `&mut [T]` is mapped into
-    type SliceRefMutType<'itm>
+    type SliceRefMut<'itm>
     where
         Self: 'itm;
     /// [`Ir`] type that [`Vec<T>`] is mapped into
-    type VecType;
+    type Vec;
     /// [`Ir`] type that `[T; N]` is mapped into
-    type ArrType<const N: usize>;
+    type Arr<const N: usize>;
 }
 
 impl<R: Cloned> IrTypeFamily for R {
-    type RefType<'itm> = &'itm Self where Self: 'itm;
+    type Ref<'itm> = &'itm Self where Self: 'itm;
     // NOTE: Unused
-    type RefMutType<'itm> = () where Self: 'itm;
-    type BoxType = Box<Self>;
-    type SliceRefType<'itm> = &'itm [Self] where Self: 'itm;
+    type RefMut<'itm> = () where Self: 'itm;
+    type Box = Box<Self>;
+    type SliceRef<'itm> = &'itm [Self] where Self: 'itm;
     // NOTE: Unused
-    type SliceRefMutType<'itm> = () where Self: 'itm;
-    type VecType = Vec<Self>;
-    type ArrType<const N: usize> = [Self; N];
+    type SliceRefMut<'itm> = () where Self: 'itm;
+    type Vec = Vec<Self>;
+    type Arr<const N: usize> = [Self; N];
 }
 impl IrTypeFamily for Robust {
-    type RefType<'itm> = Transparent;
-    type RefMutType<'itm> = Transparent;
-    type BoxType = Box<Self>;
-    type SliceRefType<'itm> = &'itm [Self];
-    type SliceRefMutType<'itm> = &'itm mut [Self];
-    type VecType = Vec<Self>;
-    type ArrType<const N: usize> = Self;
+    type Ref<'itm> = Transparent;
+    type RefMut<'itm> = Transparent;
+    type Box = Box<Self>;
+    type SliceRef<'itm> = &'itm [Self];
+    type SliceRefMut<'itm> = &'itm mut [Self];
+    type Vec = Vec<Self>;
+    type Arr<const N: usize> = Self;
 }
 impl IrTypeFamily for Opaque {
-    type RefType<'itm> = Transparent;
-    type RefMutType<'itm> = Transparent;
-    type BoxType = Box<Self>;
-    type SliceRefType<'itm> = &'itm [Self];
-    type SliceRefMutType<'itm> = &'itm mut [Self];
-    type VecType = Vec<Self>;
-    type ArrType<const N: usize> = [Self; N];
+    type Ref<'itm> = Transparent;
+    type RefMut<'itm> = Transparent;
+    type Box = Box<Self>;
+    type SliceRef<'itm> = &'itm [Self];
+    type SliceRefMut<'itm> = &'itm mut [Self];
+    type Vec = Vec<Self>;
+    type Arr<const N: usize> = [Self; N];
 }
 impl IrTypeFamily for Transparent {
-    type RefType<'itm> = Self;
-    type RefMutType<'itm> = Self;
-    type BoxType = Box<Self>;
-    type SliceRefType<'itm> = &'itm [Self];
-    type SliceRefMutType<'itm> = &'itm mut [Self];
-    type VecType = Vec<Self>;
-    type ArrType<const N: usize> = Self;
+    type Ref<'itm> = Self;
+    type RefMut<'itm> = Self;
+    type Box = Box<Self>;
+    type SliceRef<'itm> = &'itm [Self];
+    type SliceRefMut<'itm> = &'itm mut [Self];
+    type Vec = Vec<Self>;
+    type Arr<const N: usize> = Self;
 }
 impl IrTypeFamily for &Extern {
-    type RefType<'itm> = &'itm Self where Self: 'itm;
-    type RefMutType<'itm> = &'itm mut Self where Self: 'itm;
-    type BoxType = Box<Self>;
-    type SliceRefType<'itm> = &'itm [Self] where Self: 'itm;
-    type SliceRefMutType<'itm> = &'itm mut [Self] where Self: 'itm;
-    type VecType = Vec<Self>;
-    type ArrType<const N: usize> = [Self; N];
+    type Ref<'itm> = &'itm Self where Self: 'itm;
+    type RefMut<'itm> = &'itm mut Self where Self: 'itm;
+    type Box = Box<Self>;
+    type SliceRef<'itm> = &'itm [Self] where Self: 'itm;
+    type SliceRefMut<'itm> = &'itm mut [Self] where Self: 'itm;
+    type Vec = Vec<Self>;
+    type Arr<const N: usize> = [Self; N];
 }
 impl IrTypeFamily for &mut Extern {
-    type RefType<'itm> = &'itm Self where Self: 'itm;
-    type RefMutType<'itm> = &'itm mut Self where Self: 'itm;
-    type BoxType = Box<Self>;
-    type SliceRefType<'itm> = &'itm [Self] where Self: 'itm;
-    type SliceRefMutType<'itm> = &'itm mut [Self] where Self: 'itm;
-    type VecType = Vec<Self>;
-    type ArrType<const N: usize> = [Self; N];
+    type Ref<'itm> = &'itm Self where Self: 'itm;
+    type RefMut<'itm> = &'itm mut Self where Self: 'itm;
+    type Box = Box<Self>;
+    type SliceRef<'itm> = &'itm [Self] where Self: 'itm;
+    type SliceRefMut<'itm> = &'itm mut [Self] where Self: 'itm;
+    type Vec = Vec<Self>;
+    type Arr<const N: usize> = [Self; N];
 }
 
 impl<R> Ir for *const R {
@@ -187,59 +187,59 @@ impl<'itm, R: Ir> Ir for &'itm R
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::RefType<'itm>;
+    type Type = <R::Type as IrTypeFamily>::Ref<'itm>;
 }
 #[cfg(feature = "non_robust_ref_mut")]
 impl<'itm, R: Ir> Ir for &'itm mut R
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::RefMutType<'itm>;
+    type Type = <R::Type as IrTypeFamily>::RefMut<'itm>;
 }
 #[cfg(not(feature = "non_robust_ref_mut"))]
 impl<'itm, R: Ir + InfallibleTransmute> Ir for &'itm mut R
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::RefMutType<'itm>;
+    type Type = <R::Type as IrTypeFamily>::RefMut<'itm>;
 }
 impl<R: Ir> Ir for Box<R>
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::BoxType;
+    type Type = <R::Type as IrTypeFamily>::Box;
 }
 impl<'itm, R: Ir> Ir for &'itm [R]
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::SliceRefType<'itm>;
+    type Type = <R::Type as IrTypeFamily>::SliceRef<'itm>;
 }
 #[cfg(feature = "non_robust_ref_mut")]
 impl<'itm, R: Ir> Ir for &'itm mut [R]
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::SliceRefMutType<'itm>;
+    type Type = <R::Type as IrTypeFamily>::SliceRefMut<'itm>;
 }
 #[cfg(not(feature = "non_robust_ref_mut"))]
 impl<'itm, R: Ir + InfallibleTransmute> Ir for &'itm mut [R]
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::SliceRefMutType<'itm>;
+    type Type = <R::Type as IrTypeFamily>::SliceRefMut<'itm>;
 }
 impl<R: Ir> Ir for Vec<R>
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::VecType;
+    type Type = <R::Type as IrTypeFamily>::Vec;
 }
 impl<R: Ir, const N: usize> Ir for [R; N]
 where
     R::Type: IrTypeFamily,
 {
-    type Type = <R::Type as IrTypeFamily>::ArrType<N>;
+    type Type = <R::Type as IrTypeFamily>::Arr<N>;
 }
 
 impl<'itm, R: 'itm> Ir for LocalRef<'itm, R>

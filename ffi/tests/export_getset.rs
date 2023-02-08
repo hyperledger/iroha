@@ -5,13 +5,14 @@ use std::mem::MaybeUninit;
 use getset::{Getters, MutGetters, Setters};
 use iroha_ffi::{ffi_export, FfiType};
 
+/// Struct
 #[derive(Debug, Clone, PartialEq, Eq, FfiType)]
 pub struct Name(String);
 
 /// FfiStruct
+#[ffi_export]
 #[derive(Clone, Setters, Getters, MutGetters, FfiType)]
 #[getset(get = "pub")]
-#[ffi_export]
 pub struct FfiStruct {
     /// id
     #[getset(set = "pub", get_mut = "pub")]
@@ -22,7 +23,7 @@ pub struct FfiStruct {
 
 #[test]
 #[webassembly_test::webassembly_test]
-fn getset_get() {
+fn export_getset_get() {
     let init_name = Name("Name".to_owned());
     let ffi_struct = &mut FfiStruct {
         id: 1,

@@ -208,11 +208,13 @@ fn expose_ffi(mut attrs: Vec<Attribute>, item: &TokenStream) -> TokenStream {
 
         #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
         #[derive(iroha_ffi::FfiType)]
+        #[iroha_ffi::ffi_export]
         #(#attrs)*
         #item
 
         #[cfg(feature = "ffi_import")]
         iroha_ffi::ffi! {
+            #[iroha_ffi::ffi_import]
             #(#attrs)*
             #item
         }

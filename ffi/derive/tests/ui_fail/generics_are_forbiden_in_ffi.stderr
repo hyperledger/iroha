@@ -1,17 +1,11 @@
 error: Generics are not supported
- --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:5:16
+ --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:5:21
   |
-5 | fn freestanding<T>(v: T) -> T {
-  |                ^^^
+5 | pub fn freestanding<T>(v: T) -> T {
+  |                     ^
 
-error: Generics are not supported
+error: Generics on derived methods not supported
   --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:12:21
    |
 12 | pub struct FfiStruct<T> {
    |                     ^^^
-
-error[E0412]: cannot find type `FfiStruct` in this scope
-  --> tests/ui_fail/generics_are_forbiden_in_ffi.rs:12:12
-   |
-12 | pub struct FfiStruct<T> {
-   |            ^^^^^^^^^ not found in this scope

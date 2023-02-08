@@ -16,6 +16,7 @@ use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
 #[derive(Debug, TypeId)]
+#[repr(transparent)]
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 
 /// Iterator over leaves of [`MerkleTree`]

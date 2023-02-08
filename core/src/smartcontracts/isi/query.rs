@@ -315,8 +315,8 @@ mod tests {
             .expect("WSV is empty");
 
         assert_eq!(
-            &FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
-            block.header()
+            FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
+            block.as_v1().header
         );
 
         assert!(FindBlockHeaderByHash::new(Hash::new([42]))

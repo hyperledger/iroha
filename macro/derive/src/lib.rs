@@ -11,6 +11,22 @@ const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 /// Attribute to skip inner container optimization. Useful for trait objects
 const SKIP_CONTAINER: &str = "skip_container";
 
+/// Helper macro to expand FFI functions
+#[proc_macro_attribute]
+pub fn ffi_impl_opaque(_: TokenStream, item: TokenStream) -> TokenStream {
+    let item: syn::ItemImpl = syn::parse_macro_input!(item);
+
+    quote! {
+        #[cfg_attr(
+            all(feature = "ffi_export", not(feature = "ffi_import")),
+            iroha_ffi::ffi_export
+        )]
+        #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+        #item
+    }
+    .into()
+}
+
 /// [`FromVariant`] is used for implementing `From<Variant> for Enum`
 /// and `TryFrom<Enum> for Variant`.
 ///

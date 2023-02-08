@@ -25,7 +25,10 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, Identifiable};
+use crate::{
+    account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name, Identifiable,
+    Value,
+};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -131,7 +134,7 @@ pub trait Sign {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error>;
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
 }
 
 #[model]
@@ -140,18 +143,10 @@ pub mod model {
 
     /// Either ISI or Wasm binary
     #[derive(
-        derive_more::DebugCustom,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        DebugCustom, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[ffi_type(local)]
+    // TODO: Temporarily made opaque
+    #[ffi_type(opaque)]
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
@@ -216,6 +211,7 @@ pub mod model {
         /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
         pub nonce: Option<u32>,
         /// Metadata.
+        #[getset(skip)]
         pub metadata: UnlimitedMetadata,
     }
 
@@ -289,12 +285,12 @@ pub mod model {
     #[derive(
         Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[ffi_type(local)]
+    #[ffi_type]
     pub enum TransactionValue {
         /// Committed transaction
-        Transaction(Box<VersionedSignedTransaction>),
+        Transaction(VersionedSignedTransaction),
         /// Rejected transaction with reason of rejection
-        RejectedTransaction(Box<VersionedRejectedTransaction>),
+        RejectedTransaction(VersionedRejectedTransaction),
     }
 
     /// `TransactionQueryResult` is used in `FindAllTransactions` query
@@ -402,6 +398,14 @@ impl WasmSmartContract {
     }
 }
 
+impl TransactionPayload {
+    /// Metadata.
+    // TODO: Should probably implement `HasMetadata` instead
+    pub fn metadata(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
+        self.metadata.iter()
+    }
+}
+
 impl TransactionBuilder {
     /// Construct [`Self`].
     #[inline]
@@ -449,7 +453,7 @@ impl Sign for TransactionBuilder {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         let signatures = btree_set::BTreeSet::from([signature]);
 
@@ -538,7 +542,7 @@ impl Sign for SignedTransaction {
     fn sign(
         mut self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         self.signatures.insert(signature);
 
@@ -779,7 +783,7 @@ impl Transaction for AcceptedTransaction {
 
 #[cfg(feature = "transparent_api")]
 impl AcceptedTransaction {
-    /// Accept transaction. Transition from [`Transaction`] to [`AcceptedTransaction`].
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
     /// # Errors
     ///
@@ -1045,7 +1049,8 @@ pub mod error {
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        #[ffi_type(local)]
+        // TODO: Temporarily opaque
+        #[ffi_type(opaque)]
         pub enum TransactionRejectionReason {
             /// Failed to validate transaction limits (e.g. number of instructions)
             #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {_0}")]

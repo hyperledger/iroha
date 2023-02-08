@@ -2,9 +2,16 @@
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{
-    def_ffi_fn, ffi_export, handles, FfiConvert, FfiOutPtrRead, FfiReturn, FfiType, Handle,
-};
+use iroha_ffi::{def_ffi_fns, ffi_export, FfiConvert, FfiOutPtrRead, FfiReturn, FfiType, Handle};
+
+iroha_ffi::handles! {FfiStruct1, FfiStruct2}
+
+def_ffi_fns! {
+    Drop: {FfiStruct1, FfiStruct2},
+    Clone: {FfiStruct1, FfiStruct2},
+    Eq: {FfiStruct1, FfiStruct2},
+    Ord: {FfiStruct1, FfiStruct2}
+}
 
 /// Struct without a repr attribute is opaque by default
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FfiType)]
@@ -20,12 +27,6 @@ pub struct FfiStruct2 {
     name: String,
 }
 
-handles! {0, FfiStruct1, FfiStruct2}
-def_ffi_fn! {Drop: FfiStruct1, FfiStruct2}
-def_ffi_fn! {Clone: FfiStruct1, FfiStruct2}
-def_ffi_fn! {Eq: FfiStruct1, FfiStruct2}
-def_ffi_fn! {Ord: FfiStruct1, FfiStruct2}
-
 #[ffi_export]
 impl FfiStruct1 {
     /// New
@@ -36,7 +37,7 @@ impl FfiStruct1 {
 
 #[test]
 #[webassembly_test::webassembly_test]
-fn gen_shared_fns() {
+fn export_shared_fns() {
     let name = String::from("X");
 
     let ffi_struct1 = unsafe {
