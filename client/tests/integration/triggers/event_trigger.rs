@@ -21,7 +21,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByAssetDefinition(BySome(

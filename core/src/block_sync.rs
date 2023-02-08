@@ -47,7 +47,7 @@ impl Handler<message::ReceiveUpdates> for BlockSynchronizer {
     type Result = ();
     async fn handle(&mut self, _: message::ReceiveUpdates) {
         if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
-            self.request_latest_blocks_from_peer(random_peer.id.clone())
+            self.request_latest_blocks_from_peer(random_peer.id().clone())
                 .await;
         }
     }

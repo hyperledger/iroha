@@ -841,7 +841,7 @@ mod wasm {
             };
 
             submit(
-                Executable::Wasm(WasmSmartContract { raw_data }),
+                WasmSmartContract::new(raw_data),
                 cfg,
                 UnlimitedMetadata::new(),
             )

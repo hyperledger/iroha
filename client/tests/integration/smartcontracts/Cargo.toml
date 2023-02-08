@@ -7,6 +7,7 @@ authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 license = "Apache-2.0"
 
 [workspace]
+resolver = "2"
 members = [
     "create_nft_for_every_user_trigger",
     "deny_new_validators_validator",
@@ -24,4 +25,4 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-iroha_wasm = { path = "../../../../wasm", features = ["debug"]}
+iroha_wasm = { version = "=2.0.0-pre-rc.13", path = "../../../../wasm", features = ["debug"]}

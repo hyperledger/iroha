@@ -2,8 +2,8 @@
 
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
-    error::{FindError, QueryExecutionFailure},
     prelude::*,
+    query::error::{FindError, QueryExecutionFailure},
 };
 use iroha_telemetry::metrics;
 

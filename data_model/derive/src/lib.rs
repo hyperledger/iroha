@@ -1,13 +1,82 @@
 //! A crate containing various derive macros for `data_model`
 #![allow(clippy::std_instead_of_core)]
 
-use proc_macro::TokenStream;
-use syn::parse_macro_input;
-
+mod api;
 mod filter;
 mod has_origin;
 mod id;
 mod partially_tagged;
+
+use proc_macro::TokenStream;
+use syn::parse_macro_input;
+
+struct Items(Vec<syn::DeriveInput>);
+
+impl syn::parse::Parse for Items {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut items = Vec::new();
+
+        while !input.is_empty() {
+            items.push(input.parse()?);
+        }
+
+        Ok(Self(items))
+    }
+}
+
+/// Macro which controls how to export item's API. The behaviour is controlled with `transparent_api`
+/// feature flag. If the flag is active, item's public fields will be exposed as public, however, if
+/// it's not active, item will be exposed as opaque, i.e. no fields will be visible. This enables
+/// internal libraries of Iroha to see and destructure data model items. On the other hand,
+/// client libraries will only see opaque items and can be dynamically linked.
+///
+/// Additionally, this macro will rewrite private items as public when `transparent_api` is active.
+/// If an item should remain private regardless of consumer library, just don't wrap it in this macro.
+///
+/// # Example
+///
+/// ```rust
+/// use iroha_data_model_derive::model;
+///
+/// model! {
+///     struct DataModel {
+///        pub item1: u32,
+///        item2: u64
+///     }
+/// }
+///
+/// /* will produce:
+/// #[cfg(feature = "transparent_api")]
+/// pub struct DataModel {
+///    #[cfg(feature = "transparent_api")]
+///    pub item1: u32,
+///    #[cfg(not(feature = "transparent_api"))]
+///    pub(crate) item1: u32,
+///    item2: u64
+/// }
+///
+/// #[cfg(not(feature = "transparent_api"))]
+/// struct DataModel {
+///    #[cfg(feature = "transparent_api")]
+///    pub item1: u32,
+///    #[cfg(not(feature = "transparent_api"))]
+///    pub(crate) item1: u32,
+///    item2: u64
+/// }
+/// */
+/// ```
+#[proc_macro]
+#[proc_macro_error::proc_macro_error]
+pub fn model(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as Items);
+    let mut items = Vec::new();
+
+    for item in input.0 {
+        items.push(api::process_item(item));
+    }
+
+    quote::quote! { #(#items)* }.into()
+}
 
 /// Derive macro for `Identifiable` trait which also automatically implements [`Ord`], [`Eq`],
 /// and [`Hash`] for the annotated struct by delegating to it's identifier field. Identifier
@@ -24,7 +93,7 @@ mod partially_tagged;
 /// The common use-case:
 ///
 /// ```rust
-/// use iroha_data_model_derive::IdOrdEqHash;
+/// use iroha_data_model_derive::IdEqOrdHash;
 /// use iroha_data_model::Identifiable;
 ///
 /// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,7 +101,7 @@ mod partially_tagged;
 ///     name: u32,
 /// }
 ///
-/// #[derive(Debug, IdOrdEqHash)]
+/// #[derive(Debug, IdEqOrdHash)]
 /// struct Struct {
 ///     id: Id,
 /// }
@@ -78,16 +147,16 @@ mod partially_tagged;
 /// Manual selection of the identifier field:
 ///
 /// ```rust
-/// use iroha_data_model_derive::IdOrdEqHash;
+/// use iroha_data_model_derive::IdEqOrdHash;
 /// use iroha_data_model::Identifiable;
 ///
-/// #[derive(Debug, IdOrdEqHash)]
+/// #[derive(Debug, IdEqOrdHash)]
 /// struct InnerStruct {
 ///     #[id]
 ///     field: Id,
 /// }
 ///
-/// #[derive(Debug, IdOrdEqHash)]
+/// #[derive(Debug, IdEqOrdHash)]
 /// struct Struct {
 ///     #[id(transparent)]
 ///     inner: InnerStruct,
@@ -100,8 +169,8 @@ mod partially_tagged;
 /// ```
 ///
 #[proc_macro_error::proc_macro_error]
-#[proc_macro_derive(IdOrdEqHash, attributes(id))]
-pub fn id_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(IdEqOrdHash, attributes(id, opaque))]
+pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
     id::impl_id(&parse_macro_input!(input)).into()
 }
 
@@ -119,41 +188,37 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ```ignore
-/// use iroha_data_model_derive::{Filter, IdOrdEqHash};
+/// use iroha_data_model_derive::{Filter, IdEqOrdHash};
 /// use iroha_data_model::prelude::{HasOrigin, Identifiable};
-/// use iroha_schema::IntoSchema;
-/// use parity_scale_codec::{Decode, Encode};
 /// use serde::{Deserialize, Serialize};
 ///
 ///
-/// #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Filter, Deserialize, Serialize)]
 /// pub enum LayerEvent {
 ///     SubLayer(SubLayerEvent),
 ///     Created(LayerId),
 /// }
 ///
-/// #[derive(Filter, Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
 /// pub enum SubLayerEvent {
 ///     Created(SubLayerId),
 /// }
 ///
-/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
 /// pub struct LayerId {
 ///     name: u32,
 /// }
 ///
-/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// pub struct SubLayerId {
 ///     name: u32,
 ///     parent_id: LayerId,
 /// }
 ///
-/// #[derive(Debug, Clone, IdOrdEqHash)]
+/// #[derive(Debug, Clone, IdEqOrdHash)]
 /// pub struct Layer {
 ///     id: <Self as Identifiable>::Id,
 /// }
 ///
-/// #[derive(Debug, Clone, IdOrdEqHash)]
+/// #[derive(Debug, Clone, IdEqOrdHash)]
 /// pub struct SubLayer {
 ///     id: <Self as Identifiable>::Id,
 /// }
@@ -185,7 +250,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// ```
 /// /*
 /// #[doc = " Filter for LayerEvent entity"]
-/// #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 /// pub struct LayerFilter {
 ///     origin_filter:
 ///         crate::prelude::FilterOpt<crate::prelude::OriginFilter<crate::prelude::LayerEvent>>,
@@ -225,7 +290,7 @@ pub fn id_derive(input: TokenStream) -> TokenStream {
 /// }
 /// #[doc = " Event filter for LayerEvent entity"]
 /// #[allow(clippy::enum_variant_names, missing_docs)]
-/// #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 /// pub enum LayerEventFilter {
 ///     ByCreated,
 ///     BySubLayer(crate::prelude::FilterOpt<SubLayerFilter>),
@@ -287,14 +352,14 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 /// use serde::Deserialize;
 /// use iroha_data_model_derive::PartiallyTaggedDeserialize;
 ///
-/// #[derive(PartiallyTaggedDeserialize, PartialEq, Eq, Debug)]
+/// #[derive(Debug, PartialEq, Eq, PartiallyTaggedDeserialize)]
 /// enum Outer {
 ///     A(u64),
 ///     #[serde_partially_tagged(untagged)]
 ///     Inner(Inner),
 /// }
 ///
-/// #[derive(Deserialize, PartialEq, Eq, Debug)]
+/// #[derive(Debug, PartialEq, Eq, Deserialize)]
 /// enum Inner {
 ///     B(u32),
 /// }
@@ -315,7 +380,7 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 /// use serde::Deserialize;
 /// use iroha_data_model_derive::PartiallyTaggedDeserialize;
 ///
-/// #[derive(PartiallyTaggedDeserialize, PartialEq, Eq, Debug)]
+/// #[derive(Debug, PartialEq, Eq, PartiallyTaggedDeserialize)]
 /// enum Outer {
 ///     A(u64),
 ///     // Ambiguity is created here because without tag it is impossible to distinguish `Inner1` and `Inner2`.
@@ -326,7 +391,7 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 ///     Inner2(Inner),
 /// }
 ///
-/// #[derive(Deserialize, PartialEq, Eq, Debug)]
+/// #[derive(Debug, PartialEq, Eq, Deserialize)]
 /// enum Inner {
 ///     B(u32),
 /// }
@@ -363,11 +428,11 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ```
-/// use iroha_data_model_derive::{IdOrdEqHash, HasOrigin};
+/// use iroha_data_model_derive::{IdEqOrdHash, HasOrigin};
 /// use iroha_data_model::prelude::{Identifiable, HasOrigin};
 ///
 ///
-/// #[derive(HasOrigin, Clone, Debug)]
+/// #[derive(Debug, Clone, HasOrigin)]
 /// #[has_origin(origin = Layer)]
 /// pub enum LayerEvent {
 ///     #[has_origin(sub_layer_event => &sub_layer_event.origin_id().parent_id)]
@@ -375,29 +440,29 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 ///     Created(LayerId),
 /// }
 ///
-/// #[derive(HasOrigin, Clone, Debug)]
+/// #[derive(Debug, Clone, HasOrigin)]
 /// #[has_origin(origin = SubLayer)]
 /// pub enum SubLayerEvent {
 ///     Created(SubLayerId),
 /// }
 ///
-/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// pub struct LayerId {
 ///     name: u32,
 /// }
 ///
-/// #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// pub struct SubLayerId {
 ///     name: u32,
 ///     parent_id: LayerId,
 /// }
 ///
-/// #[derive(IdOrdEqHash, Debug, Clone)]
+/// #[derive(Debug, Clone, IdEqOrdHash)]
 /// pub struct Layer {
 ///     id: LayerId,
 /// }
 ///
-/// #[derive(IdOrdEqHash, Debug, Clone)]
+/// #[derive(Debug, Clone, IdEqOrdHash)]
 /// pub struct SubLayer {
 ///     id: SubLayerId,
 /// }

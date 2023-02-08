@@ -47,13 +47,13 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
         pass!();
     };
 
-    let IdBox::AssetId(asset_id) = set_key_value.object_id
+    let IdBox::AssetId(asset_id) = set_key_value.object_id()
         .evaluate()
         .dbg_expect("Failed to evaluate `SetKeyValue` object id") else {
         pass!();
     };
 
-    pass_if!(asset_id.account_id == authority);
+    pass_if!(*asset_id.account_id() == authority);
     pass_if!(CanSetKeyValueInUserAsset { asset_id }.is_owned_by(&authority));
 
     deny!("Can't set value to the asset metadata of another account")

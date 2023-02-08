@@ -924,7 +924,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
-            encode_hex(Instruction::Register(register_isi))
+            encode_hex(Instruction::from(register_isi))
         };
 
         let wat = format!(
@@ -958,11 +958,7 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
-
-        let query_hex = {
-            let find_acc_query = FindAccountById::new(account_id.clone());
-            encode_hex(QueryBox::FindAccountById(find_acc_query))
-        };
+        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
 
         let wat = format!(
             r#"
@@ -1004,7 +1000,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
-            encode_hex(Instruction::Register(register_isi))
+            encode_hex(Instruction::from(register_isi))
         };
 
         let wat = format!(
@@ -1051,7 +1047,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
-            encode_hex(Instruction::Register(register_isi))
+            encode_hex(Instruction::from(register_isi))
         };
 
         let wat = format!(
@@ -1094,11 +1090,7 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
-
-        let query_hex = {
-            let find_acc_query = FindAccountById::new(account_id.clone());
-            encode_hex(QueryBox::FindAccountById(find_acc_query))
-        };
+        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
 
         let wat = format!(
             r#"

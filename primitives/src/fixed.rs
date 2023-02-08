@@ -36,7 +36,7 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
 /// An encapsulation of [`Fixed`] in encodable form. [`Fixed`] values
 /// should never become negative.
 #[derive(
-    Debug, Clone, Display, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
+    Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
 )]
 #[serde(transparent)]
 #[repr(transparent)]
@@ -223,14 +223,17 @@ impl Decode for Fixed {
     }
 }
 
+#[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
 mod ffi {
+    //! Manual implementations of FFI related functionality
+
     #![allow(unsafe_code)]
     use super::*;
 
+    iroha_ffi::ffi_type! {unsafe impl Transparent for Fixed[Base] validated with {|_| true}}
+
     // SAFETY: Type is robust with respect to the inner type
     unsafe impl iroha_ffi::ir::InfallibleTransmute for Fixed {}
-
-    iroha_ffi::ffi_type! {unsafe impl Transparent for Fixed[Base] validated with {|_| true}}
 }
 
 /// Export of inner items.

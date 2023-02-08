@@ -43,7 +43,7 @@ fn test_with_instruction_and_status_and_port(
     let pipeline_time = Configuration::pipeline_time();
     // Given
     let submitter = genesis_client;
-    let transaction = submitter.build_transaction(instruction.into(), UnlimitedMetadata::new())?;
+    let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new())?;
     let hash = transaction.hash();
     let mut handles = Vec::new();
     for listener in clients {

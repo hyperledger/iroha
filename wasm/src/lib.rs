@@ -30,8 +30,8 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[cfg(not(test))]
 #[panic_handler]
+// NOTE: UNREACHABLE: `WebAssembly` always raises a `trap` on panic
 fn panic(_info: &::core::panic::PanicInfo) -> ! {
-    // NOTE: Unreachable: `WebAssembly` raises a `trap` on panic
     loop {}
 }
 
@@ -122,7 +122,7 @@ impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
         //         - ownership of the returned result is transferred into `_decode_from_raw`
         let value: data_model::prelude::Value = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
-                &self.expression,
+                self.expression(),
                 host_evaluate_on_host,
             ))
         };
@@ -361,7 +361,7 @@ mod tests {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
         let register_isi = RegisterBox::new(Account::new(new_account_id, []));
 
-        Instruction::Register(register_isi)
+        register_isi.into()
     }
     fn get_test_query() -> QueryBox {
         let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
@@ -374,14 +374,9 @@ mod tests {
         Add::new(1_u32, 2_u32).into()
     }
     fn get_test_event() -> Event {
-        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
-            "rose#wonderland".parse().expect("Valid");
-        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
-        DataEvent::Account(AccountEvent::Asset(AssetEvent::Added(AssetChanged {
-            asset_id: alice_rose_id,
-            amount: 0u32.into(),
-        })))
+        DataEvent::Account(AccountEvent::Deleted(
+            "alice@wonderland".parse().expect("Valid"),
+        ))
         .into()
     }
     fn get_test_operation() -> NeedsPermissionBox {
@@ -434,7 +429,7 @@ mod tests {
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
         let expression = ExpressionBox::decode_all(&mut &*bytes).unwrap();
-        assert_eq!(expression, get_test_expression().expression);
+        assert_eq!(*expression, *get_test_expression().expression());
 
         ManuallyDrop::new(encode_with_length_prefix(&Value::from(EXPRESSION_RESULT))).as_ptr()
     }

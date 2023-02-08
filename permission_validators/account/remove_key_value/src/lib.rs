@@ -47,7 +47,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
         pass!();
     };
 
-    let IdBox::AccountId(account_id) = remove_key_value.object_id
+    let IdBox::AccountId(account_id) = remove_key_value.object_id()
         .evaluate()
         .dbg_expect("Failed to evaluate `RemoveKeyValue` object id") else {
         pass!();

@@ -48,7 +48,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
         };
         let instructions: Vec<Instruction> = vec![mint_asset.clone().into()];
         let transaction = iroha_client
-            .build_transaction(instructions.into(), UnlimitedMetadata::new())
+            .build_transaction(instructions, UnlimitedMetadata::new())
             .expect("Failed to create transaction");
         iroha_client
             .submit_transaction(transaction)

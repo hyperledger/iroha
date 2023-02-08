@@ -300,7 +300,7 @@ impl Iroha {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            domains(&config),
+            [genesis_domain(&config)],
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
@@ -497,13 +497,20 @@ impl Iroha {
     }
 }
 
-/// Return the `domain_name: domain` mapping, for initial domains.
-///
-/// # Errors
-/// - Genesis account public key not specified.
-fn domains(configuration: &Configuration) -> [Domain; 1] {
-    let key = configuration.genesis.account_public_key.clone();
-    [Domain::from(GenesisDomain::new(key))]
+fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
+    Account::new(AccountId::genesis(), [public_key]).build()
+}
+
+fn genesis_domain(configuration: &Configuration) -> Domain {
+    let account_public_key = &configuration.genesis.account_public_key;
+    let mut domain = Domain::new(DomainId::genesis()).build();
+
+    domain.accounts.insert(
+        <Account as Identifiable>::Id::genesis(),
+        genesis_account(account_public_key.clone()),
+    );
+
+    domain
 }
 
 pub mod style {

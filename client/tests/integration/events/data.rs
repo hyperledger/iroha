@@ -43,8 +43,7 @@ fn produce_instructions() -> Vec<Instruction> {
 
 #[test]
 fn instruction_execution_should_produce_events() -> Result<()> {
-    let instructions = produce_instructions().into();
-    transaction_execution_should_produce_events(instructions, 10_665)
+    transaction_execution_should_produce_events(produce_instructions(), 10_665)
 }
 
 #[test]
@@ -86,15 +85,13 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         isi_calls = isi_calls
     );
 
-    transaction_execution_should_produce_events(
-        Executable::Wasm(WasmSmartContract {
-            raw_data: wat.into_bytes(),
-        }),
-        10_615,
-    )
+    transaction_execution_should_produce_events(WasmSmartContract::new(wat.into_bytes()), 10_615)
 }
 
-fn transaction_execution_should_produce_events(executable: Executable, port: u16) -> Result<()> {
+fn transaction_execution_should_produce_events(
+    executable: impl Into<Executable>,
+    port: u16,
+) -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(port).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
@@ -122,7 +119,7 @@ fn transaction_execution_should_produce_events(executable: Executable, port: u16
     // assertion
     for i in 0..4_usize {
         let domain_id = DomainId::new(i.to_string().parse().expect("Valid"));
-        let domain = Domain::new(domain_id);
+        let domain = Domain::new(domain_id).build();
         let expected_event = DomainEvent::Created(domain).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);
@@ -189,7 +186,7 @@ fn produce_multiple_events() -> Result<()> {
         WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
             permission_token_definition_2,
         )),
-        WorldEvent::Role(RoleEvent::Created(role)),
+        WorldEvent::Role(RoleEvent::Created(role.build())),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: alice_id.clone(),

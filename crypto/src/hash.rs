@@ -1,8 +1,9 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
+use iroha_ffi::FfiType;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -135,8 +136,29 @@ impl<'de> Deserialize<'de> for Hash {
 }
 
 impl Encode for Hash {
+    #[inline]
+    fn size_hint(&self) -> usize {
+        self.as_ref().size_hint()
+    }
+
+    #[inline]
+    fn encode_to<T: parity_scale_codec::Output + ?Sized>(&self, dest: &mut T) {
+        self.as_ref().encode_to(dest)
+    }
+
+    #[inline]
+    fn encode(&self) -> Vec<u8> {
+        self.as_ref().encode()
+    }
+
+    #[inline]
     fn using_encoded<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
         f(self.as_ref())
+    }
+
+    #[inline]
+    fn encoded_size(&self) -> usize {
+        self.as_ref().encoded_size()
     }
 }
 
@@ -182,11 +204,15 @@ impl<T> From<HashOf<T>> for Hash {
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
 // Lint triggers when expanding #[codec(skip)]
 #[allow(clippy::default_trait_access)]
-#[derive(DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize)]
-#[display(fmt = "{_0}")]
+#[derive(
+    DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize, FfiType,
+)]
 #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
+#[display(fmt = "{_0}")]
 #[serde(transparent)]
 #[repr(transparent)]
+// TODO: Temporary until PRs are resolved
+#[ffi_type(opaque)]
 pub struct HashOf<T>(
     #[deref]
     #[deref_mut]

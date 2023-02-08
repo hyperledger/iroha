@@ -35,4 +35,5 @@ erased-serde = "0.3.24"
 
 [build-dependencies]
 eyre = "0.6.8"
-vergen = { version = "7.3.2", default-features = false }
+vergen = { version = "7.4.2", default-features = false }
+

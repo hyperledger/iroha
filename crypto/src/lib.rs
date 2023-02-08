@@ -72,7 +72,7 @@ impl std::error::Error for NoSuchAlgorithm {}
 
 ffi::ffi_item! {
     /// Algorithm for hashing
-    #[derive(Default, Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, FfiType, IntoSchema, SerializeDisplay, DeserializeFromStr, Encode, Decode)]
+    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
     #[repr(u8)]
     pub enum Algorithm {
         /// Ed25519
@@ -371,7 +371,7 @@ impl std::error::Error for KeyParseError {}
 
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, FfiType, IntoSchema, SerializeDisplay, DeserializeFromStr, Decode)]
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
     #[debug(
         fmt = "{{ digest: {digest_function}, payload: {} }}",
         "hex::encode_upper(payload.as_slice())"
@@ -489,7 +489,7 @@ impl From<PublicKey> for Multihash {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, Display, Serialize, Deserialize, FfiType)]
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, Deserialize, Serialize, FfiType)]
     #[debug(fmt = "{{ digest: {digest_function}, payload: {payload:X?}}}")]
     #[display(fmt = "{}", "hex::encode(payload)")]
     #[allow(clippy::multiple_inherent_impl)]
@@ -579,7 +579,7 @@ pub mod ffi {
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     ffi_fn! {def_ffi_fn}
 
-    // NOTE: Makes sure that only one `dealloc` is exported generated dynamic library
+    // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
     #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     mod dylib {

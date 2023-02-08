@@ -18,6 +18,8 @@ derive = ["iroha_version_derive"]
 scale = ["parity-scale-codec/full"]
 # Support JSON (de)serialisation
 json = ["serde", "serde_json"]
+# Enable API for HTTP requests. Should be activated for HTTP clients
+http = ["std", "warp"]
 
 [dependencies]
 iroha_version_derive = { version = "=2.0.0-pre-rc.13", path = "derive", default-features = false, optional = true }

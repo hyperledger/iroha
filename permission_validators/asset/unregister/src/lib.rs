@@ -57,19 +57,19 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
         pass!();
     };
 
-    let IdBox::AssetId(asset_id) = unregister.object_id
+    let IdBox::AssetId(asset_id) = unregister.object_id()
         .evaluate()
         .dbg_expect("Failed to evaluate `Unregister` object id") else {
         pass!();
     };
 
-    pass_if!(asset_id.account_id == authority);
+    pass_if!(*asset_id.account_id() == authority);
     pass_if!(utils::is_asset_definition_owner(
-        &asset_id.definition_id,
+        asset_id.definition_id(),
         &authority
     ));
     pass_if!(CanUnregisterAssetsWithDefinition {
-        asset_definition_id: asset_id.definition_id.clone()
+        asset_definition_id: asset_id.definition_id().clone()
     }
     .is_owned_by(&authority));
     pass_if!(CanUnregisterUserAsset { asset_id }.is_owned_by(&authority));
