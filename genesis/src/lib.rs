@@ -42,7 +42,7 @@ pub trait GenesisNetworkTrait:
 }
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
-#[derive(Clone, Debug, Deref)]
+#[derive(Debug, Clone, Deref)]
 pub struct GenesisNetwork {
     /// transactions from `GenesisBlock`, any transaction is accepted
     #[deref]
@@ -93,7 +93,9 @@ impl GenesisNetworkTrait for GenesisNetwork {
 }
 
 /// [`RawGenesisBlock`] is an initial block of the network
-#[derive(Clone, Deserialize, Debug, IntoSchema, Default, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, IntoSchema)]
+#[serde(transparent)]
+#[repr(transparent)]
 pub struct RawGenesisBlock {
     /// Transactions
     pub transactions: SmallVec<[GenesisTransaction; 2]>,
@@ -136,7 +138,9 @@ impl RawGenesisBlock {
 }
 
 /// `GenesisTransaction` is a transaction for initialize settings.
-#[derive(Clone, Deserialize, Debug, IntoSchema, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+#[serde(transparent)]
+#[repr(transparent)]
 pub struct GenesisTransaction {
     /// Instructions
     pub isi: SmallVec<[Instruction; 8]>,
@@ -154,13 +158,14 @@ impl GenesisTransaction {
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
             AccountId::genesis(),
-            self.isi.clone().into(),
+            self.isi.clone(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;
 
-        VersionedAcceptedTransaction::accept::<true>(transaction, limits)
+        AcceptedTransaction::accept::<true>(transaction, limits)
             .wrap_err("Failed to accept transaction")
+            .map(Into::into)
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
@@ -182,6 +187,8 @@ impl GenesisTransaction {
 /// not perform any correctness checking on the block
 /// produced. Use with caution in tests and other things
 /// to register domains and accounts.
+#[must_use]
+#[repr(transparent)]
 pub struct RawGenesisBlockBuilder {
     transaction: GenesisTransaction,
 }
@@ -202,7 +209,7 @@ impl RawGenesisBlockBuilder {
         // regarded as a default constructor, this builder should not
         // be used in contexts where `Default::default()` is likely to
         // be called.
-        RawGenesisBlockBuilder {
+        Self {
             transaction: GenesisTransaction {
                 isi: SmallVec::new(),
             },
@@ -226,7 +233,7 @@ impl RawGenesisBlockBuilder {
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
         self.transaction
             .isi
-            .push(Instruction::from(RegisterBox::new(new_domain)));
+            .push(RegisterBox::new(new_domain).into());
         RawGenesisDomainBuilder {
             transaction: self.transaction,
             domain_id,
@@ -350,7 +357,7 @@ mod tests {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[0],
-                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
+                RegisterBox::new(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
@@ -373,7 +380,7 @@ mod tests {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[3],
-                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
+                RegisterBox::new(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
@@ -388,7 +395,7 @@ mod tests {
             let domain_id: DomainId = "meadow".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[5],
-                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
+                RegisterBox::new(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],

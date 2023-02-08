@@ -8,10 +8,9 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
-use derive_more::Display;
-use getset::{Getters, MutGetters};
-use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::FfiType;
+use derive_more::{Constructor, Display};
+use getset::Getters;
+use iroha_data_model_derive::IdEqOrdHash;
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -21,8 +20,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumString;
 
 use crate::{
-    account::prelude::*, domain::prelude::*, ffi::declare_item, metadata::Metadata, HasMetadata,
-    Identifiable, Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef, Value,
+    account::prelude::*, domain::prelude::*, metadata::Metadata, model, HasMetadata, Identifiable,
+    Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
@@ -38,46 +37,176 @@ pub type AssetDefinitionsMap =
 pub type AssetTotalQuantityMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, NumericValue>;
 
-/// Mintability logic error
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
-pub enum MintabilityError {
-    /// Tried to mint an Un-mintable asset.
-    #[display(fmt = "This asset cannot be minted more than once and it was already minted.")]
-    MintUnmintable,
-    /// Tried to forbid minting on assets that should be mintable.
-    #[display(fmt = "This asset was set as infinitely mintable. You cannot forbid its minting.")]
-    ForbidMintOnMintable,
-}
+model! {
+    /// Identification of an Asset Definition. Consists of Asset name and Domais name.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use iroha_data_model::asset::DefinitionId;
+    ///
+    /// let definition_id = "xor#soramitsu".parse::<DefinitionId>().expect("Valid");
+    /// ```
+    #[derive(Debug, Clone, Display, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[display(fmt = "{name}#{domain_id}")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct DefinitionId {
+        /// Asset name.
+        pub name: Name,
+        /// Domain id.
+        pub domain_id: <Domain as Identifiable>::Id,
+    }
 
-#[cfg(feature = "std")]
-impl std::error::Error for MintabilityError {}
+    /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Id {
+        /// Entity Identification.
+        pub definition_id: <AssetDefinition as Identifiable>::Id,
+        /// Account Identification.
+        pub account_id: <Account as Identifiable>::Id,
+    }
 
-declare_item! {
-    /// An entry in [`AssetDefinitionsMap`].
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Getters,
-        MutGetters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
-    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+    /// Asset definition defines the type of that asset.
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{id} {value_type}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
     #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct AssetDefinition {
+        /// An Identification of the [`AssetDefinition`].
+        #[getset(skip)]
+        pub id: DefinitionId,
+        /// Type of [`AssetValue`]
+        pub value_type: AssetValueType,
+        /// Is the asset mintable
+        pub mintable: Mintable,
+        /// Metadata of this asset definition as a key-value store.
+        #[getset(skip)]
+        pub metadata: Metadata,
+    }
+
+    /// An entry in [`AssetDefinitionsMap`].
+    #[derive(Debug, Clone, PartialEq, Eq, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[getset(get = "pub")]
+    #[ffi_type]
     pub struct AssetDefinitionEntry {
         /// Asset definition.
-        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-        definition: AssetDefinition,
-        /// The account that owns this asset definition.
-        owned_by: <Account as Identifiable>::Id,
+        pub definition: AssetDefinition,
+        /// The account that registered this asset.
+        pub owned_by: <Account as Identifiable>::Id,
+    }
+
+    /// Asset represents some sort of commodity or value.
+    /// All possible variants of [`Asset`] entity's components.
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{id}: {value}")]
+    #[ffi_type]
+    pub struct Asset {
+        /// Component Identification.
+        pub id: Id,
+        /// Asset's Quantity.
+        #[getset(get = "pub")]
+        pub value: AssetValue,
+    }
+
+    /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{id} {mintable}{value_type}")]
+    #[ffi_type]
+    pub struct NewAssetDefinition {
+        /// The identification associated with the asset definition builder.
+        id: <AssetDefinition as Identifiable>::Id,
+        /// The type value associated with the asset definition builder.
+        value_type: AssetValueType,
+        /// The mintablility associated with the asset definition builder.
+        mintable: Mintable,
+        /// Metadata associated with the asset definition builder.
+        metadata: Metadata,
+    }
+}
+
+impl AssetDefinition {
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn new(
+        id: <Self as Identifiable>::Id,
+        value_type: AssetValueType,
+    ) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, value_type)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn quantity(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, AssetValueType::Quantity)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn big_quantity(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, AssetValueType::BigQuantity)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn fixed(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, AssetValueType::Fixed)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn store(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, AssetValueType::Store)
+    }
+}
+
+impl Asset {
+    /// Constructor
+    pub fn new(
+        id: <Asset as Identifiable>::Id,
+        value: impl Into<AssetValue>,
+    ) -> <Self as Registered>::With {
+        Self {
+            id,
+            value: value.into(),
+        }
+    }
+}
+
+impl NewAssetDefinition {
+    /// Create a [`NewAssetDefinition`], reserved for internal use.
+    fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
+        Self {
+            id,
+            value_type,
+            mintable: Mintable::Infinitely,
+            metadata: Metadata::default(),
+        }
+    }
+
+    /// Set mintability to [`Mintable::Once`]
+    #[inline]
+    #[must_use]
+    pub fn mintable_once(mut self) -> Self {
+        self.mintable = Mintable::Once;
+        self
+    }
+
+    /// Add [`Metadata`] to the asset definition replacing previously defined value
+    #[inline]
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 }
 
@@ -91,71 +220,7 @@ impl PartialOrd for AssetDefinitionEntry {
 impl Ord for AssetDefinitionEntry {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.definition().cmp(other.definition())
-    }
-}
-
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl AssetDefinitionEntry {
-    /// Constructor.
-    pub const fn new(definition: AssetDefinition, owned_by: <Account as Identifiable>::Id) -> Self {
-        Self {
-            definition,
-            owned_by,
-        }
-    }
-}
-
-#[cfg(feature = "mutable_api")]
-impl AssetDefinitionEntry {
-    /// Turn off minting for this asset.
-    ///
-    /// # Errors
-    /// If the asset was declared as `Mintable::Infinitely`
-    pub fn forbid_minting(&mut self) -> Result<(), MintabilityError> {
-        self.definition.forbid_minting()
-    }
-
-    /// Change owner for this asset definition.
-    pub fn set_owner(&mut self, new_owner: <Account as Identifiable>::Id) {
-        self.owned_by = new_owner
-    }
-}
-
-declare_item! {
-    /// Asset definition defines type of that asset.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Getters,
-        MutGetters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[display(fmt = "{id} {value_type}{mintable}")]
-    #[allow(clippy::multiple_inherent_impl)]
-    pub struct AssetDefinition {
-        /// An Identification of the [`AssetDefinition`].
-        id: DefinitionId,
-        /// Type of [`AssetValue`]
-        #[getset(get = "pub")]
-        value_type: AssetValueType,
-        /// Is the asset mintable
-        #[getset(get = "pub")]
-        mintable: Mintable,
-        /// Metadata of this asset definition as a key-value store.
-        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-        metadata: Metadata,
+        self.definition.cmp(&other.definition)
     }
 }
 
@@ -165,132 +230,61 @@ impl HasMetadata for AssetDefinition {
     }
 }
 
-/// An assets mintability scheme. `Infinitely` means elastic
-/// supply. `Once` is what you want to use. Don't use `Not` explicitly
-/// outside of smartcontracts.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-#[repr(u8)]
-pub enum Mintable {
-    /// Regular asset with elastic supply. Can be minted and burned.
-    #[display(fmt = "+")]
-    Infinitely,
-    /// Non-mintable asset (token), with a fixed supply. Can be burned, and minted **once**.
-    #[display(fmt = "=")]
-    Once,
-    /// Non-mintable asset (token), with a fixed supply. Can be burned, but not minted.
-    #[display(fmt = "-")]
-    Not,
-    // TODO: Support more variants using bit-compacted tag, and `u32` mintability tokens.
-}
-
-declare_item! {
-    /// Asset represents some sort of commodity or value.
-    /// All possible variants of [`Asset`] entity's components.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
-    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-    #[display(fmt = "{id}: {value}")]
-    #[getset(get = "pub")]
-    pub struct Asset {
-        /// Component Identification.
-        #[getset(skip)]
-        pub id: Id,
+model! {
+    /// Asset's inner value type.
+    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumString, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    #[repr(u8)]
+    pub enum AssetValueType {
         /// Asset's Quantity.
-        pub value: AssetValue,
+        #[display(fmt = "q")]
+        Quantity,
+        /// Asset's Big Quantity.
+        #[display(fmt = "Q")]
+        BigQuantity,
+        /// Decimal quantity with fixed precision
+        #[display(fmt = "f")]
+        Fixed,
+        /// Asset's key-value structured data.
+        #[display(fmt = "s")]
+        Store,
     }
-}
 
-/// Asset's inner value type.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    EnumString,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-#[repr(u8)]
-pub enum AssetValueType {
-    /// Asset's Quantity.
-    #[display(fmt = "q")]
-    Quantity,
-    /// Asset's Big Quantity.
-    #[display(fmt = "Q")]
-    BigQuantity,
-    /// Decimal quantity with fixed precision
-    #[display(fmt = "f")]
-    Fixed,
-    /// Asset's key-value structured data.
-    #[display(fmt = "s")]
-    Store,
-}
+    /// Asset's inner value.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema)]
+    #[ffi_type]
+    pub enum AssetValue {
+        /// Asset's Quantity.
+        #[display(fmt = "{_0}q")]
+        Quantity(u32),
+        /// Asset's Big Quantity
+        #[display(fmt = "{_0}Q")]
+        BigQuantity(u128),
+        /// Asset's Decimal Quantity.
+        #[display(fmt = "{_0}f")]
+        Fixed(fixed::Fixed),
+        /// Asset's key-value structured data.
+        Store(Metadata),
+    }
 
-/// Asset's inner value.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    FfiType,
-    IntoSchema,
-)]
-pub enum AssetValue {
-    /// Asset's Quantity.
-    #[display(fmt = "{_0}q")]
-    Quantity(u32),
-    /// Asset's Big Quantity
-    #[display(fmt = "{_0}Q")]
-    BigQuantity(u128),
-    /// Asset's Decimal Quantity.
-    #[display(fmt = "{_0}f")]
-    Fixed(fixed::Fixed),
-    /// Asset's key-value structured data.
-    Store(Metadata),
+    /// An assets mintability scheme. `Infinitely` means elastic
+    /// supply. `Once` is what you want to use. Don't use `Not` explicitly
+    /// outside of smartcontracts.
+    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    #[repr(u8)]
+    pub enum Mintable {
+        /// Regular asset with elastic supply. Can be minted and burned.
+        #[display(fmt = "+")]
+        Infinitely,
+        /// Non-mintable asset (token), with a fixed supply. Can be burned, and minted **once**.
+        #[display(fmt = "=")]
+        Once,
+        /// Non-mintable asset (token), with a fixed supply. Can be burned, but not minted.
+        #[display(fmt = "-")]
+        Not,
+        // TODO: Support more variants using bit-compacted tag, and `u32` mintability tokens.
+    }
 }
 
 impl AssetValue {
@@ -362,39 +356,6 @@ impl TryFrom<AssetValue> for NumericValue {
     }
 }
 
-/// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
-///
-/// # Examples
-///
-/// ```rust
-/// use iroha_data_model::asset::DefinitionId;
-///
-/// let definition_id = "xor#soramitsu".parse::<DefinitionId>().expect("Valid");
-/// ```
-#[derive(
-    Debug,
-    Clone,
-    Display,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{name}#{domain_id}")]
-pub struct DefinitionId {
-    /// Asset's name.
-    pub name: Name,
-    /// Domain's id.
-    pub domain_id: <Domain as Identifiable>::Id,
-}
-
 /// Asset Definition Identification is represented by `name#domain_name` string.
 impl FromStr for DefinitionId {
     type Err = ParseError;
@@ -414,29 +375,6 @@ impl FromStr for DefinitionId {
             }),
         }
     }
-}
-
-/// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    FfiType,
-    IntoSchema,
-)]
-pub struct Id {
-    /// Entity Identification.
-    pub definition_id: <AssetDefinition as Identifiable>::Id,
-    /// Account Identification.
-    pub account_id: <Account as Identifiable>::Id,
 }
 
 impl fmt::Display for Id {
@@ -487,34 +425,7 @@ impl FromStr for Id {
     }
 }
 
-declare_item! {
-    /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[display(fmt = "{id} {mintable}{value_type}")]
-    pub struct NewAssetDefinition {
-        /// The identification associated with the asset definition builder.
-        id: <AssetDefinition as Identifiable>::Id,
-        /// The type value associated with the asset definition builder.
-        value_type: AssetValueType,
-        /// The mintablility associated with the asset definition builder.
-        mintable: Mintable,
-        /// Metadata associated with the asset definition builder.
-        metadata: Metadata,
-    }
-}
-
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 impl crate::Registrable for NewAssetDefinition {
     type Target = AssetDefinition;
 
@@ -533,119 +444,6 @@ impl crate::Registrable for NewAssetDefinition {
 impl HasMetadata for NewAssetDefinition {
     fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-}
-
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl NewAssetDefinition {
-    /// Create a [`NewAssetDefinition`], reserved for internal use.
-    fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
-        Self {
-            id,
-            value_type,
-            mintable: Mintable::Infinitely,
-            metadata: Metadata::default(),
-        }
-    }
-
-    /// Set mintability to [`Mintable::Once`]
-    #[inline]
-    #[must_use]
-    pub fn mintable_once(mut self) -> Self {
-        self.mintable = Mintable::Once;
-        self
-    }
-
-    /// Add [`Metadata`] to the asset definition replacing previously defined value
-    #[inline]
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-        self.metadata = metadata;
-        self
-    }
-}
-
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl AssetDefinition {
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn new(
-        id: <Self as Identifiable>::Id,
-        value_type: AssetValueType,
-    ) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, value_type)
-    }
-
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn quantity(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Quantity)
-    }
-
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn big_quantity(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::BigQuantity)
-    }
-
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn fixed(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Fixed)
-    }
-
-    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
-    #[must_use]
-    #[inline]
-    pub fn store(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, AssetValueType::Store)
-    }
-}
-
-#[cfg(feature = "mutable_api")]
-impl AssetDefinition {
-    /// Stop minting on the [`AssetDefinition`] globally.
-    ///
-    /// # Errors
-    /// If the [`AssetDefinition`] is not `Mintable::Once`.
-    #[inline]
-    pub fn forbid_minting(&mut self) -> Result<(), MintabilityError> {
-        if self.mintable == Mintable::Once {
-            self.mintable = Mintable::Not;
-            Ok(())
-        } else {
-            Err(MintabilityError::ForbidMintOnMintable)
-        }
-    }
-}
-
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl Asset {
-    /// Constructor
-    pub fn new(
-        id: <Asset as Identifiable>::Id,
-        value: impl Into<AssetValue>,
-    ) -> <Self as Registered>::With {
-        Self {
-            id,
-            value: value.into(),
-        }
     }
 }
 
@@ -670,31 +468,6 @@ where
     #[inline]
     fn try_as_ref(&self) -> Result<&T, Self::Error> {
         self.value.try_as_ref()
-    }
-}
-
-impl DefinitionId {
-    /// Construct [`Id`] from an asset definition `name` and a `domain_name` if these names are valid.
-    ///
-    /// # Errors
-    /// Fails if any sub-construction fails
-    #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
-        Self { name, domain_id }
-    }
-}
-
-impl Id {
-    /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
-    #[inline]
-    pub const fn new(
-        definition_id: <AssetDefinition as Identifiable>::Id,
-        account_id: <Account as Identifiable>::Id,
-    ) -> Self {
-        Self {
-            definition_id,
-            account_id,
-        }
     }
 }
 
@@ -728,6 +501,6 @@ impl FromIterator<AssetDefinition> for Value {
 pub mod prelude {
     pub use super::{
         Asset, AssetDefinition, AssetDefinitionEntry, AssetValue, AssetValueType,
-        DefinitionId as AssetDefinitionId, Id as AssetId, MintabilityError, Mintable,
+        DefinitionId as AssetDefinitionId, Id as AssetId, Mintable,
     };
 }

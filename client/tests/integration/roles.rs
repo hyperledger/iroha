@@ -4,7 +4,6 @@ use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha_client::client::{self};
-use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -52,7 +51,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let mouse_id = <Account as Identifiable>::Id::from_str("mouse@wonderland")?;
 
     // Registering Mouse
-    let mouse_key_pair = KeyPair::generate()?;
+    let mouse_key_pair = iroha_crypto::KeyPair::generate()?;
     let register_mouse = RegisterBox::new(Account::new(
         mouse_id.clone(),
         [mouse_key_pair.public_key().clone()],
@@ -75,7 +74,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Mouse grants role to Alice
     let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
-    let grant_role_tx = Transaction::new(mouse_id.clone(), vec![grant_role.into()].into(), 100_000)
+    let grant_role_tx = Transaction::new(mouse_id.clone(), vec![grant_role.into()], 100_000)
         .sign(mouse_key_pair)?;
     test_client.submit_transaction_blocking(grant_role_tx)?;
 

@@ -26,6 +26,7 @@ panic = "abort"
 panic = "abort"
 
 [workspace]
+resolver = "2"
 members = [
   "derive",
 ]
@@ -38,4 +39,5 @@ parity-scale-codec = { version = "3.1.5", default-features = false }
 wee_alloc = "0.4.5"
 
 [dev-dependencies]
+iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", default-features = false }
 webassembly-test = "0.1.0"

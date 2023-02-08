@@ -7,7 +7,7 @@
     clippy::std_instead_of_alloc
 )]
 
-use iroha_data_model::{block::stream::prelude::*, error::QueryExecutionFailure};
+use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFailure};
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 

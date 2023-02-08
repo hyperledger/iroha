@@ -46,10 +46,10 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -97,10 +97,10 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::from(1_u32),
             account_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -137,10 +137,10 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -225,10 +225,10 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
-            Executable::Wasm(WasmSmartContract { raw_data: wasm }),
+            WasmSmartContract::new(wasm),
             Repeats::Indefinitely,
             alice_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;

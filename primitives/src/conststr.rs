@@ -6,13 +6,9 @@
 )]
 
 #[cfg(not(feature = "std"))]
-use alloc::{
-    borrow::{Borrow, ToOwned},
-    boxed::Box,
-    str::from_utf8_unchecked,
-    string::String,
-};
+use alloc::{borrow::ToOwned as _, boxed::Box, string::String};
 use core::{
+    borrow::Borrow,
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
     convert::TryFrom,
     fmt,
@@ -21,12 +17,10 @@ use core::{
     ops::Deref,
     ptr::NonNull,
     slice::{from_raw_parts, from_raw_parts_mut},
+    str::from_utf8_unchecked,
 };
-#[cfg(feature = "std")]
-use std::{borrow::Borrow, str::from_utf8_unchecked};
 
 use derive_more::{DebugCustom, Display};
-use iroha_ffi::FfiType;
 use iroha_schema::{IntoSchema, MetaMap};
 use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
 use serde::{
@@ -34,34 +28,40 @@ use serde::{
     ser::{Serialize, Serializer},
 };
 
+use crate::ffi;
+
 const MAX_INLINED_STRING_LEN: usize = 2 * size_of::<usize>() - 1;
 
-/// Immutable inlinable string.
-/// Strings shorter than 15/7/3 bytes (in 64/32/16-bit architecture) are inlined.
-/// Union represents const-string variants: inlined or boxed.
-/// Distinction between variants are achieved by tagging most significant bit of field `len`:
-/// - for inlined variant MSB of `len` is always equal to 1, it's enforced by `InlinedString` constructor;
-/// - for boxed variant MSB of `len` is always equal to 0, it's enforced by the fact
-/// that `Box` and `Vec` never allocate more than`isize::MAX bytes`.
-/// For little-endian 64bit architecture memory layout of [`Self`] is following:
-///
-/// ```text
-/// +---------+-------+---------+----------+----------------+
-/// | Bits    | 0..63 | 64..118 | 119..126 | 127            |
-/// +---------+-------+---------+----------+----------------+
-/// | Inlined | payload         | len      | tag (always 1) |
-/// +---------+-------+---------+----------+----------------+
-/// | Box     | ptr   | len                | tag (always 0) |
-/// +---------+-------+--------------------+----------------+
-/// ```
-#[derive(Display, DebugCustom, FfiType)]
-#[display(fmt = "{}", "&**self")]
-#[debug(fmt = "{:?}", "&**self")]
-#[ffi_type(opaque)]
-#[repr(C)]
-pub union ConstString {
-    inlined: InlinedString,
-    boxed: ManuallyDrop<BoxedString>,
+ffi::ffi_item! {
+    /// Immutable inlinable string.
+    /// Strings shorter than 15/7/3 bytes (in 64/32/16-bit architecture) are inlined.
+    /// Union represents const-string variants: inlined or boxed.
+    /// Distinction between variants are achieved by tagging most significant bit of field `len`:
+    /// - for inlined variant MSB of `len` is always equal to 1, it's enforced by `InlinedString` constructor;
+    /// - for boxed variant MSB of `len` is always equal to 0, it's enforced by the fact
+    /// that `Box` and `Vec` never allocate more than`isize::MAX bytes`.
+    /// For little-endian 64bit architecture memory layout of [`Self`] is following:
+    ///
+    /// ```text
+    /// +---------+-------+---------+----------+----------------+
+    /// | Bits    | 0..63 | 64..118 | 119..126 | 127            |
+    /// +---------+-------+---------+----------+----------------+
+    /// | Inlined | payload         | len      | tag (always 1) |
+    /// +---------+-------+---------+----------+----------------+
+    /// | Box     | ptr   | len                | tag (always 0) |
+    /// +---------+-------+--------------------+----------------+
+    /// ```
+    #[derive(DebugCustom, Display)]
+    #[display(fmt = "{}", "&**self")]
+    #[debug(fmt = "{:?}", "&**self")]
+    #[repr(C)]
+    pub union ConstString {
+        inlined: InlinedString,
+        boxed: ManuallyDrop<BoxedString>,
+    }
+
+    // TODO: Must it be opaque considering that it's repr(C)?
+    ffi_type(opaque)
 }
 
 impl ConstString {

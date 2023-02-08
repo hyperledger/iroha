@@ -6,28 +6,33 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+use derive_more::{AsRef, From, IntoIterator};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-/// An Iroha-native version of `std::net::Ipv4Addr`, duplicated here
-/// to remain `no_std` compatible.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Deserialize,
-    Serialize,
-    Encode,
-    Decode,
-    IntoSchema,
-)]
-pub struct Ipv4Addr(pub [u8; 4]);
+use crate::ffi;
+
+ffi::ffi_item! {
+    /// An Iroha-native version of `std::net::Ipv4Addr`, duplicated here
+    /// to remain `no_std` compatible.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From, AsRef, IntoIterator, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct Ipv4Addr([u8; 4]);
+
+    // SAFETY: `Ipv4Addr` has no trap representation in [u8; 4]
+    ffi_type(unsafe {robust})
+}
+
+#[cfg(feature = "std")]
+impl From<Ipv4Addr> for std::net::Ipv4Addr {
+    #[inline]
+    fn from(other: Ipv4Addr) -> Self {
+        let Ipv4Addr([a, b, c, d]) = other;
+        std::net::Ipv4Addr::new(a, b, c, d)
+    }
+}
 
 impl core::fmt::Display for Ipv4Addr {
     #[inline]
@@ -55,24 +60,25 @@ impl Ipv4Addr {
     pub const UNSPECIFIED: Self = Self([0, 0, 0, 0]);
 }
 
-/// An Iroha-native version of `std::net::Ipv6Addr`, duplicated here
-/// to remain `no_std` compatible.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Deserialize,
-    Serialize,
-    Encode,
-    Decode,
-    IntoSchema,
-)]
-pub struct Ipv6Addr(pub [u16; 8]);
+ffi::ffi_item! {
+    /// An Iroha-native version of `std::net::Ipv6Addr`, duplicated here
+    /// to remain `no_std` compatible.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From, AsRef, IntoIterator, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct Ipv6Addr([u16; 8]);
+
+    // SAFETY: `Ipv6Addr` has no trap representation in [u16; 8]
+    ffi_type(unsafe {robust})
+}
+
+#[cfg(feature = "std")]
+impl From<std::net::Ipv4Addr> for Ipv4Addr {
+    #[inline]
+    fn from(other: std::net::Ipv4Addr) -> Self {
+        Self(other.octets())
+    }
+}
 
 impl Ipv6Addr {
     /// The analogue of [`Ipv4Addr::LOCALHOST`], an address associated
@@ -101,37 +107,5 @@ impl core::fmt::Display for Ipv6Addr {
             write!(f, "{i:x}:")?; // Need hexadecimal
         }
         write!(f, "{:x}", self[7])
-    }
-}
-
-/// An Iroha-native version of `std::net::Port`, duplicated here
-/// to remain `no_std` compatible.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Encode, Decode,
-)]
-pub struct Port(u16);
-
-impl Port {
-    /// The port used for HTTP traffic and used by Iroha for the JSON api.
-    pub const HTTP: Self = Self(8080);
-}
-
-#[cfg(feature = "std")]
-mod std_compat {
-    use super::*;
-
-    impl From<Ipv4Addr> for std::net::Ipv4Addr {
-        #[inline]
-        fn from(other: Ipv4Addr) -> Self {
-            let Ipv4Addr([a, b, c, d]) = other;
-            std::net::Ipv4Addr::new(a, b, c, d)
-        }
-    }
-
-    impl From<std::net::Ipv4Addr> for Ipv4Addr {
-        #[inline]
-        fn from(other: std::net::Ipv4Addr) -> Self {
-            Self(other.octets())
-        }
     }
 }

@@ -98,10 +98,10 @@ impl Default for ConfigurationProxy {
             torii_telemetry_url: None,
             transaction_time_to_live_ms: Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS),
             transaction_status_timeout_ms: Some(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS),
-            transaction_limits: Some(TransactionLimits {
-                max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-            }),
+            transaction_limits: Some(TransactionLimits::new(
+                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+            )),
             add_transaction_nonce: Some(DEFAULT_ADD_TRANSACTION_NONCE),
         }
     }
@@ -136,7 +136,7 @@ impl ConfigurationProxy {
             }
         }
         if let Some(tx_limits) = self.transaction_limits {
-            if tx_limits.max_wasm_size_bytes < WASM_SIZE_TOO_SMALL_THRESHOLD {
+            if *tx_limits.max_wasm_size_bytes() < WASM_SIZE_TOO_SMALL_THRESHOLD {
                 eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_LIMITS` parameter's `max_wasm_size` field too small at {tx_limits.max_wasm_size_bytes}. Consider making it bigger than {WASM_SIZE_TOO_SMALL_THRESHOLD}".to_owned()));
             }
         }
@@ -250,10 +250,10 @@ mod tests {
                 torii_telemetry_url in prop::option::of(Just(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL))),
                 transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
                 transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
-                transaction_limits in prop::option::of(Just(TransactionLimits {
-                    max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                    max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-                })),
+                transaction_limits in prop::option::of(Just(TransactionLimits::new(
+                    transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                    transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+                ))),
                 add_transaction_nonce in prop::option::of(Just(DEFAULT_ADD_TRANSACTION_NONCE)),
             )
             -> ConfigurationProxy {

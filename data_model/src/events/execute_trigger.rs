@@ -1,59 +1,30 @@
 //! Trigger execution event and filter
 
-use iroha_ffi::FfiType;
+use derive_more::Constructor;
+use getset::Getters;
 
 use super::*;
-use crate::prelude::*;
+use crate::{model, prelude::*};
 
-/// Trigger execution event. Produced every time the `ExecuteTrigger` instruction is executed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema)]
-pub struct Event {
-    /// Id of trigger to be executed
-    pub trigger_id: TriggerId,
-    /// Authority of user who tries to execute trigger
-    pub authority: AccountId,
-}
-
-impl Event {
-    /// Create new [`Event`] with `trigger_id` and `authority`
-    pub const fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
-        Self {
-            trigger_id,
-            authority,
-        }
+model! {
+    /// Trigger execution event. Produced every time the `ExecuteTrigger` instruction is executed.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Event {
+        /// Id of trigger to be executed
+        pub trigger_id: TriggerId,
+        /// Authority of user who tries to execute trigger
+        pub authority: AccountId,
     }
-}
 
-/// Filter for trigger execution [`Event`]
-#[derive(
-    Debug,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Clone,
-    Decode,
-    Encode,
-    IntoSchema,
-    Hash,
-    Serialize,
-    Deserialize,
-    FfiType,
-)]
-pub struct EventFilter {
-    /// Id of trigger catch executions of
-    trigger_id: TriggerId,
-    /// Authority of user who owns trigger
-    authority: AccountId,
-}
-
-impl EventFilter {
-    /// Create new [`EventFilter`] with `trigger_id` and `authority`
-    pub const fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
-        Self {
-            trigger_id,
-            authority,
-        }
+    /// Filter for trigger execution [`Event`]
+    #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct EventFilter {
+        /// Id of trigger catch executions of
+        trigger_id: TriggerId,
+        /// Authority of user who owns trigger
+        authority: AccountId,
     }
 }
 

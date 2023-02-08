@@ -175,10 +175,10 @@ impl MeasurerUnit {
             GrantBox::new(can_transfer_my_asset, alice_id).into();
         let grant_tx = Transaction::new(
             account_id,
-            Executable::Instructions(vec![
+            vec![
                 allow_alice_to_burn_my_asset,
                 allow_alice_to_transfer_my_asset,
-            ]),
+            ],
             100_000,
         )
         .sign(keypair)?;
@@ -230,7 +230,7 @@ impl MeasurerUnit {
                 match shutdown_signal.try_recv() {
                     Err(mpsc::TryRecvError::Empty) => {
                         let transaction =
-                            Transaction::new(alice_id.clone(), [instruction].into(), u64::MAX)
+                            Transaction::new(alice_id.clone(), [instruction], u64::MAX)
                                 .with_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
                         let transaction = submitter
                             .sign_transaction(transaction)

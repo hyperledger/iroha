@@ -5,7 +5,7 @@
 use std::sync::mpsc;
 
 use iroha_crypto::HashOf;
-use iroha_data_model::block::*;
+use iroha_data_model::{block::*, transaction::error::TransactionExpired};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use tracing::{span, Level};
@@ -565,8 +565,8 @@ fn enqueue_transaction<F: FaultInjection>(
     let tx = tx.into_v1();
 
     let addr = &sumeragi.peer_id.address;
-    match VersionedAcceptedTransaction::accept::<false>(tx, &sumeragi.transaction_limits) {
-        Ok(tx) => match sumeragi.queue.push(tx, wsv) {
+    match AcceptedTransaction::accept::<false>(tx, &sumeragi.transaction_limits) {
+        Ok(tx) => match sumeragi.queue.push(tx.into(), wsv) {
             Ok(_) => {}
             Err(crate::queue::Failure {
                 tx,
@@ -989,7 +989,7 @@ pub(crate) fn run<F: FaultInjection>(
         sumeragi.send_events(
             expired_transactions
                 .iter()
-                .map(Txn::expired_event)
+                .map(expired_event)
                 .collect::<Vec<_>>(),
         );
 
@@ -1089,6 +1089,20 @@ fn add_signatures<const EXPECT_VALID: bool>(
             }
         }
     }
+}
+
+/// Create expired pipeline event for the given transaction.
+fn expired_event(txn: &impl Txn) -> Event {
+    PipelineEvent {
+        entity_kind: PipelineEntityKind::Transaction,
+        status: PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
+            TransactionRejectionReason::Expired(TransactionExpired {
+                time_to_live_ms: txn.payload().time_to_live_ms,
+            }),
+        )),
+        hash: txn.hash().into(),
+    }
+    .into()
 }
 
 fn vote_for_block<F: FaultInjection>(

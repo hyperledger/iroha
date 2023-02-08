@@ -28,7 +28,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
         pass!();
     };
 
-    let IdBox::AssetDefinitionId(asset_definition_id) = transfer.source_id
+    let IdBox::AssetDefinitionId(asset_definition_id) = transfer.source_id()
         .evaluate()
         .dbg_expect("Failed to evaluate `Transfer` source id") else {
         pass!();

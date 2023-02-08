@@ -14,7 +14,7 @@ use iroha_wasm::data_model::prelude::*;
 fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register
-            .object
+            .object()
             .evaluate()
             .dbg_expect("Failed to evaluate `Register` expression as `RegistrableBox` value")
         {

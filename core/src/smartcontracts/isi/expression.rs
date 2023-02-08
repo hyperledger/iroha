@@ -7,9 +7,10 @@
 )]
 use eyre::Result;
 use iroha_data_model::{
-    error::{FindError, InstructionExecutionFailure as Error, MathError},
     expression::{prelude::*, Expression},
+    isi::error::{InstructionExecutionFailure as Error, MathError},
     prelude::*,
+    query::error::FindError,
 };
 
 use super::Evaluate;

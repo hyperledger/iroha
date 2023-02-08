@@ -11,13 +11,13 @@ use alloc::{
 use std::collections::{btree_map, btree_set};
 
 use derive_more::{Constructor, Display, FromStr};
-use getset::{Getters, MutGetters, Setters};
+use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-use crate::{ffi::declare_item, IdBox, Identifiable, Name, Registered, Value, ValueKind};
+use crate::{IdBox, Identifiable, Name, Registered, Value, ValueKind};
 
 pub mod token;
 pub mod validator;
@@ -30,5 +30,9 @@ pub type Permissions = btree_set::BTreeSet<token::Token>;
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::{validator::Verdict, Permissions};
+    pub use super::{
+        token::{Definition as PermissionTokenDefinition, Id as PermissionTokenId},
+        validator::Verdict,
+        Permissions, Token as PermissionToken,
+    };
 }

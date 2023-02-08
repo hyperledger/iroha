@@ -12,37 +12,19 @@ use core::{
 #[cfg(feature = "std")]
 use std::{collections::btree_set, time::Duration, vec};
 
-use derive_more::{DebugCustom, Display};
+use derive_more::{Constructor, DebugCustom, Display};
+use getset::Getters;
 use iroha_crypto::{Hash, SignatureOf, SignatureVerificationFail, SignaturesOf};
-use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "warp")]
-use warp::{reply::Response, Reply};
 
-use crate::{
-    account::Account,
-    ffi,
-    isi::Instruction,
-    metadata::UnlimitedMetadata,
-    prelude::{Event, PipelineEntityKind, PipelineEvent, PipelineRejectionReason, PipelineStatus},
-    Identifiable,
-};
+use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, model, Identifiable};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-
-/// Error which indicates max instruction count was reached
-#[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-pub struct TransactionLimitError(String);
-
-#[cfg(feature = "std")]
-impl std::error::Error for TransactionLimitError {}
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
@@ -71,8 +53,7 @@ pub trait Txn {
     ///
     /// Fails if number of instructions or wasm size exceeds maximum
     #[inline]
-    #[allow(clippy::expect_used)]
-    fn check_limits(&self, limits: &TransactionLimits) -> Result<(), TransactionLimitError> {
+    fn check_limits(&self, limits: &TransactionLimits) -> Result<(), error::TransactionLimitError> {
         match &self.payload().instructions {
             Executable::Instructions(instructions) => {
                 let instruction_count: u64 = instructions
@@ -83,23 +64,27 @@ pub trait Txn {
                     .expect("`usize` should always fit in `u64`");
 
                 if instruction_count > limits.max_instruction_number {
-                    return Err(TransactionLimitError(format!(
-                        "Too many instructions in payload, max number is {}, but got {}",
-                        limits.max_instruction_number, instruction_count
-                    )));
+                    return Err(error::TransactionLimitError {
+                        reason: format!(
+                            "Too many instructions in payload, max number is {}, but got {}",
+                            limits.max_instruction_number, instruction_count
+                        ),
+                    });
                 }
             }
-            Executable::Wasm(WasmSmartContract { raw_data }) => {
+            Executable::Wasm(WasmSmartContract(raw_data)) => {
                 let len: u64 = raw_data
                     .len()
                     .try_into()
                     .expect("`usize` should always fit in `u64`");
 
                 if len > limits.max_wasm_size_bytes {
-                    return Err(TransactionLimitError(format!(
-                        "Wasm binary too large, max size is {}, but got {}",
-                        limits.max_wasm_size_bytes, len
-                    )));
+                    return Err(error::TransactionLimitError {
+                        reason: format!(
+                            "Wasm binary too large, max size is {}, but got {}",
+                            limits.max_wasm_size_bytes, len
+                        ),
+                    });
                 }
             }
         }
@@ -129,171 +114,112 @@ pub trait Txn {
         let tx_timestamp = Duration::from_millis(self.payload().creation_time);
         tx_timestamp.saturating_sub(crate::current_time()) > threshold
     }
+}
 
-    /// Create expired pipeline event for the given transaction.
-    #[cfg(feature = "std")]
-    fn expired_event(&self) -> Event
-    where
-        Self: Sized,
-    {
-        PipelineEvent::new(
-            PipelineEntityKind::Transaction,
-            PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
-                TransactionRejectionReason::Expired(TransactionExpired {
-                    time_to_live_ms: self.payload().time_to_live_ms,
-                }),
-            )),
-            self.hash().into(),
-        )
-        .into()
+/// Trait for signing transactions
+#[cfg(feature = "std")]
+pub trait Sign {
+    /// Sign transaction with provided key pair.
+    ///
+    /// # Errors
+    ///
+    /// Fails if signature creation fails
+    fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<SignedTransaction, iroha_crypto::Error>;
+}
+
+model! {
+    /// Either ISI or Wasm binary
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type(local)]
+    pub enum Executable {
+        /// Ordered set of instructions.
+        Instructions(Vec<Instruction>),
+        /// WebAssembly smartcontract
+        Wasm(WasmSmartContract),
     }
 }
 
-/// Either ISI or Wasm binary
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum Executable {
-    /// Ordered set of instructions.
-    Instructions(Vec<Instruction>),
-    /// WebAssembly smartcontract
-    Wasm(WasmSmartContract),
+impl FromIterator<Instruction> for Executable {
+    fn from_iter<T: IntoIterator<Item = Instruction>>(iter: T) -> Self {
+        Self::Instructions(iter.into_iter().collect())
+    }
 }
 
 impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
     fn from(collection: T) -> Self {
-        Self::Instructions(collection.into_iter().collect())
+        collection.into_iter().collect()
     }
 }
 
-/// Wrapper for byte representation of [`Executable::Wasm`].
-///
-/// Uses **base64** (de-)serialization format.
-#[derive(
-    Clone, DebugCustom, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-#[debug(fmt = "<WASM is truncated>")]
-pub struct WasmSmartContract {
-    /// Raw wasm blob.
-    #[serde(with = "base64")]
-    pub raw_data: Vec<u8>,
+impl From<WasmSmartContract> for Executable {
+    fn from(source: WasmSmartContract) -> Self {
+        Self::Wasm(source)
+    }
 }
 
-mod base64 {
-    //! Module with (de-)serialization functions for
-    //! [`WasmSmartContract`](super::WasmSmartContract)'s bytes using `base64`.
-    //!
-    //! No extra heap allocation is performed nor for serialization nor for deserialization.
-
-    use serde::{Deserializer, Serializer};
-
-    #[cfg(not(feature = "std"))]
-    use super::Vec;
-
-    /// Serialize bytes using `base64`
-    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&base64::display::Base64Display::with_config(
-            bytes,
-            base64::STANDARD,
-        ))
-    }
-
-    /// Deserialize bytes using `base64`
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-        struct Vis;
-        impl serde::de::Visitor<'_> for Vis {
-            type Value = Vec<u8>;
-
-            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-                formatter.write_str("a base64 string")
-            }
-
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                base64::decode(v).map_err(serde::de::Error::custom)
-            }
-        }
-        deserializer.deserialize_str(Vis)
-    }
+model! {
+    /// Wrapper for byte representation of [`Executable::Wasm`].
+    ///
+    /// Uses **base64** (de-)serialization format.
+    #[derive(DebugCustom, Clone, PartialEq, Eq, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[debug(fmt = "WASM binary(len = {})", self.0.len())]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `WasmSmartContract` has no trap representation in `Vec<u8>`
+    #[ffi_type(unsafe {robust})]
+    pub struct WasmSmartContract(
+        /// Raw wasm blob.
+        #[serde(with = "base64")]
+        Vec<u8>,
+    );
 }
 
 impl AsRef<[u8]> for WasmSmartContract {
     fn as_ref(&self) -> &[u8] {
-        self.raw_data.as_ref()
+        self.0.as_ref()
     }
 }
 
-/// Iroha [`Transaction`] payload.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Payload {
-    /// Account ID of transaction creator.
-    pub account_id: <Account as Identifiable>::Id,
-    /// Instructions or WebAssembly smartcontract
-    pub instructions: Executable,
-    /// Time of creation (unix time, in milliseconds).
-    pub creation_time: u64,
-    /// The transaction will be dropped after this time if it is still in a `Queue`.
-    pub time_to_live_ms: u64,
-    /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
-    pub nonce: Option<u32>,
-    /// Metadata.
-    pub metadata: UnlimitedMetadata,
-}
+model! {
+    /// Iroha [`Transaction`] payload.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Payload {
+        /// Account ID of transaction creator.
+        pub account_id: <Account as Identifiable>::Id,
+        /// Instructions or WebAssembly smartcontract
+        pub instructions: Executable,
+        /// Time of creation (unix time, in milliseconds).
+        pub creation_time: u64,
+        /// The transaction will be dropped after this time if it is still in a `Queue`.
+        pub time_to_live_ms: u64,
+        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
+        pub nonce: Option<u32>,
+        /// Metadata.
+        pub metadata: UnlimitedMetadata,
+    }
 
-impl Payload {
-    /// Used to compare the contents of the transaction independent of when it was created.
-    pub fn equals_excluding_creation_time(&self, other: &Payload) -> bool {
-        self.account_id == other.account_id
-            && self.instructions == other.instructions
-            && self.time_to_live_ms == other.time_to_live_ms
-            && self.metadata == other.metadata
+    /// Container for limits that transactions must obey.
+    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}_TL")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct TransactionLimits {
+        /// Maximum number of instructions per transaction
+        pub max_instruction_number: u64,
+        /// Maximum size of wasm binary
+        pub max_wasm_size_bytes: u64,
     }
 }
 
-/// Container for limits that transactions must obey.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}_TL")]
-pub struct TransactionLimits {
-    /// Maximum number of instructions per transaction
-    pub max_instruction_number: u64,
-    /// Maximum size of wasm binary
-    pub max_wasm_size_bytes: u64,
-}
-
-impl TransactionLimits {
-    /// Constructs new [`TransactionLimits`] with passed values.
-    pub const fn new(max_instruction_number: u64, max_wasm_size_bytes: u64) -> Self {
-        Self {
-            max_instruction_number,
-            max_wasm_size_bytes,
-        }
-    }
-}
-
-declare_versioned!(
-    VersionedSignedTransaction 1..2,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    FromVariant,
-    FfiType,
-    IntoSchema,
-);
+#[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
+declare_versioned!(VersionedSignedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
+#[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
+declare_versioned!(VersionedSignedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
 
 impl VersionedSignedTransaction {
     /// Convert from `&VersionedSignedTransaction` to V1 reference
@@ -347,37 +273,18 @@ impl From<VersionedValidTransaction> for VersionedSignedTransaction {
     }
 }
 
-/// Trait for signing transactions
-pub trait Sign {
-    /// Sign transaction with provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
-    fn sign(
-        self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error>;
-}
-
-/// Structure that represents the initial state of a transaction before the transaction receives any signatures.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{self:?}")] // TODO ?
-pub struct Transaction {
-    /// [`Transaction`] payload.
-    pub payload: Payload,
+model! {
+    /// Structure that represents the initial state of a transaction before the transaction receives any signatures.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{self:?}")] // TODO ?
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `Transaction` has no trap representation in `Payload`
+    #[ffi_type(unsafe {robust})]
+    pub struct Transaction {
+        /// [`Transaction`] payload.
+        pub payload: Payload,
+    }
 }
 
 impl Transaction {
@@ -387,7 +294,7 @@ impl Transaction {
     #[cfg(feature = "std")]
     pub fn new(
         account_id: <Account as Identifiable>::Id,
-        instructions: Executable,
+        instructions: impl Into<Executable>,
         proposed_ttl_ms: u64,
     ) -> Self {
         #[allow(clippy::cast_possible_truncation)]
@@ -396,7 +303,7 @@ impl Transaction {
         Self {
             payload: Payload {
                 account_id,
-                instructions,
+                instructions: instructions.into(),
                 creation_time,
                 time_to_live_ms: proposed_ttl_ms,
                 nonce: None,
@@ -422,6 +329,15 @@ impl Transaction {
     }
 }
 
+impl Txn for Transaction {
+    type HashOf = SignedTransaction;
+
+    #[inline]
+    fn payload(&self) -> &Payload {
+        &self.payload
+    }
+}
+
 #[cfg(feature = "std")]
 impl Sign for Transaction {
     fn sign(
@@ -438,42 +354,39 @@ impl Sign for Transaction {
     }
 }
 
-impl Txn for Transaction {
-    type HashOf = SignedTransaction;
+model! {
+    /// Structure that represents the second state of the transaction after receiving at least one signature.
+    ///
+    /// `Iroha` and its clients use [`SignedTransaction`] to send transactions over the network.
+    /// After a transaction is signed and before it can be processed any further,
+    /// the transaction must be accepted by the `Iroha` peer.
+    /// The peer verifies the signatures and checks the limits.
+    #[version(n = 1, versioned = "VersionedSignedTransaction")]
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{self:?}")] // TODO ?
+    #[ffi_type]
+    pub struct SignedTransaction {
+        /// [`Transaction`] payload.
+        pub payload: Payload,
+        /// [`SignatureOf`] [`Payload`].
+        pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
+    }
+}
+
+impl SignedTransaction {
+    /// Return signatures
+    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Payload>> {
+        self.signatures.iter()
+    }
+}
+
+impl Txn for SignedTransaction {
+    type HashOf = Self;
 
     #[inline]
     fn payload(&self) -> &Payload {
         &self.payload
     }
-}
-
-/// Structure that represents the second state of the transaction after receiving at least one signature.
-///
-/// `Iroha` and its clients use [`SignedTransaction`] to send transactions over the network.
-/// After a transaction is signed and before it can be processed any further,
-/// the transaction must be accepted by the `Iroha` peer.
-/// The peer verifies the signatures and checks the limits.
-#[version(n = 1, versioned = "VersionedSignedTransaction")]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{self:?}")] // TODO ?
-pub struct SignedTransaction {
-    /// [`Transaction`] payload.
-    pub payload: Payload,
-    /// [`SignatureOf`] [`Payload`].
-    pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
 }
 
 #[cfg(feature = "std")]
@@ -489,15 +402,6 @@ impl Sign for SignedTransaction {
             payload: self.payload,
             signatures: self.signatures,
         })
-    }
-}
-
-impl Txn for SignedTransaction {
-    type HashOf = Self;
-
-    #[inline]
-    fn payload(&self) -> &Payload {
-        &self.payload
     }
 }
 
@@ -529,29 +433,20 @@ impl VersionedPendingTransactions {
     }
 }
 
-impl FromIterator<SignedTransaction> for VersionedPendingTransactions {
-    fn from_iter<T: IntoIterator<Item = SignedTransaction>>(iter: T) -> Self {
-        PendingTransactions(iter.into_iter().collect()).into()
-    }
+model! {
+    /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
+    #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
+    #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `PendingTransactions` has no trap representation in `Vec<SignedTransaction>`
+    #[ffi_type(unsafe {robust})]
+    pub struct PendingTransactions(Vec<SignedTransaction>);
 }
-
-#[cfg(feature = "warp")]
-impl Reply for VersionedPendingTransactions {
-    #[inline]
-    fn into_response(self) -> Response {
-        use iroha_version::scale::EncodeVersioned;
-        Response::new(self.encode_versioned().into())
-    }
-}
-
-/// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
-#[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct PendingTransactions(pub Vec<SignedTransaction>);
 
 impl FromIterator<SignedTransaction> for PendingTransactions {
     fn from_iter<T: IntoIterator<Item = SignedTransaction>>(iter: T) -> Self {
-        PendingTransactions(iter.into_iter().collect())
+        Self(iter.into_iter().collect())
     }
 }
 
@@ -566,16 +461,16 @@ impl IntoIterator for PendingTransactions {
     }
 }
 
-/// Transaction Value used in Instructions and Queries
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
-)]
-#[ffi_type(local)]
-pub enum TransactionValue {
-    /// Committed transaction
-    Transaction(Box<VersionedSignedTransaction>),
-    /// Rejected transaction with reason of rejection
-    RejectedTransaction(Box<VersionedRejectedTransaction>),
+model! {
+    /// Transaction Value used in Instructions and Queries
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type(local)]
+    pub enum TransactionValue {
+        /// Committed transaction
+        Transaction(Box<VersionedSignedTransaction>),
+        /// Rejected transaction with reason of rejection
+        RejectedTransaction(Box<VersionedRejectedTransaction>),
+    }
 }
 
 impl TransactionValue {
@@ -589,6 +484,13 @@ impl TransactionValue {
     }
 }
 
+impl PartialOrd for TransactionValue {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for TransactionValue {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
@@ -598,19 +500,11 @@ impl Ord for TransactionValue {
     }
 }
 
-impl PartialOrd for TransactionValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(
-            self.payload()
-                .creation_time
-                .cmp(&other.payload().creation_time),
-        )
-    }
-}
-
-ffi::declare_item! {
+model! {
     /// `TransactionQueryResult` is used in `FindAllTransactions` query
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
     pub struct TransactionQueryResult {
         /// Transaction
         pub tx_value: TransactionValue,
@@ -627,6 +521,13 @@ impl TransactionQueryResult {
     }
 }
 
+impl PartialOrd for TransactionQueryResult {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for TransactionQueryResult {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
@@ -636,17 +537,9 @@ impl Ord for TransactionQueryResult {
     }
 }
 
-impl PartialOrd for TransactionQueryResult {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(
-            self.payload()
-                .creation_time
-                .cmp(&other.payload().creation_time),
-        )
-    }
-}
-
+#[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
+declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
+#[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
 declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
@@ -684,14 +577,24 @@ impl Txn for VersionedValidTransaction {
     }
 }
 
-/// `ValidTransaction` represents trustfull Transaction state.
-#[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct ValidTransaction {
-    /// The [`Transaction`]'s payload.
-    pub payload: Payload,
-    /// [`SignatureOf`] [`Payload`].
-    pub signatures: SignaturesOf<Payload>,
+model! {
+    /// `ValidTransaction` represents trustfull Transaction state.
+    #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub struct ValidTransaction {
+        /// The [`Transaction`]'s payload.
+        pub payload: Payload,
+        /// [`SignatureOf`] [`Payload`].
+        pub signatures: SignaturesOf<Payload>,
+    }
+}
+
+impl ValidTransaction {
+    /// Return signatures
+    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Payload>> {
+        self.signatures.iter()
+    }
 }
 
 impl Txn for ValidTransaction {
@@ -703,7 +606,10 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, FfiType, IntoSchema);
+#[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
+#[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
 
 impl VersionedRejectedTransaction {
     /// Convert from `&VersionedRejectedTransaction` to V1 reference
@@ -742,18 +648,27 @@ impl Txn for VersionedRejectedTransaction {
     }
 }
 
-/// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
-#[version(n = 1, versioned = "VersionedRejectedTransaction")]
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FfiType, IntoSchema,
-)]
-pub struct RejectedTransaction {
-    /// The [`Transaction`]'s payload.
-    pub payload: Payload,
-    /// [`SignatureOf`] [`Transaction`].
-    pub signatures: SignaturesOf<Payload>,
-    /// The reason for rejecting this transaction during the validation pipeline.
-    pub rejection_reason: TransactionRejectionReason,
+model! {
+    /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
+    #[version(n = 1, versioned = "VersionedRejectedTransaction")]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub struct RejectedTransaction {
+        /// The [`Transaction`]'s payload.
+        pub payload: Payload,
+        /// [`SignatureOf`] [`Transaction`].
+        pub signatures: SignaturesOf<Payload>,
+        /// The reason for rejecting this transaction during the validation pipeline.
+        #[getset(get = "pub")]
+        pub rejection_reason: error::TransactionRejectionReason,
+    }
+}
+
+impl RejectedTransaction {
+    /// Return signatures
+    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Payload>> {
+        self.signatures.iter()
+    }
 }
 
 impl Txn for RejectedTransaction {
@@ -781,8 +696,10 @@ impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
     }
 }
 
+#[cfg(feature = "transparent_api")]
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, Serialize);
 
+#[cfg(feature = "transparent_api")]
 impl VersionedAcceptedTransaction {
     /// Convert from `&VersionedAcceptedTransaction` to V1 reference
     pub const fn as_v1(&self) -> &AcceptedTransaction {
@@ -806,6 +723,7 @@ impl VersionedAcceptedTransaction {
     }
 }
 
+#[cfg(feature = "transparent_api")]
 impl Txn for VersionedAcceptedTransaction {
     type HashOf = VersionedSignedTransaction;
 
@@ -815,16 +733,19 @@ impl Txn for VersionedAcceptedTransaction {
     }
 }
 
-/// `AcceptedTransaction` — a transaction accepted by iroha peer.
-#[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
-#[derive(Debug, Clone, Decode, Encode, Serialize)]
-pub struct AcceptedTransaction {
-    /// Payload of this transaction.
-    pub payload: Payload,
-    /// Signatures for this transaction.
-    pub signatures: SignaturesOf<Payload>,
+model! {
+    /// `AcceptedTransaction` — a transaction accepted by iroha peer.
+    #[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
+    #[derive(Debug, Clone, Decode, Encode, Serialize)]
+    pub(crate) struct AcceptedTransaction {
+        /// Payload of this transaction.
+        pub payload: Payload,
+        /// Signatures for this transaction.
+        pub signatures: SignaturesOf<Payload>,
+    }
 }
 
+#[cfg(feature = "transparent_api")]
 impl Txn for AcceptedTransaction {
     type HashOf = SignedTransaction;
 
@@ -834,18 +755,7 @@ impl Txn for AcceptedTransaction {
     }
 }
 
-/// Error type for transaction from [`SignedTransaction`] to [`AcceptedTransaction`]
-#[derive(Debug)]
-#[cfg_attr(feature = "std", derive(thiserror::Error))]
-pub enum AcceptTransactionFailure {
-    /// Failure during limits check
-    #[cfg_attr(feature = "std", error(transparent))]
-    TransactionLimit(#[cfg_attr(feature = "std", from)] TransactionLimitError),
-    /// Failure during signature verification
-    #[cfg_attr(feature = "std", error(transparent))]
-    SignatureVerification(#[cfg_attr(feature = "std", from)] SignatureVerificationFail<Payload>),
-}
-
+#[cfg(feature = "transparent_api")]
 impl AcceptedTransaction {
     /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
@@ -857,7 +767,7 @@ impl AcceptedTransaction {
     pub fn accept<const IS_GENESIS: bool>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
-    ) -> Result<Self, AcceptTransactionFailure> {
+    ) -> Result<Self, error::AcceptTransactionFailure> {
         if !IS_GENESIS {
             transaction.check_limits(limits)?
         }
@@ -874,22 +784,7 @@ impl AcceptedTransaction {
     }
 }
 
-impl VersionedAcceptedTransaction {
-    /// Accept transaction. Transition from [`SignedTransaction`] to [`VersionedAcceptedTransaction`].
-    ///
-    /// # Errors
-    ///
-    /// - if it does not adhere to limits
-    /// - if signature verification fails
-    #[cfg(feature = "std")]
-    pub fn accept<const IS_GENESIS: bool>(
-        transaction: SignedTransaction,
-        limits: &TransactionLimits,
-    ) -> Result<Self, AcceptTransactionFailure> {
-        AcceptedTransaction::accept::<IS_GENESIS>(transaction, limits).map(Into::into)
-    }
-}
-
+#[cfg(feature = "transparent_api")]
 impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
     fn from(tx: VersionedAcceptedTransaction) -> Self {
         let tx: AcceptedTransaction = tx.into_v1();
@@ -898,6 +793,7 @@ impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
     }
 }
 
+#[cfg(feature = "transparent_api")]
 impl From<AcceptedTransaction> for SignedTransaction {
     fn from(transaction: AcceptedTransaction) -> Self {
         SignedTransaction {
@@ -907,214 +803,241 @@ impl From<AcceptedTransaction> for SignedTransaction {
     }
 }
 
-/// Transaction was reject because it doesn't satisfy signature condition
-#[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "Failed to verify signature condition specified in the account: {reason}")]
-pub struct UnsatisfiedSignatureConditionFail {
-    /// Reason why signature condition failed
-    pub reason: String,
-}
+mod base64 {
+    //! Module with (de-)serialization functions for
+    //! [`WasmSmartContract`](super::WasmSmartContract)'s bytes using `base64`.
+    //!
+    //! No extra heap allocation is performed nor for serialization nor for deserialization.
 
-#[cfg(feature = "std")]
-impl std::error::Error for UnsatisfiedSignatureConditionFail {}
+    use serde::{Deserializer, Serializer};
 
-/// Transaction was rejected because of one of its instructions failing.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
-pub struct InstructionExecutionFail {
-    /// Instruction which execution failed
-    pub instruction: Instruction,
-    /// Error which happened during execution
-    pub reason: String,
-}
+    #[cfg(not(feature = "std"))]
+    use super::Vec;
 
-impl Display for InstructionExecutionFail {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        use Instruction::*;
-        let kind = match self.instruction {
-            Burn(_) => "burn",
-            Fail(_) => "fail",
-            If(_) => "if",
-            Mint(_) => "mint",
-            Pair(_) => "pair",
-            Register(_) => "register",
-            Sequence(_) => "sequence",
-            Transfer(_) => "transfer",
-            Unregister(_) => "un-register",
-            SetKeyValue(_) => "set key-value pair",
-            RemoveKeyValue(_) => "remove key-value pair",
-            Grant(_) => "grant",
-            Revoke(_) => "revoke",
-            ExecuteTrigger(_) => "execute trigger",
-            SetParameter(_) => "set parameter",
-            NewParameter(_) => "new parameter",
-        };
-        write!(
-            f,
-            "Failed to execute instruction of type {}: {}",
-            kind, self.reason
-        )
+    /// Serialize bytes using `base64`
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&base64::display::Base64Display::with_config(
+            bytes,
+            base64::STANDARD,
+        ))
+    }
+
+    /// Deserialize bytes using `base64`
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        struct Visitor;
+
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("a base64 string")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                base64::decode(v).map_err(serde::de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(Visitor)
     }
 }
-#[cfg(feature = "std")]
-impl std::error::Error for InstructionExecutionFail {}
 
-/// Transaction was rejected because execution of `WebAssembly` binary failed
-#[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "Failed to execute wasm binary: {reason}")]
-pub struct WasmExecutionFail {
-    /// Error which happened during execution
-    pub reason: String,
+pub mod error {
+    //! Module containing errors that can occur in transaction lifecycle
+    use super::*;
+
+    model! {
+        /// Error type for transaction from [`SignedTransaction`] to [`AcceptedTransaction`]
+        #[derive(Debug, Display, FromVariant)]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
+        pub(crate) enum AcceptTransactionFailure {
+            /// Failure during limits check
+            TransactionLimit(#[cfg_attr(feature = "std", source)] TransactionLimitError),
+            /// Failure during signature verification
+            SignatureVerification(#[cfg_attr(feature = "std", source)] SignatureVerificationFail<Payload>),
+        }
+
+        /// Error which indicates max instruction count was reached
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        // SAFETY: `TransactionLimitError` has no trap representation in `String`
+        #[ffi_type(unsafe {robust})]
+        pub struct TransactionLimitError {
+            /// Reason why signature condition failed
+            pub reason: String
+        }
+
+        /// Transaction was reject because it doesn't satisfy signature condition
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[display(fmt = "Failed to verify signature condition specified in the account: {reason}")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        // SAFETY: `UnsatisfiedSignatureConditionFail` has no trap representation in `String`
+        #[ffi_type(unsafe {robust})]
+        pub struct UnsatisfiedSignatureConditionFail {
+            /// Reason why signature condition failed
+            pub reason: String,
+        }
+
+        /// Transaction was rejected because of one of its instructions failing.
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[ffi_type]
+        pub struct InstructionExecutionFail {
+            /// Instruction for which execution failed
+            #[getset(get = "pub")]
+            pub instruction: Instruction,
+            /// Error which happened during execution
+            pub reason: String,
+        }
+
+        /// Transaction was reject because of low authority
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[display(fmt = "Action not permitted: {reason}")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        // SAFETY: `NotPermittedFail` has no trap representation in `String`
+        #[ffi_type(unsafe {robust})]
+        pub struct NotPermittedFail {
+            /// The cause of failure.
+            pub reason: String,
+        }
+
+        /// Transaction was rejected because execution of `WebAssembly` binary failed
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[display(fmt = "Failed to execute wasm binary: {reason}")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        // SAFETY: `WasmExecutionFail` has no trap representation in `String`
+        #[ffi_type(unsafe {robust})]
+        pub struct WasmExecutionFail {
+            /// Error which happened during execution
+            pub reason: String,
+        }
+
+        /// Transaction was reject because expired
+        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[display(fmt = "Transaction expired: consider increase transaction ttl (current {time_to_live_ms}ms)")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        // SAFETY: `TransactionExpired` has no trap representation in `u64`
+        #[ffi_type(unsafe {robust})]
+        pub struct TransactionExpired {
+            /// Transaction ttl.
+            pub time_to_live_ms: u64,
+        }
+
+        /// The reason for rejecting transaction which happened because of transaction.
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
+        #[ffi_type(local)]
+        pub enum TransactionRejectionReason {
+            /// Failed to validate transaction limits (e.g. number of instructions)
+            #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {_0}")]
+            LimitCheck(#[cfg_attr(feature = "std", source)] error::TransactionLimitError),
+            /// Insufficient authorisation.
+            #[display(fmt = "Transaction rejected due to insufficient authorisation: {_0}")]
+            NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
+            /// Failed to verify signature condition specified in the account.
+            #[display(fmt = "Transaction rejected due to an unsatisfied signature condition: {_0}")]
+            UnsatisfiedSignatureCondition(#[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail),
+            /// Failed to execute instruction.
+            #[display(fmt = "Transaction rejected due to failure in instruction execution: {_0}")]
+            InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
+            /// Failed to execute WebAssembly binary.
+            #[display(fmt = "Transaction rejected due to failure in WebAssembly execution: {_0}")]
+            WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
+            /// Genesis account can sign only transactions in the genesis block.
+            #[display(fmt = "The genesis account can only sign transactions in the genesis block")]
+            UnexpectedGenesisAccountSignature,
+            /// Transaction gets expired.
+            #[display(fmt = "Transaction rejected due to being expired: {_0}")]
+            Expired(#[cfg_attr(feature = "std", source)] TransactionExpired),
+        }
+    }
+
+    impl Display for InstructionExecutionFail {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            use Instruction::*;
+            let kind = match self.instruction {
+                Burn(_) => "burn",
+                Fail(_) => "fail",
+                If(_) => "if",
+                Mint(_) => "mint",
+                Pair(_) => "pair",
+                Register(_) => "register",
+                Sequence(_) => "sequence",
+                Transfer(_) => "transfer",
+                Unregister(_) => "un-register",
+                SetKeyValue(_) => "set key-value pair",
+                RemoveKeyValue(_) => "remove key-value pair",
+                Grant(_) => "grant",
+                Revoke(_) => "revoke",
+                ExecuteTrigger(_) => "execute trigger",
+                SetParameter(_) => "set parameter",
+                NewParameter(_) => "new parameter",
+            };
+            write!(
+                f,
+                "Failed to execute instruction of type {}: {}",
+                kind, self.reason
+            )
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for TransactionLimitError {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for UnsatisfiedSignatureConditionFail {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for InstructionExecutionFail {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for WasmExecutionFail {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for NotPermittedFail {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for TransactionExpired {}
+
+    pub mod prelude {
+        //! The prelude re-exports most commonly used traits, structs and macros from this module.
+
+        pub use super::{
+            InstructionExecutionFail, NotPermittedFail, TransactionRejectionReason,
+            UnsatisfiedSignatureConditionFail, WasmExecutionFail,
+        };
+    }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for WasmExecutionFail {}
+#[cfg(feature = "http")]
+mod http {
+    use warp::{reply::Response, Reply};
 
-/// Transaction was reject because of low authority
-#[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "Action not permitted: {reason}")]
-pub struct NotPermittedFail {
-    /// The cause of failure.
-    pub reason: String,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for NotPermittedFail {}
-
-/// Transaction was reject because expired
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Display,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-#[display(
-    fmt = "Transaction expired: consider increase transaction ttl (current {time_to_live_ms}ms)"
-)]
-pub struct TransactionExpired {
-    /// Transaction ttl.
-    pub time_to_live_ms: u64,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for TransactionExpired {}
-
-/// The reason for rejecting transaction which happened because of new blocks.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Display,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-)]
-#[display(fmt = "Block was rejected during consensus")]
-pub enum BlockRejectionReason {
-    /// Block was rejected during consensus.
-    ConsensusBlockRejection,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for BlockRejectionReason {}
-
-/// The reason for rejecting transaction which happened because of transaction.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Display,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[cfg_attr(feature = "std", derive(thiserror::Error))]
-pub enum TransactionRejectionReason {
-    /// Insufficient authorisation.
-    #[display(fmt = "Transaction rejected due to insufficient authorisation: {}", self.0)]
-    NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
-    /// Failed to verify signature condition specified in the account.
-    #[display(fmt = "Transaction rejected due to an unsatisfied signature condition: {}", self.0)]
-    UnsatisfiedSignatureCondition(
-        #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
-    ),
-    /// Failed to validate transaction limits (e.g. number of instructions)
-    #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {}", self.0)]
-    LimitCheck(#[cfg_attr(feature = "std", source)] TransactionLimitError),
-    /// Failed to execute instruction.
-    #[display(fmt = "Transaction rejected due to failure in instruction execution: {}", self.0)]
-    InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
-    /// Failed to execute WebAssembly binary.
-    #[display(fmt = "Transaction rejected due to failure in WebAssembly execution: {}", self.0)]
-    WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
-    /// Genesis account can sign only transactions in the genesis block.
-    #[display(fmt = "The genesis account can only sign transactions in the genesis block.")]
-    UnexpectedGenesisAccountSignature,
-    /// Transaction gets expired.
-    #[display(fmt = "Transaction rejected due to being expired: {}", self.0)]
-    Expired(#[cfg_attr(feature = "std", source)] TransactionExpired),
-}
-
-/// The reason for rejecting pipeline entity such as transaction or block.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Display,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-)]
-#[cfg_attr(feature = "std", derive(thiserror::Error))]
-pub enum RejectionReason {
-    /// The reason for rejecting the block.
-    #[display(fmt = "Block was rejected: {}", self.0)]
-    Block(#[cfg_attr(feature = "std", source)] BlockRejectionReason),
-    /// The reason for rejecting transaction.
-    #[display(fmt = "Transaction was rejected: {}", self.0)]
-    Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason),
+    impl Reply for super::VersionedPendingTransactions {
+        #[inline]
+        fn into_response(self) -> Response {
+            use iroha_version::scale::EncodeVersioned;
+            Response::new(self.encode_versioned().into())
+        }
+    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
+    #[cfg(feature = "std")]
+    pub use super::Sign;
     pub use super::{
-        AcceptedTransaction, BlockRejectionReason, Executable, InstructionExecutionFail,
-        NotPermittedFail, Payload, PendingTransactions, RejectedTransaction, RejectionReason, Sign,
+        error::prelude::*, Executable, Payload, PendingTransactions, RejectedTransaction,
         SignedTransaction, Transaction, TransactionLimits, TransactionQueryResult,
-        TransactionRejectionReason, TransactionValue, Txn, UnsatisfiedSignatureConditionFail,
-        ValidTransaction, VersionedAcceptedTransaction, VersionedPendingTransactions,
+        TransactionValue, Txn, ValidTransaction, VersionedPendingTransactions,
         VersionedRejectedTransaction, VersionedSignedTransaction, VersionedValidTransaction,
-        WasmExecutionFail, WasmSmartContract,
+        WasmSmartContract,
     };
+    #[cfg(feature = "transparent_api")]
+    pub use super::{AcceptedTransaction, VersionedAcceptedTransaction};
 }
 
 #[cfg(test)]
@@ -1137,7 +1060,7 @@ mod tests {
         .into();
         let tx = Transaction::new(
             AccountId::from_str("root@global").expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
             1000,
         )
         .sign(key_pair)
@@ -1169,7 +1092,7 @@ mod tests {
         .into();
         let tx = Transaction::new(
             AccountId::from_str("root@global").expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
             1000,
         )
         .sign(key_pair)

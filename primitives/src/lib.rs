@@ -6,7 +6,6 @@
 //! `Encode` and `Decode` trait implementations, you should add the
 //! wrapper as a submodule to this crate, rather than into
 //! `iroha_data_model` directly.
-
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
@@ -98,4 +97,28 @@ impl CheckedOp for Fixed {
     fn checked_sub(self, rhs: Self) -> Option<Self> {
         self.checked_sub(rhs).ok()
     }
+}
+
+mod ffi {
+    //! Definitions and implementations of FFI related functionalities
+
+    macro_rules! ffi_item {
+        ($it: item $($attr: meta)?) => {
+            #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
+            $it
+
+            #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+            #[derive(iroha_ffi::FfiType)]
+            $(#[$attr])?
+            $it
+
+            #[cfg(feature = "ffi_import")]
+            iroha_ffi::ffi! {
+                $(#[$attr])?
+                $it
+            }
+        };
+    }
+
+    pub(crate) use ffi_item;
 }

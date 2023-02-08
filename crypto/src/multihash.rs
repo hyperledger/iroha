@@ -25,10 +25,11 @@ pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 /// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
 #[allow(clippy::enum_variant_names)]
 #[repr(u64)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DigestFunction {
     /// Ed25519
     #[display(fmt = "{ED_25519_PUB_STR}")]
+    #[default]
     Ed25519Pub = 0xed,
     /// Secp256k1
     #[display(fmt = "{SECP_256_K1_PUB_STR}")]
@@ -39,12 +40,6 @@ pub enum DigestFunction {
     /// Bls12381G2
     #[display(fmt = "{BLS12_381_G2_PUB}")]
     Bls12381G2Pub = 0xeb,
-}
-
-impl Default for DigestFunction {
-    fn default() -> Self {
-        Self::Ed25519Pub
-    }
 }
 
 impl core::str::FromStr for DigestFunction {

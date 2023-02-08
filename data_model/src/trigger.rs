@@ -4,42 +4,46 @@
 use alloc::{format, string::String, vec::Vec};
 use core::{cmp, str::FromStr};
 
-use derive_more::Display;
-use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::FfiType;
+use derive_more::{Constructor, Display};
+use getset::Getters;
+use iroha_data_model_derive::IdEqOrdHash;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{
-    events::prelude::*, ffi, metadata::Metadata, prelude::Domain, transaction::Executable,
+    events::prelude::*, metadata::Metadata, model, prelude::Domain, transaction::Executable,
     Identifiable, Name, ParseError, Registered,
 };
 
-pub mod set;
+model! {
+    /// Identification of a `Trigger`.
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Id {
+        /// Name given to trigger by its creator.
+        pub name: Name,
+        /// DomainId of domain of the trigger.
+        pub domain_id: Option<<Domain as Identifiable>::Id>,
+    }
 
-/// Type which is used for registering a `Trigger`.
-#[derive(
-    Debug, Display, Clone, Decode, Encode, Deserialize, Serialize, FfiType, IdOrdEqHash, IntoSchema,
-)]
-#[display(fmt = "@@{id}")]
-pub struct Trigger<F: Filter> {
-    /// [`Id`] of the [`Trigger`].
-    pub id: Id,
-    /// Action to be performed when the trigger matches.
-    pub action: action::Action<F>,
+    /// Type which is used for registering a `Trigger`.
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "@@{id}")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Trigger<F: Filter> {
+        /// [`Id`] of the [`Trigger`].
+        pub id: Id,
+        /// Action to be performed when the trigger matches.
+        pub action: action::Action<F>,
+    }
 }
 
 impl Registered for Trigger<FilterBox> {
     type With = Self;
-}
-
-impl<F: Filter> Trigger<F> {
-    /// Construct trigger, given name action and signatories.
-    pub fn new(id: <Trigger<FilterBox> as Identifiable>::Id, action: action::Action<F>) -> Self {
-        Self { id, action }
-    }
 }
 
 impl TryFrom<Trigger<FilterBox>> for Trigger<DataEventFilter> {
@@ -126,42 +130,6 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
     }
 }
 
-ffi::declare_item! {
-    /// Identification of a `Trigger`.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Hash,
-        Decode,
-        Encode,
-        DeserializeFromStr,
-        SerializeDisplay,
-        FfiType,
-        IntoSchema,
-    )]
-    pub struct Id {
-        /// Name given to trigger by its creator.
-        pub name: Name,
-        /// DomainId of domain of the trigger.
-        pub domain_id: Option<<Domain as Identifiable>::Id>,
-    }
-}
-
-impl Id {
-    /// Constructs a new [`Id`].
-    #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
-        Self {
-            name,
-            domain_id: Some(domain_id),
-        }
-    }
-}
-
 impl core::fmt::Display for Id {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if let Some(ref domain_id) = self.domain_id {
@@ -231,34 +199,37 @@ pub mod action {
         fn clone_and_box(&self) -> Action<FilterBox>;
     }
 
-    /// Designed to differentiate between oneshot and unlimited
-    /// triggers. If the trigger must be run a limited number of times,
-    /// it's the end-user's responsibility to either unregister the
-    /// `Unlimited` variant.
-    ///
-    /// # Considerations
-    ///
-    /// The granularity might not be sufficient to run an action exactly
-    /// `n` times. In order to ensure that it is even possible to run the
-    /// triggers without gaps, the `Executable` wrapped in the action must
-    /// be run before any of the ISIs are pushed into the queue of the
-    /// next block.
-    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
-    pub struct Action<F: Filter> {
-        /// The executable linked to this action
-        pub executable: Executable,
-        /// The repeating scheme of the action. It's kept as part of the
-        /// action and not inside the [`Trigger`] type, so that further
-        /// sanity checking can be done.
-        pub repeats: Repeats,
-        /// Technical account linked to this trigger. The technical
-        /// account must already exist in order for `Register<Trigger>` to
-        /// work.
-        pub technical_account: crate::account::Id,
-        /// Defines events which trigger the `Action`
-        pub filter: F,
-        /// Metadata used as persistent storage for trigger data.
-        pub metadata: Metadata,
+    model! {
+        /// Designed to differentiate between oneshot and unlimited
+        /// triggers. If the trigger must be run a limited number of times,
+        /// it's the end-user's responsibility to either unregister the
+        /// `Unlimited` variant.
+        ///
+        /// # Considerations
+        ///
+        /// The granularity might not be sufficient to run an action exactly
+        /// `n` times. In order to ensure that it is even possible to run the
+        /// triggers without gaps, the `Executable` wrapped in the action must
+        /// be run before any of the ISIs are pushed into the queue of the
+        /// next block.
+        #[derive(Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[getset(get = "pub")]
+        pub struct Action<F: Filter> {
+            /// The executable linked to this action
+            pub executable: Executable,
+            /// The repeating scheme of the action. It's kept as part of the
+            /// action and not inside the [`Trigger`] type, so that further
+            /// sanity checking can be done.
+            pub repeats: Repeats,
+            /// Technical account linked to this trigger. The technical
+            /// account must already exist in order for `Register<Trigger>` to
+            /// work.
+            pub technical_account: crate::account::Id,
+            /// Defines events which trigger the `Action`
+            pub filter: F,
+            /// Metadata used as persistent storage for trigger data.
+            pub metadata: Metadata,
+        }
     }
 
     impl<F: Filter> HasMetadata for Action<F> {
@@ -358,13 +329,15 @@ pub mod action {
         }
     }
 
-    /// Enumeration of possible repetitions schemes.
-    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
-    pub enum Repeats {
-        /// Repeat indefinitely, until the trigger is unregistered.
-        Indefinitely,
-        /// Repeat a set number of times
-        Exactly(AtomicU32), // If you need more, use `Indefinitely`.
+    model! {
+        /// Enumeration of possible repetitions schemes.
+        #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        pub enum Repeats {
+            /// Repeat indefinitely, until the trigger is unregistered.
+            Indefinitely,
+            /// Repeat a set number of times
+            Exactly(AtomicU32), // If you need more, use `Indefinitely`.
+        }
     }
 
     impl PartialOrd for Repeats {
@@ -399,8 +372,6 @@ pub mod action {
 pub mod prelude {
     //! Re-exports of commonly used types.
 
-    #[cfg(feature = "std")]
-    pub use super::set::Set as TriggerSet;
     pub use super::{action::prelude::*, Id as TriggerId, Trigger};
 }
 

@@ -112,7 +112,7 @@ pub mod error {
         }
     }
 
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "http")]
     impl Error {
         /// Returns status code for this error
         #[allow(clippy::unused_self)]
@@ -121,16 +121,13 @@ pub mod error {
         }
     }
 
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "http")]
     impl warp::Reply for &Error {
         fn into_response(self) -> warp::reply::Response {
-            #[cfg(not(feature = "std"))]
-            use alloc::string::ToString as _;
-
             warp::reply::with_status(self.to_string(), self.status_code()).into_response()
         }
     }
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "http")]
     impl warp::reject::Reject for Error {}
 
     /// Result type for versioning

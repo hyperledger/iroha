@@ -3,41 +3,28 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+use derive_more::Display;
+use getset::Getters;
 use iroha_crypto::Hash;
-use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::Filter;
-pub use crate::transaction::RejectionReason as PipelineRejectionReason;
+use crate::model;
 
-/// [`Event`] filter.
-#[derive(
-    Default,
-    Debug,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
-    Decode,
-    Encode,
-    IntoSchema,
-    Hash,
-    Serialize,
-    Deserialize,
-    FfiType,
-)]
-pub struct EventFilter {
-    /// If `Some::<EntityKind>` filters by the [`EntityKind`]. If `None` accepts all the [`EntityKind`].
-    pub entity_kind: Option<EntityKind>,
-    /// If `Some::<StatusKind>` filters by the [`StatusKind`]. If `None` accepts all the [`StatusKind`].
-    pub status_kind: Option<StatusKind>,
-    /// If `Some::<Hash>` filters by the [`struct@Hash`]. If `None` accepts all the [`struct@Hash`].
-    pub hash: Option<Hash>,
+model! {
+    /// [`Event`] filter.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+    pub struct EventFilter {
+        /// If `Some::<EntityKind>`, filter by the [`EntityKind`]. If `None`, accept all the [`EntityKind`].
+        entity_kind: Option<EntityKind>,
+        /// If `Some::<StatusKind>`, filter by the [`StatusKind`]. If `None`, accept all the [`StatusKind`].
+        status_kind: Option<StatusKind>,
+        /// If `Some::<Hash>`, filter by the [`struct@Hash`]. If `None`, accept all the [`struct@Hash`].
+        hash: Option<Hash>,
+    }
 }
 
 impl EventFilter {
@@ -94,97 +81,53 @@ impl Filter for EventFilter {
     }
 }
 
-/// Kind of the pipeline entity.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    IntoSchema,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
-pub enum EntityKind {
-    /// Block.
-    Block,
-    /// Transaction.
-    Transaction,
-}
-
-/// Strongly-typed [`Event`], which tells the receiver the kind of entity that changed, the change, and the hash of the entity.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Event {
-    /// [`EntityKind`] of the entity that caused this [`Event`].
-    pub entity_kind: EntityKind,
-    /// [`Status`] of the entity that caused this [`Event`].
-    pub status: Status,
-    /// [`struct@Hash`] of the entity that caused this [`Event`].
-    pub hash: Hash,
-}
-
-impl Event {
-    /// Construct [`Event`].
-    pub const fn new(entity_kind: EntityKind, status: Status, hash: Hash) -> Self {
-        Event {
-            entity_kind,
-            status,
-            hash,
-        }
+model! {
+    /// The kind of the pipeline entity.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    #[repr(u8)]
+    pub enum EntityKind {
+        /// Block
+        Block,
+        /// Transaction
+        Transaction,
     }
-}
 
-/// [`Status`] of the entity.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    Serialize,
-    Deserialize,
-    FromVariant,
-    IntoSchema,
-)]
-pub enum Status {
-    /// Entity has been seen in blockchain, but has not passed validation.
-    Validating,
-    /// Entity was rejected in one of the validation stages.
-    Rejected(PipelineRejectionReason),
-    /// Entity has passed validation.
-    Committed,
-}
+    /// Strongly-typed [`Event`] that tells the receiver the kind and the hash of the changed entity as well as its [`Status`].
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Event {
+        /// [`EntityKind`] of the entity that caused this [`Event`].
+        pub entity_kind: EntityKind,
+        /// [`Status`] of the entity that caused this [`Event`].
+        pub status: Status,
+        /// [`struct@Hash`] of the entity that caused this [`Event`].
+        pub hash: Hash,
+    }
 
-/// Kind of [`Status`].
-#[derive(
-    Debug,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
-    Decode,
-    Encode,
-    IntoSchema,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
-pub enum StatusKind {
-    /// Represents [`Status::Validating`].
-    Validating,
-    /// Represents [`Status::Rejected`].
-    Rejected,
-    /// Represents [`Status::Committed`].
-    Committed,
+    /// [`Status`] of the entity.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+    #[ffi_type(local)]
+    pub enum Status {
+        /// Entity has been seen in the blockchain but has not passed validation.
+        Validating,
+        /// Entity was rejected during validation.
+        Rejected(RejectionReason),
+        /// Entity has passed validation.
+        Committed,
+    }
+
+    /// The kind of [`Status`].
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub enum StatusKind {
+        /// Represents [`Status::Validating`].
+        Validating,
+        /// Represents [`Status::Rejected`].
+        Rejected,
+        /// Represents [`Status::Committed`].
+        Committed,
+    }
 }
 
 impl Status {
@@ -198,12 +141,27 @@ impl Status {
     }
 }
 
+model! {
+    /// The reason for rejecting pipeline entity such as transaction or block.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[cfg_attr(feature = "std", derive(thiserror::Error))]
+    #[ffi_type(local)]
+    pub enum RejectionReason {
+        /// The reason for rejecting the block.
+        #[display(fmt = "Block was rejected: {_0}")]
+        Block(#[cfg_attr(feature = "std", source)] crate::block::error::BlockRejectionReason),
+        /// The reason for rejecting transaction.
+        #[display(fmt = "Transaction was rejected: {_0}")]
+        Transaction(#[cfg_attr(feature = "std", source)] crate::transaction::error::TransactionRejectionReason),
+    }
+}
+
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
         EntityKind as PipelineEntityKind, Event as PipelineEvent,
-        EventFilter as PipelineEventFilter, PipelineRejectionReason, Status as PipelineStatus,
-        StatusKind as PipelineStatusKind,
+        EventFilter as PipelineEventFilter, RejectionReason as PipelineRejectionReason,
+        Status as PipelineStatus, StatusKind as PipelineStatusKind,
     };
 }
 
@@ -214,8 +172,8 @@ mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::{string::ToString as _, vec, vec::Vec};
 
-    use super::*;
-    use crate::transaction::{NotPermittedFail, RejectionReason::*, TransactionRejectionReason::*};
+    use super::{RejectionReason::*, *};
+    use crate::transaction::error::{NotPermittedFail, TransactionRejectionReason::*};
 
     #[test]
     fn events_are_correctly_filtered() {

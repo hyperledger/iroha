@@ -49,7 +49,7 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
             START_ACCOUNT.parse().expect("Valid"),
             START_DOMAIN.parse().expect("Valid"),
         ),
-        instructions.into(),
+        instructions,
         TRANSACTION_TIME_TO_LIVE_MS,
     )
     .sign(keys)

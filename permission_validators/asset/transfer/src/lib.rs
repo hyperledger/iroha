@@ -56,15 +56,15 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
         pass!();
     };
 
-    let IdBox::AssetId(asset_id) = transfer.source_id
+    let IdBox::AssetId(asset_id) = transfer.source_id()
         .evaluate()
         .dbg_expect("Failed to evaluate `Transfer` source id") else {
         pass!();
     };
 
-    pass_if!(asset_id.account_id == authority);
+    pass_if!(*asset_id.account_id() == authority);
     pass_if!(CanTransferAssetsWithDefinition {
-        asset_definition_id: asset_id.definition_id.clone()
+        asset_definition_id: asset_id.definition_id().clone()
     }
     .is_owned_by(&authority));
     pass_if!(CanTransferUserAsset { asset_id }.is_owned_by(&authority));

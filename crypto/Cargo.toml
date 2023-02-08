@@ -15,10 +15,10 @@ std = ["ursa"]
 # Force static linking
 vendored = ["openssl-sys"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-#ffi_import = []
+#ffi_import = ["iroha_primitives/ffi_import"]
 
 # Expose FFI API for dynamic linking (Internal use only)
-ffi_export = ["std"]
+ffi_export = ["std", "iroha_primitives/ffi_export"]
 
 [dependencies]
 iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.13", default-features = false }

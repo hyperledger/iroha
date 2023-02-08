@@ -2049,7 +2049,6 @@ name = "iroha_config"
 version = "2.0.0-pre-rc.13"
 dependencies = [
  "cfg-if",
- "crossbeam",
  "derive_more",
  "eyre",
  "iroha_config_base",
@@ -2156,7 +2155,6 @@ dependencies = [
  "dashmap",
  "derive_more",
  "getset",
- "iroha",
  "iroha_client",
  "iroha_crypto",
  "iroha_data_model_derive",
@@ -2181,16 +2179,14 @@ name = "iroha_data_model_derive"
 version = "2.0.0-pre-rc.13"
 dependencies = [
  "iroha_data_model",
- "iroha_ffi",
  "iroha_macro_utils",
- "iroha_schema",
- "parity-scale-codec",
  "proc-macro-error",
  "proc-macro2",
  "quote",
  "serde",
  "serde_json",
  "syn",
+ "trybuild",
 ]
 
 [[package]]

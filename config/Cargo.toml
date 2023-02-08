@@ -12,6 +12,7 @@ iroha_config_base = { path = "base" }
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model" }
 iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../primitives" }
 iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
+
 eyre = "0.6.8"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi"] }
@@ -22,7 +23,6 @@ strum = { version = "0.24.1", default-features = false, features = ["derive"] }
 serde_json = "1.0.91"
 json5 = "0.4.1"
 thiserror = "1.0.38"
-crossbeam = "0.8.2"
 derive_more = "0.99.17"
 cfg-if = "1.0.0"
 

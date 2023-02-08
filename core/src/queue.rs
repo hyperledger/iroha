@@ -371,7 +371,7 @@ mod tests {
         let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
         let tx = Transaction::new(
             AccountId::from_str(account_id).expect("Valid"),
-            instructions.into(),
+            instructions,
             proposed_ttl_ms,
         )
         .sign(key)
@@ -380,8 +380,9 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        VersionedAcceptedTransaction::accept::<false>(tx, &limits)
+        AcceptedTransaction::accept::<false>(tx, &limits)
             .expect("Failed to accept Transaction.")
+            .into()
     }
 
     pub fn world_with_test_domains(
@@ -474,7 +475,7 @@ mod tests {
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build();
-            alice.set_signature_check_condition(SignatureCheckCondition(
+            alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
                         ContextValue::new(
@@ -492,7 +493,7 @@ mod tests {
                     ),
                 )
                 .into(),
-            ));
+            );
             let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
@@ -560,7 +561,7 @@ mod tests {
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build();
-            alice.set_signature_check_condition(SignatureCheckCondition(
+            alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
                         ContextValue::new(
@@ -578,7 +579,7 @@ mod tests {
                     ),
                 )
                 .into(),
-            ));
+            );
             let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
@@ -640,9 +641,8 @@ mod tests {
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
             let mut account = Account::new(account_id, [key_pair.public_key().clone()]).build();
             // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
-            account.set_signature_check_condition(SignatureCheckCondition(
-                EvaluatesTo::new_unchecked(0u32.into()),
-            ));
+            account.signature_check_condition =
+                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32.into()));
             assert!(domain.add_account(account).is_none());
 
             let kura = Kura::blank_kura_for_testing();
@@ -683,7 +683,7 @@ mod tests {
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build();
-            account.set_signature_check_condition(SignatureCheckCondition(
+            account.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
                         ContextValue::new(
@@ -701,7 +701,7 @@ mod tests {
                     ),
                 )
                 .into(),
-            ));
+            );
             assert!(domain.add_account(account).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
@@ -719,14 +719,14 @@ mod tests {
         });
         let tx = Transaction::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
-            Vec::<Instruction>::new().into(),
+            Vec::new(),
             100_000,
         );
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let fully_signed_tx = {
+        let fully_signed_tx: VersionedAcceptedTransaction = {
             let mut signed_tx = tx
                 .clone()
                 .sign((&key_pairs[0]).clone())
@@ -734,8 +734,9 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            VersionedAcceptedTransaction::accept::<false>(signed_tx, &tx_limits)
+            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)
                 .expect("Failed to accept Transaction.")
+                .into()
         };
         // Check that fully signed transaction pass signature check
         assert!(matches!(
@@ -744,14 +745,15 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            VersionedAcceptedTransaction::accept::<false>(
+            AcceptedTransaction::accept::<false>(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
                 &tx_limits,
             )
             .expect("Failed to accept Transaction.")
+            .into()
         };
         for key_pair in key_pairs {
-            let partially_signed_tx = get_tx(key_pair);
+            let partially_signed_tx: VersionedAcceptedTransaction = get_tx(key_pair);
             // Check that non of partially signed pass signature check
             assert!(matches!(
                 partially_signed_tx.check_signature_condition(&wsv),

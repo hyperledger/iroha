@@ -14,6 +14,7 @@ keywords = ["blockchain", "crypto", "iroha", "ledger"]
 categories = ["cryptography::cryptocurrencies"]
 
 [workspace]
+resolver = "2"
 members = [
   "actor",
   "actor/derive",

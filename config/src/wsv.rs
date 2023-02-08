@@ -2,7 +2,7 @@
 #![allow(clippy::std_instead_of_core)]
 
 use iroha_config_base::derive::{Documented, Proxy};
-use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
+use iroha_data_model::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::wasm;

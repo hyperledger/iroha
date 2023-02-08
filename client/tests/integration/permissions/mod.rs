@@ -3,7 +3,6 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::{PeerBuilder, *};
 
@@ -196,7 +195,7 @@ fn permissions_differ_not_only_by_names() {
 
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
     let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
-    let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
+    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
     // Registering `Store` asset definitions
     let hat_definition_id: <AssetDefinition as Identifiable>::Id =
@@ -232,7 +231,7 @@ fn permissions_differ_not_only_by_names() {
 
     let grant_hats_access_tx = Transaction::new(
         mouse_id.clone(),
-        Executable::Instructions(vec![allow_alice_to_set_key_value_in_hats]),
+        vec![allow_alice_to_set_key_value_in_hats],
         100_000,
     )
     .sign(mouse_keypair.clone())
@@ -271,7 +270,7 @@ fn permissions_differ_not_only_by_names() {
 
     let grant_shoes_access_tx = Transaction::new(
         mouse_id,
-        Executable::Instructions(vec![allow_alice_to_set_key_value_in_shoes]),
+        vec![allow_alice_to_set_key_value_in_shoes],
         100_000,
     )
     .sign(mouse_keypair)
