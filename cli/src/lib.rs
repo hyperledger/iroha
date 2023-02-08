@@ -9,6 +9,7 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
+use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
@@ -92,6 +93,10 @@ pub struct Iroha {
     thread_handlers: Vec<ThreadHandler>,
     /// Relay that redirects messages from the network subsystem to core subsystems.
     _sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>, // TODO: figure out if truly unused.
+    /// A boolean value indicating whether or not the peers will recieve data from the network. Used in
+    /// sumeragi testing.
+    #[cfg(debug_assertions)]
+    pub freeze_status: Arc<AtomicBool>,
 }
 
 impl Drop for Iroha {
@@ -104,6 +109,8 @@ impl Drop for Iroha {
 struct FromNetworkBaseRelay {
     sumeragi: Arc<Sumeragi>,
     broker: Broker,
+    #[cfg(debug_assertions)]
+    freeze_status: Arc<AtomicBool>,
 }
 
 #[async_trait::async_trait]
@@ -130,6 +137,11 @@ impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
 
     async fn handle(&mut self, msg: iroha_core::NetworkMessage) -> Self::Result {
         use iroha_core::NetworkMessage::*;
+
+        #[cfg(debug_assertions)]
+        if self.freeze_status.load(Ordering::SeqCst) {
+            return;
+        }
 
         match msg {
             SumeragiPacket(data) => {
@@ -357,9 +369,13 @@ impl Iroha {
             ),
         );
 
+        let freeze_status = Arc::new(AtomicBool::new(false));
+
         let sumeragi_relay = FromNetworkBaseRelay {
             sumeragi: Arc::clone(&sumeragi),
             broker: broker.clone(),
+            #[cfg(debug_assertions)]
+            freeze_status: freeze_status.clone(),
         }
         .start()
         .await
@@ -402,6 +418,7 @@ impl Iroha {
             torii,
             thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
             _sumeragi_relay: sumeragi_relay,
+            freeze_status,
         })
     }
 

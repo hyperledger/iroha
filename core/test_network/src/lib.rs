@@ -1,7 +1,7 @@
 //! Module for starting peers and networks. Used only for tests
 #![allow(clippy::restriction, clippy::future_not_send)]
 
-use core::{fmt::Debug, str::FromStr as _, time::Duration};
+use core::{fmt::Debug, str::FromStr as _, sync::atomic::AtomicBool, time::Duration};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -188,6 +188,14 @@ impl Network {
             .unwrap()
             .into_iter()
             .map(|(result, peer_id)| (result.expect("Always `Ok`"), peer_id))
+            .collect()
+    }
+
+    /// Collect the freeze handles from all the peers in the network.
+    pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
+        self.peers()
+            .filter_map(|peer| peer.iroha.as_ref())
+            .map(|iroha| iroha.freeze_status.clone())
             .collect()
     }
 
