@@ -1,10 +1,12 @@
 #![allow(clippy::restriction)]
 
-use std::{thread, time::Duration};
+use core::sync::atomic::Ordering;
+use std::thread;
 
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use iroha_logger::Level;
+use rand::seq::SliceRandom;
 use test_network::*;
 use tokio::runtime::Runtime;
 
@@ -16,63 +18,33 @@ const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 5;
 fn unstable_network_4_peers_1_fault() {
     let n_peers = 4;
     let n_transactions = 20;
-    // Given that the topology will resolve view changes by shift for `n_peers` consequent times
-    // and having only 1 faulty peer guarantees us that at maximum in `n_peers` tries the block will be committed.
-    // So for the worst case scenario for `n_transactions` given 1 transaction per block
-    // the network will commit all of them in `n_peers * n_transactions` tries.
-    let polling_max_attempts = n_peers * n_transactions;
-    unstable_network(
-        n_peers,
-        1,
-        n_transactions as usize,
-        polling_max_attempts,
-        Configuration::pipeline_time(),
-        false,
-    );
+    unstable_network(n_peers, 1, n_transactions, false);
 }
 
 #[test]
 fn soft_fork() {
     let n_peers = 4;
     let n_transactions = 20;
-    let polling_max_attempts = n_peers * n_transactions;
-    unstable_network(
-        n_peers,
-        0,
-        n_transactions as usize,
-        polling_max_attempts,
-        Configuration::pipeline_time(),
-        true,
-    );
+    unstable_network(n_peers, 0, n_transactions, true);
 }
 
 #[test]
 fn unstable_network_7_peers_1_fault() {
     let n_peers = 7;
     let n_transactions = 20;
-    let polling_max_attempts = n_peers * n_transactions;
-    unstable_network(
-        n_peers,
-        1,
-        n_transactions as usize,
-        polling_max_attempts,
-        Configuration::pipeline_time(),
-        false,
-    );
+    unstable_network(n_peers, 1, n_transactions, false);
 }
 
 #[test]
 #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
 fn unstable_network_7_peers_2_faults() {
-    unstable_network(7, 2, 5, 100, Configuration::pipeline_time(), false);
+    unstable_network(7, 2, 5, false);
 }
 
 fn unstable_network(
     n_peers: u32,
     n_offline_peers: u32,
     n_transactions: usize,
-    polling_max_attempts: u32,
-    polling_period: Duration,
     force_soft_fork: bool,
 ) {
     if let Err(error) = iroha_logger::install_panic_hook() {
@@ -88,10 +60,14 @@ fn unstable_network(
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
         }
-        let network =
-            <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers, None)
-                .await
-                .expect("Failed to init peers");
+        let network = <Network>::new_with_offline_peers(
+            Some(configuration),
+            n_peers + n_offline_peers,
+            0,
+            None,
+        )
+        .await
+        .expect("Failed to init peers");
         let client = Client::test(
             &network.genesis.api_address,
             &network.genesis.telemetry_address,
@@ -111,8 +87,20 @@ fn unstable_network(
     // Initially there are 0 camomile
     let mut account_has_quantity = 0;
 
+    let mut rng = rand::thread_rng();
+    let freezers = {
+        let mut freezers = network.get_freeze_status_handles();
+        freezers.remove(0); // remove genesis peer
+        freezers
+    };
+
     //When
     for _i in 0..n_transactions {
+        // Make random peers faulty.
+        for f in freezers.choose_multiple(&mut rng, n_offline_peers as usize) {
+            f.store(true, Ordering::Relaxed);
+        }
+
         let quantity = 1;
         let mint_asset = MintBox::new(
             quantity.to_value(),
@@ -126,22 +114,24 @@ fn unstable_network(
             .expect("Failed to create asset.");
         account_has_quantity += quantity;
         thread::sleep(pipeline_time);
+
+        iroha_client
+            .poll_request_with_period(
+                client::asset::by_account_id(account_id.clone()),
+                Configuration::pipeline_time(),
+                4,
+                |result| {
+                    result.iter().any(|asset| {
+                        asset.id().definition_id == asset_definition_id
+                            && *asset.value() == AssetValue::Quantity(account_has_quantity)
+                    })
+                },
+            )
+            .expect("Test case failure.");
+
+        // Return all peers to normal function.
+        for f in &freezers {
+            f.store(false, Ordering::Relaxed);
+        }
     }
-
-    thread::sleep(pipeline_time);
-
-    //Then
-    iroha_client
-        .poll_request_with_period(
-            client::asset::by_account_id(account_id),
-            polling_period,
-            polling_max_attempts,
-            |result| {
-                result.iter().any(|asset| {
-                    asset.id().definition_id == asset_definition_id
-                        && *asset.value() == AssetValue::Quantity(account_has_quantity)
-                })
-            },
-        )
-        .expect("Test case failure.");
 }
