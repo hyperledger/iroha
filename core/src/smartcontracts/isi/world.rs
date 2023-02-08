@@ -8,7 +8,7 @@ use crate::prelude::*;
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use eyre::Result;
-    use iroha_data_model::{error::FindError, permission, prelude::*};
+    use iroha_data_model::{permission, prelude::*, query::error::FindError};
 
     use super::*;
 
@@ -65,7 +65,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let domain: Domain = self.object.clone().build();
+            let domain: Domain = self.object.build();
             let domain_id = domain.id().clone();
 
             domain_id
@@ -81,8 +81,8 @@ pub mod isi {
                     ));
                 }
 
-                world.domains.insert(domain_id.clone(), domain);
-                Ok(DomainEvent::Created(self.object).into())
+                world.domains.insert(domain_id.clone(), domain.clone());
+                Ok(DomainEvent::Created(domain).into())
             })?;
 
             Ok(())
@@ -121,14 +121,14 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let role = self.object.clone().build();
+            let role = self.object.build();
 
-            for permission in role.permissions() {
+            for permission in &role.permissions {
                 let definition = wsv
                     .permission_token_definitions()
-                    .get(permission.definition_id())
+                    .get(&permission.definition_id)
                     .ok_or_else(|| {
-                        FindError::PermissionTokenDefinition(permission.definition_id().clone())
+                        FindError::PermissionTokenDefinition(permission.definition_id.clone())
                     })?;
 
                 permissions::check_permission_token_parameters(permission, definition.value())?;
@@ -137,14 +137,14 @@ pub mod isi {
             if wsv.roles().contains_key(role.id()) {
                 return Err(Error::Repetition(
                     InstructionType::Register,
-                    IdBox::RoleId(role.id().clone()),
+                    IdBox::RoleId(role.id),
                 ));
             }
 
-            let role_id = role.id().clone();
             wsv.modify_world(|world| {
-                world.roles.insert(role_id.clone(), role);
-                Ok(RoleEvent::Created(self.object).into())
+                let role_id = role.id().clone();
+                world.roles.insert(role_id, role.clone());
+                Ok(RoleEvent::Created(role).into())
             })
         }
     }
@@ -162,8 +162,8 @@ pub mod isi {
 
             let mut accounts_with_role = vec![];
             for domain in wsv.domains().iter() {
-                let account_ids = domain.accounts().filter_map(|account| {
-                    if account.contains_role(&role_id) {
+                let account_ids = domain.accounts.values().filter_map(|account| {
+                    if account.roles.contains(&role_id) {
                         return Some(account.id().clone());
                     }
 
@@ -259,8 +259,9 @@ pub mod isi {
         for role_entry in wsv.roles().iter() {
             let (role_id, role) = role_entry.pair();
             if role
-                .permissions()
-                .any(|token| token.definition_id() == target_definition_id)
+                .permissions
+                .iter()
+                .any(|token| token.definition_id == *target_definition_id)
             {
                 roles_containing_token.push(role_id.clone())
             }
@@ -269,7 +270,7 @@ pub mod isi {
         for role_id in roles_containing_token {
             wsv.modify_world(|world| {
                 if let Some(mut role) = world.roles.get_mut(&role_id) {
-                    role.remove_permissions(target_definition_id);
+                    role.remove_permission(target_definition_id);
                     Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
                         role_id,
                         permission_definition_id: target_definition_id.clone(),
@@ -293,11 +294,11 @@ pub mod isi {
         let mut accounts_with_token = std::collections::HashMap::new();
 
         for domain in wsv.domains().iter() {
-            let account_ids = domain.accounts().map(|account| {
+            let account_ids = domain.accounts.values().map(|account| {
                 (
                     account.id().clone(),
                     wsv.account_inherent_permission_tokens(account)
-                        .filter(|token| token.definition_id() == target_definition_id)
+                        .filter(|token| token.definition_id == *target_definition_id)
                         .collect::<Vec<_>>(),
                 )
             });
@@ -315,7 +316,7 @@ pub mod isi {
 
                     Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
                         account_id: id.clone(),
-                        permission_id: token.definition_id().clone(),
+                        permission_id: token.definition_id,
                     }))
                 })?;
             }
@@ -386,7 +387,7 @@ pub mod isi {
             wsv.modify_world(|world| {
                 if world.parameters.remove(&parameter).is_some() {
                     world.parameters.insert(parameter.clone());
-                    Ok(ConfigurationEvent::Changed(parameter.id().clone()).into())
+                    Ok(ConfigurationEvent::Changed(parameter.id).into())
                 } else {
                     Err(FindError::Parameter(parameter).into())
                 }
@@ -408,11 +409,11 @@ impl Execute for NewParameter<Parameter> {
 
         wsv.modify_world(|world| {
             if world.parameters.insert(parameter.clone()) {
-                Ok(ConfigurationEvent::Created(parameter.id().clone()).into())
+                Ok(ConfigurationEvent::Created(parameter.id).into())
             } else {
                 Err(Error::Repetition(
                     InstructionType::NewParameter,
-                    IdBox::ParameterId(parameter.id().clone()),
+                    IdBox::ParameterId(parameter.id),
                 ))
             }
         })
@@ -422,9 +423,11 @@ impl Execute for NewParameter<Parameter> {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
-        error::{FindError, QueryExecutionFailure as Error},
         prelude::*,
-        query::permissions::DoesAccountHavePermissionToken,
+        query::{
+            error::{FindError, QueryExecutionFailure as Error},
+            permissions::DoesAccountHavePermissionToken,
+        },
     };
 
     use super::*;

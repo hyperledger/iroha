@@ -306,9 +306,10 @@ pub fn check_permission_token_parameters(
     };
 
     for either_or_both in token
-        .params()
+        .params
+        .iter()
         .map(|(key, value)| (key, ValueKind::from(value)))
-        .zip_longest(definition.params())
+        .zip_longest(&definition.params)
     {
         match either_or_both {
             Both((key, kind), (expected_key, expected_kind)) => {

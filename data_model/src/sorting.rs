@@ -10,18 +10,18 @@ use alloc::{
 use iroha_schema::IntoSchema;
 use iroha_version::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "warp")]
-use warp::{Filter, Rejection};
 
-use crate::prelude::*;
+use crate::{model, prelude::*};
 
 const SORT_BY_KEY: &str = "sort_by_metadata_key";
 
-/// Enum for sorting requests
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Decode, Encode, IntoSchema)]
-pub struct Sorting {
-    /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
-    pub sort_by_metadata_key: Option<Name>,
+model! {
+    /// Enum for sorting requests
+    #[derive(Debug, Clone, Default, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct Sorting {
+        /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
+        pub sort_by_metadata_key: Option<Name>,
+    }
 }
 
 impl Sorting {
@@ -41,12 +41,6 @@ impl From<Sorting> for Vec<(&'static str, String)> {
         }
         vec
     }
-}
-
-#[cfg(feature = "warp")]
-/// Filter for warp which extracts sorting
-pub fn sorting() -> impl Filter<Extract = (Sorting,), Error = Rejection> + Copy {
-    warp::query()
 }
 
 pub mod prelude {

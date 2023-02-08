@@ -47,18 +47,18 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
         pass!();
     };
 
-    let IdBox::AssetId(asset_id) = mint.destination_id
+    let IdBox::AssetId(asset_id) = mint.destination_id()
         .evaluate()
         .dbg_expect("Failed to evaluate `Mint` destination id") else {
         pass!();
     };
 
     pass_if!(utils::is_asset_definition_owner(
-        &asset_id.definition_id,
+        asset_id.definition_id(),
         &authority
     ));
     pass_if!(CanMintAssetsWithDefinition {
-        asset_definition_id: asset_id.definition_id
+        asset_definition_id: asset_id.definition_id().clone()
     }
     .is_owned_by(&authority));
 

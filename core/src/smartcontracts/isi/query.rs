@@ -6,7 +6,7 @@
     clippy::std_instead_of_alloc
 )]
 use eyre::Result;
-use iroha_data_model::{error::QueryExecutionFailure as Error, prelude::*};
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure as Error};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{prelude::ValidQuery, WorldStateView};
@@ -185,15 +185,14 @@ mod tests {
         };
 
         let valid_tx = {
-            let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000)
-                .sign(ALICE_KEYS.clone())?;
-            VersionedAcceptedTransaction::accept::<false>(tx, &limits)?
+            let tx = Transaction::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
+            VersionedAcceptedTransaction::from(AcceptedTransaction::accept::<false>(tx, &limits)?)
         };
         let invalid_tx = {
-            let isi = Instruction::Fail(FailBox::new("fail"));
-            let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi].into(), 4000)
+            let isi: Instruction = FailBox::new("fail").into();
+            let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
                 .sign(ALICE_KEYS.clone())?;
-            VersionedAcceptedTransaction::accept::<false>(tx, &huge_limits)?
+            AcceptedTransaction::accept::<false>(tx, &huge_limits)?.into()
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -269,7 +268,7 @@ mod tests {
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
-        let blocks = FindAllBlocks::new().execute(&wsv)?;
+        let blocks = FindAllBlocks.execute(&wsv)?;
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -283,7 +282,7 @@ mod tests {
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
-        let block_headers = FindAllBlockHeaders::new().execute(&wsv)?;
+        let block_headers = FindAllBlockHeaders.execute(&wsv)?;
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -319,7 +318,7 @@ mod tests {
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
-        let txs = FindAllTransactions::new().execute(&wsv)?;
+        let txs = FindAllTransactions.execute(&wsv)?;
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
@@ -344,7 +343,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
-        let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
+        let tx = Transaction::new(ALICE_ID.clone(), Vec::new(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
 
         let tx_limits = TransactionLimits {
@@ -352,7 +351,8 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx = crate::VersionedAcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?;
+        let va_tx: VersionedAcceptedTransaction =
+            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?.into();
 
         let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());

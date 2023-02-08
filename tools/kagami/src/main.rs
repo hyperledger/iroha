@@ -283,9 +283,8 @@ mod genesis {
         );
         let token = PermissionToken::new("allowed_to_do_stuff".parse()?);
 
-        let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
-            token.definition_id().clone(),
-        ));
+        let register_permission =
+            RegisterBox::new(PermissionTokenDefinition::new(token.definition_id.clone()));
         let role_id: RoleId = "staff_that_does_stuff_in_genesis".parse()?;
         let register_role =
             RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
@@ -316,7 +315,7 @@ mod genesis {
         )
         .into();
 
-        let parameter_defaults = [
+        let parameter_defaults: Vec<_> = [
             Parameter::from_str("?BlockSyncGossipPeriod=10000")?,
             Parameter::from_str("?NetworkActorChannelCapacity=100")?,
             Parameter::from_str("?MaxTransactionsInBlock=512")?,
@@ -342,11 +341,10 @@ mod genesis {
         ]
         .into_iter()
         .map(NewParameterBox::new)
-        .map(Instruction::NewParameter)
+        .map(Into::into)
         .collect();
 
         let param_seq = SequenceBox::new(parameter_defaults);
-
         let grant_role = GrantBox::new(role_id, alice_id);
 
         genesis.transactions[0].isi.push(mint.into());
@@ -452,9 +450,7 @@ mod genesis {
         Ok(RegisterBox::new(Validator::new(
             "permission_validator%genesis@genesis".parse()?,
             validator::Type::Instruction,
-            WasmSmartContract {
-                raw_data: wasm_blob,
-            },
+            WasmSmartContract::new(wasm_blob),
         ))
         .into())
     }

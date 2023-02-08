@@ -19,7 +19,9 @@ pub mod world;
 
 use eyre::Result;
 use iroha_data_model::{
-    error::InstructionExecutionFailure as Error, expression::prelude::*, isi::*, prelude::*,
+    expression::prelude::*,
+    isi::{error::InstructionExecutionFailure as Error, *},
+    prelude::*,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::fixed::Fixed;
@@ -537,7 +539,7 @@ mod tests {
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .asset_definition_entry(&definition_id)?
-            .definition()
+            .definition
             .metadata()
             .get(&Name::from_str("Bytes")?)
             .cloned();

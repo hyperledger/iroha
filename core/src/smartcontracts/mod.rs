@@ -7,7 +7,7 @@
 pub mod isi;
 pub mod wasm;
 
-use iroha_data_model::{error::QueryExecutionFailure, prelude::*};
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
 pub use isi::*;
 
 use crate::wsv::WorldStateView;

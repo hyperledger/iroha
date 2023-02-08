@@ -409,7 +409,7 @@ pub struct Peer {
 
 impl From<Peer> for Box<iroha_core::tx::Peer> {
     fn from(val: Peer) -> Self {
-        Box::new(iroha_core::tx::Peer { id: val.id.clone() })
+        Box::new(iroha_data_model::peer::Peer::new(val.id.clone()))
     }
 }
 
@@ -547,19 +547,15 @@ impl Peer {
 /// `WithGenesis` structure.
 ///
 /// Options for setting up the genesis network for `PeerBuilder`.
+#[derive(Default)]
 pub enum WithGenesis {
     /// Use the default genesis network.
+    #[default]
     Default,
     /// Do not use any genesis networks.
     None,
     /// Use the given genesis network.
     Has(GenesisNetwork),
-}
-
-impl Default for WithGenesis {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl From<Option<GenesisNetwork>> for WithGenesis {

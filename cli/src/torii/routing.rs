@@ -26,27 +26,33 @@ use iroha_data_model::{
         },
         VersionedCommittedBlock,
     },
-    error::QueryExecutionFailure,
     predicate::PredicateBox,
     prelude::*,
-    query::{self, SignedQueryRequest},
+    query,
+    query::error::QueryExecutionFailure,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
+use pagination::{paginate, Paginate};
 use parity_scale_codec::{Decode, Encode};
 use tokio::task;
 
 use super::*;
 use crate::stream::{Sink, Stream};
 
+/// Filter for warp which extracts sorting
+pub fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Rejection> + Copy {
+    warp::query()
+}
+
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 pub struct VerifiedQueryRequest {
     /// Payload, containing the time, the query, the authenticating
     /// user account and a filter
-    payload: query::Payload,
+    payload: query::http::Payload,
     /// Signature of the authenticating user
-    signature: SignatureOf<query::Payload>,
+    signature: SignatureOf<query::http::Payload>,
 }
 
 impl VerifiedQueryRequest {
@@ -61,7 +67,7 @@ impl VerifiedQueryRequest {
         wsv: &WorldStateView,
     ) -> Result<(ValidQueryRequest, PredicateBox), QueryExecutionFailure> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.contains_signatory(self.signature.public_key())
+            account.signatories.contains(self.signature.public_key())
         })?;
         if !account_has_public_key {
             return Err(QueryExecutionFailure::Signature(String::from(
@@ -101,11 +107,10 @@ pub(crate) async fn handle_instructions(
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction = VersionedAcceptedTransaction::accept::<false>(
-        transaction,
-        &iroha_cfg.sumeragi.transaction_limits,
-    )
-    .map_err(Error::AcceptTransaction)?;
+    let transaction =
+        AcceptedTransaction::accept::<false>(transaction, &iroha_cfg.sumeragi.transaction_limits)
+            .map_err(Error::AcceptTransaction)?
+            .into();
     #[allow(clippy::map_err_ignore)]
     queue
         .push(transaction, &sumeragi.wsv_mutex_access())
@@ -166,7 +171,7 @@ fn apply_sorting_and_pagination(
     sorting: &Sorting,
     pagination: Pagination,
 ) -> Vec<Value> {
-    if let Some(ref key) = sorting.sort_by_metadata_key {
+    if let Some(key) = &sorting.sort_by_metadata_key {
         let mut pairs: Vec<(Option<Value>, Value)> = vec_of_val
             .into_iter()
             .map(|value| {
@@ -231,7 +236,8 @@ async fn handle_pending_transactions(
             .map(VersionedAcceptedTransaction::into_v1)
             .map(SignedTransaction::from)
             .paginate(pagination)
-            .collect(),
+            .collect::<PendingTransactions>()
+            .into(),
     ))
 }
 

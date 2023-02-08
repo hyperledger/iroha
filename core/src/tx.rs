@@ -17,7 +17,6 @@
 use std::str::FromStr;
 
 use eyre::Result;
-use iroha_data_model::permission::validator::NeedsPermissionBox;
 pub use iroha_data_model::prelude::*;
 use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
@@ -103,13 +102,14 @@ impl TransactionValidator {
         if !wsv
             .domain(&account_id.domain_id)
             .map_err(|_e| {
-                TransactionRejectionReason::NotPermitted(NotPermittedFail {
+                TransactionRejectionReason::from(NotPermittedFail {
                     reason: "Domain not found in Iroha".to_owned(),
                 })
             })?
-            .contains_account(account_id)
+            .accounts
+            .contains_key(account_id)
         {
-            return Err(TransactionRejectionReason::NotPermitted(NotPermittedFail {
+            return Err(TransactionRejectionReason::from(NotPermittedFail {
                 reason: "Account not found in Iroha".to_owned(),
             }));
         }
@@ -156,7 +156,7 @@ impl TransactionValidator {
             Err(reason) => Some(reason.to_string()),
         }
         .map(|reason| UnsatisfiedSignatureConditionFail { reason })
-        .map(TransactionRejectionReason::UnsatisfiedSignatureCondition);
+        .map(TransactionRejectionReason::from);
 
         if let Some(reason) = option_reason {
             return Err(reason);
@@ -220,7 +220,7 @@ impl TransactionValidator {
 
     fn validate_with_runtime_validators(
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<NeedsPermissionBox>,
+        operation: impl Into<iroha_data_model::permission::validator::NeedsPermissionBox>,
         wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         wsv.validators_view()
@@ -276,14 +276,13 @@ fn check_signature_condition(
     account: &Account,
     signatories: impl IntoIterator<Item = PublicKey>,
 ) -> EvaluatesTo<bool> {
-    #[allow(clippy::expect_used)]
-    let where_expr = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
-        account.signature_check_condition().as_expression().clone(),
-    ))
+    let where_expr = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(Box::new(
+        account.signature_check_condition.as_expression().clone(),
+    )))
     .with_value(
         Name::from_str(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE)
             .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-        account.signatories().cloned().collect::<Vec<_>>(),
+        account.signatories.iter().cloned().collect::<Vec<_>>(),
     )
     .with_value(
         Name::from_str(iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE)

@@ -37,12 +37,12 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["mutable_api", "warp"] }
+iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["transparent_api"] }
 iroha_macro = { version = "=2.0.0-pre-rc.13", path = "../macro" }
 iroha_p2p = { version = "=2.0.0-pre-rc.13", path = "../p2p" }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger"}
 iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
-iroha_version = { version = "=2.0.0-pre-rc.13", path = "../version", features = ["warp"] }
+iroha_version = { version = "=2.0.0-pre-rc.13", path = "../version" }
 iroha_actor = { version = "=2.0.0-pre-rc.13", path = "../actor" }
 iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
 iroha_futures = { version = "=2.0.0-pre-rc.13", path = "../futures" }
@@ -63,8 +63,8 @@ crossbeam-queue = "0.3.8"
 thiserror = "1.0.38"
 wasmtime = "0.39.1"
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
-itertools = "0.10.5"
 derive_more = "0.99.17"
+itertools = "0.10.5"
 
 [dev-dependencies]
 criterion = "0.3.6"

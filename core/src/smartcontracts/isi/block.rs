@@ -1,8 +1,8 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
-use iroha_data_model::{
+use iroha_data_model::query::{
+    block::FindBlockHeaderByHash,
     error::{FindError, QueryExecutionFailure},
-    query::block::FindBlockHeaderByHash,
 };
 use iroha_telemetry::metrics;
 

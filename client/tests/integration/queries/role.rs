@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_data_model::{error::QueryExecutionFailure, prelude::*};
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
 use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {

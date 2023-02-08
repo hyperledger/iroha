@@ -20,7 +20,6 @@ iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre-rc.13", path = "../futures", features = ["telemetry"] }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
 
-
 async-trait = "0.1.60"
 chrono = "0.4.23"
 eyre = "0.6.8"

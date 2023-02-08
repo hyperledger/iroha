@@ -23,7 +23,7 @@ pub mod macros {
     /// # Example
     ///
     /// ```no_run
-    /// pass_if!(asset_id.account_id == authority);
+    /// pass_if!(asset_id.account_id() == authority);
     /// ```
     #[macro_export]
     macro_rules! pass_if {
@@ -69,9 +69,9 @@ pub mod macros {
     /// # Example
     ///
     /// ```no_run
-    /// deny_if!(asset_id.account_id != authority, "You have to be an asset owner");
-    /// deny_if!(asset_id.account_id != authority, "You have to be an {} owner", asset_id);
-    /// deny_if!(asset_id.account_id != authority, construct_reason(&asset_id));
+    /// deny_if!(asset_id.account_id() != authority, "You have to be an asset owner");
+    /// deny_if!(asset_id.account_id() != authority, "You have to be an {} owner", asset_id);
+    /// deny_if!(asset_id.account_id() != authority, construct_reason(&asset_id));
     /// ```
     #[macro_export]
     macro_rules! deny_if {
@@ -157,7 +157,7 @@ pub mod macros {
                         $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
                         as
                         $crate::EvaluateOnHost
-                    >::evaluate(&grant.object),
+                    >::evaluate(grant.object()),
                         "Failed to evaluate `Grant` object"
                     );
 
@@ -181,7 +181,7 @@ pub mod macros {
                         $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
                         as
                         $crate::EvaluateOnHost
-                    >::evaluate(&revoke.object),
+                    >::evaluate(revoke.object()),
                         "Failed to evaluate `Revoke` object"
                     );
 
@@ -279,7 +279,8 @@ pub enum PermissionTokenConversionError {
     Id(PermissionTokenId),
     /// Missing parameter.
     Param(&'static str),
-    /// Unexpected parameter value. TODO: Improve this error.
+    // TODO: Improve this error
+    /// Unexpected parameter value.
     Value(String),
 }
 
@@ -360,7 +361,7 @@ pub mod pass_conditions {
 
         impl PassCondition for Owner<'_> {
             fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-                pass_if!(&self.asset_id.account_id == authority);
+                pass_if!(self.asset_id.account_id() == authority);
                 deny!("Can't give permission to access asset owned by another account")
             }
         }

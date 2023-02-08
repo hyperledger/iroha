@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use iroha_client::client::{self, ClientQueryError};
 use iroha_data_model::{
-    error::{FindError, QueryExecutionFailure},
     prelude::*,
+    query::error::{FindError, QueryExecutionFailure},
 };
 
 #[test]

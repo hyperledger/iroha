@@ -14,8 +14,8 @@ use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
-    block::VersionedCommittedBlock, error::QueryExecutionFailure, predicate::PredicateBox,
-    prelude::*, query::SignedQueryRequest,
+    block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
+    query::error::QueryExecutionFailure, transaction::Payload,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallStr;
@@ -231,8 +231,7 @@ where
             filter,
         }: PaginatedQueryResult,
     ) -> Result<Self> {
-        let QueryResult(result) = result;
-        let output = R::Output::try_from(result)
+        let output = R::Output::try_from(result.into())
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
@@ -327,7 +326,7 @@ impl Client {
     /// Fails if signing transaction fails
     pub fn build_transaction(
         &self,
-        instructions: Executable,
+        instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
     ) -> Result<SignedTransaction> {
         let transaction = Transaction::new(
@@ -417,7 +416,7 @@ impl Client {
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
-        self.submit_transaction(self.build_transaction(instructions.into(), metadata)?)
+        self.submit_transaction(self.build_transaction(instructions, metadata)?)
     }
 
     /// Submit a prebuilt transaction.
@@ -518,10 +517,10 @@ impl Client {
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         while let Some(event) = event_iterator.next().await {
             if let Event::Pipeline(this_event) = event? {
-                match this_event.status {
+                match this_event.status() {
                     PipelineStatus::Validating => {}
                     PipelineStatus::Rejected(reason) => {
-                        return Err(reason).wrap_err("Transaction rejected")
+                        return Err(reason.clone()).wrap_err("Transaction rejected")
                     }
                     PipelineStatus::Committed => return Ok(hash.transmute()),
                 }
@@ -616,7 +615,7 @@ impl Client {
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
-        let transaction = self.build_transaction(instructions.into(), metadata)?;
+        let transaction = self.build_transaction(instructions, metadata)?;
         self.submit_transaction_blocking(transaction)
     }
 
@@ -939,6 +938,14 @@ impl Client {
         )
     }
 
+    /// Check if two transactions are the same. Compare their contents excluding the creation time.
+    fn equals_excluding_creation_time(first: &Payload, second: &Payload) -> bool {
+        first.account_id() == second.account_id()
+            && first.instructions() == second.instructions()
+            && first.time_to_live_ms() == second.time_to_live_ms()
+            && first.metadata() == second.metadata()
+    }
+
     /// Find the original transaction in the pending local tx
     /// queue.  Should be used for an MST case.  Takes pagination as
     /// parameter.
@@ -970,9 +977,10 @@ impl Client {
                 let transaction = pending_transactions
                     .into_iter()
                     .find(|pending_transaction| {
-                        pending_transaction
-                            .payload
-                            .equals_excluding_creation_time(&transaction.payload)
+                        Self::equals_excluding_creation_time(
+                            pending_transaction.payload(),
+                            transaction.payload(),
+                        )
                     });
                 if transaction.is_some() {
                     return Ok(transaction);
@@ -1127,7 +1135,7 @@ pub mod stream_api {
         /// - `connect` failed
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
-        /// - Message is an error   
+        /// - Message is an error
         pub fn new<I: Init<DefaultWebSocketRequestBuilder>>(
             handler: I,
         ) -> Result<SyncIterator<I::Next>> {
@@ -1201,7 +1209,7 @@ pub mod stream_api {
         /// - `connect_async` failed
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
-        /// - Message is an error   
+        /// - Message is an error
         pub async fn new<I>(handler: I) -> Result<AsyncStream<I::Next>>
         where
             I: Init<DefaultWebSocketRequestBuilder> + Send,
@@ -1318,8 +1326,9 @@ pub mod events_api {
                     url,
                 } = self;
 
-                let msg = VersionedEventSubscriptionRequest::from(EventSubscriptionRequest(filter))
-                    .encode_versioned();
+                let msg =
+                    VersionedEventSubscriptionRequest::from(EventSubscriptionRequest::new(filter))
+                        .encode_versioned();
 
                 InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
@@ -1335,8 +1344,7 @@ pub mod events_api {
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message =
                     VersionedEventMessage::decode_all_versioned(&message)?.into_v1();
-                let EventMessage(event) = event_socket_message;
-                Ok(event)
+                Ok(event_socket_message.into())
             }
         }
     }
@@ -1400,8 +1408,9 @@ mod blocks_api {
                     url,
                 } = self;
 
-                let msg = VersionedBlockSubscriptionRequest::from(BlockSubscriptionRequest(height))
-                    .encode_versioned();
+                let msg =
+                    VersionedBlockSubscriptionRequest::from(BlockSubscriptionRequest::new(height))
+                        .encode_versioned();
 
                 InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
@@ -1415,12 +1424,8 @@ mod blocks_api {
             type Event = iroha_data_model::block::VersionedCommittedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
-                let block_socket_message =
-                    VersionedBlockMessage::decode_all_versioned(&message)?.into_v1();
-
-                let BlockMessage(block) = block_socket_message;
-
-                Ok(block)
+                let block_msg = VersionedBlockMessage::decode_all_versioned(&message)?.into_v1();
+                Ok(block_msg.into())
             }
         }
     }
@@ -1438,7 +1443,7 @@ pub mod account {
 
     /// Construct a query to get all accounts
     pub const fn all() -> FindAllAccounts {
-        FindAllAccounts::new()
+        FindAllAccounts
     }
 
     /// Construct a query to get account by id
@@ -1460,12 +1465,12 @@ pub mod asset {
 
     /// Construct a query to get all assets
     pub const fn all() -> FindAllAssets {
-        FindAllAssets::new()
+        FindAllAssets
     }
 
     /// Construct a query to get all asset definitions
     pub const fn all_definitions() -> FindAllAssetsDefinitions {
-        FindAllAssetsDefinitions::new()
+        FindAllAssetsDefinitions
     }
 
     /// Construct a query to get asset definition by its id
@@ -1494,12 +1499,12 @@ pub mod block {
 
     /// Construct a query to find all blocks
     pub const fn all() -> FindAllBlocks {
-        FindAllBlocks::new()
+        FindAllBlocks
     }
 
     /// Construct a query to find all block headers
     pub const fn all_headers() -> FindAllBlockHeaders {
-        FindAllBlockHeaders::new()
+        FindAllBlockHeaders
     }
 
     /// Construct a query to find block header by hash
@@ -1514,7 +1519,7 @@ pub mod domain {
 
     /// Construct a query to get all domains
     pub const fn all() -> FindAllDomains {
-        FindAllDomains::new()
+        FindAllDomains
     }
 
     /// Construct a query to get all domain by id
@@ -1531,7 +1536,7 @@ pub mod transaction {
 
     /// Construct a query to find all transactions
     pub fn all() -> FindAllTransactions {
-        FindAllTransactions::new()
+        FindAllTransactions
     }
 
     /// Construct a query to retrieve transactions for account
@@ -1571,9 +1576,7 @@ pub mod permissions {
     pub fn by_account_id(
         account_id: impl Into<EvaluatesTo<AccountId>>,
     ) -> FindPermissionTokensByAccountId {
-        FindPermissionTokensByAccountId {
-            id: account_id.into(),
-        }
+        FindPermissionTokensByAccountId::new(account_id.into())
     }
 }
 
@@ -1583,12 +1586,12 @@ pub mod role {
 
     /// Construct a query to retrieve all roles
     pub const fn all() -> FindAllRoles {
-        FindAllRoles::new()
+        FindAllRoles
     }
 
     /// Construct a query to retrieve all role ids
     pub const fn all_ids() -> FindAllRoleIds {
-        FindAllRoleIds::new()
+        FindAllRoleIds
     }
 
     /// Construct a query to retrieve a role by its id
@@ -1608,7 +1611,7 @@ pub mod parameter {
 
     /// Construct a query to retrieve all config parameters
     pub const fn all() -> FindAllParameters {
-        FindAllParameters::new()
+        FindAllParameters
     }
 }
 
@@ -1652,7 +1655,7 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::<Instruction>::new().into(), UnlimitedMetadata::new())
+                .build_transaction(Vec::new(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();

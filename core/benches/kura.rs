@@ -16,15 +16,16 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
     let alice_xor_id = <Asset as Identifiable>::Id::new(xor_id.clone(), alice_id);
     let bob_xor_id = <Asset as Identifiable>::Id::new(xor_id, bob_id);
-    let transfer = Instruction::Transfer(TransferBox {
+    let transfer = TransferBox {
         source_id: IdBox::AssetId(alice_xor_id).into(),
         object: 10_u32.to_value().into(),
         destination_id: IdBox::AssetId(bob_xor_id).into(),
-    });
+    }
+    .into();
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let tx = Transaction::new(
         AccountId::from_str("alice@wonderland").expect("checked"),
-        vec![transfer].into(),
+        vec![transfer],
         1000,
     )
     .sign(keypair)
@@ -33,8 +34,9 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         max_instruction_number: 4096,
         max_wasm_size_bytes: 0,
     };
-    let tx = VersionedAcceptedTransaction::accept::<false>(tx, &transaction_limits)
-        .expect("Failed to accept Transaction.");
+    let tx = AcceptedTransaction::accept::<false>(tx, &transaction_limits)
+        .expect("Failed to accept Transaction.")
+        .into();
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
     let kura =
         iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();

@@ -393,26 +393,26 @@ mod signed {
                 .transactions
                 .iter()
                 .map(|transaction| -> Event {
-                    PipelineEvent::new(
-                        PipelineEntityKind::Transaction,
-                        PipelineStatus::Validating,
-                        transaction.hash().into(),
-                    )
+                    PipelineEvent {
+                        entity_kind: PipelineEntityKind::Transaction,
+                        status: PipelineStatus::Validating,
+                        hash: transaction.hash().into(),
+                    }
                     .into()
                 })
                 .chain(block.rejected_transactions.iter().map(|transaction| {
-                    PipelineEvent::new(
-                        PipelineEntityKind::Transaction,
-                        PipelineStatus::Validating,
-                        transaction.hash().into(),
-                    )
+                    PipelineEvent {
+                        entity_kind: PipelineEntityKind::Transaction,
+                        status: PipelineStatus::Validating,
+                        hash: transaction.hash().into(),
+                    }
                     .into()
                 }))
-                .chain([PipelineEvent::new(
-                    PipelineEntityKind::Block,
-                    PipelineStatus::Validating,
-                    block.hash().into(),
-                )
+                .chain([PipelineEvent {
+                    entity_kind: PipelineEntityKind::Block,
+                    status: PipelineStatus::Validating,
+                    hash: block.hash().into(),
+                }
                 .into()])
                 .collect()
         }
@@ -842,6 +842,7 @@ mod candidate_committed {
                     eyre!("The block doesn't have enough valid signatures to be committed."),
                 ));
             }
+
             self.revalidate_hashes()
         }
 
@@ -956,11 +957,13 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
         let transaction_validator = TransactionValidator::new(transaction_limits);
-        let tx = Transaction::new(alice_id, [create_asset_definition].into(), 4000)
+        let tx = Transaction::new(alice_id, [create_asset_definition], 4000)
             .sign(alice_keys)
             .expect("Valid");
-        let tx = crate::VersionedAcceptedTransaction::accept::<false>(tx, &transaction_limits)
-            .expect("Valid");
+        let tx: VersionedAcceptedTransaction =
+            AcceptedTransaction::accept::<false>(tx, &transaction_limits)
+                .map(Into::into)
+                .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];

@@ -119,13 +119,6 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
 }
 
 #[test]
-fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
-    let mut definition = AssetDefinition::quantity("test#hello".parse()?).build();
-    assert!(definition.forbid_minting().is_err());
-    Ok(())
-}
-
-#[test]
 fn account_id_parsing() -> Result<(), ParseError> {
     // `AccountId` should have format `name@domain_name`
     let account_normal: AccountId = "test@hello".parse()?;

@@ -1,7 +1,7 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
 //! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
-use iroha_data_model::{error::FindError, prelude::*};
+use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
@@ -14,7 +14,10 @@ use crate::{ValidQuery, WorldStateView};
 /// - grant permissions and roles
 /// - Revoke permissions or roles
 pub mod isi {
-    use iroha_data_model::{error::QueryExecutionFailure, isi::InstructionType};
+    use iroha_data_model::{
+        isi::{error::MintabilityError, InstructionType},
+        query::error::QueryExecutionFailure,
+    };
 
     use super::*;
 
@@ -28,33 +31,35 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let asset_id = self.object.id();
+            let asset_id = self.object.id;
 
-            match wsv.asset(asset_id) {
+            match wsv.asset(&asset_id) {
                 Err(err) => match err {
                     QueryExecutionFailure::Find(find_err)
                         if matches!(*find_err, FindError::Asset(_)) =>
                     {
-                        assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
-                        wsv.asset_or_insert(asset_id, self.object.value().clone())
+                        assert_can_register(&asset_id.definition_id, wsv, &self.object.value)?;
+                        let asset = wsv
+                            .asset_or_insert(&asset_id, self.object.value)
                             .expect("Account exists");
-                        match self.object.value() {
+
+                        match asset.value {
                             AssetValue::Quantity(increment) => {
                                 wsv.increase_asset_total_amount(
                                     &asset_id.definition_id,
-                                    *increment,
+                                    increment,
                                 )?;
                             }
                             AssetValue::BigQuantity(increment) => {
                                 wsv.increase_asset_total_amount(
                                     &asset_id.definition_id,
-                                    *increment,
+                                    increment,
                                 )?;
                             }
                             AssetValue::Fixed(increment) => {
                                 wsv.increase_asset_total_amount(
                                     &asset_id.definition_id,
-                                    *increment,
+                                    increment,
                                 )?;
                             }
                             AssetValue::Store(_) => {
@@ -81,15 +86,15 @@ pub mod isi {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
-            match wsv.asset(&asset_id)?.value() {
+            match wsv.asset(&asset_id)?.value {
                 AssetValue::Quantity(increment) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, *increment)?;
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, increment)?;
                 }
                 AssetValue::BigQuantity(increment) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, *increment)?;
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, increment)?;
                 }
                 AssetValue::Fixed(increment) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, *increment)?;
+                    wsv.decrease_asset_total_amount(&asset_id.definition_id, increment)?;
                 }
                 AssetValue::Store(_) => {
                     wsv.decrease_asset_total_amount(&asset_id.definition_id, 1_u32)?;
@@ -101,8 +106,8 @@ pub mod isi {
                     .remove_asset(&asset_id)
                     .map(|asset| {
                         AccountEvent::Asset(AssetEvent::Removed(AssetChanged {
-                            asset_id: asset.id().clone(),
-                            amount: asset.value().clone(),
+                            asset_id: asset.id,
+                            amount: asset.value,
                         }))
                     })
                     .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
@@ -123,7 +128,7 @@ pub mod isi {
             let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                if account.contains_signatory(&public_key) {
+                if account.signatories.contains(&public_key) {
                     return Err(
                         ValidationError::new("Account already contains this signatory").into(),
                     );
@@ -148,7 +153,7 @@ pub mod isi {
             let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                if account.signatories().len() < 2 {
+                if account.signatories.len() < 2 {
                     return Err(ValidationError::new(
                         "Public keys cannot be burned to nothing. \
                          If you want to delete the account, please use an unregister instruction.",
@@ -177,7 +182,7 @@ pub mod isi {
             let signature_check_condition = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                account.set_signature_check_condition(signature_check_condition);
+                account.signature_check_condition = signature_check_condition;
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
@@ -197,7 +202,7 @@ pub mod isi {
             let account_metadata_limits = wsv.config.account_metadata_limits;
 
             wsv.modify_account(&account_id, |account| {
-                account.metadata_mut().insert_with_limits(
+                account.metadata.insert_with_limits(
                     self.key.clone(),
                     self.value.clone(),
                     account_metadata_limits,
@@ -225,7 +230,7 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 let value = account
-                    .metadata_mut()
+                    .metadata
                     .remove(&self.key)
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
@@ -252,9 +257,9 @@ pub mod isi {
 
             let definition = wsv
                 .permission_token_definitions()
-                .get(permission.definition_id())
+                .get(&permission.definition_id)
                 .ok_or_else(|| {
-                    FindError::PermissionTokenDefinition(permission.definition_id().clone())
+                    FindError::PermissionTokenDefinition(permission.definition_id.clone())
                 })?;
 
             permissions::check_permission_token_parameters(&permission, definition.value())?;
@@ -265,7 +270,7 @@ pub mod isi {
                     return Err(ValidationError::new("Permission already exists").into());
                 }
 
-                let permission_id = permission.definition_id().clone();
+                let permission_id = permission.definition_id.clone();
 
                 wsv.add_account_permission(id, permission);
                 Ok(AccountEvent::PermissionAdded(AccountPermissionChanged {
@@ -287,7 +292,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |_| {
                 if !wsv
                     .permission_token_definitions()
-                    .contains_key(permission.definition_id())
+                    .contains_key(&permission.definition_id)
                 {
                     error!(%permission, "Revoking non-existent token");
                 }
@@ -296,7 +301,7 @@ pub mod isi {
                 }
                 Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
                     account_id: account_id.clone(),
-                    permission_id: permission.definition_id().clone(),
+                    permission_id: permission.definition_id,
                 }))
             })
         }
@@ -330,8 +335,8 @@ pub mod isi {
                     .roles()
                     .get(&role_id)
                     .iter()
-                    .flat_map(|role| role.permissions())
-                    .map(PermissionToken::definition_id)
+                    .flat_map(|role| &role.permissions)
+                    .map(|token| &token.definition_id)
                     .cloned()
                     .map(|permission_id| AccountPermissionChanged {
                         account_id: account_id.clone(),
@@ -372,8 +377,8 @@ pub mod isi {
                     .roles()
                     .get(&role_id)
                     .iter()
-                    .flat_map(|role| role.permissions())
-                    .map(PermissionToken::definition_id)
+                    .flat_map(|role| &role.permissions)
+                    .map(|token| &token.definition_id)
                     .cloned()
                     .map(|permission_id| AccountPermissionChanged {
                         account_id: account_id.clone(),
@@ -400,13 +405,13 @@ pub mod isi {
         value: &AssetValue,
     ) -> Result<(), Error> {
         let definition = asset::isi::assert_asset_type(definition_id, wsv, value.value_type())?;
-        match definition.mintable() {
+        match definition.mintable {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
                 if !value.is_zero_value() {
                     wsv.modify_asset_definition_entry(definition_id, |entry| {
-                        entry.forbid_minting()?;
+                        forbid_minting(&mut entry.definition)?;
                         Ok(AssetDefinitionEvent::MintabilityChanged(
                             definition_id.clone(),
                         ))
@@ -416,13 +421,39 @@ pub mod isi {
             }
         }
     }
+
+    /// Stop minting on the [`AssetDefinition`] globally.
+    ///
+    /// # Errors
+    /// If the [`AssetDefinition`] is not `Mintable::Once`.
+    #[inline]
+    pub fn forbid_minting(definition: &mut AssetDefinition) -> Result<(), MintabilityError> {
+        if definition.mintable == Mintable::Once {
+            definition.mintable = Mintable::Not;
+            Ok(())
+        } else {
+            Err(MintabilityError::ForbidMintOnMintable)
+        }
+    }
+
+    #[cfg(test)]
+    mod test {
+        use iroha_data_model::{prelude::AssetDefinition, ParseError, Registrable};
+
+        #[test]
+        fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
+            let mut definition = AssetDefinition::quantity("test#hello".parse()?).build();
+            assert!(super::forbid_minting(&mut definition).is_err());
+            Ok(())
+        }
+    }
 }
 
 /// Account-related [`Query`] instructions.
 pub mod query {
 
     use eyre::{Result, WrapErr};
-    use iroha_data_model::error::QueryExecutionFailure as Error;
+    use iroha_data_model::query::error::QueryExecutionFailure as Error;
 
     use super::{super::Evaluate, *};
 
@@ -436,7 +467,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
             let roles = wsv.map_account(&account_id, |account| {
-                account.roles().cloned().collect::<Vec<_>>()
+                account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
             Ok(roles)
         }
@@ -463,7 +494,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts() {
+                for account in domain.accounts.values() {
                     vec.push(account.clone())
                 }
             }
@@ -495,7 +526,7 @@ pub mod query {
             iroha_logger::trace!(%name);
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts() {
+                for account in domain.accounts.values() {
                     if account.id().name == name {
                         vec.push(account.clone())
                     }
@@ -514,7 +545,7 @@ pub mod query {
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            Ok(wsv.domain(&id)?.accounts().cloned().collect::<Vec<_>>())
+            Ok(wsv.domain(&id)?.accounts.values().cloned().collect())
         }
     }
 
@@ -532,10 +563,8 @@ pub mod query {
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
-            wsv.map_account(&id, |account| {
-                account.metadata().get(&key).map(Clone::clone)
-            })?
-            .ok_or_else(|| FindError::MetadataKey(key).into())
+            wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
+                .ok_or_else(|| FindError::MetadataKey(key).into())
         }
     }
 
@@ -553,11 +582,12 @@ pub mod query {
 
             wsv.map_domain(domain_id, |domain| {
                 let found = domain
-                    .accounts()
+                    .accounts
+                    .values()
                     .filter(|account| {
                         let asset_id =
                             AssetId::new(asset_definition_id.clone(), account.id().clone());
-                        account.asset(&asset_id).is_some()
+                        account.assets.get(&asset_id).is_some()
                     })
                     .cloned()
                     .collect();

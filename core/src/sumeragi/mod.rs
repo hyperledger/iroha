@@ -195,7 +195,7 @@ impl Sumeragi {
                 .accounts
                 .get_metric_with_label_values(&[domain.id().name.as_ref()])
                 .wrap_err("Failed to compose domains")?
-                .set(domain.accounts().len() as u64);
+                .set(domain.accounts.len() as u64);
         }
 
         self.metrics

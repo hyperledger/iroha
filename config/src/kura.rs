@@ -58,19 +58,14 @@ impl Configuration {
 }
 
 /// Kura initialization mode.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
+    #[default]
     Strict,
     /// Fast initialization with basic checks.
     Fast,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Strict
-    }
 }
 
 #[cfg(test)]

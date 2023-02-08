@@ -108,11 +108,10 @@ impl Chain {
     /// # Errors
     ///
     /// Fails if WASM module loading fails.
-    #[allow(clippy::needless_pass_by_value)] // Will be not useless after #3121
     pub fn add_validator(&self, validator: Validator) -> Result<MustUse<bool>> {
         use dashmap::mapref::entry::Entry::*;
 
-        let id = validator.id().clone();
+        let id = validator.id.clone();
         let Vacant(vacant) = self.all_validators.entry(id.clone()) else {
             return Ok(MustUse(false));
         };
@@ -128,12 +127,11 @@ impl Chain {
                 concrete_type_vacant.insert(vec![id]);
             }
         }
-        // TODO (#3121): Use move semantics to avoid cloning
-        let module = wasm::load_module(&self.engine, validator.wasm().clone())?;
+
         let loaded_validator = LoadedValidator {
-            id: validator.id().clone(),
-            validator_type: *validator.validator_type(),
-            module,
+            id: validator.id,
+            validator_type: validator.validator_type,
+            module: wasm::load_module(&self.engine, validator.wasm)?,
         };
 
         vacant.insert(loaded_validator);
@@ -148,6 +146,7 @@ impl Chain {
     pub fn remove_validator(&self, id: &Id) -> bool {
         self.all_validators.get(id).map_or(false, |entry| {
             let type_ = &entry.validator_type;
+
             self.all_validators
                 .remove(id)
                 .and_then(|_| self.concrete_type_validators.get_mut(type_))

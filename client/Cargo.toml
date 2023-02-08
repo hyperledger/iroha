@@ -22,12 +22,11 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
 iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto"}
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["warp"] }
+iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["http"] }
 iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../primitives" }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger"}
 iroha_telemetry = { version ="=2.0.0-pre-rc.13", path = "../telemetry" }
-iroha_version = { version = "=2.0.0-pre-rc.13", path = "../version" }
-iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../genesis"}
+iroha_version = { version = "=2.0.0-pre-rc.13", path = "../version", features = ["http"] }
 
 attohttpc = "0.18.0"
 eyre = "0.6.8"
@@ -44,14 +43,17 @@ tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
 tungstenite = { version = "0.16", features = ["native-tls"] }
 futures-util = "0.3.25"
 
-
 [dev-dependencies]
-iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
 
-# TODO: Has `iroha_core` as dependency. Will be removed after we get rid of the integration tests.
+# TODO: These three activate `transparent_api` but client should never activate this feature.
+# Additionally there is a dependency on iroha_core in dev-dependencies in telemetry/derive
+# Hopefully, once the integration tests migration is finished these can be removed
+iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
+iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../genesis"}
 test_network = { version = "=2.0.0-pre-rc.13", path = "../core/test_network" }
-tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread"] }
+
+tokio = { version = "1.23.0", features = ["rt-multi-thread"] }
 criterion = { version = "0.3.6", features = ["html_reports"] }
 color-eyre = "0.6.2"
 tempfile = "3.3.0"
@@ -62,8 +64,9 @@ tracing-flame = "0.2.0"
 once_cell = "1.16.0"
 
 [build-dependencies]
-eyre = "0.6.8"
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
+
+eyre = "0.6.8"
 
 [[bench]]
 name = "torii"

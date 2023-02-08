@@ -5,34 +5,23 @@ use alloc::{format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
-use iroha_ffi::FfiType;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
-use crate::{ParseError, ValidationError};
+use crate::{model, ParseError, ValidationError};
 
-/// `Name` struct represents type for Iroha Entities names, like
-/// [`Domain`](`crate::domain::Domain`)'s name or
-/// [`Account`](`crate::account::Account`)'s name.
-#[derive(
-    DebugCustom,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Encode,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-#[repr(transparent)]
-#[serde(transparent)]
-pub struct Name(ConstString);
+model! {
+    /// `Name` struct represents the type of Iroha Entities names, such as
+    /// [`Domain`](`crate::domain::Domain`) name or
+    /// [`Account`](`crate::account::Account`) name.
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
+    #[ffi_type(opaque)]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    pub struct Name(ConstString);
+}
 
 impl Name {
     /// Check if `range` contains the number of chars in the inner `ConstString` of this [`Name`].
@@ -90,11 +79,6 @@ impl AsRef<str> for Name {
     }
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl FromStr for Name {
     type Err = ParseError;
 
@@ -122,18 +106,6 @@ impl Decode for Name {
         Self::validate_str(&name)
             .map(|_| Self(name))
             .map_err(|error| error.reason.into())
-    }
-}
-
-#[allow(unsafe_code)]
-// SAFETY: `Name` is transmutable into `ConstString`
-// and `is_valid` is not returning false positives
-unsafe impl iroha_ffi::ir::Transmute for Name {
-    type Target = ConstString;
-
-    #[inline]
-    unsafe fn is_valid(inner: &Self::Target) -> bool {
-        Self::validate_str(inner).is_ok()
     }
 }
 

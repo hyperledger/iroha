@@ -142,7 +142,7 @@ fn derive_ffi_type_for_fieldless_enum(
 
     quote! {
         impl iroha_ffi::option::Niche for #enum_name {
-            const NICHE_VALUE: <Self as FfiType>::ReprC = <Self as FfiType>::ReprC::MAX;
+            const NICHE_VALUE: <Self as iroha_ffi::FfiType>::ReprC = <Self as iroha_ffi::FfiType>::ReprC::MAX;
         }
 
         iroha_ffi::ffi_type! {

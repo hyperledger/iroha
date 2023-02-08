@@ -20,7 +20,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
-            Executable::from(vec![instruction.clone().into()]),
+            vec![instruction.clone().into()],
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
@@ -33,7 +33,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_2".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
@@ -85,7 +85,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_sakura$neverland".parse()?,
         Action::new(
-            Executable::from(vec![MintBox::new(1_u32, asset_id.clone()).into()]),
+            vec![MintBox::new(1_u32, asset_id.clone()).into()],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(

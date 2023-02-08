@@ -7,84 +7,58 @@
 //! In the future they will be replaced with *runtime validators* that use WASM.
 //! The architecture of the new validators is quite different from the old ones.
 //! That's why some parts of this module may not be used anywhere yet.
-use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::FfiType;
+use iroha_data_model_derive::IdEqOrdHash;
+use iroha_macro::FromVariant;
 
 use super::*;
 use crate::{
     account::Account,
     expression::Expression,
     isi::Instruction,
+    model,
     query::QueryBox,
     transaction::{SignedTransaction, WasmSmartContract},
     ParseError,
 };
 
-declare_item! {
+model! {
+    /// Identification of a [`Validator`].
+    ///
+    /// Consists of Validator's name and account (authority) id
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[display(fmt = "{name}%{owned_by}")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Id {
+        /// Name given to validator by its creator.
+        pub name: Name,
+        /// Account that owns the validator.
+        pub owned_by: <Account as Identifiable>::Id,
+    }
+
     /// Permission validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
     /// [`Instruction`]s, etc.
-    #[derive(
-        Debug,
-        Display,
-        Constructor,
-        Clone,
-        IdOrdEqHash,
-        Getters,
-        MutGetters,
-        Setters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "{id}")]
+    #[ffi_type]
     pub struct Validator {
-        id: Id,
-        #[getset(get = "pub")]
+        /// Identification of this [`Validator`].
+        pub id: Id,
         /// Type of the validator
-        validator_type: Type,
-        // TODO: use another type like `WasmValidator`?
-        /// WASM code of the validator
         #[getset(get = "pub")]
-        wasm: WasmSmartContract,
+        pub validator_type: Type,
+        /// WASM code of the validator
+        // TODO: use another type like `WasmValidator`?
+        #[getset(get = "pub")]
+        pub wasm: WasmSmartContract,
     }
 }
 
 impl Registered for Validator {
     type With = Self;
-}
-
-/// Identification of a [`Validator`].
-///
-/// Consists of Validator's name and account (authority) id
-#[derive(
-    Debug,
-    Display,
-    Constructor,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{name}%{owned_by}")]
-pub struct Id {
-    /// Name given to validator by its creator.
-    pub name: Name,
-    /// Account that owns the validator.
-    pub owned_by: <Account as Identifiable>::Id,
 }
 
 impl core::str::FromStr for Id {
@@ -110,30 +84,21 @@ impl core::str::FromStr for Id {
     }
 }
 
-/// Type of validator
-#[derive(
-    Debug,
-    Display,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-pub enum Type {
-    /// Validator checking [`Transaction`]
-    Transaction,
-    /// Validator checking [`Instruction`]
-    Instruction,
-    /// Validator checking [`QueryBox`]
-    Query,
-    /// Validator checking [`Expression`]
-    Expression,
+model! {
+    /// Type of validator
+    #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash, Encode, Decode, Deserialize, Serialize, IntoSchema)]
+    #[repr(u8)]
+    #[ffi_type]
+    pub enum Type {
+        /// Validator checking [`Transaction`]
+        Transaction,
+        /// Validator checking [`Instruction`]
+        Instruction,
+        /// Validator checking [`QueryBox`]
+        Query,
+        /// Validator checking [`Expression`]
+        Expression,
+    }
 }
 
 /// Operation for which the permission should be checked
@@ -163,29 +128,46 @@ impl NeedsPermission for Expression {
     }
 }
 
-/// Boxed version of [`NeedsPermission`]
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    derive_more::From,
-    derive_more::TryInto,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-)]
-pub enum NeedsPermissionBox {
-    /// [`SignedTransaction`] application operation
-    Transaction(SignedTransaction),
-    /// [`Instruction`] execution operation
-    Instruction(Instruction),
-    /// [`QueryBox`] execution operations
-    Query(QueryBox),
-    /// [`Expression`] evaluation operation
-    Expression(Expression),
+model! {
+    // TODO: Client doesn't need structures defined inside this macro. When dynamic linking is
+    // implemented use: #[cfg(any(feature = "transparent_api", feature = "ffi_import"))]
+
+    /// Boxed version of [`NeedsPermission`]
+    #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize)]
+    #[ffi_type]
+    pub enum NeedsPermissionBox {
+        /// [`SignedTransaction`] application operation
+        Transaction(SignedTransaction),
+        /// [`Instruction`] execution operation
+        Instruction(Instruction),
+        /// [`QueryBox`] execution operations
+        Query(QueryBox),
+        /// [`Expression`] evaluation operation
+        Expression(Expression),
+    }
+
+    /// Validation verdict. All *runtime validators* should return this type.
+    ///
+    /// All operations are considered to be **valid** unless proven otherwise.
+    /// Validators are allowed to either pass an operation to the next validator
+    /// or to deny an operation.
+    ///
+    /// # Note
+    ///
+    /// There is no `Allow` variant (as well as it isn't a [`Result`] alias)
+    /// because `Allow` and `Result` have a wrong connotation and suggest
+    /// an incorrect interpretation of validators system.
+    ///
+    /// All operations are allowed by default.
+    /// Validators are checking for operation **incorrectness**, not for operation correctness.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Deserialize, Serialize, IntoSchema)]
+    pub enum Verdict {
+        /// Operation is approved to pass to the next validator
+        /// or to be executed if there are no more validators
+        Pass,
+        /// Operation is denied
+        Deny(DenialReason),
+    }
 }
 
 impl NeedsPermission for NeedsPermissionBox {
@@ -197,29 +179,6 @@ impl NeedsPermission for NeedsPermissionBox {
             NeedsPermissionBox::Expression(_) => Type::Expression,
         }
     }
-}
-
-/// Validation verdict. All *runtime validators* should return this type.
-///
-/// All operations are considered to be **valid** unless proven otherwise.
-/// Validators are allowed to either pass an operation to the next validator
-/// or to deny an operation.
-///
-/// # Note
-///
-/// There is no `Allow` variant (as well as it isn't a [`Result`] alias)
-/// because `Allow` and `Result` have a wrong connotation and suggest
-/// an incorrect interpretation of validators system.
-///
-/// All operations are allowed by default.
-/// Validators are checking for operation **incorrectness**, not for operation correctness.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Deserialize, Serialize, IntoSchema)]
-pub enum Verdict {
-    /// Operation is approved to pass to the next validator
-    /// or to be executed if there are no more validators
-    Pass,
-    /// Operation is denied
-    Deny(DenialReason),
 }
 
 impl Verdict {
