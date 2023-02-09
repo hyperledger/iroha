@@ -632,14 +632,7 @@ impl Execute for SetParameterBox {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new();
         let parameter = self.parameter.evaluate(wsv, &context)?;
-        match self.source_id.evaluate(wsv, &context)? {
-            IdBox::AccountId(account_id) => {
-                iroha_logger::trace!(?parameter, %authority);
-                SetParameter::<Parameter, Account>::new(parameter, account_id)
-                    .execute(authority, wsv)
-            }
-            _ => Err(Error::Unsupported(InstructionType::SetParameter)),
-        }
+        SetParameter::<Parameter>::new(parameter).execute(authority, wsv)
     }
 }
 
@@ -649,14 +642,7 @@ impl Execute for NewParameterBox {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new();
         let parameter = self.parameter.evaluate(wsv, &context)?;
-        match self.source_id.evaluate(wsv, &context)? {
-            IdBox::AccountId(account_id) => {
-                iroha_logger::trace!(?parameter, %authority);
-                NewParameter::<Parameter, Account>::new(parameter, account_id)
-                    .execute(authority, wsv)
-            }
-            _ => Err(Error::Unsupported(InstructionType::SetParameter)),
-        }
+        NewParameter::<Parameter>::new(parameter).execute(authority, wsv)
     }
 }
 

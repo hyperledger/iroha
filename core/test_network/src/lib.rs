@@ -142,7 +142,7 @@ impl TestGenesis for GenesisNetwork {
                     .expect("Invalid parameter string"),
             ]
             .into_iter()
-            .map(|param| NewParameterBox::new(param, alice_id.clone()))
+            .map(|param| NewParameterBox::new(param))
             .map(Instruction::NewParameter)
             .map(Into::into),
         );
