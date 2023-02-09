@@ -5,15 +5,10 @@ use crate::ffi_type;
 #[cfg(target_family = "wasm")]
 mod wasm {
     use alloc::{boxed::Box, vec::Vec};
-    use core::{mem::ManuallyDrop, slice};
 
     use crate::{
         ir::{Robust, Transparent},
-        repr_c::{
-            read_non_local, write_non_local, COutPtr, COutPtrRead, COutPtrWrite, CType,
-            CTypeConvert, CWrapperType,
-        },
-        slice::{OutBoxedSlice, SliceMut, SliceRef},
+        repr_c::{COutPtr, COutPtrRead, COutPtrWrite, CType, CTypeConvert, CWrapperType},
         FfiReturn, Result,
     };
 
