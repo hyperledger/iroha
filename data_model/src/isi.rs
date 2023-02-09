@@ -100,8 +100,6 @@ pub struct SetParameterBox {
     /// The configuration parameter being changed.
     #[serde(flatten)]
     pub parameter: EvaluatesTo<Parameter>,
-    /// The entity requesting the change.
-    pub source_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible on-chain configuration parameters when they are first created.
@@ -113,8 +111,6 @@ pub struct NewParameterBox {
     /// The configuration parameter being created.
     #[serde(flatten)]
     pub parameter: EvaluatesTo<Parameter>,
-    /// The entity requesting the creation.
-    pub source_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible key value set instructions.
@@ -434,55 +430,41 @@ where
 
 /// Generic instruction for setting a chain-wide config parameter.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct SetParameter<P, S>
+pub struct SetParameter<P>
 where
     P: Identifiable,
-    S: Registered,
 {
     /// Parameter to be changed.
     pub parameter: P,
-    /// Entity which is setting this parameter.
-    pub source_id: S::Id,
 }
 
 /// Generic instruction for setting a chain-wide config parameter.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct NewParameter<P, S>
+pub struct NewParameter<P>
 where
     P: Identifiable,
-    S: Registered,
 {
     /// Parameter to be changed.
     pub parameter: P,
-    /// Entity which is setting this parameter.
-    pub source_id: S::Id,
 }
 
-impl<P, S> SetParameter<P, S>
+impl<P> SetParameter<P>
 where
     P: Identifiable,
-    S: Registered,
 {
     /// Construct [`SetParameter`].
-    pub fn new(parameter: P, source_id: S::Id) -> Self {
-        Self {
-            parameter,
-            source_id,
-        }
+    pub fn new(parameter: P) -> Self {
+        Self { parameter }
     }
 }
 
-impl<P, S> NewParameter<P, S>
+impl<P> NewParameter<P>
 where
     P: Identifiable,
-    S: Registered,
 {
     /// Construct [`SetParameter`].
-    pub fn new(parameter: P, source_id: S::Id) -> Self {
-        Self {
-            parameter,
-            source_id,
-        }
+    pub fn new(parameter: P) -> Self {
+        Self { parameter }
     }
 }
 
@@ -901,17 +883,13 @@ impl FailBox {
 impl SetParameterBox {
     /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
-        self.parameter.len() + self.source_id.len() + 1
+        self.parameter.len() + 1
     }
 
     /// Construct [`SetParameterBox`].
-    pub fn new<P: Into<EvaluatesTo<Parameter>>, S: Into<EvaluatesTo<IdBox>>>(
-        parameter: P,
-        source_id: S,
-    ) -> Self {
+    pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
             parameter: parameter.into(),
-            source_id: source_id.into(),
         }
     }
 }
@@ -919,17 +897,13 @@ impl SetParameterBox {
 impl NewParameterBox {
     /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
-        self.parameter.len() + self.source_id.len() + 1
+        self.parameter.len() + 1
     }
 
     /// Construct [`SetParameterBox`].
-    pub fn new<P: Into<EvaluatesTo<Parameter>>, S: Into<EvaluatesTo<IdBox>>>(
-        parameter: P,
-        source_id: S,
-    ) -> Self {
+    pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
             parameter: parameter.into(),
-            source_id: source_id.into(),
         }
     }
 }

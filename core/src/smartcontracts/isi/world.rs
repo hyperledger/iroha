@@ -372,7 +372,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetParameter<Parameter, Account> {
+    impl Execute for SetParameter<Parameter> {
         type Error = Error;
 
         #[metrics(+"set_parameter")]
@@ -381,7 +381,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let SetParameter { parameter, .. } = self;
+            let parameter = self.parameter;
 
             wsv.modify_world(|world| {
                 if world.parameters.remove(&parameter).is_some() {
@@ -395,7 +395,7 @@ pub mod isi {
     }
 }
 
-impl Execute for NewParameter<Parameter, Account> {
+impl Execute for NewParameter<Parameter> {
     type Error = Error;
 
     #[metrics(+"new_parameter")]
@@ -404,7 +404,7 @@ impl Execute for NewParameter<Parameter, Account> {
         _authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
-        let NewParameter { parameter, .. } = self;
+        let parameter = self.parameter;
 
         wsv.modify_world(|world| {
             if world.parameters.insert(parameter.clone()) {
