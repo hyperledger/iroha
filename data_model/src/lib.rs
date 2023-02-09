@@ -1252,7 +1252,7 @@ pub trait Registrable {
     IntoSchema,
     FfiType,
 )]
-#[display(fmt = "{min},{max}LL")]
+#[display(fmt = "{min},{max}_LL")]
 pub struct LengthLimits {
     /// Minimal length in number of chars (inclusive).
     min: u32,
@@ -1634,6 +1634,8 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
 
+    use prelude::{MetadataLimits, TransactionLimits};
+
     use super::*;
 
     const INVALID_PARAM: [&str; 4] = [
@@ -1661,5 +1663,47 @@ mod tests {
             Parameter::from_str(INVALID_PARAM[3]),
             Err(err) if err.to_string() == "Unsupported type provided for the `val` part of the `Parameter`."
         ));
+    }
+
+    #[test]
+    fn test_parameter_serialize_deserialize_consistent() {
+        let parameters = [
+            Parameter {
+                id: Id {
+                    name: Name::from_str("TransactionLimits").expect("Failed to parse `Name`"),
+                },
+                val: Value::TransactionLimits(TransactionLimits::new(42, 24)),
+            },
+            Parameter {
+                id: Id {
+                    name: Name::from_str("MetadataLimits").expect("Failed to parse `Name`"),
+                },
+                val: Value::MetadataLimits(MetadataLimits::new(42, 24)),
+            },
+            Parameter {
+                id: Id {
+                    name: Name::from_str("LengthLimits").expect("Failed to parse `Name`"),
+                },
+                val: Value::LengthLimits(LengthLimits::new(24, 42)),
+            },
+            Parameter {
+                id: Id {
+                    name: Name::from_str("Int").expect("Failed to parse `Name`"),
+                },
+                val: Value::Numeric(NumericValue::U64(42)),
+            },
+        ];
+
+        for parameter in parameters {
+            assert_eq!(
+                parameter,
+                serde_json::to_string(&parameter)
+                    .and_then(|parameter| serde_json::from_str(&parameter))
+                    .unwrap_or_else(|_| panic!(
+                        "Failed to de/serialize parameter {:?}",
+                        &parameter
+                    ))
+            );
+        }
     }
 }

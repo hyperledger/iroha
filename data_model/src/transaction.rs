@@ -240,7 +240,7 @@ impl Payload {
     FfiType,
     IntoSchema,
 )]
-#[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}TL")]
+#[display(fmt = "{max_instruction_number},{max_wasm_size_bytes}_TL")]
 pub struct TransactionLimits {
     /// Maximum number of instructions per transaction
     pub max_instruction_number: u64,
