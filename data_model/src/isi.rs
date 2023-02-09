@@ -987,6 +987,6 @@ pub mod prelude {
         Burn, BurnBox, ExecuteTriggerBox, FailBox, Grant, GrantBox, If as IfInstruction,
         Instruction, Mint, MintBox, NewParameterBox, Pair, Register, RegisterBox, RemoveKeyValue,
         RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox,
-        SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox,
+        SetParameter, SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }
