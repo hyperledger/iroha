@@ -13,6 +13,7 @@ members = [
   "asset_definition/transfer",
   "account/set_key_value",
   "account/remove_key_value",
+  "parameter/set",
 ]
 
 [workspace.package]
