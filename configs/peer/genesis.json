@@ -207,6 +207,16 @@
           }
         },
         {
+          "Register": {
+            "PermissionTokenDefinition": {
+              "id": "can_change_config_parameters",
+              "params": {
+                "account_id": "Id"
+              }
+            }
+          }
+        },
+        {
           "Mint": {
             "U32": 13,
             "destination_id": {
@@ -372,7 +382,7 @@
               },
               {
                 "NewParameter": {
-                  "Parameter": "?TransactionLimits=4096,4194304TL",
+                  "Parameter": "?TransactionLimits=4096,4194304_TL",
                   "source_id": {
                     "AccountId": "alice@wonderland"
                   }
@@ -420,7 +430,7 @@
               },
               {
                 "NewParameter": {
-                  "Parameter": "?WSVAssetMetadataLimits=1048576,4096ML",
+                  "Parameter": "?WSVAssetMetadataLimits=1048576,4096_ML",
                   "source_id": {
                     "AccountId": "alice@wonderland"
                   }
@@ -428,7 +438,7 @@
               },
               {
                 "NewParameter": {
-                  "Parameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096ML",
+                  "Parameter": "?WSVAssetDefinitionMetadataLimits=1048576,4096_ML",
                   "source_id": {
                     "AccountId": "alice@wonderland"
                   }
@@ -436,7 +446,7 @@
               },
               {
                 "NewParameter": {
-                  "Parameter": "?WSVAccountMetadataLimits=1048576,4096ML",
+                  "Parameter": "?WSVAccountMetadataLimits=1048576,4096_ML",
                   "source_id": {
                     "AccountId": "alice@wonderland"
                   }
@@ -444,7 +454,7 @@
               },
               {
                 "NewParameter": {
-                  "Parameter": "?WSVDomainMetadataLimits=1048576,4096ML",
+                  "Parameter": "?WSVDomainMetadataLimits=1048576,4096_ML",
                   "source_id": {
                     "AccountId": "alice@wonderland"
                   }
@@ -452,7 +462,7 @@
               },
               {
                 "NewParameter": {
-                  "Parameter": "?WSVIdentLengthLimits=1,128LL",
+                  "Parameter": "?WSVIdentLengthLimits=1,128_LL",
                   "source_id": {
                     "AccountId": "alice@wonderland"
                   }

@@ -36,7 +36,7 @@ pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
     IntoSchema,
     FfiType,
 )]
-#[display(fmt = "{max_len},{max_entry_byte_size}ML")]
+#[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
 pub struct Limits {
     /// Maximum number of entries
     pub max_len: u32,

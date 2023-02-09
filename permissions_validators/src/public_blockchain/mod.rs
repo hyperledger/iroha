@@ -44,6 +44,8 @@ pub enum PredefinedPermissionToken {
     TransferOnlyFixedNumberOfTimesPerPeriod(transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod),
     /// Can un-register asset with the corresponding asset definition.
     UnregisterAssetWithDefinition(unregister::CanUnregisterAssetWithDefinition),
+    /// Can change configuration parameters.
+    CanChangeConfigParameters(set_parameter::CanChangeConfigParameters),
 }
 
 impl From<PredefinedPermissionToken> for PermissionToken {
@@ -63,6 +65,7 @@ impl From<PredefinedPermissionToken> for PermissionToken {
                 inner.into()
             }
             PredefinedPermissionToken::UnregisterAssetWithDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::CanChangeConfigParameters(inner) => inner.into(),
         }
     }
 }
@@ -84,6 +87,7 @@ pub fn default_permission_token_definitions(
         mint::CanMintUserAssetDefinitions::definition(),
         transfer::CanTransferUserAssets::definition(),
         transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::definition(),
+        set_parameter::CanChangeConfigParameters::definition(),
     ]
 }
 
