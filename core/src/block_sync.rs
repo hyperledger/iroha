@@ -9,14 +9,14 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
 use iroha_logger::prelude::*;
 use iroha_macro::*;
 use iroha_p2p::Post;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{kura::Kura, sumeragi::Sumeragi, NetworkMessage, VersionedCommittedBlock};
+use crate::{kura::Kura, sumeragi::Sumeragi, NetworkMessage};
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
@@ -99,7 +99,6 @@ impl BlockSynchronizer {
 
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
-
     use super::*;
     use crate::{block::VersionedCandidateCommittedBlock, sumeragi::view_change::ProofChain};
 

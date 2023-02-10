@@ -11,6 +11,7 @@ use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use strum::EnumDiscriminants;
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 use crate::Registered;
@@ -29,7 +30,9 @@ use crate::Registered;
     Serialize,
     FromVariant,
     IntoSchema,
+    EnumDiscriminants,
 )]
+#[strum_discriminants(name(InstructionType), derive(Display), allow(missing_docs))]
 pub enum Instruction {
     /// `Register` variant.
     Register(RegisterBox),

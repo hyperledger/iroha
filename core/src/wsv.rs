@@ -19,17 +19,18 @@ use iroha_config::{
     wsv::{Configuration, ConfigurationProxy},
 };
 use iroha_crypto::HashOf;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    block::{CommittedBlock, VersionedCommittedBlock},
+    error::{FindError, InstructionExecutionFailure as Error, MathError, QueryExecutionFailure},
+    prelude::*,
+};
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
 
 use crate::{
     kura::Kura,
     prelude::*,
-    smartcontracts::{
-        isi::{query::Error as QueryError, Error},
-        wasm, Execute, FindError,
-    },
+    smartcontracts::{wasm, Execute},
     DomainsMap, Parameters, PeersIds,
 };
 
@@ -133,7 +134,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryError> {
+    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryExecutionFailure> {
         self.map_account(id, |account| account.assets().cloned().collect())
     }
 
@@ -364,13 +365,18 @@ impl WorldStateView {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryError> {
-        self.map_account(&id.account_id, |account| -> Result<Asset, QueryError> {
-            account
-                .asset(id)
-                .ok_or_else(|| QueryError::Find(Box::new(FindError::Asset(id.clone()))))
-                .map(Clone::clone)
-        })?
+    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryExecutionFailure> {
+        self.map_account(
+            &id.account_id,
+            |account| -> Result<Asset, QueryExecutionFailure> {
+                account
+                    .asset(id)
+                    .ok_or_else(|| {
+                        QueryExecutionFailure::Find(Box::new(FindError::Asset(id.clone())))
+                    })
+                    .map(Clone::clone)
+            },
+        )?
     }
 
     /// Get asset or inserts new with `default_asset_value`.
@@ -661,9 +667,11 @@ impl WorldStateView {
         &self,
         id: &AccountId,
         f: impl FnOnce(&Account) -> T,
-    ) -> Result<T, QueryError> {
+    ) -> Result<T, QueryExecutionFailure> {
         let domain = self.domain(&id.domain_id)?;
-        let account = domain.account(id).ok_or(QueryError::Unauthorized)?;
+        let account = domain
+            .account(id)
+            .ok_or(QueryExecutionFailure::Unauthorized)?;
         Ok(f(account))
     }
 
@@ -846,7 +854,7 @@ impl WorldStateView {
                 .map_err(|e| Error::Conversion(e.to_string()))?;
             *asset_total_amount = asset_total_amount
                 .checked_add(increment)
-                .ok_or(crate::smartcontracts::MathError::Overflow)?;
+                .ok_or(MathError::Overflow)?;
 
             Ok(
                 DomainEvent::AssetDefinition(
@@ -886,7 +894,7 @@ impl WorldStateView {
                 .map_err(|e| Error::Conversion(e.to_string()))?;
             *asset_total_amount = asset_total_amount
                 .checked_sub(decrement)
-                .ok_or(crate::smartcontracts::MathError::NotEnoughQuantity)?;
+                .ok_or(MathError::NotEnoughQuantity)?;
 
             Ok(
                 DomainEvent::AssetDefinition(
@@ -1088,6 +1096,7 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
+    use crate::block::SignedBlock;
 
     #[test]
     fn get_block_hashes_after_hash() {

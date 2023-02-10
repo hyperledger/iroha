@@ -7,17 +7,18 @@
 )]
 
 use iroha_crypto::{HashOf, SignaturesOf};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    block::{CommittedBlock, VersionedCommittedBlock},
+    prelude::*,
+};
 use iroha_macro::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
 use crate::{
-    block::{
-        CommittedBlock, SignedBlock, VersionedCandidateCommittedBlock, VersionedCommittedBlock,
-    },
-    VersionedAcceptedTransaction, VersionedCandidateBlock,
+    block::{SignedBlock, VersionedCandidateBlock, VersionedCandidateCommittedBlock},
+    VersionedAcceptedTransaction,
 };
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);

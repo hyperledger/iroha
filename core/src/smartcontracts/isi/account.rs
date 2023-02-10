@@ -1,9 +1,10 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
 //! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{error::FindError, prelude::*};
 use iroha_telemetry::metrics;
 
+use super::prelude::*;
 use crate::{ValidQuery, WorldStateView};
 
 /// All instructions related to accounts:
@@ -13,10 +14,9 @@ use crate::{ValidQuery, WorldStateView};
 /// - grant permissions and roles
 /// - Revoke permissions or roles
 pub mod isi {
-    use super::{
-        super::{prelude::*, query::Error as QueryError},
-        *,
-    };
+    use iroha_data_model::{error::QueryExecutionFailure, isi::InstructionType};
+
+    use super::*;
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
@@ -32,7 +32,9 @@ pub mod isi {
 
             match wsv.asset(asset_id) {
                 Err(err) => match err {
-                    QueryError::Find(find_err) if matches!(*find_err, FindError::Asset(_)) => {
+                    QueryExecutionFailure::Find(find_err)
+                        if matches!(*find_err, FindError::Asset(_)) =>
+                    {
                         assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
                         wsv.asset_or_insert(asset_id, self.object.value().clone())
                             .expect("Account exists");
@@ -420,9 +422,9 @@ pub mod isi {
 pub mod query {
 
     use eyre::{Result, WrapErr};
+    use iroha_data_model::error::QueryExecutionFailure as Error;
 
     use super::{super::Evaluate, *};
-    use crate::smartcontracts::{query::Error, FindError};
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]

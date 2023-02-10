@@ -11,12 +11,9 @@ use std::collections::HashSet;
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
 use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, Signature};
-use iroha_data_model::prelude::PeerId;
-use iroha_schema::IntoSchema;
+use iroha_data_model::{block::VersionedCommittedBlock, prelude::PeerId};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
-
-use crate::block::VersionedCommittedBlock;
 
 /// Error emerge during insertion of `Proof` into `ProofChain`
 #[derive(Error, Debug, Clone, Copy)]
@@ -29,7 +26,7 @@ pub enum Error {
 }
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct Proof {
     /// Hash of the latest committed block.
     pub latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
@@ -99,7 +96,7 @@ impl Proof {
 }
 
 /// Structure representing sequence of view change proofs.
-#[derive(Debug, Clone, Encode, Decode, Deref, DerefMut, IntoSchema, Default)]
+#[derive(Debug, Clone, Encode, Decode, Deref, DerefMut, Default)]
 pub struct ProofChain(Vec<Proof>);
 
 impl ProofChain {

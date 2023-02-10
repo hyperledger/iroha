@@ -74,11 +74,11 @@
   "Option<iroha_crypto::hash::Hash>": {
     "Option": "iroha_crypto::hash::Hash"
   },
-  "Option<iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>>": {
-    "Option": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
-  },
   "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>": {
     "Option": "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>"
+  },
+  "Option<iroha_crypto::hash::HashOf<iroha_data_model::block::committed::VersionedCommittedBlock>>": {
+    "Option": "iroha_crypto::hash::HashOf<iroha_data_model::block::committed::VersionedCommittedBlock>"
   },
   "Option<iroha_data_model::domain::Id>": {
     "Option": "iroha_data_model::domain::Id"
@@ -105,33 +105,15 @@
     "Option": "u32"
   },
   "String": "String",
-  "Vec<iroha_core::genesis::GenesisTransaction>": {
-    "Vec": {
-      "ty": "iroha_core::genesis::GenesisTransaction",
-      "sorted": false
-    }
-  },
   "Vec<iroha_crypto::PublicKey>": {
     "Vec": {
       "ty": "iroha_crypto::PublicKey",
       "sorted": true
     }
   },
-  "Vec<iroha_crypto::hash::Hash>": {
+  "Vec<iroha_crypto::signature::SignatureOf<iroha_data_model::block::committed::CommittedBlock>>": {
     "Vec": {
-      "ty": "iroha_crypto::hash::Hash",
-      "sorted": false
-    }
-  },
-  "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>": {
-    "Vec": {
-      "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>",
-      "sorted": true
-    }
-  },
-  "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>": {
-    "Vec": {
-      "ty": "iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>",
+      "ty": "iroha_crypto::signature::SignatureOf<iroha_data_model::block::committed::CommittedBlock>",
       "sorted": true
     }
   },
@@ -189,15 +171,15 @@
       "sorted": false
     }
   },
-  "Vec<iroha_data_model::transaction::VersionedSignedTransaction>": {
-    "Vec": {
-      "ty": "iroha_data_model::transaction::VersionedSignedTransaction",
-      "sorted": false
-    }
-  },
   "Vec<iroha_data_model::transaction::VersionedValidTransaction>": {
     "Vec": {
       "ty": "iroha_data_model::transaction::VersionedValidTransaction",
+      "sorted": false
+    }
+  },
+  "Vec<iroha_genesis::GenesisTransaction>": {
+    "Vec": {
+      "ty": "iroha_genesis::GenesisTransaction",
       "sorted": false
     }
   },
@@ -246,301 +228,6 @@
   "i64": {
     "Int": "FixedWidth"
   },
-  "iroha_core::block::BlockHeader": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "timestamp",
-          "ty": "u128"
-        },
-        {
-          "name": "consensus_estimation",
-          "ty": "u64"
-        },
-        {
-          "name": "height",
-          "ty": "u64"
-        },
-        {
-          "name": "view_change_index",
-          "ty": "u64"
-        },
-        {
-          "name": "previous_block_hash",
-          "ty": "Option<iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>>"
-        },
-        {
-          "name": "transactions_hash",
-          "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
-        },
-        {
-          "name": "rejected_transactions_hash",
-          "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
-        },
-        {
-          "name": "committed_with_topology",
-          "ty": "iroha_core::sumeragi::network_topology::Topology"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::CandidateBlock": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "header",
-          "ty": "iroha_core::block::BlockHeader"
-        },
-        {
-          "name": "rejected_transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedSignedTransaction>"
-        },
-        {
-          "name": "transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedSignedTransaction>"
-        },
-        {
-          "name": "signatures",
-          "ty": "iroha_crypto::signature::SignaturesOf<iroha_core::block::CandidateBlock>"
-        },
-        {
-          "name": "event_recommendations",
-          "ty": "Vec<iroha_data_model::events::Event>"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::CommittedBlock": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "header",
-          "ty": "iroha_core::block::BlockHeader"
-        },
-        {
-          "name": "rejected_transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedRejectedTransaction>"
-        },
-        {
-          "name": "transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedValidTransaction>"
-        },
-        {
-          "name": "event_recommendations",
-          "ty": "Vec<iroha_data_model::events::Event>"
-        },
-        {
-          "name": "signatures",
-          "ty": "iroha_crypto::signature::SignaturesOf<iroha_core::block::CommittedBlock>"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::VersionedCandidateBlock": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "V1",
-          "discriminant": 1,
-          "ty": "iroha_core::block::CandidateBlock"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::VersionedCommittedBlock": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "V1",
-          "discriminant": 1,
-          "ty": "iroha_core::block::CommittedBlock"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::stream::BlockMessage": {
-    "Tuple": {
-      "types": [
-        "iroha_core::block::VersionedCommittedBlock"
-      ]
-    }
-  },
-  "iroha_core::block::stream::BlockSubscriptionRequest": {
-    "Tuple": {
-      "types": [
-        "u64"
-      ]
-    }
-  },
-  "iroha_core::block::stream::VersionedBlockMessage": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "V1",
-          "discriminant": 1,
-          "ty": "iroha_core::block::stream::BlockMessage"
-        }
-      ]
-    }
-  },
-  "iroha_core::block::stream::VersionedBlockSubscriptionRequest": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "V1",
-          "discriminant": 1,
-          "ty": "iroha_core::block::stream::BlockSubscriptionRequest"
-        }
-      ]
-    }
-  },
-  "iroha_core::genesis::GenesisTransaction": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "isi",
-          "ty": "Vec<iroha_data_model::isi::Instruction>"
-        }
-      ]
-    }
-  },
-  "iroha_core::genesis::RawGenesisBlock": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "transactions",
-          "ty": "Vec<iroha_core::genesis::GenesisTransaction>"
-        }
-      ]
-    }
-  },
-  "iroha_core::smartcontracts::isi::error::FindError": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "Asset",
-          "discriminant": 0,
-          "ty": "iroha_data_model::asset::Id"
-        },
-        {
-          "name": "AssetDefinition",
-          "discriminant": 1,
-          "ty": "iroha_data_model::asset::DefinitionId"
-        },
-        {
-          "name": "Account",
-          "discriminant": 2,
-          "ty": "iroha_data_model::account::Id"
-        },
-        {
-          "name": "Domain",
-          "discriminant": 3,
-          "ty": "iroha_data_model::domain::Id"
-        },
-        {
-          "name": "MetadataKey",
-          "discriminant": 4,
-          "ty": "iroha_data_model::name::Name"
-        },
-        {
-          "name": "Block",
-          "discriminant": 5,
-          "ty": "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>"
-        },
-        {
-          "name": "Transaction",
-          "discriminant": 6,
-          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>"
-        },
-        {
-          "name": "Context",
-          "discriminant": 7,
-          "ty": "String"
-        },
-        {
-          "name": "Peer",
-          "discriminant": 8,
-          "ty": "iroha_data_model::peer::Id"
-        },
-        {
-          "name": "Trigger",
-          "discriminant": 9,
-          "ty": "iroha_data_model::trigger::Id"
-        },
-        {
-          "name": "Role",
-          "discriminant": 10,
-          "ty": "iroha_data_model::role::Id"
-        },
-        {
-          "name": "PermissionTokenDefinition",
-          "discriminant": 11,
-          "ty": "iroha_data_model::permission::token::Id"
-        },
-        {
-          "name": "Validator",
-          "discriminant": 12,
-          "ty": "iroha_data_model::permission::validator::Id"
-        },
-        {
-          "name": "Parameter",
-          "discriminant": 13,
-          "ty": "iroha_data_model::Parameter"
-        }
-      ]
-    }
-  },
-  "iroha_core::smartcontracts::isi::query::Error": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "Decode",
-          "discriminant": 0,
-          "ty": "iroha_version::error::Error"
-        },
-        {
-          "name": "Signature",
-          "discriminant": 1,
-          "ty": "String"
-        },
-        {
-          "name": "Permission",
-          "discriminant": 2,
-          "ty": "String"
-        },
-        {
-          "name": "Evaluate",
-          "discriminant": 3,
-          "ty": "String"
-        },
-        {
-          "name": "Find",
-          "discriminant": 4,
-          "ty": "iroha_core::smartcontracts::isi::error::FindError"
-        },
-        {
-          "name": "Conversion",
-          "discriminant": 5,
-          "ty": "String"
-        },
-        {
-          "name": "Unauthorized",
-          "discriminant": 6,
-          "ty": null
-        }
-      ]
-    }
-  },
-  "iroha_core::sumeragi::network_topology::Topology": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "sorted_peers",
-          "ty": "Vec<iroha_data_model::peer::Id>"
-        }
-      ]
-    }
-  },
   "iroha_crypto::Algorithm": {
     "Enum": {
       "variants": [
@@ -588,14 +275,14 @@
       ]
     }
   },
-  "iroha_crypto::hash::HashOf<iroha_core::block::VersionedCommittedBlock>": {
+  "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
       ]
     }
   },
-  "iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>": {
+  "iroha_crypto::hash::HashOf<iroha_data_model::block::committed::VersionedCommittedBlock>": {
     "Tuple": {
       "types": [
         "iroha_crypto::hash::Hash"
@@ -629,14 +316,7 @@
       ]
     }
   },
-  "iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>": {
-    "Tuple": {
-      "types": [
-        "iroha_crypto::signature::Signature"
-      ]
-    }
-  },
-  "iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>": {
+  "iroha_crypto::signature::SignatureOf<iroha_data_model::block::committed::CommittedBlock>": {
     "Tuple": {
       "types": [
         "iroha_crypto::signature::Signature"
@@ -657,22 +337,12 @@
       ]
     }
   },
-  "iroha_crypto::signature::SignaturesOf<iroha_core::block::CandidateBlock>": {
+  "iroha_crypto::signature::SignaturesOf<iroha_data_model::block::committed::CommittedBlock>": {
     "Struct": {
       "declarations": [
         {
           "name": "signatures",
-          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CandidateBlock>>"
-        }
-      ]
-    }
-  },
-  "iroha_crypto::signature::SignaturesOf<iroha_core::block::CommittedBlock>": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "signatures",
-          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_core::block::CommittedBlock>>"
+          "ty": "Vec<iroha_crypto::signature::SignatureOf<iroha_data_model::block::committed::CommittedBlock>>"
         }
       ]
     }
@@ -1020,12 +690,12 @@
         {
           "name": "Block",
           "discriminant": 16,
-          "ty": "iroha_data_model::block_value::BlockValue"
+          "ty": "iroha_data_model::block::committed::VersionedCommittedBlock"
         },
         {
           "name": "BlockHeader",
           "discriminant": 17,
-          "ty": "iroha_data_model::block_value::BlockHeaderValue"
+          "ty": "iroha_data_model::block::header::BlockHeader"
         },
         {
           "name": "Ipv4Addr",
@@ -1398,7 +1068,44 @@
       ]
     }
   },
-  "iroha_data_model::block_value::BlockHeaderValue": {
+  "iroha_data_model::block::committed::CommittedBlock": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "header",
+          "ty": "iroha_data_model::block::header::BlockHeader"
+        },
+        {
+          "name": "rejected_transactions",
+          "ty": "Vec<iroha_data_model::transaction::VersionedRejectedTransaction>"
+        },
+        {
+          "name": "transactions",
+          "ty": "Vec<iroha_data_model::transaction::VersionedValidTransaction>"
+        },
+        {
+          "name": "event_recommendations",
+          "ty": "Vec<iroha_data_model::events::Event>"
+        },
+        {
+          "name": "signatures",
+          "ty": "iroha_crypto::signature::SignaturesOf<iroha_data_model::block::committed::CommittedBlock>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::block::committed::VersionedCommittedBlock": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "V1",
+          "discriminant": 1,
+          "ty": "iroha_data_model::block::committed::CommittedBlock"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::block::header::BlockHeader": {
     "Struct": {
       "declarations": [
         {
@@ -1406,12 +1113,20 @@
           "ty": "u128"
         },
         {
+          "name": "consensus_estimation",
+          "ty": "u64"
+        },
+        {
           "name": "height",
           "ty": "u64"
         },
         {
+          "name": "view_change_index",
+          "ty": "u64"
+        },
+        {
           "name": "previous_block_hash",
-          "ty": "Option<iroha_crypto::hash::Hash>"
+          "ty": "Option<iroha_crypto::hash::HashOf<iroha_data_model::block::committed::VersionedCommittedBlock>>"
         },
         {
           "name": "transactions_hash",
@@ -1422,34 +1137,44 @@
           "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
         },
         {
-          "name": "invalidated_blocks_hashes",
-          "ty": "Vec<iroha_crypto::hash::Hash>"
-        },
-        {
-          "name": "current_block_hash",
-          "ty": "iroha_crypto::hash::Hash"
+          "name": "committed_with_topology",
+          "ty": "Vec<iroha_data_model::peer::Id>"
         }
       ]
     }
   },
-  "iroha_data_model::block_value::BlockValue": {
-    "Struct": {
-      "declarations": [
+  "iroha_data_model::block::stream::BlockMessage": {
+    "Tuple": {
+      "types": [
+        "iroha_data_model::block::committed::VersionedCommittedBlock"
+      ]
+    }
+  },
+  "iroha_data_model::block::stream::BlockSubscriptionRequest": {
+    "Tuple": {
+      "types": [
+        "u64"
+      ]
+    }
+  },
+  "iroha_data_model::block::stream::VersionedBlockMessage": {
+    "Enum": {
+      "variants": [
         {
-          "name": "header",
-          "ty": "iroha_data_model::block_value::BlockHeaderValue"
-        },
+          "name": "V1",
+          "discriminant": 1,
+          "ty": "iroha_data_model::block::stream::BlockMessage"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::block::stream::VersionedBlockSubscriptionRequest": {
+    "Enum": {
+      "variants": [
         {
-          "name": "transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedValidTransaction>"
-        },
-        {
-          "name": "rejected_transactions",
-          "ty": "Vec<iroha_data_model::transaction::VersionedRejectedTransaction>"
-        },
-        {
-          "name": "event_recommendations",
-          "ty": "Vec<iroha_data_model::events::Event>"
+          "name": "V1",
+          "discriminant": 1,
+          "ty": "iroha_data_model::block::stream::BlockSubscriptionRequest"
         }
       ]
     }
@@ -1515,6 +1240,123 @@
         {
           "name": "metadata",
           "ty": "iroha_data_model::metadata::Metadata"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::error::FindError": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Asset",
+          "discriminant": 0,
+          "ty": "iroha_data_model::asset::Id"
+        },
+        {
+          "name": "AssetDefinition",
+          "discriminant": 1,
+          "ty": "iroha_data_model::asset::DefinitionId"
+        },
+        {
+          "name": "Account",
+          "discriminant": 2,
+          "ty": "iroha_data_model::account::Id"
+        },
+        {
+          "name": "Domain",
+          "discriminant": 3,
+          "ty": "iroha_data_model::domain::Id"
+        },
+        {
+          "name": "MetadataKey",
+          "discriminant": 4,
+          "ty": "iroha_data_model::name::Name"
+        },
+        {
+          "name": "Block",
+          "discriminant": 5,
+          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::block::committed::VersionedCommittedBlock>"
+        },
+        {
+          "name": "Transaction",
+          "discriminant": 6,
+          "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>"
+        },
+        {
+          "name": "Context",
+          "discriminant": 7,
+          "ty": "String"
+        },
+        {
+          "name": "Peer",
+          "discriminant": 8,
+          "ty": "iroha_data_model::peer::Id"
+        },
+        {
+          "name": "Trigger",
+          "discriminant": 9,
+          "ty": "iroha_data_model::trigger::Id"
+        },
+        {
+          "name": "Role",
+          "discriminant": 10,
+          "ty": "iroha_data_model::role::Id"
+        },
+        {
+          "name": "PermissionTokenDefinition",
+          "discriminant": 11,
+          "ty": "iroha_data_model::permission::token::Id"
+        },
+        {
+          "name": "Validator",
+          "discriminant": 12,
+          "ty": "iroha_data_model::permission::validator::Id"
+        },
+        {
+          "name": "Parameter",
+          "discriminant": 13,
+          "ty": "iroha_data_model::Parameter"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::error::QueryExecutionFailure": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Decode",
+          "discriminant": 0,
+          "ty": "iroha_version::error::Error"
+        },
+        {
+          "name": "Signature",
+          "discriminant": 1,
+          "ty": "String"
+        },
+        {
+          "name": "Permission",
+          "discriminant": 2,
+          "ty": "String"
+        },
+        {
+          "name": "Evaluate",
+          "discriminant": 3,
+          "ty": "String"
+        },
+        {
+          "name": "Find",
+          "discriminant": 4,
+          "ty": "iroha_data_model::error::FindError"
+        },
+        {
+          "name": "Conversion",
+          "discriminant": 5,
+          "ty": "String"
+        },
+        {
+          "name": "Unauthorized",
+          "discriminant": 6,
+          "ty": null
         }
       ]
     }
@@ -5431,6 +5273,26 @@
           "name": "Exactly",
           "discriminant": 1,
           "ty": "AtomicU32Wrapper"
+        }
+      ]
+    }
+  },
+  "iroha_genesis::GenesisTransaction": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "isi",
+          "ty": "Vec<iroha_data_model::isi::Instruction>"
+        }
+      ]
+    }
+  },
+  "iroha_genesis::RawGenesisBlock": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "transactions",
+          "ty": "Vec<iroha_genesis::GenesisTransaction>"
         }
       ]
     }

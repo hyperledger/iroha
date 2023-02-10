@@ -16,6 +16,11 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
+/// Default estimation of consensus duration
+#[allow(clippy::integer_division)]
+pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
+    DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
+
 cfg_if::cfg_if! {
     if #[cfg(debug_assertions)] {
 // Generate `ConfigurationView` without keys

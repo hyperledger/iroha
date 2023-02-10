@@ -17,6 +17,7 @@ use iroha_core::{
     sumeragi::Sumeragi,
     EventsSender,
 };
+use iroha_data_model::transaction::AcceptTransactionFailure;
 use thiserror::Error;
 use tokio::sync::Notify;
 use utils::*;
@@ -46,13 +47,13 @@ pub struct Torii {
 pub enum Error {
     /// Failed to execute or validate query
     #[error("Failed to execute or validate query")]
-    Query(#[from] iroha_core::smartcontracts::query::Error),
+    Query(#[from] iroha_data_model::error::QueryExecutionFailure),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
     VersionedSignedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
-    AcceptTransaction(eyre::Report),
+    AcceptTransaction(AcceptTransactionFailure),
     /// Failed to get pending transaction
     #[error("Failed to get pending transactions: {0}")]
     RequestPendingTransactions(eyre::Report),
@@ -86,9 +87,9 @@ pub enum Error {
 
 /// Status code for query error response.
 pub(crate) const fn query_status_code(
-    query_error: &iroha_core::smartcontracts::query::Error,
+    query_error: &iroha_data_model::error::QueryExecutionFailure,
 ) -> StatusCode {
-    use iroha_core::smartcontracts::query::Error::*;
+    use iroha_data_model::error::QueryExecutionFailure::*;
     match query_error {
         Decode(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
         Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,

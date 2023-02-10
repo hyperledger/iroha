@@ -33,7 +33,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 
-use block_value::{BlockHeaderValue, BlockValue};
+use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From, FromStr};
@@ -59,8 +59,9 @@ use crate::{account::SignatureCheckCondition, name::Name, transaction::Transacti
 
 pub mod account;
 pub mod asset;
-pub mod block_value;
+pub mod block;
 pub mod domain;
+pub mod error;
 pub mod events;
 pub mod expression;
 pub mod isi;
@@ -630,8 +631,8 @@ pub enum Value {
     TransactionQueryResult(TransactionQueryResult),
     PermissionToken(permission::Token),
     Hash(Hash),
-    Block(BlockValueWrapper),
-    BlockHeader(BlockHeaderValue),
+    Block(VersionedCommittedBlockWrapper),
+    BlockHeader(block::BlockHeader),
     Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
     #[serde_partially_tagged(untagged)]
@@ -684,7 +685,7 @@ impl NumericValue {
 
 #[cfg(not(target_arch = "aarch64"))]
 ffi::declare_item! {
-    /// Cross-platform wrapper for `BlockValue`.
+    /// Cross-platform wrapper for [`VersionedCommittedBlock`].
     #[derive(
         AsRef,
         Clone,
@@ -705,14 +706,14 @@ ffi::declare_item! {
     )]
     #[repr(transparent)]
     #[serde(transparent)]
-    // SAFETY: BlockValueWrapper has no trap representations in BlockValue
+    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
     #[ffi_type(unsafe {robust})]
-    pub struct BlockValueWrapper(BlockValue);
+    pub struct VersionedCommittedBlockWrapper(VersionedCommittedBlock);
 }
 
 #[cfg(target_arch = "aarch64")]
 ffi::declare_item! {
-    /// Cross-platform wrapper for `BlockValue`.
+    /// Cross-platform wrapper for [`VersionedCommittedBlock`].
     #[derive(
         AsRef,
         Clone,
@@ -736,25 +737,25 @@ ffi::declare_item! {
     #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
     #[serde(transparent)]
-    // SAFETY: BlockValueWrapper has no trap representations in Box<BlockValue>
+    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in Box<VersionedCommittedBlock>
     #[ffi_type(unsafe {robust})]
-    pub struct BlockValueWrapper(Box<BlockValue>);
+    pub struct VersionedCommittedBlockWrapper(Box<VersionedCommittedBlock>);
 }
 
 #[cfg(target_arch = "aarch64")]
-impl From<BlockValueWrapper> for BlockValue {
-    fn from(block_value: BlockValueWrapper) -> Self {
+impl From<VersionedCommittedBlockWrapper> for VersionedCommittedBlock {
+    fn from(block_value: VersionedCommittedBlockWrapper) -> Self {
         *block_value.0
     }
 }
 
-impl IntoSchema for BlockValueWrapper {
+impl IntoSchema for VersionedCommittedBlockWrapper {
     fn type_name() -> String {
-        BlockValue::type_name()
+        VersionedCommittedBlock::type_name()
     }
 
     fn schema(map: &mut MetaMap) {
-        BlockValue::schema(map);
+        VersionedCommittedBlock::schema(map);
     }
 }
 
@@ -827,8 +828,8 @@ impl Value {
     }
 }
 
-impl From<BlockValue> for Value {
-    fn from(block_value: BlockValue) -> Self {
+impl From<VersionedCommittedBlock> for Value {
+    fn from(block_value: VersionedCommittedBlock) -> Self {
         Value::Block(block_value.into())
     }
 }
@@ -1062,7 +1063,7 @@ where
     }
 }
 
-impl TryFrom<Value> for BlockValue {
+impl TryFrom<Value> for VersionedCommittedBlock {
     type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -1615,7 +1616,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*,
         asset::prelude::*,
-        block_value::prelude::*,
         domain::prelude::*,
         events::prelude::*,
         expression::prelude::*,

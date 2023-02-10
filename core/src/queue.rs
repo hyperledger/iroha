@@ -19,7 +19,7 @@ use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
-use crate::prelude::*;
+use crate::{prelude::*, tx::CheckSignatureCondition as _};
 
 /// Lockfree queue for transactions
 ///
@@ -380,7 +380,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        VersionedAcceptedTransaction::from_transaction::<false>(tx, &limits)
+        VersionedAcceptedTransaction::accept::<false>(tx, &limits)
             .expect("Failed to accept Transaction.")
     }
 
@@ -734,7 +734,7 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            VersionedAcceptedTransaction::from_transaction::<false>(signed_tx, &tx_limits)
+            VersionedAcceptedTransaction::accept::<false>(signed_tx, &tx_limits)
                 .expect("Failed to accept Transaction.")
         };
         // Check that fully signed transaction pass signature check
@@ -744,7 +744,7 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            VersionedAcceptedTransaction::from_transaction::<false>(
+            VersionedAcceptedTransaction::accept::<false>(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
                 &tx_limits,
             )

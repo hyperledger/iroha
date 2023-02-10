@@ -52,6 +52,7 @@ iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
 iroha_p2p = { version = "=2.0.0-pre-rc.13", path = "../p2p" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.13", path = "../schema/gen", optional = true }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
+iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../genesis" }
 
 async-trait = "0.1.60"
 color-eyre = "0.6.2"
