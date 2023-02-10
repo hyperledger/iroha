@@ -1,9 +1,11 @@
 #![allow(clippy::restriction)]
 use eyre::Result;
 use iroha_client::client::ClientQueryError;
-use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, query::asset::FindTotalAssetQuantityByAssetDefinitionId};
+use iroha_data_model::{
+    error::QueryExecutionFailure, prelude::*,
+    query::asset::FindTotalAssetQuantityByAssetDefinitionId,
+};
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
@@ -142,7 +144,7 @@ fn find_asset_total_quantity() -> Result<()> {
         ));
         assert!(matches!(
             result,
-            Err(ClientQueryError::QueryError(QueryError::Find(_)))
+            Err(ClientQueryError::QueryError(QueryExecutionFailure::Find(_)))
         ));
     }
 
@@ -200,7 +202,7 @@ fn find_asset_total_quantity() -> Result<()> {
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::QueryError(QueryError::Find(_)))
+        Err(ClientQueryError::QueryError(QueryExecutionFailure::Find(_)))
     ));
 
     Ok(())

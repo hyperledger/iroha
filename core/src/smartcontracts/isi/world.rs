@@ -8,7 +8,7 @@ use crate::prelude::*;
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use eyre::Result;
-    use iroha_data_model::{permission, prelude::*};
+    use iroha_data_model::{error::FindError, permission, prelude::*};
 
     use super::*;
 
@@ -421,10 +421,13 @@ impl Execute for NewParameter<Parameter> {
 /// Query module provides `IrohaQuery` Peer related implementations.
 pub mod query {
     use eyre::Result;
-    use iroha_data_model::{prelude::*, query::permissions::DoesAccountHavePermissionToken};
+    use iroha_data_model::{
+        error::{FindError, QueryExecutionFailure as Error},
+        prelude::*,
+        query::permissions::DoesAccountHavePermissionToken,
+    };
 
     use super::*;
-    use crate::smartcontracts::query::Error;
 
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]

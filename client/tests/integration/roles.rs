@@ -4,7 +4,7 @@ use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha_client::client::{self};
-use iroha_core::prelude::*;
+use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::*;
 

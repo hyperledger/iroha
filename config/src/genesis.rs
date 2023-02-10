@@ -5,10 +5,6 @@ use iroha_config_base::derive::{view, Documented, Proxy};
 use iroha_crypto::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT: u64 = 100;
-const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
-const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
-
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration of the genesis block and the process of its submission.
@@ -22,13 +18,6 @@ view! {
         /// The private key of the genesis account, only needed for the peer that submits the genesis block.
         #[view(ignore)]
         pub account_private_key: Option<PrivateKey>,
-        /// The number of attempts to connect to peers while waiting for them to submit genesis.
-        pub wait_for_peers_retry_count_limit: u64,
-        /// The period in milliseconds in which to retry connecting to peers while waiting for them to submit genesis.
-        pub wait_for_peers_retry_period_ms: u64,
-        /// The delay before genesis block submission after minimum number of peers were discovered to be online.
-        /// The delay between submissions, which is used to ensure that other peers had time to connect to each other.
-        pub genesis_submission_delay_ms: u64,
     }
 }
 
@@ -37,9 +26,6 @@ impl Default for ConfigurationProxy {
         Self {
             account_public_key: None,
             account_private_key: Some(None),
-            wait_for_peers_retry_count_limit: Some(DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT),
-            wait_for_peers_retry_period_ms: Some(DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS),
-            genesis_submission_delay_ms: Some(DEFAULT_GENESIS_SUBMISSION_DELAY_MS),
         }
     }
 }
@@ -79,12 +65,9 @@ pub mod tests {
         pub fn arb_proxy()
             (
                 (account_public_key, account_private_key) in arb_keys(),
-                wait_for_peers_retry_count_limit in prop::option::of(Just(DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT)),
-                wait_for_peers_retry_period_ms in prop::option::of(Just(DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS)),
-                genesis_submission_delay_ms in prop::option::of(Just(DEFAULT_GENESIS_SUBMISSION_DELAY_MS)),
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { account_public_key, account_private_key, wait_for_peers_retry_count_limit, wait_for_peers_retry_period_ms, genesis_submission_delay_ms }
+            ConfigurationProxy { account_public_key, account_private_key }
         }
     }
 }

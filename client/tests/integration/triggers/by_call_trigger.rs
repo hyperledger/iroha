@@ -4,8 +4,8 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
-use iroha_core::genesis::GenesisNetwork;
 use iroha_data_model::prelude::*;
+use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
 use test_network::*;
 

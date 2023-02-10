@@ -20,6 +20,7 @@ iroha_config = { version = "=2.0.0-pre-rc.13", path = "../../config" }
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../../data_model" }
 iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../../primitives" }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../../logger" }
+iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../../genesis" }
 
 
 eyre = "0.6.8"

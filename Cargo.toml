@@ -28,6 +28,7 @@ members = [
   "core/test_network",
   "crypto",
   "data_model",
+  "genesis",
   "primitives",
   "ffi",
   "ffi/derive",

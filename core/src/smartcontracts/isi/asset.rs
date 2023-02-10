@@ -1,7 +1,10 @@
 //! This module contains [`Asset`] structure, it's implementation and related traits and
 //! instructions implementations.
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    error::{FindError, MathError, Mismatch, TypeError},
+    prelude::*,
+};
 use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
 
@@ -12,7 +15,6 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-
     use super::*;
 
     impl Execute for SetKeyValue<Asset, Name, Value> {
@@ -424,10 +426,11 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
-    use iroha_data_model::query::asset::IsAssetDefinitionOwner;
+    use iroha_data_model::{
+        error::QueryExecutionFailure as Error, query::asset::IsAssetDefinitionOwner,
+    };
 
     use super::*;
-    use crate::smartcontracts::query::Error;
 
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]

@@ -1780,7 +1780,7 @@ pub mod block {
 
     use super::Query;
     use crate::{
-        block_value::{BlockHeaderValue, BlockValue},
+        block::{BlockHeader, VersionedCommittedBlock},
         prelude::EvaluatesTo,
     };
 
@@ -1807,7 +1807,7 @@ pub mod block {
     pub struct FindAllBlocks;
 
     impl Query for FindAllBlocks {
-        type Output = Vec<BlockValue>;
+        type Output = Vec<VersionedCommittedBlock>;
     }
 
     impl FindAllBlocks {
@@ -1840,7 +1840,7 @@ pub mod block {
     pub struct FindAllBlockHeaders;
 
     impl Query for FindAllBlockHeaders {
-        type Output = Vec<BlockHeaderValue>;
+        type Output = Vec<BlockHeader>;
     }
 
     impl FindAllBlockHeaders {
@@ -1873,7 +1873,7 @@ pub mod block {
     }
 
     impl Query for FindBlockHeaderByHash {
-        type Output = BlockHeaderValue;
+        type Output = BlockHeader;
     }
 
     impl FindBlockHeaderByHash {

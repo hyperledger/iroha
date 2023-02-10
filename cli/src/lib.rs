@@ -22,7 +22,6 @@ use iroha_config::{
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
@@ -32,6 +31,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
+use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
 use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
 use tokio::{
     signal,

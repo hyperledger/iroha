@@ -16,15 +16,11 @@
 )]
 use std::str::FromStr;
 
-use eyre::{Result, WrapErr};
-use iroha_crypto::SignaturesOf;
+use eyre::Result;
 use iroha_data_model::permission::validator::NeedsPermissionBox;
 pub use iroha_data_model::prelude::*;
 use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
-use iroha_version::{declare_versioned_with_scale, version_with_scale};
-use parity_scale_codec::{Decode, Encode};
-use serde::Serialize;
 
 use crate::{
     prelude::*,
@@ -237,105 +233,8 @@ impl TransactionValidator {
     }
 }
 
-declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, Serialize);
-
-impl VersionedAcceptedTransaction {
-    /// Convert from `&VersionedAcceptedTransaction` to V1 reference
-    pub const fn as_v1(&self) -> &AcceptedTransaction {
-        match self {
-            VersionedAcceptedTransaction::V1(v1) => v1,
-        }
-    }
-
-    /// Convert from `&mut VersionedAcceptedTransaction` to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut AcceptedTransaction {
-        match self {
-            VersionedAcceptedTransaction::V1(v1) => v1,
-        }
-    }
-
-    /// Performs the conversion from `VersionedAcceptedTransaction` to V1
-    pub fn into_v1(self) -> AcceptedTransaction {
-        match self {
-            VersionedAcceptedTransaction::V1(v1) => v1,
-        }
-    }
-
-    /// Accepts transaction
-    ///
-    /// # Errors
-    ///
-    /// - if it does not adhere to limits
-    /// - if signature verification fails
-    pub fn from_transaction<const IS_GENESIS: bool>(
-        transaction: SignedTransaction,
-        limits: &TransactionLimits,
-    ) -> Result<VersionedAcceptedTransaction> {
-        AcceptedTransaction::from_transaction::<IS_GENESIS>(transaction, limits).map(Into::into)
-    }
-
-    /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
-    ///
-    /// Note that `check_signature_condition` does not verify signatures.
-    /// Signature verification is done when transaction transit from `SignedTransaction` to `AcceptedTransaction` state.
-    ///
-    /// # Errors
-    /// Can fail if signature condition account fails or if account is not found
-    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
-        self.as_v1().check_signature_condition(wsv)
-    }
-}
-
-impl Txn for VersionedAcceptedTransaction {
-    type HashOf = VersionedSignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &Payload {
-        &self.as_v1().payload
-    }
-}
-
-/// `AcceptedTransaction` — a transaction accepted by iroha peer.
-#[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
-#[derive(Debug, Clone, Decode, Encode, Serialize)]
-#[non_exhaustive]
-pub struct AcceptedTransaction {
-    /// Payload of this transaction.
-    pub payload: Payload,
-    /// Signatures for this transaction.
-    pub signatures: SignaturesOf<Payload>,
-}
-
-impl AcceptedTransaction {
-    /// Accepts transaction
-    ///
-    /// # Errors
-    ///
-    /// - if it does not adhere to limits
-    /// - if signature verification fails
-    pub fn from_transaction<const IS_GENESIS: bool>(
-        transaction: SignedTransaction,
-        limits: &TransactionLimits,
-    ) -> Result<Self> {
-        if !IS_GENESIS {
-            transaction
-                .check_limits(limits)
-                .wrap_err("Limits verification failed")?;
-        }
-        let signatures: SignaturesOf<_> = transaction
-            .signatures
-            .try_into()
-            .map_err(eyre::Error::from)?;
-        signatures
-            .verify(&transaction.payload)
-            .wrap_err("Signature verification failed")?;
-
-        Ok(Self {
-            payload: transaction.payload,
-            signatures,
-        })
-    }
-
+/// Trait for signature check condition.
+pub trait CheckSignatureCondition: Sized {
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
     ///
     /// Note that `check_signature_condition` does not verify signatures.
@@ -343,7 +242,11 @@ impl AcceptedTransaction {
     ///
     /// # Errors
     /// - Account not found
-    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
+    fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>>;
+}
+
+impl CheckSignatureCondition for AcceptedTransaction {
+    fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
         let account_id = &self.payload.account_id;
 
         let signatories = self
@@ -358,6 +261,12 @@ impl AcceptedTransaction {
                 .map(MustUse::new)
                 .map_err(Into::into)
         })?
+    }
+}
+
+impl CheckSignatureCondition for VersionedAcceptedTransaction {
+    fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
+        self.as_v1().check_signature_condition(wsv)
     }
 }
 
@@ -385,15 +294,6 @@ fn check_signature_condition(
     EvaluatesTo::new_unchecked(where_expr.into())
 }
 
-impl Txn for AcceptedTransaction {
-    type HashOf = SignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &Payload {
-        &self.payload
-    }
-}
-
 impl IsInBlockchain for VersionedSignedTransaction {
     #[inline]
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
@@ -416,126 +316,5 @@ impl IsInBlockchain for VersionedRejectedTransaction {
     #[inline]
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         wsv.has_transaction(&self.hash())
-    }
-}
-
-impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
-    fn from(tx: VersionedAcceptedTransaction) -> Self {
-        let tx: AcceptedTransaction = tx.into_v1();
-        let tx: SignedTransaction = tx.into();
-        tx.into()
-    }
-}
-
-impl From<AcceptedTransaction> for SignedTransaction {
-    fn from(transaction: AcceptedTransaction) -> Self {
-        SignedTransaction {
-            payload: transaction.payload,
-            signatures: transaction.signatures.into_iter().collect(),
-        }
-    }
-}
-
-impl From<VersionedValidTransaction> for VersionedAcceptedTransaction {
-    fn from(tx: VersionedValidTransaction) -> Self {
-        let tx: ValidTransaction = tx.into_v1();
-        let tx: AcceptedTransaction = tx.into();
-        tx.into()
-    }
-}
-
-impl From<ValidTransaction> for AcceptedTransaction {
-    fn from(transaction: ValidTransaction) -> Self {
-        AcceptedTransaction {
-            payload: transaction.payload,
-            signatures: transaction.signatures,
-        }
-    }
-}
-
-impl From<VersionedRejectedTransaction> for VersionedAcceptedTransaction {
-    fn from(tx: VersionedRejectedTransaction) -> Self {
-        let tx: RejectedTransaction = tx.into_v1();
-        let tx: AcceptedTransaction = tx.into();
-        tx.into()
-    }
-}
-
-impl From<RejectedTransaction> for AcceptedTransaction {
-    fn from(transaction: RejectedTransaction) -> Self {
-        AcceptedTransaction {
-            payload: transaction.payload,
-            signatures: transaction.signatures,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::pedantic, clippy::restriction)]
-
-    use std::str::FromStr as _;
-
-    use iroha_data_model::transaction::DEFAULT_MAX_INSTRUCTION_NUMBER;
-
-    use super::*;
-
-    #[test]
-    fn transaction_not_accepted_max_instruction_number() {
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let inst: Instruction = FailBox {
-            message: "Will fail".to_owned(),
-        }
-        .into();
-        let tx = Transaction::new(
-            AccountId::from_str("root@global").expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
-            1000,
-        )
-        .sign(key_pair)
-        .expect("Valid");
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-        let result = AcceptedTransaction::from_transaction::<false>(tx, &tx_limits);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        let mut chain = err.chain();
-        assert_eq!(
-            chain.next().unwrap().to_string(),
-            "Limits verification failed"
-        );
-        assert_eq!(
-            chain.next().unwrap().to_string(),
-            format!(
-                "Too many instructions in payload, max number is {}, but got {}",
-                tx_limits.max_instruction_number,
-                DEFAULT_MAX_INSTRUCTION_NUMBER + 1
-            )
-        );
-    }
-
-    #[test]
-    fn genesis_transaction_ignore_limits() {
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let inst: Instruction = FailBox {
-            message: "Will fail".to_owned(),
-        }
-        .into();
-        let tx = Transaction::new(
-            AccountId::from_str("root@global").expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
-            1000,
-        )
-        .sign(key_pair)
-        .expect("Valid");
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-
-        assert!(AcceptedTransaction::from_transaction::<true>(tx, &tx_limits).is_ok());
     }
 }
