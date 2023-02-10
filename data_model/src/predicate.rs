@@ -1004,7 +1004,7 @@ pub mod value {
         Display(string::Predicate),
         /// Apply predicate to the numerical value.
         Numerical(numerical::SemiRange),
-        /// Timestamp (currently for `BlockValue` only).
+        /// Timestamp (currently for [`VersionedCommittedBlock`] only).
         TimeStamp(numerical::SemiInterval<u128>),
         /// IpAddress enumerable by `u32`
         Ipv4Addr(ip_addr::Ipv4Predicate),
@@ -1070,7 +1070,7 @@ pub mod value {
                 Predicate::Numerical(pred) => pred.applies(input),
                 Predicate::Display(pred) => pred.applies(&input.to_string()),
                 Predicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => pred.applies(block.header.timestamp),
+                    Value::Block(block) => pred.applies(block.header().timestamp),
                     _ => false,
                 },
                 Predicate::Ipv4Addr(pred) => match input {

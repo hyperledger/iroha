@@ -16,15 +16,17 @@ use iroha_config::{
     torii::uri,
     GetConfiguration, PostConfiguration,
 };
-use iroha_core::{
-    block::stream::{
-        BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-        VersionedBlockSubscriptionRequest,
-    },
-    smartcontracts::isi::query::{Error as QueryError, ValidQueryRequest},
-};
+use iroha_core::smartcontracts::isi::query::ValidQueryRequest;
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
+    block::{
+        stream::{
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
+        },
+        VersionedCommittedBlock,
+    },
+    error::QueryExecutionFailure,
     predicate::PredicateBox,
     prelude::*,
     query::{self, SignedQueryRequest},
@@ -57,18 +59,18 @@ impl VerifiedQueryRequest {
     pub fn validate(
         self,
         wsv: &WorldStateView,
-    ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
+    ) -> Result<(ValidQueryRequest, PredicateBox), QueryExecutionFailure> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.contains_signatory(self.signature.public_key())
         })?;
         if !account_has_public_key {
-            return Err(QueryError::Signature(String::from(
+            return Err(QueryExecutionFailure::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",
             )));
         }
         wsv.validators_view()
             .validate(wsv, &self.payload.account_id, self.payload.query.clone())
-            .map_err(|err| QueryError::Permission(err.to_string()))?;
+            .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
             self.payload.filter,
@@ -77,7 +79,7 @@ impl VerifiedQueryRequest {
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
-    type Error = QueryError;
+    type Error = QueryExecutionFailure;
 
     fn try_from(query: SignedQueryRequest) -> Result<Self, Self::Error> {
         query
@@ -99,7 +101,7 @@ pub(crate) async fn handle_instructions(
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction = VersionedAcceptedTransaction::from_transaction::<false>(
+    let transaction = VersionedAcceptedTransaction::accept::<false>(
         transaction,
         &iroha_cfg.sumeragi.transaction_limits,
     )
@@ -147,7 +149,7 @@ pub(crate) async fn handle_queries(
 
     let total = total
         .try_into()
-        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
+        .map_err(|e: TryFromIntError| QueryExecutionFailure::Conversion(e.to_string()))?;
     let result = QueryResult(result);
     let paginated_result = PaginatedQueryResult {
         result,
@@ -303,8 +305,9 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
             _ = interval.tick() => {
                 if let Some(block) = kura.get_block_by_height(from_height) {
                     stream
+                        // TODO: to avoid clone `VersionedBlockMessage` could be split into sending and receiving parts
                         .send(VersionedBlockMessage::from(
-                            BlockMessage(VersionedCommittedBlock::clone(&block)), // TODO: Remove unnecessary clone.
+                            BlockMessage(VersionedCommittedBlock::clone(&block)),
                         ))
                         .await?;
                     from_height += 1;

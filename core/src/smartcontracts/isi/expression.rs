@@ -7,11 +7,12 @@
 )]
 use eyre::Result;
 use iroha_data_model::{
+    error::{FindError, InstructionExecutionFailure as Error, MathError},
     expression::{prelude::*, Expression},
     prelude::*,
 };
 
-use super::{Error, Evaluate, FindError, MathError};
+use super::Evaluate;
 use crate::{prelude::ValidQuery, wsv::WorldStateView};
 
 impl<V: TryFrom<Value>> Evaluate for EvaluatesTo<V>

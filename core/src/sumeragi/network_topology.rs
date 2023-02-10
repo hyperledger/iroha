@@ -10,9 +10,6 @@ use derive_more::Display;
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::trace;
-use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
-use serde::Serialize;
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
 ///
@@ -26,10 +23,10 @@ use serde::Serialize;
 ///
 /// Above is an illustration of how the various operations work for a f = 2 topology.
 
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
-    pub sorted_peers: Vec<PeerId>,
+    pub(crate) sorted_peers: Vec<PeerId>,
 }
 
 impl Topology {

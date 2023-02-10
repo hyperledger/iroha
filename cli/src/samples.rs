@@ -82,7 +82,6 @@ pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Co
         genesis: Some(iroha_config::genesis::ConfigurationProxy {
             account_private_key: Some(Some(private_key)),
             account_public_key: Some(public_key),
-            ..iroha_config::genesis::ConfigurationProxy::default()
         }),
         ..ConfigurationProxy::default()
     }

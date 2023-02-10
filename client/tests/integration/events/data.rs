@@ -2,7 +2,6 @@
 use std::{fmt::Write as _, str::FromStr, sync::mpsc, thread};
 
 use eyre::Result;
-use iroha_core::smartcontracts::wasm;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use parity_scale_codec::Encode;
 use test_network::*;
@@ -82,7 +81,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
             (func (export "{main_fn_name}") (param)
                 {isi_calls}))
         "#,
-        main_fn_name = wasm::export::WASM_MAIN_FN_NAME,
+        main_fn_name = "_iroha_wasm_main",
         wasm_template = wasm_template(&isi_hex.concat()),
         isi_calls = isi_calls
     );

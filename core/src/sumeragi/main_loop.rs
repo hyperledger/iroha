@@ -5,12 +5,13 @@
 use std::sync::mpsc;
 
 use iroha_crypto::HashOf;
+use iroha_data_model::block::*;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
 use super::*;
-use crate::{genesis::GenesisNetwork, sumeragi::tracing::instrument};
+use crate::{block::*, sumeragi::tracing::instrument};
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {}
@@ -416,7 +417,9 @@ fn commit_block<F: FaultInjection>(
         %block_hash, "Committing block"
     );
 
-    *current_topology = committed_block.header().committed_with_topology.clone();
+    *current_topology = Topology {
+        sorted_peers: committed_block.header().committed_with_topology.clone(),
+    };
     current_topology.lift_up_peers(
         &committed_block
             .signatures()
@@ -476,7 +479,9 @@ fn replace_top_block<F: FaultInjection>(
         %block_hash, "Replacing top block"
     );
 
-    *current_topology = committed_block.header().committed_with_topology.clone();
+    *current_topology = Topology {
+        sorted_peers: committed_block.header().committed_with_topology.clone(),
+    };
     current_topology.lift_up_peers(
         &committed_block
             .signatures()
@@ -560,8 +565,7 @@ fn enqueue_transaction<F: FaultInjection>(
     let tx = tx.into_v1();
 
     let addr = &sumeragi.peer_id.address;
-    match VersionedAcceptedTransaction::from_transaction::<false>(tx, &sumeragi.transaction_limits)
-    {
+    match VersionedAcceptedTransaction::accept::<false>(tx, &sumeragi.transaction_limits) {
         Ok(tx) => match sumeragi.queue.push(tx, wsv) {
             Ok(_) => {}
             Err(crate::queue::Failure {
@@ -1109,7 +1113,7 @@ fn vote_for_block<F: FaultInjection>(
         return None;
     }
 
-    if block.header().committed_with_topology != state.current_topology {
+    if block.header().committed_with_topology != state.current_topology.sorted_peers {
         error!(
             %addr, %role, block_topology=?block.header().committed_with_topology, my_topology=?state.current_topology, hash=%block.hash(),
             "The block is rejected as because the topology field is incorrect."

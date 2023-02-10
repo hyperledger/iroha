@@ -1,7 +1,7 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 
 use eyre::Result;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{error::FindError, prelude::*};
 use iroha_telemetry::metrics;
 
 use super::super::isi::prelude::*;
@@ -300,9 +300,9 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::{Result, WrapErr};
+    use iroha_data_model::error::QueryExecutionFailure as Error;
 
     use super::*;
-    use crate::smartcontracts::query::Error;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]

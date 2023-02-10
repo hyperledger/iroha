@@ -3,7 +3,7 @@
 use std::thread;
 
 use iroha_client::client::{account, transaction, Client};
-use iroha_core::prelude::*;
+use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::*;
 use test_network::*;
 

@@ -1,7 +1,10 @@
 //! This module contains implementations of smart-contract traits and
 //! instructions for triggers in Iroha.
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    error::{FindError, MathError},
+    prelude::*,
+};
 use iroha_telemetry::metrics;
 
 /// All instructions related to triggers.
@@ -191,12 +194,10 @@ pub mod isi {
 
 pub mod query {
     //! Queries associated to triggers.
+    use iroha_data_model::error::QueryExecutionFailure as Error;
 
     use super::*;
-    use crate::{
-        prelude::*,
-        smartcontracts::{query::Error, Evaluate as _, FindError},
-    };
+    use crate::{prelude::*, smartcontracts::Evaluate as _};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]

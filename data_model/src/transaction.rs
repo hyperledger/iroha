@@ -13,7 +13,7 @@ use core::{
 use std::{collections::btree_set, time::Duration, vec};
 
 use derive_more::{DebugCustom, Display};
-use iroha_crypto::{Hash, SignatureOf, SignaturesOf};
+use iroha_crypto::{Hash, SignatureOf, SignatureVerificationFail, SignaturesOf};
 use iroha_ffi::FfiType;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -781,6 +781,132 @@ impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
     }
 }
 
+declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, Serialize);
+
+impl VersionedAcceptedTransaction {
+    /// Convert from `&VersionedAcceptedTransaction` to V1 reference
+    pub const fn as_v1(&self) -> &AcceptedTransaction {
+        match self {
+            VersionedAcceptedTransaction::V1(v1) => v1,
+        }
+    }
+
+    /// Convert from `&mut VersionedAcceptedTransaction` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut AcceptedTransaction {
+        match self {
+            VersionedAcceptedTransaction::V1(v1) => v1,
+        }
+    }
+
+    /// Performs the conversion from `VersionedAcceptedTransaction` to V1
+    pub fn into_v1(self) -> AcceptedTransaction {
+        match self {
+            VersionedAcceptedTransaction::V1(v1) => v1,
+        }
+    }
+}
+
+impl Txn for VersionedAcceptedTransaction {
+    type HashOf = VersionedSignedTransaction;
+
+    #[inline]
+    fn payload(&self) -> &Payload {
+        &self.as_v1().payload
+    }
+}
+
+/// `AcceptedTransaction` — a transaction accepted by iroha peer.
+#[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
+#[derive(Debug, Clone, Decode, Encode, Serialize)]
+pub struct AcceptedTransaction {
+    /// Payload of this transaction.
+    pub payload: Payload,
+    /// Signatures for this transaction.
+    pub signatures: SignaturesOf<Payload>,
+}
+
+impl Txn for AcceptedTransaction {
+    type HashOf = SignedTransaction;
+
+    #[inline]
+    fn payload(&self) -> &Payload {
+        &self.payload
+    }
+}
+
+/// Error type for transaction from [`SignedTransaction`] to [`AcceptedTransaction`]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub enum AcceptTransactionFailure {
+    /// Failure during limits check
+    #[cfg_attr(feature = "std", error(transparent))]
+    TransactionLimit(#[cfg_attr(feature = "std", from)] TransactionLimitError),
+    /// Failure during signature verification
+    #[cfg_attr(feature = "std", error(transparent))]
+    SignatureVerification(#[cfg_attr(feature = "std", from)] SignatureVerificationFail<Payload>),
+}
+
+impl AcceptedTransaction {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    #[cfg(feature = "std")]
+    pub fn accept<const IS_GENESIS: bool>(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, AcceptTransactionFailure> {
+        if !IS_GENESIS {
+            transaction.check_limits(limits)?
+        }
+        let signatures: SignaturesOf<_> = transaction
+            .signatures
+            .try_into()
+            .expect("SignedTransaction should have at least one signature");
+        signatures.verify(&transaction.payload)?;
+
+        Ok(Self {
+            payload: transaction.payload,
+            signatures,
+        })
+    }
+}
+
+impl VersionedAcceptedTransaction {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`VersionedAcceptedTransaction`].
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    #[cfg(feature = "std")]
+    pub fn accept<const IS_GENESIS: bool>(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, AcceptTransactionFailure> {
+        AcceptedTransaction::accept::<IS_GENESIS>(transaction, limits).map(Into::into)
+    }
+}
+
+impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
+    fn from(tx: VersionedAcceptedTransaction) -> Self {
+        let tx: AcceptedTransaction = tx.into_v1();
+        let tx: SignedTransaction = tx.into();
+        tx.into()
+    }
+}
+
+impl From<AcceptedTransaction> for SignedTransaction {
+    fn from(transaction: AcceptedTransaction) -> Self {
+        SignedTransaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures.into_iter().collect(),
+        }
+    }
+}
+
 /// Transaction was reject because it doesn't satisfy signature condition
 #[derive(
     Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
@@ -981,11 +1107,78 @@ pub enum RejectionReason {
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
     pub use super::{
-        BlockRejectionReason, Executable, InstructionExecutionFail, NotPermittedFail, Payload,
-        PendingTransactions, RejectedTransaction, RejectionReason, Sign, SignedTransaction,
-        Transaction, TransactionLimits, TransactionQueryResult, TransactionRejectionReason,
-        TransactionValue, Txn, UnsatisfiedSignatureConditionFail, ValidTransaction,
-        VersionedPendingTransactions, VersionedRejectedTransaction, VersionedSignedTransaction,
-        VersionedValidTransaction, WasmExecutionFail, WasmSmartContract,
+        AcceptedTransaction, BlockRejectionReason, Executable, InstructionExecutionFail,
+        NotPermittedFail, Payload, PendingTransactions, RejectedTransaction, RejectionReason, Sign,
+        SignedTransaction, Transaction, TransactionLimits, TransactionQueryResult,
+        TransactionRejectionReason, TransactionValue, Txn, UnsatisfiedSignatureConditionFail,
+        ValidTransaction, VersionedAcceptedTransaction, VersionedPendingTransactions,
+        VersionedRejectedTransaction, VersionedSignedTransaction, VersionedValidTransaction,
+        WasmExecutionFail, WasmSmartContract,
     };
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::pedantic, clippy::restriction)]
+
+    use std::str::FromStr as _;
+
+    use iroha_crypto::KeyPair;
+
+    use super::*;
+    use crate::prelude::{AccountId, FailBox};
+
+    #[test]
+    fn transaction_not_accepted_max_instruction_number() {
+        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
+        let inst: Instruction = FailBox {
+            message: "Will fail".to_owned(),
+        }
+        .into();
+        let tx = Transaction::new(
+            AccountId::from_str("root@global").expect("Valid"),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
+            1000,
+        )
+        .sign(key_pair)
+        .expect("Valid");
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        let result = AcceptedTransaction::accept::<false>(tx, &tx_limits);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "Too many instructions in payload, max number is {}, but got {}",
+                tx_limits.max_instruction_number,
+                DEFAULT_MAX_INSTRUCTION_NUMBER + 1
+            )
+        );
+    }
+
+    #[test]
+    fn genesis_transaction_ignore_limits() {
+        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
+        let inst: Instruction = FailBox {
+            message: "Will fail".to_owned(),
+        }
+        .into();
+        let tx = Transaction::new(
+            AccountId::from_str("root@global").expect("Valid"),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
+            1000,
+        )
+        .sign(key_pair)
+        .expect("Valid");
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+
+        assert!(AcceptedTransaction::accept::<true>(tx, &tx_limits).is_ok());
+    }
 }

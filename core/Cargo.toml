@@ -47,8 +47,8 @@ iroha_actor = { version = "=2.0.0-pre-rc.13", path = "../actor" }
 iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
 iroha_futures = { version = "=2.0.0-pre-rc.13", path = "../futures" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.13", path = "../telemetry" }
-iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../schema" }
 iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../primitives" }
+iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../genesis" }
 
 async-trait = "0.1.60"
 dashmap = "5.4.0"

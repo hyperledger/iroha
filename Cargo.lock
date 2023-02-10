@@ -1926,6 +1926,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_futures",
+ "iroha_genesis",
  "iroha_logger",
  "iroha_macro",
  "iroha_p2p",
@@ -2001,9 +2002,9 @@ dependencies = [
  "http",
  "iroha",
  "iroha_config",
- "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
  "iroha_telemetry",
@@ -2107,11 +2108,11 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_futures",
+ "iroha_genesis",
  "iroha_logger",
  "iroha_macro",
  "iroha_p2p",
  "iroha_primitives",
- "iroha_schema",
  "iroha_telemetry",
  "iroha_version",
  "itertools",
@@ -2157,7 +2158,6 @@ dependencies = [
  "getset",
  "iroha",
  "iroha_client",
- "iroha_core",
  "iroha_crypto",
  "iroha_data_model_derive",
  "iroha_ffi",
@@ -2170,7 +2170,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "strum",
- "test_network",
  "thiserror",
  "tokio",
  "trybuild",
@@ -2251,6 +2250,22 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "iroha_genesis"
+version = "2.0.0-pre-rc.13"
+dependencies = [
+ "derive_more",
+ "eyre",
+ "iroha_config",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_logger",
+ "iroha_primitives",
+ "iroha_schema",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2353,9 +2368,9 @@ dependencies = [
 name = "iroha_schema_gen"
 version = "2.0.0-pre-rc.13"
 dependencies = [
- "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_schema",
 ]
 
@@ -2529,9 +2544,9 @@ dependencies = [
  "clap 3.2.23",
  "color-eyre",
  "iroha_config",
- "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
@@ -2555,6 +2570,7 @@ version = "2.0.0-pre-rc.13"
 dependencies = [
  "clap 3.2.23",
  "iroha_core",
+ "iroha_data_model",
  "iroha_version",
 ]
 
@@ -2967,9 +2983,9 @@ dependencies = [
  "clap 3.2.23",
  "colored",
  "eyre",
- "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_primitives",
  "iroha_schema",
  "iroha_schema_gen",
@@ -4143,6 +4159,7 @@ dependencies = [
  "iroha_config",
  "iroha_core",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
  "json5",

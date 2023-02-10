@@ -50,11 +50,8 @@ strum = { version = "0.24.1", default-features = false, features = ["derive"] }
 base64 = { version = "0.13.1", default-features = false, features = ["alloc"]}
 
 [dev-dependencies]
-iroha_core = { path = "../core", version = "=2.0.0-pre-rc.13" }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.13" }
 iroha = { path = "../cli" }
-
-test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.13" }
 
 tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread"] }
 trybuild = "1.0.73"

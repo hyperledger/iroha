@@ -7,11 +7,8 @@
     clippy::std_instead_of_alloc
 )]
 
-use iroha_core::{
-    block::{stream::prelude::*, VersionedCandidateBlock},
-    genesis::RawGenesisBlock,
-    smartcontracts::isi::query::Error as QueryError,
-};
+use iroha_data_model::{block::stream::prelude::*, error::QueryExecutionFailure};
+use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 
 macro_rules! schemas {
@@ -40,14 +37,13 @@ pub fn build_schemas() -> MetaMap {
         VersionedPaginatedQueryResult,
         VersionedSignedQueryRequest,
         VersionedSignedTransaction,
-        QueryError,
+        QueryExecutionFailure,
 
         RegistrableBox,
 
         // Even though these schemas are not exchanged between server and client,
         // they can be useful to the client to generate and validate their hashes
         MerkleTree<VersionedSignedTransaction>,
-        VersionedCandidateBlock,
     }
 }
 

@@ -6,12 +6,9 @@
     clippy::std_instead_of_alloc
 )]
 use eyre::Result;
-use iroha_data_model::{permission::validator::DenialReason, prelude::*};
-use iroha_schema::IntoSchema;
+use iroha_data_model::{error::QueryExecutionFailure as Error, prelude::*};
 use parity_scale_codec::{Decode, Encode};
-use thiserror::Error;
 
-use super::FindError;
 use crate::{prelude::ValidQuery, WorldStateView};
 
 /// Query Request statefully validated on the Iroha node side.
@@ -34,38 +31,6 @@ impl ValidQueryRequest {
     #[must_use]
     pub const fn new(query: QueryBox) -> Self {
         Self { query }
-    }
-}
-
-/// Query errors.
-#[derive(Error, Debug, Decode, Encode, IntoSchema)]
-pub enum Error {
-    /// Query cannot be decoded.
-    #[error("Query cannot be decoded")]
-    Decode(#[from] Box<iroha_version::error::Error>),
-    /// Query has wrong signature.
-    #[error("Query has the wrong signature: {0}")]
-    Signature(String),
-    /// Query is not allowed.
-    #[error("Query is not allowed: {0}")]
-    Permission(DenialReason),
-    /// Query has wrong expression.
-    #[error("Query has a malformed expression: {0}")]
-    Evaluate(String),
-    /// Query found nothing.
-    #[error("Query found nothing: {0}")]
-    Find(#[from] Box<FindError>),
-    /// Query found wrong type of asset.
-    #[error("Query found wrong type of asset: {0}")]
-    Conversion(String),
-    /// Query without account.
-    #[error("Unauthorized query: account not provided")]
-    Unauthorized,
-}
-
-impl From<FindError> for Error {
-    fn from(err: FindError) -> Self {
-        Box::new(err).into()
     }
 }
 
@@ -127,17 +92,11 @@ mod tests {
     use std::str::FromStr;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::transaction::TransactionLimits;
+    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{
-        block::{PendingBlock, VersionedCommittedBlock},
-        kura::Kura,
-        tx::TransactionValidator,
-        wsv::World,
-        PeersIds,
-    };
+    use crate::{block::*, kura::Kura, tx::TransactionValidator, wsv::World, PeersIds};
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
@@ -228,13 +187,13 @@ mod tests {
         let valid_tx = {
             let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000)
                 .sign(ALICE_KEYS.clone())?;
-            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &limits)?
+            VersionedAcceptedTransaction::accept::<false>(tx, &limits)?
         };
         let invalid_tx = {
             let isi = Instruction::Fail(FailBox::new("fail"));
             let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi].into(), 4000)
                 .sign(ALICE_KEYS.clone())?;
-            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &huge_limits)?
+            VersionedAcceptedTransaction::accept::<false>(tx, &huge_limits)?
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -343,8 +302,8 @@ mod tests {
             .expect("WSV is empty");
 
         assert_eq!(
-            FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
-            block.into_value().header
+            &FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
+            block.header()
         );
 
         assert!(FindBlockHeaderByHash::new(Hash::new([42]))
@@ -393,8 +352,7 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx =
-            crate::VersionedAcceptedTransaction::from_transaction::<false>(signed_tx, &tx_limits)?;
+        let va_tx = crate::VersionedAcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?;
 
         let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());

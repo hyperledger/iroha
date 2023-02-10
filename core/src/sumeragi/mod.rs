@@ -17,13 +17,14 @@ use eyre::{Result, WrapErr as _};
 use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair, SignatureOf};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{block::*, prelude::*};
+use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
-use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
+use crate::handler::ThreadHandler;
 
 pub mod main_loop;
 pub mod message;
@@ -39,8 +40,8 @@ use self::{
     view_change::{Proof, ProofChain},
 };
 use crate::{
-    block::VersionedPendingBlock, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator,
-    EventsSender, IrohaNetwork, NetworkMessage,
+    block::*, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator, EventsSender,
+    IrohaNetwork, NetworkMessage,
 };
 
 trait Consensus {
@@ -285,7 +286,9 @@ impl Sumeragi {
             Topology::new(sumeragi.config.trusted_peers.peers.clone())
         } else {
             let block_ref = sumeragi.internal.kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-            let mut topology = block_ref.header().committed_with_topology.clone();
+            let mut topology = Topology {
+                sorted_peers: block_ref.header().committed_with_topology.clone(),
+            };
             topology.rotate_set_a();
             topology
         };

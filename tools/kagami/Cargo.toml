@@ -9,25 +9,7 @@ description = "A tool used to generate cryptographic keys, docs, the schema and 
 
 license.workspace = true
 
-# Explanation: You want the option to remove configuration docs if you
-# distribute e.g. a `deb`, but want the person who just cloned the
-# repo to be able to see at a glance what kinds of features are
-# accessible to them, what they do and how to use them. #1975 should
-# be fixed soon.
-[features]
-default = ["dex", "telemetry", "dev-telemetry"]
-# Support Decentralised Exchange, including functionality for atomic exchange instruction
-dex = ["iroha_core/dex"]
-# Support lightweight telemetry, including diagnostics
-telemetry = ["iroha_core/telemetry"]
-# Support developer-specific telemetry.
-# Should not be enabled on production builds.
-dev-telemetry = ["iroha_core/dev-telemetry"]
-
-
 [dependencies]
-
-iroha_core = { version = "=2.0.0-pre-rc.13", path = "../../core" }
 iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.13", path = "../../config" }
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../../data_model" }
@@ -35,6 +17,7 @@ iroha_schema_gen = { version = "=2.0.0-pre-rc.13", path = "../../schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../../schema" }
 iroha_primitives = { version = "2.0.0-pre-rc.13", path = "../../primitives" }
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../../wasm_builder" }
+iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../../genesis" }
 
 color-eyre = "0.6.2"
 clap = { version = "3.2.23", features = ["derive"] }

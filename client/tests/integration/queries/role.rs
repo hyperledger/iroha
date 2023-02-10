@@ -4,8 +4,7 @@ use std::collections::HashSet;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::smartcontracts::isi::query::Error as QueryError;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{error::QueryExecutionFailure, prelude::*};
 use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
@@ -106,7 +105,9 @@ fn find_unregistered_role_by_id() {
     // Not found error
     assert!(matches!(
         found_role,
-        Err(client::ClientQueryError::QueryError(QueryError::Find(_)))
+        Err(client::ClientQueryError::QueryError(
+            QueryExecutionFailure::Find(_)
+        ))
     ));
 }
 

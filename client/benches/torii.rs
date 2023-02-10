@@ -6,11 +6,9 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::samples::get_config;
 use iroha_client::client::{asset, Client};
 use iroha_config::{base::runtime_upgrades::Reload, logger};
-use iroha_core::{
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
-    prelude::*,
-};
+use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
+use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
 use iroha_primitives::small::SmallStr;
 use iroha_version::Encode;
 use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};

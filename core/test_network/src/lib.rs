@@ -21,11 +21,9 @@ use iroha_config::{
     sumeragi::Configuration as SumeragiConfiguration,
     torii::Configuration as ToriiConfiguration,
 };
-use iroha_core::{
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
-    prelude::*,
-};
+use iroha_core::prelude::*;
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
+use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::small;
 use rand::seq::IteratorRandom;

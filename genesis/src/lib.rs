@@ -12,7 +12,6 @@ use std::{fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
 use derive_more::Deref;
 use eyre::{bail, eyre, Result, WrapErr};
-use iroha_actor::Addr;
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
@@ -22,19 +21,11 @@ use iroha_data_model::{
 use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
-use tokio::{time, time::Duration};
-
-use crate::{sumeragi::network_topology::Topology, tx::VersionedAcceptedTransaction, IrohaNetwork};
-
-// TODO: 8 is just the optimal value for tests. This number should be
-// revised as soon as we have real data, to fix #1855.
-type Online = SmallVec<[PeerId; 8]>;
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 
 /// Genesis network trait for mocking
-#[async_trait::async_trait]
 pub trait GenesisNetworkTrait:
     Deref<Target = Vec<VersionedAcceptedTransaction>> + Sync + Send + 'static + Sized + Debug
 {
@@ -48,19 +39,6 @@ pub trait GenesisNetworkTrait:
         genesis_config: Option<&Configuration>,
         transaction_limits: &TransactionLimits,
     ) -> Result<Option<Self>>;
-
-    /// Waits for a minimum number of [`Peer`]s needed for consensus
-    /// to be online.  Returns initialized network [`Topology`] with
-    /// the set A consisting of online peers.
-    async fn wait_for_peers(
-        &self,
-        this_peer_id: PeerId,
-        network_topology: Topology,
-        network: Addr<IrohaNetwork>,
-    ) -> Result<Topology>;
-
-    /// See [`Configuration`] docs.
-    fn genesis_submission_delay_ms(&self) -> u64;
 }
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
@@ -69,54 +47,8 @@ pub struct GenesisNetwork {
     /// transactions from `GenesisBlock`, any transaction is accepted
     #[deref]
     pub transactions: Vec<VersionedAcceptedTransaction>,
-    /// Number of attempts to connect to peers, while waiting for them to submit genesis.
-    pub wait_for_peers_retry_count_limit: u64,
-    /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
-    pub wait_for_peers_retry_period_ms: u64,
-    /// Delay before genesis block submission after minimum number of peers were discovered to be online.
-    /// Used to ensure that other peers had time to connect to each other.
-    pub genesis_submission_delay_ms: u64,
 }
 
-async fn try_get_online_topology(
-    this_peer_id: &PeerId,
-    network_topology: &Topology,
-    network: Addr<IrohaNetwork>,
-) -> Result<Topology> {
-    let online_peers = check_peers_status(this_peer_id, network_topology, network).await;
-    let set_a_len = network_topology.min_votes_for_commit();
-    if online_peers.len() < set_a_len {
-        eyre::bail!("Not enough online peers for consensus.");
-    }
-    iroha_logger::info!("Waiting for active peers finished.");
-    Ok(network_topology.clone())
-}
-
-/// Checks which [`Peer`]s are online and which are offline
-/// Returns `(online, offline)` [`Peer`]s.
-async fn check_peers_status(
-    this_peer_id: &PeerId,
-    network_topology: &Topology,
-    network: Addr<IrohaNetwork>,
-) -> Online {
-    #[allow(clippy::expect_used)]
-    let peers = network
-        .send(iroha_p2p::network::GetConnectedPeers)
-        .await
-        .expect("Could not get connected peers from Network!")
-        .peers;
-    iroha_logger::info!(peer_count = peers.len(), "Peers status");
-
-    let (online, _offline): (SmallVec<_>, SmallVec<_>) = network_topology
-        .sorted_peers
-        .iter()
-        .cloned()
-        .partition(|id| peers.contains(&id.public_key) || this_peer_id.public_key == id.public_key);
-
-    online
-}
-
-#[async_trait::async_trait]
 impl GenesisNetworkTrait for GenesisNetwork {
     fn from_configuration(
         submit_genesis: bool,
@@ -156,38 +88,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
         if transactions.is_empty() {
             bail!("Genesis transaction set contains no valid transactions");
         }
-        Ok(Some(GenesisNetwork {
-            transactions,
-            wait_for_peers_retry_count_limit: genesis_config.wait_for_peers_retry_count_limit,
-            wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
-            genesis_submission_delay_ms: genesis_config.genesis_submission_delay_ms,
-        }))
-    }
-
-    async fn wait_for_peers(
-        &self,
-        this_peer_id: PeerId,
-        network_topology: Topology,
-        network: Addr<IrohaNetwork>,
-    ) -> Result<Topology> {
-        iroha_logger::info!("Waiting for active peers",);
-        for i in 0..self.wait_for_peers_retry_count_limit {
-            if let Ok(topology) =
-                try_get_online_topology(&this_peer_id, &network_topology, network.clone()).await
-            {
-                iroha_logger::info!("Got topology");
-                return Ok(topology);
-            }
-
-            let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;
-            iroha_logger::info!("Retrying to connect in {} ms", reconnect_in_ms);
-            time::sleep(Duration::from_millis(reconnect_in_ms)).await;
-        }
-        Err(eyre!("Waiting for peers failed."))
-    }
-
-    fn genesis_submission_delay_ms(&self) -> u64 {
-        self.genesis_submission_delay_ms
+        Ok(Some(GenesisNetwork { transactions }))
     }
 }
 
@@ -258,7 +159,8 @@ impl GenesisTransaction {
         )
         .sign(genesis_key_pair)?;
 
-        VersionedAcceptedTransaction::from_transaction::<true>(transaction, limits)
+        VersionedAcceptedTransaction::accept::<true>(transaction, limits)
+            .wrap_err("Failed to accept transaction")
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
@@ -415,7 +317,6 @@ mod tests {
                 &ConfigurationProxy {
                     account_public_key: Some(genesis_public_key),
                     account_private_key: Some(Some(genesis_private_key)),
-                    ..ConfigurationProxy::default()
                 }
                 .build()
                 .expect("Default genesis config should build when provided the `public key`"),

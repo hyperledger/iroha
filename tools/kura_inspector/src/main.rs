@@ -7,10 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use iroha_core::{
-    kura::{BlockIndex, BlockStore},
-    prelude::VersionedCommittedBlock,
-};
+use iroha_core::kura::{BlockIndex, BlockStore};
+use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_version::scale::DecodeVersioned;
 
 /// Kura inspector

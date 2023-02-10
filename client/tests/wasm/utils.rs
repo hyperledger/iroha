@@ -3,7 +3,6 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use iroha_core::smartcontracts::wasm;
 
 /// Return string containing exported memory, dummy allocator, and
 /// host function imports which you can embed into your wasm module.
@@ -37,10 +36,10 @@ pub fn wasm_template(hex_val: &str) -> String {
                 (i32.add (global.get $mem_size) (local.get $size)))
         )
         "#,
-        memory_name = wasm::export::WASM_MEMORY_NAME,
-        alloc_fn_name = wasm::export::WASM_ALLOC_FN,
-        execute_instruction = wasm::import::EXECUTE_ISI_FN_NAME,
-        execute_query = wasm::import::EXECUTE_QUERY_FN_NAME,
+        memory_name = "memory",
+        alloc_fn_name = "_iroha_wasm_alloc",
+        execute_instruction = "execute_instruction",
+        execute_query = "execute_query",
         hex_val = escape_hex(hex_val),
         hex_len = hex_val.len() / 2,
     )

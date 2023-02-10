@@ -153,8 +153,7 @@ impl MeasurerUnit {
     /// Submit initial transactions for measurement
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn ready(self) -> Result<Self> {
-        let keypair =
-            iroha_core::prelude::KeyPair::generate().expect("Failed to generate KeyPair.");
+        let keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
         let account_id = account_id(self.name);
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;

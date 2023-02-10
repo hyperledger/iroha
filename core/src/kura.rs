@@ -14,11 +14,12 @@ use std::{
 use derive_more::Deref;
 use iroha_config::kura::Mode;
 use iroha_crypto::HashOf;
+use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use parking_lot::Mutex;
 
-use crate::{block::VersionedCommittedBlock, handler::ThreadHandler};
+use crate::handler::ThreadHandler;
 
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";

@@ -184,16 +184,15 @@ mod schema {
 
 mod genesis {
     use clap::{Parser, Subcommand};
-    use iroha_core::{
-        genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
-        tx::{AssetValueType, MintBox, RegisterBox},
-    };
     use iroha_data_model::{
+        asset::AssetValueType,
+        isi::{MintBox, RegisterBox},
         metadata::Limits,
         permission::{validator, Validator},
         prelude::AssetId,
         IdBox,
     };
+    use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder};
 
     use super::*;
 

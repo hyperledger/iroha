@@ -117,7 +117,7 @@ fn account_definition_test() -> Result<(), Error> {
 fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_account_crates
     use iroha_client::client::Client;
-    use iroha_core::prelude::KeyPair;
+    use iroha_crypto::KeyPair;
     use iroha_data_model::{
         account::Id as AccountIdStruct,
         metadata::UnlimitedMetadata,

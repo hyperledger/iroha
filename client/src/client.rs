@@ -12,11 +12,11 @@ use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
-use iroha_core::{
-    prelude::VersionedCommittedBlock, smartcontracts::isi::query::Error as QueryError,
-};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRequest};
+use iroha_data_model::{
+    block::VersionedCommittedBlock, error::QueryExecutionFailure, predicate::PredicateBox,
+    prelude::*, query::SignedQueryRequest,
+};
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallStr;
 use iroha_telemetry::metrics::Status;
@@ -82,7 +82,7 @@ where
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND => {
-                    let res = QueryError::decode_all(&mut resp.body().as_ref());
+                    let res = QueryExecutionFailure::decode_all(&mut resp.body().as_ref());
                     let err = res.wrap_err(
                         "Failed to decode error-response from Iroha. \
                          You are likely using a version of the client library \
@@ -108,7 +108,7 @@ where
 pub enum ClientQueryError {
     /// Certain Iroha query error
     #[error("Query error: {0}")]
-    QueryError(QueryError),
+    QueryError(QueryExecutionFailure),
     /// Some other error
     #[error("Other error: {0}")]
     Other(eyre::Error),
@@ -1357,10 +1357,7 @@ mod blocks_api {
 
     /// Blocks API flow. For documentation and usage examples, refer to [`crate::http::ws::conn_flow`].
     pub mod flow {
-        use iroha_core::block::stream::{
-            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-            VersionedBlockSubscriptionRequest,
-        };
+        use iroha_data_model::block::stream::*;
 
         use super::*;
 
@@ -1415,7 +1412,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_core::prelude::VersionedCommittedBlock;
+            type Event = iroha_data_model::block::VersionedCommittedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let block_socket_message =
@@ -1718,16 +1715,16 @@ mod tests {
             let responses = vec![
                 (
                     StatusCode::UNAUTHORIZED,
-                    QueryError::Signature("whatever".to_owned()),
+                    QueryExecutionFailure::Signature("whatever".to_owned()),
                 ),
                 (
                     StatusCode::FORBIDDEN,
-                    QueryError::Permission("whatever".to_owned()),
+                    QueryExecutionFailure::Permission("whatever".to_owned()),
                 ),
                 (
                     StatusCode::NOT_FOUND,
                     // Here should be `Find`, but actually handler doesn't care
-                    QueryError::Evaluate("whatever".to_owned()),
+                    QueryExecutionFailure::Evaluate("whatever".to_owned()),
                 ),
             ];
 
