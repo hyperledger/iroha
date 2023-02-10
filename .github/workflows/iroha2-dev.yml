@@ -26,6 +26,12 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Soramitsu Harbor
+        uses: docker/login-action@v2
+        with:
+          registry: docker.soramitsu.co.jp
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Set up Docker Buildx
         id: buildx
         if: always()
@@ -37,7 +43,9 @@ jobs:
         if: always()
         with:
           push: true
-          tags: hyperledger/iroha2:dev
+          tags: |
+            hyperledger/iroha2:dev
+            docker.soramitsu.co.jp/iroha2/iroha2:dev
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
           file: Dockerfile
