@@ -70,7 +70,8 @@ pub trait IsInBlockchain {
 }
 
 pub mod handler {
-    //! General purpose thread handler. It is responsible for
+    //! General purpose thread handler. It is responsible for RAII for
+    //! threads started for Kura, Sumeragi and other core routines.
     use std::thread::JoinHandle;
 
     /// Call shutdown function and join thread on drop

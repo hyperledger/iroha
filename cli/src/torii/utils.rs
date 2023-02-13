@@ -1,8 +1,6 @@
 use std::convert::Infallible;
 
-use iroha_cli_derive::generate_endpoints;
 use iroha_version::prelude::*;
-use parity_scale_codec::Encode;
 use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
 
 /// Structure for empty response body
@@ -57,7 +55,7 @@ pub mod body {
 }
 
 /// Warp result response type
-pub struct WarpResult<O, E>(Result<O, E>);
+pub struct WarpResult<O, E>(pub Result<O, E>);
 
 impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     fn into_response(self) -> warp::reply::Response {
@@ -68,4 +66,4 @@ impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     }
 }
 
-generate_endpoints!(2, 3, 4, 5);
+iroha_cli_derive::generate_endpoints!(2, 3, 4, 5);

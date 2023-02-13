@@ -89,6 +89,7 @@ function bulk_export {
     export IROHA_GENESIS_ACCOUNT_PRIVATE_KEY
     export IROHA2_CONFIG_PATH
     export IROHA2_GENESIS_PATH
+    export SUMERAGI_DEBUG_FORCE_SOFT_FORK
 }
 
 function run_peer () {
@@ -97,11 +98,14 @@ function run_peer () {
     STORAGE="$PEER/storage"
     mkdir -p "$STORAGE"
     KURA_BLOCK_STORE_PATH="$STORAGE"
+    LOG_FILE_PATH="$PEER/log.json"
+    MAX_LOG_LEVEL="TRACE"
     TORII_P2P_ADDR="$HOST:${p2p_ports[$1]}"
     TORII_API_URL="$HOST:${api_ports[$1]}"
     TORII_TELEMETRY_URL="$HOST:${telemetry_ports[$1]}"
     IROHA_PUBLIC_KEY="${public_keys[$1]}"
     IROHA_PRIVATE_KEY="${private_keys[$1]}"
+    SUMERAGI_DEBUG_FORCE_SOFT_FORK="false"
     exec -a "iroha$1" "$TEST/peers/iroha" "$2" > "$PEER/.log" & disown
 }
 

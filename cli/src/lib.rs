@@ -45,8 +45,9 @@ pub mod samples;
 mod stream;
 pub mod torii;
 
-/// Arguments for Iroha2.
-/// Configuration for arguments is parsed from environment variables and then the appropriate object is constructed.
+/// Arguments for Iroha2.  Configuration for arguments is parsed from
+/// environment variables and then the appropriate object is
+/// constructed.
 #[derive(Debug)]
 pub struct Arguments {
     /// Set this flag on the peer that should submit genesis on the network initial start.
@@ -64,12 +65,10 @@ lazy_static::lazy_static! {
     pub static ref GENESIS_PATH : &'static std::path::Path = std::path::Path::new("genesis");
 }
 
-const SUBMIT_GENESIS: bool = false;
-
 impl Default for Arguments {
     fn default() -> Self {
         Self {
-            submit_genesis: SUBMIT_GENESIS,
+            submit_genesis: false,
             genesis_path: Some(ConfigPath::default(*GENESIS_PATH)),
             config_path: ConfigPath::default(*CONFIGURATION_PATH),
         }
@@ -160,16 +159,29 @@ impl Iroha {
         instruction_judge: InstructionJudgeBoxed,
         query_judge: QueryJudgeBoxed,
     ) -> Result<Self> {
-        let broker = Broker::new();
-        let file_proxy = ConfigurationProxy::from_path(
-            &args
-                .config_path
-                .first_existing_path()
-                .wrap_err("Configuration file does not exist")?
-                .as_ref(),
-        );
-        let env_proxy = ConfigurationProxy::from_env();
-        let config = file_proxy.override_with(env_proxy).build()?;
+        let mut config = args
+            .config_path
+            .first_existing_path()
+            .map_or_else(
+                || {
+                    eprintln!(
+                        "Configuration file not found. Using environment variables as fallback."
+                    );
+                    ConfigurationProxy::default()
+                },
+                |path| ConfigurationProxy::from_path(&path.as_path()),
+            )
+            .override_with(ConfigurationProxy::from_env())
+            .build()?;
+
+        if style::should_disable_color() {
+            config.disable_panic_terminal_colors = true;
+            // Remove terminal colors to comply with XDG
+            // specifications, Rust's conventions as well as remove
+            // escape codes from logs redirected from STDOUT. If you
+            // need syntax highlighting, use JSON logging instead.
+            config.logger.terminal_colors = false;
+        }
 
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!(
@@ -184,7 +196,9 @@ impl Iroha {
                 RawGenesisBlock::from_path(
                     genesis_path
                         .first_existing_path()
-                        .wrap_err("Genesis block file doesn't exist")?
+                        .wrap_err_with(|| {
+                            format!("Genesis block file {genesis_path:?} doesn't exist")
+                        })?
                         .as_ref(),
                 )?,
                 Some(&config.genesis),
@@ -200,7 +214,7 @@ impl Iroha {
             config,
             instruction_judge,
             query_judge,
-            broker,
+            Broker::new(),
             telemetry,
         )
         .await
@@ -226,7 +240,7 @@ impl Iroha {
                 |location| format!("{}:{}", location.file(), location.line()),
             );
 
-            iroha_logger::error!(%panic_message, %location, "A panic occured, shutting down");
+            iroha_logger::error!(panic_message, location, "A panic occured, shutting down");
 
             // NOTE: shutdown all currently listening waiters
             notify_shutdown.notify_waiters();
@@ -251,7 +265,7 @@ impl Iroha {
         if !config.disable_panic_terminal_colors {
             if let Err(e) = color_eyre::install() {
                 let error_message = format!("{e:#}");
-                iroha_logger::error!(error = %error_message, "Tried to install eyre_hook twice",);
+                iroha_logger::error!(error = %error_message, "Tried to `color_eyre::install()` twice",);
             }
         }
         let listen_addr = config.torii.p2p_addr.clone();
@@ -350,7 +364,6 @@ impl Iroha {
             Arc::clone(&queue),
             query_judge,
             events_sender,
-            network_addr.clone(),
             Arc::clone(&notify_shutdown),
             Arc::clone(&sumeragi),
             Arc::clone(&kura),
@@ -382,7 +395,7 @@ impl Iroha {
         iroha_logger::info!("Starting Iroha");
         self.torii
             .take()
-            .ok_or_else(|| eyre!("Seems like peer was already started"))?
+            .ok_or_else(|| eyre!("Torii is unavailable. Ensure nothing `take`s the Torii instance before this line"))?
             .start()
             .await
             .wrap_err("Failed to start Torii")
@@ -398,7 +411,7 @@ impl Iroha {
         let torii = self
             .torii
             .take()
-            .ok_or_else(|| eyre!("Seems like peer was already started"))?;
+            .ok_or_else(|| eyre!("Peer already started in a different task"))?;
         Ok(tokio::spawn(async move {
             torii.start().await.wrap_err("Failed to start Torii")
         }))
@@ -422,7 +435,7 @@ impl Iroha {
             }
             iroha_telemetry::ws::start(&config.telemetry, substrate_telemetry)
                 .await
-                .wrap_err("Failed to setup telemetry")
+                .wrap_err("Failed to setup telemetry for websocket communication")
         } else {
             Ok(false)
         }
@@ -439,7 +452,6 @@ impl Iroha {
         Ok(false)
     }
 
-    // Which raises the question: does it make sense to enable `nursery` lints?
     #[allow(clippy::redundant_pub_crate)]
     fn start_listening_signal(notify_shutdown: Arc<Notify>) -> Result<task::JoinHandle<()>> {
         let (mut sigint, mut sigterm) = signal::unix::signal(signal::unix::SignalKind::interrupt())
@@ -464,13 +476,91 @@ impl Iroha {
     }
 }
 
-/// Returns the `domain_name: domain` mapping, for initial domains.
+/// Return the `domain_name: domain` mapping, for initial domains.
 ///
 /// # Errors
 /// - Genesis account public key not specified.
 fn domains(configuration: &Configuration) -> [Domain; 1] {
     let key = configuration.genesis.account_public_key.clone();
     [Domain::from(GenesisDomain::new(key))]
+}
+
+pub mod style {
+    //! Style and colouration of Iroha CLI outputs.
+    use owo_colors::{OwoColorize, Style};
+
+    /// Styling information set at run-time for pretty-printing with colour
+    #[derive(Clone, Copy, Debug)]
+    pub struct Styling {
+        /// Positive highlight
+        pub positive: Style,
+        /// Negative highlight. Usually error message.
+        pub negative: Style,
+        /// Neutral highlight
+        pub highlight: Style,
+        /// Minor message
+        pub minor: Style,
+    }
+
+    impl Default for Styling {
+        fn default() -> Self {
+            Self {
+                positive: Style::new().green().bold(),
+                negative: Style::new().red().bold(),
+                highlight: Style::new().bold(),
+                minor: Style::new().green(),
+            }
+        }
+    }
+
+    /// Determine if message colourisation is to be enabled
+    pub fn should_disable_color() -> bool {
+        supports_color::on(supports_color::Stream::Stdout).is_none()
+            || std::env::var("TERMINAL_COLORS")
+                .map(|s| !s.as_str().parse().unwrap_or(true))
+                .unwrap_or(false)
+    }
+
+    impl Styling {
+        #[must_use]
+        /// Constructor
+        pub fn new() -> Self {
+            if should_disable_color() {
+                Self::no_color()
+            } else {
+                Self::default()
+            }
+        }
+
+        fn no_color() -> Self {
+            Self {
+                positive: Style::new(),
+                negative: Style::new(),
+                highlight: Style::new(),
+                minor: Style::new(),
+            }
+        }
+
+        /// Produce documentation for argument group
+        pub fn or(&self, arg_group: &[&str; 2]) -> String {
+            format!(
+                "`{}` (short `{}`)",
+                arg_group[0].style(self.positive),
+                arg_group[1].style(self.minor)
+            )
+        }
+
+        /// Convenience method for ".json or .json5" pattern
+        pub fn with_json_file_ext(&self, name: &str) -> String {
+            let json = format!("{name}.json");
+            let json5 = format!("{name}.json5");
+            format!(
+                "`{}` or `{}`",
+                json.style(self.highlight),
+                json5.style(self.highlight)
+            )
+        }
+    }
 }
 
 #[cfg(test)]

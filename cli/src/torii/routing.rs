@@ -10,7 +10,6 @@ use std::{cmp::Ordering, num::TryFromIntError};
 
 use eyre::WrapErr;
 use futures::TryStreamExt;
-use iroha_actor::Addr;
 use iroha_config::{
     base::proxy::Documented,
     iroha::{Configuration, ConfigurationView},
@@ -44,9 +43,10 @@ use crate::stream::{Sink, Stream};
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 pub struct VerifiedQueryRequest {
-    /// Payload.
+    /// Payload, containing the time, the query, the authenticating
+    /// user account and a filter
     payload: query::Payload,
-    /// Signature of the client who sends this query.
+    /// Signature of the authenticating user
     signature: SignatureOf<query::Payload>,
 }
 
@@ -54,10 +54,9 @@ impl VerifiedQueryRequest {
     /// Validate query.
     ///
     /// # Errors
-    /// if:
-    /// - Account doesn't exist.
-    /// - Account doesn't have the correct public key.
-    /// - Account has incorrect permissions.
+    /// - Account doesn't exist
+    /// - Account doesn't have the correct public key
+    /// - Account has incorrect permissions
     pub fn validate(
         self,
         wsv: &WorldStateView,
@@ -216,8 +215,7 @@ enum Health {
     Healthy,
 }
 
-#[iroha_futures::telemetry_future]
-async fn handle_health() -> Json {
+fn handle_health() -> Json {
     reply::json(&Health::Healthy)
 }
 
@@ -290,6 +288,8 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
     loop {
+        // FIXME: cleanup.
+
         tokio::select! {
             // This branch catches `Close` and unexpected messages
             closed = async {
@@ -297,7 +297,7 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
                     if message.is_close() {
                         return Ok(());
                     }
-                    iroha_logger::warn!("Unexpected message received: {:?}", message);
+                    iroha_logger::warn!(?message, "Unexpected message received");
                 }
                 eyre::bail!("Can't receive close message")
             } => {
@@ -319,7 +319,8 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
                     from_height += 1;
                 }
             }
-            // Else branch to prevent panic
+            // Else branch to prevent panic i.e. I don't know what
+            // this does.
             else => ()
         }
     }
@@ -334,16 +335,16 @@ mod subscription {
     /// Type for any error during subscription handling
     #[derive(thiserror::Error, Debug)]
     enum Error {
-        /// Event consuming error
-        #[error("Event consuming error: {0}")]
+        /// Event consumption resulted in an error
+        #[error("Event consumption resulted in an error: {0}")]
         Consumer(Box<event::Error>),
-        /// Event receiving error
-        #[error("Event receiving error: {0}")]
+        /// Event reception error
+        #[error("Event reception error: {0}")]
         Event(#[from] tokio::sync::broadcast::error::RecvError),
-        /// Error from provided websocket
+        /// Error caused by a violation of the Websocket protocol
         #[error("WebSocket error: {0}")]
         WebSocket(#[from] warp::Error),
-        /// Error, indicating that `Close` message was received
+        /// A `Close` message is received. Not strictly an Error
         #[error("`Close` message received")]
         CloseMessage,
     }
@@ -365,9 +366,11 @@ mod subscription {
 
     /// Handle subscription request
     ///
-    /// Subscribes `stream` for `events` filtered by filter that is received through the `stream`
+    /// Subscribes `stream` for `events` filtered by filter that is
+    /// received through the `stream`
     ///
-    /// There should be a [`warp::filters::ws::Message::close()`] message to end subscription
+    /// There should be a [`warp::filters::ws::Message::close()`]
+    /// message to end subscription
     #[iroha_futures::telemetry_future]
     pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
         let mut consumer = event::Consumer::new(stream).await?;
@@ -380,7 +383,8 @@ mod subscription {
 
     /// Make endless `consumer` subscription for `events`
     ///
-    /// Ideally should return `Result<!>` cause it either runs forever either returns `Err` variant
+    /// Ideally should return `Result<!>` cause it either runs forever
+    /// either returns `Err` variant
     async fn subscribe_forever(events: EventsSender, consumer: &mut event::Consumer) -> Result<()> {
         let mut events = events.subscribe();
 
@@ -422,9 +426,7 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-#[allow(clippy::unused_async)] // TODO: remove?
-async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<String> {
-    // TODO: Remove network.
+fn handle_metrics(sumeragi: &Sumeragi) -> Result<String> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
     }
@@ -435,14 +437,36 @@ async fn handle_metrics(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -
 }
 
 #[cfg(feature = "telemetry")]
-#[allow(clippy::unused_async)] // TODO: remove?
-async fn handle_status(sumeragi: Arc<Sumeragi>, _network: Addr<IrohaNetwork>) -> Result<Json> {
-    // TODO: remove network
+#[allow(clippy::unnecessary_wraps)]
+fn handle_status(sumeragi: &Sumeragi) -> Result<warp::reply::Json, Infallible> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
     let status = Status::from(&sumeragi.metrics());
     Ok(reply::json(&status))
+}
+
+#[cfg(feature = "telemetry")]
+#[allow(clippy::unused_async)]
+async fn handle_status_precise(sumeragi: Arc<Sumeragi>, segment: String) -> Result<Json> {
+    if let Err(error) = sumeragi.update_metrics() {
+        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
+    }
+    // TODO: This probably can be optimised to elide the full
+    // structure. Ideally there should remain a list of fields and
+    // field aliases somewhere in `serde` macro output, which can
+    // elide the creation of the value, and directly read the value
+    // behind the mutex.
+    let status = Status::from(&sumeragi.metrics());
+    match serde_json::to_value(status) {
+        Ok(value) => Ok(value
+            .get(segment)
+            .map_or_else(|| reply::json(&value), reply::json)),
+        Err(err) => {
+            iroha_logger::error!(%err, "Error while converting to JSON value");
+            Ok(reply::json(&None::<String>))
+        }
+    }
 }
 
 impl Torii {
@@ -453,7 +477,6 @@ impl Torii {
         queue: Arc<Queue>,
         query_judge: QueryJudgeArc,
         events: EventsSender,
-        network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,
         sumeragi: Arc<Sumeragi>,
         kura: Arc<Kura>,
@@ -463,7 +486,6 @@ impl Torii {
             events,
             query_judge,
             queue,
-            network,
             notify_shutdown,
             sumeragi,
             kura,
@@ -476,14 +498,24 @@ impl Torii {
     fn create_telemetry_router(
         &self,
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
-        let get_router_status = endpoint2(
-            handle_status,
-            warp::path(uri::STATUS).and(add_state!(self.sumeragi, self.network)),
+        let status_path = warp::path(uri::STATUS);
+        let get_router_status_precise = endpoint2(
+            handle_status_precise,
+            status_path
+                .and(add_state!(self.sumeragi))
+                .and(warp::path::param()),
         );
-        let get_router_metrics = endpoint2(
-            handle_metrics,
-            warp::path(uri::METRICS).and(add_state!(self.sumeragi, self.network)),
-        );
+        let get_router_status_bare =
+            status_path
+                .and(add_state!(self.sumeragi))
+                .and_then(|sumeragi: Arc<_>| async move {
+                    Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi)))
+                });
+        let get_router_metrics = warp::path(uri::METRICS)
+            .and(add_state!(self.sumeragi))
+            .and_then(|sumeragi: Arc<_>| async move {
+                Ok::<_, Infallible>(WarpResult(handle_metrics(&sumeragi)))
+            });
         let get_api_version = warp::path(uri::API_VERSION)
             .and(add_state!(self.sumeragi))
             .and_then(|sumeragi: Arc<_>| async {
@@ -491,7 +523,7 @@ impl Torii {
             });
 
         warp::get()
-            .and(get_router_status)
+            .and(get_router_status_precise.or(get_router_status_bare))
             .or(get_router_metrics)
             .or(get_api_version)
             .with(warp::trace::request())
@@ -503,7 +535,7 @@ impl Torii {
         &self,
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
-            .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
+            .and_then(|| async { Ok::<_, Infallible>(handle_health()) })
             .or(endpoint3(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
@@ -610,7 +642,7 @@ impl Torii {
                 Ok(handles)
             }
             Err(error) => {
-                iroha_logger::error!(%telemetry_url, %error, "Telemetry address configuration parse error");
+                iroha_logger::error!(%telemetry_url, ?error, "Telemetry address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }
