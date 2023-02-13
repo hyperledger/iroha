@@ -20,10 +20,9 @@ private:
     QueryGenerator query_generator_;
 
 public:
-    Query(
-            const iroha::keypair_t& keypair,
-            uint64_t counter = 0u,
-            const uint64_t created_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    Query(const iroha::keypair_t& keypair,
+          uint64_t counter = 1u,
+          const uint64_t created_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
 
     Query& getAccount(const std::string& account_id);
     Query& getAccountAssets(const std::string& account_id);
@@ -47,6 +46,6 @@ public:
     const iroha::protocol::Query signAndAddSignature();
 };
 
-}
+}  // namespace iroha_lib
 
 #endif
