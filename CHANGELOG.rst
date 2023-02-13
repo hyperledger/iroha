@@ -2,11 +2,61 @@ Changelog
 =========
 
 
-2.0.0-pre.rc.7
----------
+2.0.0-pre-rc.13
+---------------
 
 Features
 ~~~~~~~~
+- hyperledger#2399 Config parameters as ISI.
+- hyperledger#3119 Add `dropped_messages` metric.
+- hyperledger#3094 Generate network with `n` peers.
+- hyperledger#3082 Provide full data in `Created` event.
+- hyperledger#3021 Opaque pointer import.
+- hyperledger#2794 Reject Fieldless enums with explicit discriminants in
+  FFI.
+- hyperledger#2922 Add `Grant<Role>` to default genesis.
+- hyperledger#2922 Omit `inner` field in `NewRole` json deserialization.
+- hyperledger#2922 Omit `object(_id)` in json deserialization.
+- hyperledger#2922 Omit `Id` in json deserialization.
+- hyperledger#2922 Omit `Identifiable` in json deserialization.
+- hyperledger#2963 Add `queue_size` to the metrics.
+- hyperledger#3027 implement lockfile for Kura.
+- hyperledger#2813 Kagami generate default peer config.
+- hyperledger#3019 Support JSON5.
+- hyperledger#2231 Generate FFI wrapper API.
+- hyperledger#2999 Accumulate block signatures.
+- hyperledger#2995 Soft fork detection.
+- hyperledger#2905 Extend arithmetic operations to support `NumericValue`
+- hyperledger#2868 Emit iroha version and commit hash in logs.
+- hyperledger#2096 Query for total amount of asset.
+- hyperledger#2899 Add multi-instructions subcommand into 'client_cli'
+- hyperledger#2247 Remove websocket communication noise.
+- hyperledger#2889 Add block streaming support into `iroha_client`
+- hyperledger#2508 Add a new client CLI subcommand that accepts wasm.
+- hyperledger#2280 Produce permission events when role is granted/revoked.
+- hyperledger#2797 Enrich events.
+- hyperledger#2725 Reintroduce timeout into `submit_transaction_blocking`
+- hyperledger#2712 Config proptests.
+- hyperledger#2491 Enum support in FFi.
+- hyperledger#2775 Generate different keys in synthetic genesis.
+- hyperledger#2627 Config finalisation, proxy entrypoint, kagami docgen.
+- hyperledger#2765 Generate synthetic genesis in `kagami`
+- hyperledger#2698 Fix unclear error message in `iroha_client`
+- hyperledger#2689 Add permission token definition parameters.
+- hyperledger#2596 Add Wasm validators.
+- hyperledger#2502 Store GIT hash of build.
+- hyperledger#2672 Add `ipv4Addr`,  `ipv6Addr` variant and predicates.
+- hyperledger#2677 WASM base64 (de-)serialization.
+- hyperledger#2626 Implement `Combine` derive, split `config` macros.
+- hyperledger#2586 `Builder` and `LoadFromEnv` for proxy structs.
+- hyperledger#2611 Derive `TryFromReprC` and `IntoFfi` for generic
+  opaque structs.
+- hyperledger#2587 Split `Configurable` into two traits. #2587: Split `Configurable` into two traits
+- hyperledger#2488 Add support for trait impls in `ffi_export`
+- hyperledger#2553 Add sorting to asset queries.
+- hyperledger#2511 Restrict FFI types on wasm.
+- hyperledger#2407 Parametrise triggers.
+- hyperledger#2536 Introduce `ffi_import` for FFI clients.
 - hyperledger#2338 Add `cargo-all-features` instrumentation.
 - hyperledger#2564 Kagami tool algorithm options.
 - hyperledger#2490 Implement ffi_export for freestanding functions.
@@ -20,14 +70,14 @@ Features
 - hyperledger#2301 Add transaction's block hash when querying it.
 - hyperledger#2454 Add a build script to the parity-scale-decoder tool.
 - hyperledger#2061 Derive macro for filters.
-- hyperledger#2228 Add Unauthorized variant to smartcontracts query  error.
+- hyperledger#2228 Add Unauthorized variant to smartcontracts query error.
 - hyperledger#2395 Add panic if genesis cannot be applied.
 - hyperledger#2000 Disallow empty names. #2000: Disallow empty names
-- hyperledger#2127 Add sanity check to ensure that all data decoded by  `parity_scale_codec` is consumed.
+- hyperledger#2127 Add sanity check to ensure that all data decoded by `parity_scale_codec` is consumed.
 - hyperledger#2360 Make `genesis.json` optional again.
-- hyperledger#2053 Add tests to all remaining queries in private  blockchain.
+- hyperledger#2053 Add tests to all remaining queries in private blockchain.
 - hyperledger#2381 Unify `Role` registration.
-- hyperledger#2053 Add tests to the asset-related queries in private  blockchain.
+- hyperledger#2053 Add tests to the asset-related queries in private blockchain.
 - hyperledger#2053 Add tests to 'private_blockchain'
 - hyperledger#2302 Add 'FindTriggersByDomainId' stub-query.
 - hyperledger#1998 Add filters to queries.
@@ -42,13 +92,12 @@ Features
 - hyperledger#2161 generate FFI functions for `data_model`
 - hyperledger#1149 Block file count does not exceed 1000000 per directory.
 - hyperledger#1413 Add API version endpoint.
-- hyperledger#2103 support querying for blocks and transactions.  add FindAllTransactions query
+- hyperledger#2103 support querying for blocks and transactions. Add `FindAllTransactions`` query
 - hyperledger#2186 Add transfer ISI for `BigQuantity` and `Fixed`.
-- hyperledger#2056 Add a derive proc macro crate for AssetValueType  enum.
+- hyperledger#2056 Add a derive proc macro crate for AssetValueType enum.
 - hyperledger#2100 Add query to find all accounts with asset.
 - hyperledger#2179 Optimise trigger execution.
 - hyperledger#1883 Remove embedded configuration files.
-- hyperledger#2004 Forbid `isize` and `usize` from becoming  `IntoSchema`.
 - hyperledger#2105 handle query errors in client.
 - hyperledger#2050 Add role-related queries.
 - hyperledger#1572: Specialized permission tokens.
@@ -56,13 +105,13 @@ Features
 - hyperledger#2099 Add WASM integration test based on Orillion use-case.
 - hyperledger#2003 Introduce Parity Scale Decoder tool.
 - hyperledger#1952 Add a TPS benchmark as a standard for optimizations.
-- hyperledger#2040 Add integration test with transaction execution  limit.
-- hyperledger#1890 Introduce integration tests based on Orillion use-  cases.
+- hyperledger#2040 Add integration test with transaction execution limit.
+- hyperledger#1890 Introduce integration tests based on Orillion use-cases.
 - hyperledger#2048 Add toolchain file.
 - hyperledger#2100 Add query to find all accounts with asset.
 - hyperledger#2179 Optimise trigger execution.
 - hyperledger#1883 Remove embedded configuration files.
-- hyperledger#2004 Forbid `isize` and `usize` from becoming  `IntoSchema`.
+- hyperledger#2004 Forbid `isize` and `usize` from becoming `IntoSchema`.
 - hyperledger#2105 handle query errors in client.
 - hyperledger#2050 Add role-related queries.
 - hyperledger#1572: Specialized permission tokens.
@@ -112,6 +161,15 @@ Features
 - hyperledger#1652 PR Title Formatting.
 - Add the number of connected peers to `Status`
 
+  * Revert "Delete things related to the number of connected peers"
+
+  This reverts commit b228b41dab3c035ce9973b6aa3b35d443c082544.
+  * Clarify `Peer` has true public key only after handshake
+  * `DisconnectPeer` without tests
+  * Implement unregister peer execution
+  * Add (un)register peer subcommand to `client_cli`
+  * Refuse reconnections from an unregistered peer by its address
+
   After your peer unregisters and disconnects another peer,
   your network will hear reconnection requests from the peer.
   All you can know at first is the address whose port number is arbitrary.
@@ -121,15 +179,85 @@ Features
 
 Fixes
 ~~~~~
+- hyperledger#3129 Fix `Parameter` de/serialization.
+- hyperledger#3109 Prevent `sumeragi` sleep after role agnostic message.
+- hyperledger#3046 Ensure Iroha can start gracefully on empty
+  `./storage`
+- hyperledger#2599 Remove nursery lints.
+- hyperledger#3087 Collect votes from observing peers after view change.
+- hyperledger#3056 Fix `tps-dev` benchmark hanging.
+- hyperledger#1170 Implement cloning-wsv-style soft-fork handling.
+- hyperledger#2456 Make genesis block unlimited.
+- hyperledger#3038 Re-enable multisigs.
+- hyperledger#2894 Fix `LOG_FILE_PATH` env variable deserialization.
+- hyperledger#2803 Return correct status code for signature errors.
+- hyperledger#2963 `Queue` remove transactions correctly.
+- hyperledger#0000 Vergen breaking CI.
+- hyperledger#2165 Remove toolchain fidget.
+- hyperledger#2506 Fix the block validation.
+- hyperledger#3013 Properly chain burn validators.
+- hyperledger#0000 FFI serialization of references, and `wasm` tests.
+- hyperledger#2998 Delete unused Chain code.
+- hyperledger#2816 Move responsibility of access to blocks to kura.
+- hyperledger#2384 Replace decode with decode_all.
+- hyperledger#1967 Replace ValueName with Name.
+- hyperledger#2980 Fix block value ffi type.
+- hyperledger#2858 Introduce parking_lot::Mutex instead of std.
+- hyperledger#2850 Fix deserialization/decoding of `Fixed`
+- hyperledger#2923 Return `FindError` when `AssetDefinition` does not
+  exist.
+- hyperledger#0000 Fix `panic_on_invalid_genesis.sh`
+- hyperledger#2880 Close websocket connection properly.
+- hyperledger#2880 Fix block streaming.
+- hyperledger#2804 `iroha_client_cli` submit transaction blocking.
+- hyperledger#2819 Move non-essential members out of WSV.
+- Fix expression serialization recursion bug.
+- hyperledger#2834 Improve shorthand syntax.
+- hyperledger#2379 Add ability to dump new Kura blocks to blocks.txt.
+- hyperledger#2758 Add Sorting structure to the schema.
+- CI.
+- hyperledger#2548 Warn on large genesis file.
+- hyperledger#2638 Update `whitepaper` and propagate changes.
+- hyperledger#2678 Fix tests on staging branch.
+- hyperledger#2678 Fix tests abort on Kura force shutdown.
+- hyperledger#2607 Refactor of sumeragi code for more simplicity and
+  robustness fixes.
+- hyperledger#2561 Reintroduce viewchanges to consensus.
+- hyperledger#2560 Add back in block_sync and peer disconnecting.
+- hyperledger#2559 Add sumeragi thread shutdown.
+- hyperledger#2558 Validate genesis before updating the wsv from kura.
+- hyperledger#2465 Reimplement sumeragi node as singlethreaded state
+  machine.
+- hyperledger#2449 Initial implementation of Sumeragi Restructuring.
+- hyperledger#2802 Fix env loading for configuration.
+- hyperledger#2787 Notify every listener to shutdown on panic.
+- hyperledger#2764 Remove limit on max message size.
+- #2571: Better Kura Inspector UX.
+- hyperledger#2703 Fix Orillion dev env bugs.
+- Fix typo in a doc comment in schema/src.
+- hyperledger#2716 Make Duration in Uptime public.
+- hyperledger#2700 Export `KURA_BLOCK_STORE_PATH` in docker images.
+- hyperledger#0 Remove `/iroha/rust-toolchain.toml` from the builder
+  image.
+- hyperledger#0 Fix `docker-compose-single.yml`
+- hyperledger#2554 Raise error if `secp256k1` seed shorter than 32
+  bytes.
+- hyperledger#0 Modify `test_env.sh` to allocate storage for each peer.
+- hyperledger#2457 Forcibly shut down kura in tests.
+- hyperledger#2623 Fix doctest for VariantCount.
+- Update an expected error in ui_fail tests.
+- Fix incorrect doc comment in permission validators.
 - hyperledger#2422 Hide private keys in configuration endpoint response.
 - hyperledger#2492: Fix not all triggers being executed that match an event.
 - hyperledger#2504 Fix failing tps benchmark.
 - hyperledger#2477 Fix bug when permissions from roles weren't counted.
 - hyperledger#2416 Fix lints on macOS arm.
 - hyperledger#2457 Fix tests flakiness related to shut down on panic.
+  #2457: Add shut down on panic configuration
 - hyperledger#2473 parse rustc --version instead of RUSTUP_TOOLCHAIN.
 - hyperledger#1480 Shut down on panic. #1480: Add panic hook to exit program on panic
 - hyperledger#2376 Simplified Kura, no async, two files.
+- hyperledger#0000 Docker build failure.
 - hyperledger#1649 remove `spawn` from `do_send`
 - hyperledger#2128 Fix `MerkleTree` construction and iteration.
 - hyperledger#2137 Prepare tests for multiprocess context.
@@ -210,12 +338,56 @@ Fixes
 
 Refactor
 ~~~~~~~~
+- Extract functions from sumeragi main loop.
+- Refactor `ProofChain` to newtype.
+- Remove `Mutex` from `Metrics`
+- Remove adt_const_generics nightly feature.
+- hyperledger#3039 Introduce waiting buffer for the multisigs.
+- Simplify sumeragi.
+- hyperledger#3053 Fix clippy lints.
+- hyperledger#2506 Add more tests on block validation.
+- Remove `BlockStoreTrait` in Kura.
+- Update lints for `nightly-2022-12-22`
+- hyperledger#3022 Remove `Option` in `transaction_cache`
+- hyperledger#3008 Add niche value into `Hash`
+- Update lints to 1.65.
+- Add small tests to boost coverage.
+- Remove dead code from `FaultInjection`
+- Call p2p less often from sumeragi.
+- hyperledger#2675 Validate item names/ids without allocating Vec.
+- hyperledger#2974 Prevent block spoofing without full revalidation.
+- more efficient `NonEmpty` in combinators.
+- hyperledger#2955 Remove Block from BlockSigned message.
+- hyperledger#1868 Prevent validated transactions from being sent
+  between peers.
+- hyperledger#2458 Implement generic combinator API.
+- Add storage folder into gitignore.
+- hyperledger#2909 Hardcode ports for nextest.
+- hyperledger#2747 Change `LoadFromEnv` API.
+- Improve error messages on configuration failure.
+- Add extra examples to `genesis.json`
+- Remove unused dependencies before `rc9` release.
+- Finalise linting on new Sumeragi.
+- Extract subprocedures in the main loop.
+- hyperledger#2774 Change `kagami` genesis generation mode from flag to
+  subcommand.
+- hyperledger#2478 Add `SignedTransaction`
+- hyperledger#2649 Remove `byteorder` crate from `Kura`
+- Rename `DEFAULT_BLOCK_STORE_PATH` from `./blocks` to `./storage`
+- hyperledger#2650 Add `ThreadHandler` to shutdown iroha submodules.
+- hyperledger#2482 Store `Account` permission tokens in `Wsv`
+- Add new lints to 1.62.
+- Improve `p2p` error messages.
+- hyperledger#2001 `EvaluatesTo` static type checking.
+- hyperledger#2052 Make permission tokens registrable with definition.
+  #2052: Implement PermissionTokenDefinition
+- Ensure all feature combinations work.
 - hyperledger#2468 Remove debug supertrait from permission validators.
 - hyperledger#2419 Remove explicit `drop`s.
 - hyperledger#2253 Add `Registrable` trait to `data_model`
-- impl `Origin` instead of `Identifiable` for the data events.
+- Implement `Origin` instead of `Identifiable` for the data events.
 - hyperledger#2369 Refactor permission validators.
-- hyperledger#2307 Make `events_sender` in `WorldStateView` non- optional.
+- hyperledger#2307 Make `events_sender` in `WorldStateView` non-optional.
 - hyperledger#1985 Reduce size of `Name` struct.
 - Add more `const fn`.
 - Make integration tests use `default_permissions()`
@@ -252,18 +424,33 @@ Refactor
 - Core, `sumeragi`, instance functions, `torii`
 - hyperledger#1903 move event emission to `modify_*` methods.
 - Split `data_model` lib.rs file.
-- add wsv reference to quueue.
+- Add wsv reference to queue.
 - hyperledger#1210 Split event stream.
+  * Move transaction-related functionality to data_model/transaction module
 - hyperledger#1725 Remove global state in Torii.
+  * Implement `add_state macro_rules`` and remove `ToriiState`
 - Fix linter error.
 - hyperledger#1661 `Cargo.toml` cleanup.
+  * Sort out cargo dependencies
 - hyperledger#1650 tidy up `data_model`
-- Organisation of `json` files and readme. Updated Readme to conform to template.
+  * Move World to wsv, fix roles feature, derive IntoSchema for CommittedBlock
+- Organisation of `json` files and readme. Update Readme to conform to template.
 - 1529: structured logging.
+  * Refactor log messages
 - `iroha_p2p`
+  * Add p2p privatisation.
 
 Documentation
 ~~~~~~~~~~~~~
+- Update Iroha Client CLI readme.
+- Update tutorial snippets.
+- Add 'sort_by_metadata_key' into API spec.
+- Update links to documentation.
+- Extend tutorial with asset-related docs.
+- Remove outdated doc files.
+- Review punctuation.
+- Move some docs to the tutorial repository.
+- Flakyness report for staging branch.
 - Generate changelog for pre-rc.7.
 - Flakyness report for Jul 30.
 - Bump versions.
@@ -283,12 +470,12 @@ Documentation
 - hyperledger#2192 Review contributing guidelines.
 - Fix broken in-code references.
 - hyperledger#1280 Document Iroha metrics.
-- hyperledger#2119 Add guidance on how to hot reload Iroha in a Docker  container.
+- hyperledger#2119 Add guidance on how to hot reload Iroha in a Docker container.
 - hyperledger#2181 Review README.
 - hyperledger#2113 Document features in Cargo.toml files.
 - hyperledger#2177 Clean up gitchangelog output.
 - hyperledger#1991 Add readme to Kura inspector.
-- hyperledger#2119 Add guidance on how to hot reload Iroha in a Docker  container.
+- hyperledger#2119 Add guidance on how to hot reload Iroha in a Docker container.
 - hyperledger#2181 Review README.
 - hyperledger#2113 Document features in Cargo.toml files.
 - hyperledger#2177 Clean up gitchangelog output.
@@ -297,12 +484,41 @@ Documentation
 - Generate changelog.
 - Update outdated README files.
 - Added missing docs to `api_spec.md`.
-- add wasm README.
+- Add wasm README.
 
 CI/CD changes
 ~~~~~~~~~~~~~
-- hyperledger#2158 Upgrade `parity_scale_codec`
-- Bump trivial dependencies.
+- Add five more self-hosted runners.
+- Add regular image tag for Soramitsu registry.
+- Workaround for libgit2-sys 0.5.0. Revert to 0.4.4.
+- Attempt to use arch-based image.
+- Update workflows to work on new nightly-only-container.
+- Remove binary entrypoints from coverage.
+- Switch dev tests to Equinix self-hosted runners.
+- hyperledger#2865 Remove usage of tmp file from `scripts/check.sh`
+- hyperledger#2781 Add coverage offsets.
+- Disable slow integration tests.
+- Replace base image with docker cache.
+- hyperledger#2781 Add codecov commit parent feature.
+- Move jobs to github runners.
+- hyperledger#2778 Client config check.
+- hyperledger#2732 Add a conditions to update iroha2-base images and add
+  PR labels.
+- Fix nightly image build.
+- Fix `buildx` error with `docker/build-push-action`
+- First-aids for non-functioning `tj-actions/changed-files`
+- Enable sequential publish of images, after #2662.
+- Add harbor registry.
+- Auto-label `api-changes` and `config-changes`
+- Commit hash in image, toolchain file again, UI isolation,
+  schema tracking.
+- Make publishing workflows sequential, and complements to #2427.
+- hyperledger#2309: Re-enable doc tests in CI.
+- hyperledger#2165 Remove codecov install.
+- Move to new container to prevent conflicts with current users.
+- hyperledger#2158 Upgrade `parity_scale_codec` and other dependencies.
+- Fix build.
+- hyperledger#2461 Improve iroha2 CI.
 - Update `syn`.
 - move coverage to a new workflow.
 - reverse docker login ver.
@@ -341,9 +557,13 @@ CI/CD changes
 - CI Dependency Fix.
 - CI segmentation improvements.
 - Uses a fixed Rust version in CI.
-- Fix Docker publish and iroha2-dev push CI.
+- Fix Docker publish and iroha2-dev push CI. Move coverage and bench into PR
 - Remove unnecessary full Iroha build in CI docker test.
-- Adds supports for iroha2 branch in CI pipeline.
+
+  The Iroha build became useless as it is now done in docker image itself. So the CI only builds the client cli which is used in tests.
+- Add support for iroha2 branch in CI pipeline.
+  - long tests only ran on PR into iroha2
+  - publish docker images only from iroha2
 - Additional CI caches.
 
 Web-Assembly
@@ -353,13 +573,18 @@ Web-Assembly
 
 Version bumps
 ~~~~~~~~~~~~~
+- Version to pre-rc.13.
+- Version to pre-rc.11.
+- Version to RC.9.
+- Version to RC.8.
+- Update versions to RC7.
 - Pre-release preparations.
 - Update Mold 1.0.
 - Bump dependencies.
 - Update api_spec.md: fix request/response bodies.
 - Update rust version to 1.56.0.
 - Update contributing guide.
-- Updated README.md and `iroha/config.json` to match new API and URL  format.
+- Update README.md and `iroha/config.json` to match new API and URL  format.
 - Update docker publish target to hyperledger/iroha2 #1453.
 - Updates workflow so that it matches main.
 - Update api spec and fix health endpoint.
@@ -408,6 +633,7 @@ Schema
 
 Tests
 ~~~~~
+- hyperledger#2544 Tutorial doctests.
 - hyperledger#2272 Add tests for 'FindAssetDefinitionById' query.
 - Add `roles` integration tests.
 - Standardise ui tests format, move derive ui tests to derive crates.
@@ -433,6 +659,26 @@ Tests
 
 Other
 ~~~~~
+- Move parametrization into traits and remove FFI IR types.
+- Add support for unions, introduce `non_robust_ref_mut` * implement
+  conststring FFI conversion.
+- Improve IdOrdEqHash.
+- Remove FilterOpt::BySome from (de-)serialization.
+- Make Not transparent.
+- Make ContextValue transparent.
+- Make Expression::Raw tag optional.
+- Add transparency for some instructions.
+- Improve (de-)serialization of RoleId.
+- Improve (de-)serialization of validator::Id.
+- Improve (de-)serialization of PermissionTokenId.
+- Improve (de-)serialization of TriggerId.
+- Improve (de-)serialization of Asset(-Definition) Ids.
+- Improve (de-)serialization of AccountId.
+- Improve (de-)serialization of Ipfs and DomainId.
+- Remove logger config from client config.
+- Add support for transparent structs in FFI.
+- Refactor &Option<T> to Option<&T>
+- Fix clippy warnings.
 - Add more details in `Find` error description.
 - Fix `PartialOrd` and `Ord` implementations.
 - Use `rustfmt` instead of `cargo fmt`
@@ -475,7 +721,7 @@ Other
 - Addition of typed crypto primitives and migration to type-safe cryptography.
 - Logging improvements.
 - hyperledger#1458: Add actor channel size to config as `mailbox`.
-- hyperledger#1451: Add warning about misconfiguration if `faulty_peers = 0` and `trusted peers count > 1
+- hyperledger#1451: Add warning about misconfiguration if `faulty_peers = 0` and `trusted peers count > 1`
 - Add handler for getting specific block hash.
 - Added new query FindTransactionByHash.
 - hyperledger#1185: Change crates name and path.
