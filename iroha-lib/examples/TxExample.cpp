@@ -4,7 +4,7 @@
 #include "model/utils/Utils.h"
 
 
-iroha::protocol::Transaction generateTransaction(
+iroha::protocol::Transaction generateTransactionWhichCreatesDomainAndAsset(
         const std::string& account_name,
         const std::string& key_path,
         const std::string& domain_id,
@@ -42,7 +42,7 @@ void sendSampleTransaction(
         const std::string& user_default_role,
         const std::string& asset_name)
 {
-    const auto tx_proto = generateTransaction(
+    const auto tx_proto = generateTransactionWhichCreatesDomainAndAsset(
                 account_name,
                 key_path,
                 domain_id,

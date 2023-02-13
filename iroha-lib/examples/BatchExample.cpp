@@ -5,7 +5,7 @@
 #include "model/TxBatch.hpp"
 
 
-iroha::protocol::Transaction generateTransaction(
+iroha::protocol::Transaction generateTransactionWhichCreatesDomainAndAsset(
         const std::string& account_name,
         const std::string& key_path,
         const std::string& domain_id,
@@ -41,13 +41,13 @@ void sendSampleBatchTransaction(
         uint16_t torii_port,
         const std::string& user_default_role)
 {
-    const auto tx_a = generateTransaction(
+    const auto tx_a = generateTransactionWhichCreatesDomainAndAsset(
                 account_name,
                 key_path,
                 "domainsamplev2",
                 user_default_role,
                 "assetnamesamplev2");
-    const auto tx_b = generateTransaction(
+    const auto tx_b = generateTransactionWhichCreatesDomainAndAsset(
                 account_name,
                 key_path,
                 "domainsamplev3",

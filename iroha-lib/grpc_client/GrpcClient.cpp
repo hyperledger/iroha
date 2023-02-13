@@ -32,12 +32,12 @@ std::unique_ptr<typename Service::StubInterface> createClient(
 GrpcClient::GrpcClient(
         const std::string& target_ip,
         const uint16_t port)
-    : command_stub_(std::move(createClient<CommandService_v1>(
+    : command_stub_(createClient<CommandService_v1>(
                                   target_ip,
-                                  port))),
-      query_stub_(std::move(createClient<QueryService_v1>(
+                                  port)),
+      query_stub_(createClient<QueryService_v1>(
                                 target_ip,
-                                port)))
+                                port))
 {}
 
 grpc::Status GrpcClient::send(const Transaction& tx)
@@ -83,5 +83,4 @@ ToriiResponse GrpcClient::getTxStatus(const std::string& tx_hash)
                 &toriiResponse);
     return toriiResponse;
 }
-
-}
+}  // namespace iroha_lib
