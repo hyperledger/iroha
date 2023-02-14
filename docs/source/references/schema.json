@@ -68,9 +68,6 @@
       "sorted_by_key": true
     }
   },
-  "NonZeroU8": {
-    "Int": "FixedWidth"
-  },
   "Option<Duration>": {
     "Option": "Duration"
   },
@@ -234,10 +231,10 @@
       "sorted": false
     }
   },
-  "[u8; 31]": {
+  "[u8; 32]": {
     "Array": {
       "ty": "u8",
-      "len": 31,
+      "len": 32,
       "sorted": false
     }
   },
@@ -562,16 +559,9 @@
     }
   },
   "iroha_crypto::hash::Hash": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "more_significant_bits",
-          "ty": "[u8; 31]"
-        },
-        {
-          "name": "least_significant_byte",
-          "ty": "NonZeroU8"
-        }
+    "Tuple": {
+      "types": [
+        "[u8; 32]"
       ]
     }
   },

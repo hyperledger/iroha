@@ -27,7 +27,6 @@ ffi::ffi_item! {
         PartialEq,
         Ord,
         PartialOrd,
-        IntoSchema,
     )]
     #[display(fmt = "{}", "hex::encode(self.as_ref())")]
     #[debug(fmt = "{}", "hex::encode(self.as_ref())")]
@@ -152,6 +151,25 @@ impl Decode for Hash {
                     .ok_or_else(|| "expect least significant bit of hash to be 1".into())
             })
             .map(Self::prehashed)
+    }
+}
+
+impl IntoSchema for Hash {
+    fn type_name() -> String {
+        format!("{}::{}", module_path!(), "Hash")
+    }
+
+    fn schema(map: &mut iroha_schema::MetaMap) {
+        let _ = map
+            .entry(<Self as iroha_schema::IntoSchema>::type_name())
+            .or_insert_with(|| {
+                iroha_schema::Metadata::Tuple(iroha_schema::UnnamedFieldsMeta {
+                    types: vec![<[u8; Self::LENGTH] as iroha_schema::IntoSchema>::type_name()],
+                })
+            });
+        if !map.contains_key(&<[u8; Self::LENGTH] as iroha_schema::IntoSchema>::type_name()) {
+            <[u8; Self::LENGTH] as iroha_schema::IntoSchema>::schema(map);
+        }
     }
 }
 
