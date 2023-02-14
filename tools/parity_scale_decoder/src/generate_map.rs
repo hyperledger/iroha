@@ -348,7 +348,7 @@ pub fn generate_map() -> DumpDecodedMap {
         [predicate::numerical::Interval<u16>; 8],
         [predicate::numerical::Interval<u8>; 4],
         [u16; 8],
-        [u8; 31],
+        [u8; 32],
         [u8; 4],
         account::NewAccount,
         asset::Mintable,
