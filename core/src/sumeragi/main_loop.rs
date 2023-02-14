@@ -1159,3 +1159,4 @@ fn early_return(
         Err(TryRecvError::Empty) => Ok(()),
     }
 }
+
