@@ -20,7 +20,10 @@
             "NewAccount": {
               "id": "alice@wonderland",
               "signatories": [
-                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                {
+                  "digest_function": "ed25519",
+                  "payload": "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                }
               ],
               "metadata": {
                 "key": {
@@ -35,7 +38,10 @@
             "NewAccount": {
               "id": "bob@wonderland",
               "signatories": [
-                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                {
+                  "digest_function": "ed25519",
+                  "payload": "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                }
               ],
               "metadata": {
                 "key": {
@@ -69,7 +75,10 @@
             "NewAccount": {
               "id": "carpenter@garden_of_live_flowers",
               "signatories": [
-                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                {
+                  "digest_function": "ed25519",
+                  "payload": "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                }
               ],
               "metadata": {}
             }
