@@ -544,12 +544,38 @@
       ]
     }
   },
+  "iroha_crypto::Algorithm": {
+    "Enum": {
+      "variants": [
+        {
+          "name": "Ed25519",
+          "discriminant": 0,
+          "ty": null
+        },
+        {
+          "name": "Secp256k1",
+          "discriminant": 1,
+          "ty": null
+        },
+        {
+          "name": "BlsNormal",
+          "discriminant": 2,
+          "ty": null
+        },
+        {
+          "name": "BlsSmall",
+          "discriminant": 3,
+          "ty": null
+        }
+      ]
+    }
+  },
   "iroha_crypto::PublicKey": {
     "Struct": {
       "declarations": [
         {
           "name": "digest_function",
-          "ty": "String"
+          "ty": "iroha_crypto::Algorithm"
         },
         {
           "name": "payload",

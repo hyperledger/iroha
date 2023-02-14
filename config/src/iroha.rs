@@ -172,15 +172,18 @@ mod tests {
     /// Key-pair used for proptests generation
     #[allow(clippy::expect_used)]
     pub fn placeholder_keypair() -> KeyPair {
-        let public_key = "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
-            .parse()
-            .expect("Public key not in mulithash format");
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,
             "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
         ).expect("Private key not hex encoded");
 
-        KeyPair::new(public_key, private_key).expect("Key pair mismatch")
+        KeyPair::new(
+            "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+                .parse()
+                .expect("Public key not in mulithash format"),
+            private_key,
+        )
+        .expect("Key pair mismatch")
     }
 
     fn arb_keys() -> BoxedStrategy<(Option<PublicKey>, Option<PrivateKey>)> {

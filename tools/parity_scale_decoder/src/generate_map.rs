@@ -205,6 +205,7 @@ pub fn generate_map() -> DumpDecodedMap {
         IfInstruction,
         Instruction,
         InstructionExecutionFail,
+        iroha_crypto::Algorithm,
         Less,
         LengthLimits,
         Metadata,
