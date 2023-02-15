@@ -9,7 +9,7 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::{panic, sync::Arc};
+use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use eyre::ContextCompat as _;
@@ -221,10 +221,30 @@ impl Iroha {
     }
 
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
-        let hook = panic::take_hook();
-        panic::set_hook(Box::new(move |info| {
-            hook(info);
+        #[cfg(not(feature = "test-network"))]
+        use std::panic::set_hook;
 
+        // This is a hot-fix for tests
+        //
+        // # Problem
+        //
+        // When running tests in parallel `std::panic::set_hook()` will be set
+        // the same for all threads. That means, that panic in one test can
+        // cause another test shutdown, which we don't want.
+        //
+        // # Downside
+        //
+        // A downside of this approach is that this panic hook will not work for
+        // threads created by Iroha itself (e.g. Sumeragi thread).
+        //
+        // # TODO
+        //
+        // Remove this when all Rust integrations tests will be converted to a
+        // separate Python tests.
+        #[cfg(feature = "test-network")]
+        use thread_local_panic_hook::set_hook;
+
+        set_hook(Box::new(move |info| {
             // What clippy suggests is much less readable in this case
             #[allow(clippy::option_if_let_else)]
             let panic_message = if let Some(message) = info.payload().downcast_ref::<&str>() {
@@ -240,7 +260,7 @@ impl Iroha {
                 |location| format!("{}:{}", location.file(), location.line()),
             );
 
-            iroha_logger::error!(panic_message, location, "A panic occured, shutting down");
+            iroha_logger::error!(panic_message, location, "A panic occurred, shutting down");
 
             // NOTE: shutdown all currently listening waiters
             notify_shutdown.notify_waiters();
@@ -464,8 +484,12 @@ impl Iroha {
 
         let handle = task::spawn(async move {
             tokio::select! {
-                _ = sigint.recv() => {},
-                _ = sigterm.recv() => {},
+                _ = sigint.recv() => {
+                    iroha_logger::info!("SIGINT received, shutting down...");
+                },
+                _ = sigterm.recv() => {
+                    iroha_logger::info!("SIGTERM received, shutting down...");
+                },
             }
 
             // NOTE: shutdown all currently listening waiters
@@ -563,6 +587,7 @@ pub mod style {
     }
 }
 
+#[cfg(not(feature = "test-network"))]
 #[cfg(test)]
 mod tests {
     use std::{iter::repeat, panic, thread};

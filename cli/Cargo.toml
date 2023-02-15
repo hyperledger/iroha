@@ -28,7 +28,7 @@ dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
 schema-endpoint = ["iroha_schema_gen"]
 # Support internal testing infrastructure for integration tests.
 # Disable in production.
-test-network = []
+test-network = ["thread-local-panic-hook"]
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
@@ -65,6 +65,7 @@ serial_test = "0.8.0"
 lazy_static = "1.4.0"
 owo-colors = { version = "3.5.0", features = ["supports-colors"] }
 supports-color = "2.0.0"
+thread-local-panic-hook = { version = "0.1.0", optional = true }
 
 [build-dependencies]
 anyhow = "1.0.68"
