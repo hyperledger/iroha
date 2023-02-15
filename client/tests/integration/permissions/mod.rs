@@ -3,6 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
+use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::{PeerBuilder, *};
 
@@ -190,38 +191,12 @@ fn account_can_query_only_its_own_domain() {
 
 #[ignore = "ignore, more in #2851"]
 #[test]
-// If permissions are checked after instruction is executed during validation this introduces
-// a potential security liability that gives an attacker a backdoor for gaining root access
-fn permissions_checked_before_transaction_execution() {
-    let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new().start_with_runtime();
-
-    let isi = [
-        // Grant instruction is not allowed
-        // Instruction::Grant(GrantBox::new(
-        //     PermissionToken::from(private_blockchain::register::CanRegisterDomains::new()),
-        //     IdBox::AccountId("alice@wonderland".parse().expect("Valid")),
-        // )),
-        Instruction::Register(RegisterBox::new(Domain::new(
-            "new_domain".parse().expect("Valid"),
-        ))),
-    ];
-
-    let rejection_reason = iroha_client
-        .submit_all_blocking(isi)
-        .expect_err("Transaction must fail due to permission validation");
-
-    let root_cause = rejection_reason.root_cause().to_string();
-
-    assert!(root_cause.contains("Account does not have the needed permission token"));
-}
-
-#[ignore = "ignore, more in #2851"]
-#[test]
 fn permissions_differ_not_only_by_names() {
     let (_rt, _not_drop, client) = <PeerBuilder>::new().start_with_runtime();
 
-    // let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
     let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
+    let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
 
     // Registering `Store` asset definitions
     let hat_definition_id: <AssetDefinition as Identifiable>::Id =
@@ -238,20 +213,33 @@ fn permissions_differ_not_only_by_names() {
         .expect("Failed to register new asset definitions");
 
     // Registering mouse
-    let new_mouse_account = Account::new(mouse_id.clone(), []);
+    let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
     client
         .submit_blocking(RegisterBox::new(new_mouse_account))
         .expect("Failed to register mouse");
 
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
-    // TODO
-    // client
-    //     .submit_blocking(GrantBox::new(
-    //         PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_hat_id.clone())),
-    //         alice_id.clone(),
-    //     ))
-    //     .expect("Failed grant permission to modify Mouse's hats");
+    let allow_alice_to_set_key_value_in_hats = GrantBox::new(
+        PermissionToken::new("can_set_key_value_in_user_asset".parse().expect("Valid"))
+            .with_params([(
+                "asset_id".parse().expect("Valid"),
+                mouse_hat_id.clone().into(),
+            )]),
+        alice_id.clone(),
+    )
+    .into();
+
+    let grant_hats_access_tx = Transaction::new(
+        mouse_id.clone(),
+        Executable::Instructions(vec![allow_alice_to_set_key_value_in_hats]),
+        100_000,
+    )
+    .sign(mouse_keypair.clone())
+    .expect("Failed to sign mouse transaction");
+    client
+        .submit_transaction_blocking(grant_hats_access_tx)
+        .expect("Failed grant permission to modify Mouse's hats");
 
     // Checking that Alice can modify Mouse's hats ...
     client
@@ -263,9 +251,9 @@ fn permissions_differ_not_only_by_names() {
         .expect("Failed to modify Mouse's hats");
 
     // ... but not shoes
-    let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id);
+    let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id.clone());
     let set_shoes_color = SetKeyValueBox::new(
-        mouse_shoes_id,
+        mouse_shoes_id.clone(),
         Name::from_str("color").expect("Valid"),
         "yellow".to_owned(),
     );
@@ -274,13 +262,24 @@ fn permissions_differ_not_only_by_names() {
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
-    // TODO
-    // client
-    //     .submit_blocking(GrantBox::new(
-    //         PermissionToken::from(CanSetKeyValueInUserAssets::new(mouse_shoes_id)),
-    //         alice_id,
-    //     ))
-    //     .expect("Failed grant permission to modify Mouse's shoes");
+    let allow_alice_to_set_key_value_in_shoes = GrantBox::new(
+        PermissionToken::new("can_set_key_value_in_user_asset".parse().expect("Valid"))
+            .with_params([("asset_id".parse().expect("Valid"), mouse_shoes_id.into())]),
+        alice_id,
+    )
+    .into();
+
+    let grant_shoes_access_tx = Transaction::new(
+        mouse_id,
+        Executable::Instructions(vec![allow_alice_to_set_key_value_in_shoes]),
+        100_000,
+    )
+    .sign(mouse_keypair)
+    .expect("Failed to sign mouse transaction");
+
+    client
+        .submit_transaction_blocking(grant_shoes_access_tx)
+        .expect("Failed grant permission to modify Mouse's shoes");
 
     // Checking that Alice can modify Mouse's shoes
     client

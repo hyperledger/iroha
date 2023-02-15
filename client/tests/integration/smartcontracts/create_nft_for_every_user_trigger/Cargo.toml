@@ -1,5 +1,5 @@
 [package]
-name = "create_nft_for_every_user_smartcontract"
+name = "create_nft_for_every_user_trigger"
 version = "2.0.0-pre-rc.13"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"

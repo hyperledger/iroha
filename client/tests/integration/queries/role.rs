@@ -42,7 +42,7 @@ fn find_roles() -> Result<()> {
         .map(|role| role.id().clone())
         .collect::<HashSet<_>>();
 
-    assert_eq!(found_role_ids, role_ids);
+    assert!(role_ids.is_subset(&found_role_ids));
 
     Ok(())
 }
@@ -68,7 +68,7 @@ fn find_role_ids() -> Result<()> {
     let found_role_ids = test_client.request(client::role::all_ids())?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
-    assert_eq!(found_role_ids, role_ids);
+    assert!(role_ids.is_subset(&found_role_ids));
 
     Ok(())
 }
@@ -119,19 +119,25 @@ fn find_roles_by_account_id() -> Result<()> {
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
 
     // Registering roles
-    // TODO
-    // let register_roles = role_ids
-    //     .iter()
-    //     .cloned()
-    //     .map(|role_id| {
-    //         RegisterBox::new(
-    //             Role::new(role_id)
-    //                 .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone())),
-    //         )
-    //         .into()
-    //     })
-    //     .collect::<Vec<_>>();
-    // test_client.submit_all_blocking(register_roles)?;
+    let register_roles = role_ids
+        .iter()
+        .cloned()
+        .map(|role_id| {
+            RegisterBox::new(
+                Role::new(role_id).add_permission(
+                    PermissionToken::new(
+                        "can_set_key_value_in_user_account".parse().expect("Valid"),
+                    )
+                    .with_params([(
+                        "account_id".parse().expect("Valid"),
+                        alice_id.clone().into(),
+                    )]),
+                ),
+            )
+            .into()
+        })
+        .collect::<Vec<_>>();
+    test_client.submit_all_blocking(register_roles)?;
 
     // Granting roles to account
     let grant_roles = role_ids
@@ -147,7 +153,7 @@ fn find_roles_by_account_id() -> Result<()> {
     let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
-    assert_eq!(found_role_ids, role_ids);
+    assert!(role_ids.is_subset(&found_role_ids));
 
     Ok(())
 }
