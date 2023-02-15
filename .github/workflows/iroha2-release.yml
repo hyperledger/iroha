@@ -11,7 +11,7 @@ jobs:
   registry:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-ci:nightly-2022-12-22
     steps:
       - uses: actions/checkout@v3
       - name: Set up Docker Buildx
@@ -37,7 +37,7 @@ jobs:
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Build and push iroha2 image
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           push: true
           tags: |
@@ -55,7 +55,7 @@ jobs:
   load-rs:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-ci:nightly-2022-12-22
     steps:
       - name: Get tag from branch name
         run: |
