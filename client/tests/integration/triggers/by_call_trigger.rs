@@ -6,6 +6,7 @@ use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
 use iroha_core::genesis::GenesisNetwork;
 use iroha_data_model::prelude::*;
+use iroha_logger::info;
 use test_network::*;
 
 const TRIGGER_NAME: &str = "mint_rose";
@@ -299,18 +300,25 @@ fn unregister_trigger() -> Result<()> {
 /// Despite this simplification this test should really check
 /// if we have the ability to pass a base64-encoded WASM trigger in the genesis.
 #[test]
-// TODO: Same suggestion here as in #2641.
-// Let's use feature instead of ignore.
-// This feature will be activated by the build-script on nightly builds/
-#[ignore = "Only on nightly"]
 fn trigger_in_genesis_using_base64() -> Result<()> {
-    // Reading wasm smartcontract
-    let wasm = std::fs::read(concat!(
-        env!("OUT_DIR"),
-        "/wasm32-unknown-unknown/release/mint_rose.wasm"
-    ))
-    .wrap_err("Can't read smartcontract")?;
-    println!("wasm size is {} bytes", wasm.len());
+    // Building wasm trigger
+
+    let temp_out_dir =
+        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
+
+    info!("Building trigger");
+    let wasm = iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose")
+        .out_dir(temp_out_dir.path())
+        .build()?
+        .optimize()?
+        .into_bytes();
+
+    temp_out_dir
+        .close()
+        .wrap_err("Failed to remove temporary output directory")?;
+
+    info!("WASM size is {} bytes", wasm.len());
+
     let wasm_base64 = serde_json::json!({
         "raw_data": base64::encode(&wasm),
     })
