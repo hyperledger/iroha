@@ -28,41 +28,41 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
     const KEYS_COUNT: usize = 3;
-    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
-    let bob_keys_count = |client: &mut Client| account_keys_count(client, bob_id.clone());
+    let charlie_id: AccountId = "charlie@wonderland".parse().expect("Valid");
+    let charlie_keys_count = |client: &mut Client| account_keys_count(client, charlie_id.clone());
 
     let (_rt, _peer, mut client) = <PeerBuilder>::new().with_port(10_045).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), [])).into();
+    let register_charlie = RegisterBox::new(Account::new(charlie_id.clone(), [])).into();
 
-    let _unused = submit_and_get(&mut client, [register_bob]);
-    let mut keys_count = bob_keys_count(&mut client);
+    let _unused = submit_and_get(&mut client, [register_charlie]);
+    let mut keys_count = charlie_keys_count(&mut client);
     assert_eq!(keys_count, 0);
 
     let mint_keys = (0..KEYS_COUNT).map(|_| {
         let (public_key, _) = KeyPair::generate().unwrap().into();
-        MintBox::new(public_key, bob_id.clone()).into()
+        MintBox::new(public_key, charlie_id.clone()).into()
     });
 
     let _unused = submit_and_get(&mut client, mint_keys);
-    keys_count = bob_keys_count(&mut client);
+    keys_count = charlie_keys_count(&mut client);
     assert_eq!(keys_count, KEYS_COUNT);
 
-    let bob = client.request(account::by_id(bob_id.clone())).unwrap();
-    let mut keys = bob.signatories();
-    let burn = |key: PublicKey| Instruction::from(BurnBox::new(key, bob_id.clone()));
+    let charlie = client.request(account::by_id(charlie_id.clone())).unwrap();
+    let mut keys = charlie.signatories();
+    let burn = |key: PublicKey| Instruction::from(BurnBox::new(key, charlie_id.clone()));
     let burn_keys_leaving_one = keys.by_ref().take(KEYS_COUNT - 1).cloned().map(burn);
 
     let mut committed_txn = submit_and_get(&mut client, burn_keys_leaving_one);
-    keys_count = bob_keys_count(&mut client);
+    keys_count = charlie_keys_count(&mut client);
     assert_eq!(keys_count, 1);
     assert!(matches!(committed_txn, TransactionValue::Transaction(_)));
 
     let burn_the_last_key = keys.cloned().map(burn);
 
     committed_txn = submit_and_get(&mut client, burn_the_last_key);
-    keys_count = bob_keys_count(&mut client);
+    keys_count = charlie_keys_count(&mut client);
     assert_eq!(keys_count, 1);
     assert!(matches!(
         committed_txn,

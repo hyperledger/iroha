@@ -1,7 +1,5 @@
 #![allow(clippy::restriction)]
 
-use std::fs;
-
 use eyre::{Context as _, Result};
 use iroha_data_model::{
     permission::{validator, Validator},
@@ -12,19 +10,28 @@ use iroha_logger::info;
 use test_network::*;
 
 #[test]
-#[allow(clippy::cognitive_complexity)]
 fn deny_new_validators() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let filename = concat!(
-        env!("OUT_DIR"),
-        "/wasm32-unknown-unknown/release/deny_new_validators_validator.wasm"
-    );
-    info!("Reading wasm from {filename}");
+    info!("Building Runtime Validator");
 
-    let wasm = fs::read(filename).wrap_err("Can't read smartcontract")?;
-    info!("wasm size is {} bytes", wasm.len());
+    let temp_out_dir =
+        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
+
+    let wasm = iroha_wasm_builder::Builder::new(
+        "tests/integration/smartcontracts/deny_new_validators_validator",
+    )
+    .out_dir(temp_out_dir.path())
+    .build()?
+    .optimize()?
+    .into_bytes();
+
+    temp_out_dir
+        .close()
+        .wrap_err("Failed to remove temporary output directory")?;
+
+    info!("WASM size is {} bytes", wasm.len());
 
     let validator = Validator::new(
         "deny_new_validators%alice@wonderland".parse().unwrap(),

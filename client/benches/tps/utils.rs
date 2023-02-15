@@ -157,31 +157,33 @@ impl MeasurerUnit {
             iroha_core::prelude::KeyPair::generate().expect("Failed to generate KeyPair.");
 
         let account_id = account_id(self.name);
-        // let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
         let asset_id = asset_id(self.name);
 
-        let register_me =
-            RegisterBox::new(Account::new(account_id, [keypair.public_key().clone()]));
+        let register_me = RegisterBox::new(Account::new(
+            account_id.clone(),
+            [keypair.public_key().clone()],
+        ));
         self.client.submit_blocking(register_me)?;
 
-        // TODO: Fix according to the new permissions model
-        // let can_burn_my_asset: PermissionToken = CanBurnUserAssets::new(asset_id.clone()).into();
-        // let allow_alice_to_burn_my_asset =
-        //     GrantBox::new(can_burn_my_asset, alice_id.clone()).into();
-        // let can_transfer_my_asset: PermissionToken =
-        //     CanTransferUserAssets::new(asset_id.clone()).into();
-        // let allow_alice_to_transfer_my_asset =
-        //     GrantBox::new(can_transfer_my_asset, alice_id).into();
-        // let grant_tx = Transaction::new(
-        //     account_id,
-        //     Executable::Instructions(vec![
-        //         allow_alice_to_burn_my_asset,
-        //         allow_alice_to_transfer_my_asset,
-        //     ]),
-        //     100_000,
-        // )
-        // .sign(keypair)?;
-        // self.client.submit_transaction_blocking(grant_tx)?;
+        let can_burn_my_asset = PermissionToken::new("can_burn_user_asset".parse()?)
+            .with_params([("asset_id".parse()?, asset_id.clone().into())]);
+        let allow_alice_to_burn_my_asset =
+            GrantBox::new(can_burn_my_asset, alice_id.clone()).into();
+        let can_transfer_my_asset = PermissionToken::new("can_transfer_user_asset".parse()?)
+            .with_params([("asset_id".parse()?, asset_id.clone().into())]);
+        let allow_alice_to_transfer_my_asset =
+            GrantBox::new(can_transfer_my_asset, alice_id).into();
+        let grant_tx = Transaction::new(
+            account_id,
+            Executable::Instructions(vec![
+                allow_alice_to_burn_my_asset,
+                allow_alice_to_transfer_my_asset,
+            ]),
+            100_000,
+        )
+        .sign(keypair)?;
+        self.client.submit_transaction_blocking(grant_tx)?;
 
         let mint_a_rose = MintBox::new(1_u32, asset_id);
         self.client.submit_blocking(mint_a_rose)?;

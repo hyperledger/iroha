@@ -85,7 +85,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
             .request(request.clone())
             .expect("Query failed.")
             .len(),
-        1 // Alice has roses from Genesis
+        2 // Alice has roses and cabbage from Genesis
     );
     let (public_key2, private_key2) = key_pair_2.into();
     client_configuration.public_key = public_key2;
