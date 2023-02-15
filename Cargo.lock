@@ -1919,6 +1919,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
+ "iroha_wasm_builder",
  "lazy_static",
  "parity-scale-codec",
  "rand 0.8.5",

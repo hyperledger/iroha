@@ -45,6 +45,7 @@ futures-util = "0.3.25"
 [dev-dependencies]
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.13", path = "../permission_validators/deprecated" } # TODO: Remove
 iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
 
 test_network = { version = "=2.0.0-pre-rc.13", path = "../core/test_network" }
 tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread"] }
@@ -59,6 +60,7 @@ lazy_static = "1.4.0"
 
 [build-dependencies]
 eyre = "0.6.8"
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
 
 [[bench]]
 name = "torii"
