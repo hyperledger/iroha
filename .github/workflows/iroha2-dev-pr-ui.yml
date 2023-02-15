@@ -20,7 +20,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: 7272721/i2-ci:nightly
+      image: hyperledger/iroha2-ci:nightly-2022-12-22
     timeout-minutes: 60
     strategy:
       matrix:
