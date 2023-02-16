@@ -14,7 +14,7 @@
     "PEER_ID": null,
     "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": null,
-    "COMMIT_TIME_LIMIT_MS": 4000,
+    "COMMIT_TIME_LIMIT_MS": 2000,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
       "max_wasm_size_bytes": 4194304
@@ -78,7 +78,7 @@
       "max": 128
     },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 1000000,
+      "FUEL_LIMIT": 18000000,
       "MAX_MEMORY": 524288000
     }
   },
