@@ -3766,10 +3766,6 @@
         {
           "name": "parameter",
           "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Parameter>"
-        },
-        {
-          "name": "source_id",
-          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>"
         }
       ]
     }
@@ -3860,10 +3856,6 @@
         {
           "name": "parameter",
           "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::Parameter>"
-        },
-        {
-          "name": "source_id",
-          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::IdBox>"
         }
       ]
     }
@@ -4467,118 +4459,128 @@
           "ty": "iroha_data_model::query::asset::FindTotalAssetQuantityByAssetDefinitionId"
         },
         {
-          "name": "FindAssetKeyValueByIdAndKey",
+          "name": "IsAssetDefinitionOwner",
           "discriminant": 17,
+          "ty": "iroha_data_model::query::asset::IsAssetDefinitionOwner"
+        },
+        {
+          "name": "FindAssetKeyValueByIdAndKey",
+          "discriminant": 18,
           "ty": "iroha_data_model::query::asset::FindAssetKeyValueByIdAndKey"
         },
         {
           "name": "FindAssetDefinitionKeyValueByIdAndKey",
-          "discriminant": 18,
+          "discriminant": 19,
           "ty": "iroha_data_model::query::asset::FindAssetDefinitionKeyValueByIdAndKey"
         },
         {
           "name": "FindAllDomains",
-          "discriminant": 19,
+          "discriminant": 20,
           "ty": "iroha_data_model::query::domain::FindAllDomains"
         },
         {
           "name": "FindDomainById",
-          "discriminant": 20,
+          "discriminant": 21,
           "ty": "iroha_data_model::query::domain::FindDomainById"
         },
         {
           "name": "FindDomainKeyValueByIdAndKey",
-          "discriminant": 21,
+          "discriminant": 22,
           "ty": "iroha_data_model::query::domain::FindDomainKeyValueByIdAndKey"
         },
         {
           "name": "FindAllPeers",
-          "discriminant": 22,
+          "discriminant": 23,
           "ty": "iroha_data_model::query::peer::FindAllPeers"
         },
         {
           "name": "FindAllBlocks",
-          "discriminant": 23,
+          "discriminant": 24,
           "ty": "iroha_data_model::query::block::FindAllBlocks"
         },
         {
           "name": "FindAllBlockHeaders",
-          "discriminant": 24,
+          "discriminant": 25,
           "ty": "iroha_data_model::query::block::FindAllBlockHeaders"
         },
         {
           "name": "FindBlockHeaderByHash",
-          "discriminant": 25,
+          "discriminant": 26,
           "ty": "iroha_data_model::query::block::FindBlockHeaderByHash"
         },
         {
           "name": "FindAllTransactions",
-          "discriminant": 26,
+          "discriminant": 27,
           "ty": "iroha_data_model::query::transaction::FindAllTransactions"
         },
         {
           "name": "FindTransactionsByAccountId",
-          "discriminant": 27,
+          "discriminant": 28,
           "ty": "iroha_data_model::query::transaction::FindTransactionsByAccountId"
         },
         {
           "name": "FindTransactionByHash",
-          "discriminant": 28,
+          "discriminant": 29,
           "ty": "iroha_data_model::query::transaction::FindTransactionByHash"
         },
         {
           "name": "FindPermissionTokensByAccountId",
-          "discriminant": 29,
+          "discriminant": 30,
           "ty": "iroha_data_model::query::permissions::FindPermissionTokensByAccountId"
         },
         {
           "name": "FindAllPermissionTokenDefinitions",
-          "discriminant": 30,
+          "discriminant": 31,
           "ty": "iroha_data_model::query::permissions::FindAllPermissionTokenDefinitions"
         },
         {
+          "name": "DoesAccountHavePermissionToken",
+          "discriminant": 32,
+          "ty": "iroha_data_model::query::permissions::DoesAccountHavePermissionToken"
+        },
+        {
           "name": "FindAllActiveTriggerIds",
-          "discriminant": 31,
+          "discriminant": 33,
           "ty": "iroha_data_model::query::trigger::FindAllActiveTriggerIds"
         },
         {
           "name": "FindTriggerById",
-          "discriminant": 32,
+          "discriminant": 34,
           "ty": "iroha_data_model::query::trigger::FindTriggerById"
         },
         {
           "name": "FindTriggerKeyValueByIdAndKey",
-          "discriminant": 33,
+          "discriminant": 35,
           "ty": "iroha_data_model::query::trigger::FindTriggerKeyValueByIdAndKey"
         },
         {
           "name": "FindTriggersByDomainId",
-          "discriminant": 34,
+          "discriminant": 36,
           "ty": "iroha_data_model::query::trigger::FindTriggersByDomainId"
         },
         {
           "name": "FindAllRoles",
-          "discriminant": 35,
+          "discriminant": 37,
           "ty": "iroha_data_model::query::role::FindAllRoles"
         },
         {
           "name": "FindAllRoleIds",
-          "discriminant": 36,
+          "discriminant": 38,
           "ty": "iroha_data_model::query::role::FindAllRoleIds"
         },
         {
           "name": "FindRoleByRoleId",
-          "discriminant": 37,
+          "discriminant": 39,
           "ty": "iroha_data_model::query::role::FindRoleByRoleId"
         },
         {
           "name": "FindRolesByAccountId",
-          "discriminant": 38,
+          "discriminant": 40,
           "ty": "iroha_data_model::query::role::FindRolesByAccountId"
         },
         {
           "name": "FindAllParameters",
-          "discriminant": 39,
+          "discriminant": 41,
           "ty": "iroha_data_model::query::peer::FindAllParameters"
         }
       ]
@@ -4818,6 +4820,20 @@
       ]
     }
   },
+  "iroha_data_model::query::asset::IsAssetDefinitionOwner": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "asset_definition_id",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::asset::DefinitionId>"
+        },
+        {
+          "name": "account_id",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::account::Id>"
+        }
+      ]
+    }
+  },
   "iroha_data_model::query::block::FindAllBlockHeaders": {
     "Tuple": {
       "types": []
@@ -4875,6 +4891,20 @@
   "iroha_data_model::query::peer::FindAllPeers": {
     "Tuple": {
       "types": []
+    }
+  },
+  "iroha_data_model::query::permissions::DoesAccountHavePermissionToken": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "account_id",
+          "ty": "iroha_data_model::expression::EvaluatesTo<iroha_data_model::account::Id>"
+        },
+        {
+          "name": "permission_token",
+          "ty": "iroha_data_model::permission::token::Token"
+        }
+      ]
     }
   },
   "iroha_data_model::query::permissions::FindAllPermissionTokenDefinitions": {
