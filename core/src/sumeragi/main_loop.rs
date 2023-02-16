@@ -399,10 +399,13 @@ fn commit_block<F: FaultInjection>(
         .apply(&committed_block)
         .expect("Failed to apply block on WSV. Bailing.");
     sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
-    sumeragi.send_events(&committed_block);
 
     // Update WSV copy that is public facing
     *sumeragi.wsv.lock() = state.wsv.clone();
+
+    // This sends "Block committed" event, so it should be done
+    // AFTER public facing WSV update
+    sumeragi.send_events(&committed_block);
 
     state.previous_block_hash = state.latest_block_hash;
     state.latest_block_height = committed_block.header().height;
@@ -439,15 +442,18 @@ fn replace_top_block<F: FaultInjection>(
         .expect("Failed to apply block on WSV. Bailing.");
 
     sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
+
+    // Update WSV copy that is public facing
+    *sumeragi.wsv.lock() = state.wsv.clone();
+
+    // This sends "Block committed" event, so it should be done
+    // AFTER public facing WSV update
     sumeragi.send_events(&committed_block);
 
     // state.previous_block_hash stays the same.
     state.latest_block_height = committed_block.header().height;
     state.latest_block_hash = Some(block_hash);
     state.latest_block_view_change_index = committed_block.header().view_change_index;
-
-    // Update WSV copy that is public facing
-    *sumeragi.wsv.lock() = state.wsv.clone();
 
     let current_topology = &mut state.current_topology;
     let role = current_topology.role(&sumeragi.peer_id);

@@ -273,12 +273,14 @@ impl WorldStateView {
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
     pub fn apply(&self, block: &VersionedCommittedBlock) -> Result<()> {
+        debug!(?block, "Applying block to wsv");
         let time_event = self.create_time_event(block.as_v1())?;
         self.events_buffer
             .borrow_mut()
             .push(Event::Time(time_event));
 
         self.execute_transactions(block.as_v1())?;
+        debug!("All block transactions successfully executed");
 
         self.world.triggers.handle_time_event(time_event);
 
