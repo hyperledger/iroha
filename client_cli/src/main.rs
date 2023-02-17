@@ -30,7 +30,6 @@ use iroha_client::client::Client;
 use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
-use ron::{extensions::Extensions, ser::PrettyConfig};
 
 /// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
 #[derive(Debug, Clone)]
@@ -78,10 +77,7 @@ pub struct Args {
     /// Sets a config file path
     #[structopt(short, long)]
     config: Option<Configuration>,
-    /// Output results in machine-readable JSON
-    #[structopt(short, long)]
-    json: bool,
-    /// More verbose ouput
+    /// More verbose output
     #[structopt(short, long)]
     verbose: bool,
     /// Subcommands of client cli
@@ -150,7 +146,6 @@ fn main() -> Result<()> {
     let Args {
         config: config_opt,
         subcommand,
-        json,
         verbose,
     } = clap::Parser::parse();
     let config = if let Some(config) = config_opt {
@@ -172,29 +167,14 @@ fn main() -> Result<()> {
 
     if verbose {
         eprintln!(
-            "User: {}@{}",
-            config.account_id.name, config.account_id.domain_id
+            "Configuration: {}",
+            &serde_json::to_string_pretty(&config)
+                .wrap_err("Failed to serialize configuration.")?
         );
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "{}",
-            &json5::to_string(&config).wrap_err("Failed to serialize configuration.")?
-        );
-        #[cfg(not(debug_assertions))]
-        eprintln!("This is a release build, debug information omitted from messages");
     }
 
     let subcommand_output = subcommand.run(&config)?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&subcommand_output)?)
-    } else {
-        println!(
-            "{}",
-            ron::Options::default()
-                .with_default_extension(Extensions::IMPLICIT_SOME)
-                .to_string_pretty(&subcommand_output, PrettyConfig::default())?
-        )
-    }
+    println!("{}", serde_json::to_string_pretty(&subcommand_output)?);
     Ok(())
 }
 
