@@ -964,20 +964,17 @@ pub(crate) fn run<F: FaultInjection>(
             &mut view_change_time,
         );
 
-        if last_view_change_time.elapsed() > view_change_time {
+        let node_expects_block = !state.transaction_cache.is_empty();
+        if node_expects_block && last_view_change_time.elapsed() > view_change_time {
             let role = state.current_topology.role(&sumeragi.peer_id);
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
                 // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
                 warn!(%role, block=%block.hash(), "Block not committed in due time, requesting view change...");
-            } else if !state.transaction_cache.is_empty() {
+            } else {
                 // NOTE: Suspecting the leader node because it hasn't produced a block
                 // If the current node has a transaction, the leader should have as well
                 warn!(%role, "No block produced in due time, requesting view change...");
-            } else {
-                // NOTE: There might be an issue with transaction gossiping mechanism
-                // There is no meaningful performance hit if there are no transactions
-                info!(%role, "No new transactions, requesting view change...");
             }
 
             suggest_view_change(
