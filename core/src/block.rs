@@ -57,7 +57,7 @@ pub struct PendingBlock {
 // refactor could improve memory performance.
 
 impl PendingBlock {
-    /// Create a new `PendingBlock` from transactions.
+    /// Create a new [`PendingBlock`] from transactions.
     #[inline]
     pub fn new(
         transactions: Vec<VersionedAcceptedTransaction>,
@@ -133,7 +133,7 @@ impl PendingBlock {
     }
 }
 
-/// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
+/// When [`PendingBlock`] chained with a blockchain it becomes [`ChainedBlock`]
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct ChainedBlock {
     /// Block header
@@ -224,7 +224,7 @@ impl ChainedBlock {
         HashOf::new(&self.header).transmute()
     }
 }
-/// After full validation `ChainedBlock` can transform into `ValidBlock`.
+/// After full validation [`ChainedBlock`] can transform into [`ValidBlock`].
 #[derive(Debug, Clone)]
 pub struct ValidBlock {
     /// Block header
@@ -244,7 +244,7 @@ impl ValidBlock {
         HashOf::new(&self.header).transmute()
     }
 
-    /// Sign this block and get `SignedBlock`.
+    /// Sign this block and get [`SignedBlock`].
     ///
     /// # Errors
     /// Fails if signature generation fails
@@ -349,7 +349,7 @@ impl SignedBlock {
             })
     }
 
-    /// Add additional signature for `SignedBlock`
+    /// Add additional signature for [`SignedBlock`]
     ///
     /// # Errors
     /// Fails if given signature doesn't match block hash
@@ -372,7 +372,7 @@ impl SignedBlock {
         self.signatures.retain_verified_by_hash(self.hash())
     }
 
-    /// Create dummy `ValidBlock`. Used in tests
+    /// Create dummy [`ValidBlock`]. Used in tests
     ///
     /// # Panics
     /// If generating keys or block signing fails.
@@ -433,7 +433,7 @@ impl From<&SignedBlock> for Vec<Event> {
 declare_versioned_with_scale!(VersionedCandidateBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedCandidateBlock {
-    /// Convert from `&VersionedCandidateBlock` to V1 reference
+    /// Convert to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &CandidateBlock {
         match self {
@@ -441,7 +441,7 @@ impl VersionedCandidateBlock {
         }
     }
 
-    /// Convert from `&mut VersionedCandidateBlock` to V1 mutable reference
+    /// Convert to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CandidateBlock {
         match self {
@@ -449,7 +449,7 @@ impl VersionedCandidateBlock {
         }
     }
 
-    /// Perform the conversion from `VersionedCandidateBlock` to V1
+    /// Convert into V1
     #[inline]
     pub fn into_v1(self) -> CandidateBlock {
         match self {
@@ -711,7 +711,7 @@ impl From<SignedBlock> for VersionedCandidateBlock {
 declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCommittedBlock {
-    /// Convert from `&VersionedCommittedBlock` to V1 reference
+    /// Convert to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &CommittedBlock {
         match self {
@@ -719,7 +719,7 @@ impl VersionedCommittedBlock {
         }
     }
 
-    /// Convert from `&mut VersionedCommittedBlock` to V1 mutable reference
+    /// Convert to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CommittedBlock {
         match self {
@@ -727,7 +727,7 @@ impl VersionedCommittedBlock {
         }
     }
 
-    /// Performs the conversion from `VersionedCommittedBlock` to V1
+    /// Convert into V1
     #[inline]
     pub fn into_v1(self) -> CommittedBlock {
         match self {
@@ -736,7 +736,7 @@ impl VersionedCommittedBlock {
     }
 
     /// Calculate the hash of the current block.
-    /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
+    /// [`VersionedCommittedBlock`] should have the same hash as [`CommittedBlock`].
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         self.as_v1().hash().transmute()
@@ -796,7 +796,7 @@ impl VersionedCommittedBlock {
     }
 }
 
-/// The `CommittedBlock` struct represents a block accepted by consensus
+/// Represents a block accepted by consensus
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
 pub struct CommittedBlock {
@@ -814,7 +814,7 @@ pub struct CommittedBlock {
 
 impl CommittedBlock {
     /// Calculate the hash of the current block.
-    /// `CommitedBlock` should have the same hash as `ValidBlock`.
+    /// [`CommittedBlock`] should have the same hash as [`ValidBlock`].
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
@@ -893,7 +893,7 @@ impl From<&CommittedBlock> for Vec<Event> {
 declare_versioned_with_scale!(VersionedCandidateCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCandidateCommittedBlock {
-    /// Convert from `&VersionedCandidateCommittedBlock` to V1 reference
+    /// Convert to V1 reference
     #[inline]
     pub const fn as_v1(&self) -> &CandidateCommittedBlock {
         match self {
@@ -901,7 +901,7 @@ impl VersionedCandidateCommittedBlock {
         }
     }
 
-    /// Convert from `&mut VersionedCandidateCommittedBlock` to V1 mutable reference
+    /// Convert to V1 mutable reference
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CandidateCommittedBlock {
         match self {
@@ -909,7 +909,7 @@ impl VersionedCandidateCommittedBlock {
         }
     }
 
-    /// Performs the conversion from `VersionedCandidateCommittedBlock` to V1
+    /// Convert into V1
     #[inline]
     pub fn into_v1(self) -> CandidateCommittedBlock {
         match self {
@@ -918,7 +918,7 @@ impl VersionedCandidateCommittedBlock {
     }
 
     /// Calculate the hash of the current block.
-    /// `VersionedCandidateCommittedBlock` should have the same hash as `VersionedCommittedBlock`.
+    /// [`VersionedCandidateCommittedBlock`] should have the same hash as [`VersionedCommittedBlock`].
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         self.as_v1().hash().transmute()
@@ -958,7 +958,7 @@ impl VersionedCandidateCommittedBlock {
 }
 
 /// Block state used to transfer accepted by consensus block through network to the other peers.
-/// This block state is not entirely trusted and require hash revalidation to obtain `CommittedBlock`.
+/// This block state is not entirely trusted and require hash revalidation to obtain [`CommittedBlock`].
 #[version_with_scale(n = 1, versioned = "VersionedCandidateCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema, Serialize)]
 pub struct CandidateCommittedBlock {
@@ -976,7 +976,7 @@ pub struct CandidateCommittedBlock {
 
 impl CandidateCommittedBlock {
     /// Calculate the hash of the current block.
-    /// `CommitedBlock` should have the same hash as `ValidBlock`.
+    /// [`CommittedBlock`] should have the same hash as [`ValidBlock`].
     #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.header).transmute()
@@ -1074,21 +1074,21 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockMessage {
-        /// Convert from `&VersionedBlockPublisherMessage` to V1 reference
+        /// Convert to V1 reference
         pub const fn as_v1(&self) -> &BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Convert from `&mut VersionedBlockPublisherMessage` to V1 mutable reference
+        /// Convert to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Performs the conversion from `VersionedBlockPublisherMessage` to V1
+        /// Convert into V1
         pub fn into_v1(self) -> BlockMessage {
             match self {
                 Self::V1(v1) => v1,
@@ -1105,21 +1105,21 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockSubscriptionRequest {
-        /// Convert from `&VersionedBlockSubscriberMessage` to V1 reference
+        /// Convert to V1 reference
         pub const fn as_v1(&self) -> &BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Convert from `&mut VersionedBlockSubscriberMessage` to V1 mutable reference
+        /// Convert to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Performs the conversion from `VersionedBlockSubscriberMessage` to V1
+        /// Convert into V1
         pub fn into_v1(self) -> BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
