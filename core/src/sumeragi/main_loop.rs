@@ -941,9 +941,18 @@ pub(crate) fn run<F: FaultInjection>(
             // Checking if transactions are in the blockchain is costly
             .retain(|tx| !tx.is_expired(sumeragi.queue.tx_time_to_live));
 
-        sumeragi
-            .queue
-            .get_transactions_for_block(&state.wsv, &mut state.transaction_cache);
+        let mut expired_transactions = Vec::new();
+        sumeragi.queue.get_transactions_for_block(
+            &state.wsv,
+            &mut state.transaction_cache,
+            &mut expired_transactions,
+        );
+        sumeragi.send_events(
+            expired_transactions
+                .iter()
+                .map(Txn::expired_event)
+                .collect::<Vec<_>>(),
+        );
 
         if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
             sumeragi.gossip_transactions(&state, &view_change_proof_chain);
