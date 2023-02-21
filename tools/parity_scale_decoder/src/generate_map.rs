@@ -431,6 +431,7 @@ pub fn generate_map() -> DumpDecodedMap {
         sumeragi::network_topology::Topology,
         sumeragi::view_change::Proof,
         transaction::Payload,
+        transaction::TransactionExpired,
         transaction::TransactionLimitError,
         transaction::TransactionLimits,
         transaction::WasmSmartContract,

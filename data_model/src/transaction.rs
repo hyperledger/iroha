@@ -23,7 +23,14 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{account::Account, ffi, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+use crate::{
+    account::Account,
+    ffi,
+    isi::Instruction,
+    metadata::UnlimitedMetadata,
+    prelude::{Event, PipelineEntityKind, PipelineEvent, PipelineRejectionReason, PipelineStatus},
+    Identifiable,
+};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -121,6 +128,24 @@ pub trait Txn {
     fn is_in_future(&self, threshold: Duration) -> bool {
         let tx_timestamp = Duration::from_millis(self.payload().creation_time);
         tx_timestamp.saturating_sub(crate::current_time()) > threshold
+    }
+
+    /// Create expired pipeline event for the given transaction.
+    #[cfg(feature = "std")]
+    fn expired_event(&self) -> Event
+    where
+        Self: Sized,
+    {
+        PipelineEvent::new(
+            PipelineEntityKind::Transaction,
+            PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
+                TransactionRejectionReason::Expired(TransactionExpired {
+                    time_to_live_ms: self.payload().time_to_live_ms,
+                }),
+            )),
+            self.hash().into(),
+        )
+        .into()
     }
 }
 
@@ -835,6 +860,32 @@ pub struct NotPermittedFail {
 #[cfg(feature = "std")]
 impl std::error::Error for NotPermittedFail {}
 
+/// Transaction was reject because expired
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
+#[display(
+    fmt = "Transaction expired: consider increase transaction ttl (current {time_to_live_ms}ms)"
+)]
+pub struct TransactionExpired {
+    /// Transaction ttl.
+    pub time_to_live_ms: u64,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for TransactionExpired {}
+
 /// The reason for rejecting transaction which happened because of new blocks.
 #[derive(
     Debug,
@@ -897,6 +948,9 @@ pub enum TransactionRejectionReason {
     /// Genesis account can sign only transactions in the genesis block.
     #[display(fmt = "The genesis account can only sign transactions in the genesis block.")]
     UnexpectedGenesisAccountSignature,
+    /// Transaction gets expired.
+    #[display(fmt = "Transaction rejected due to being expired: {}", self.0)]
+    Expired(#[cfg_attr(feature = "std", source)] TransactionExpired),
 }
 
 /// The reason for rejecting pipeline entity such as transaction or block.

@@ -5189,6 +5189,16 @@
       ]
     }
   },
+  "iroha_data_model::transaction::TransactionExpired": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "time_to_live_ms",
+          "ty": "u64"
+        }
+      ]
+    }
+  },
   "iroha_data_model::transaction::TransactionLimitError": {
     "Tuple": {
       "types": [
@@ -5256,6 +5266,11 @@
           "name": "UnexpectedGenesisAccountSignature",
           "discriminant": 5,
           "ty": null
+        },
+        {
+          "name": "Expired",
+          "discriminant": 6,
+          "ty": "iroha_data_model::transaction::TransactionExpired"
         }
       ]
     }
