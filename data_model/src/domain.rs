@@ -311,9 +311,9 @@ impl Domain {
     pub fn add_asset_definition(
         &mut self,
         asset_definition: AssetDefinition,
-        registered_by: <Account as Identifiable>::Id,
+        owned_by: <Account as Identifiable>::Id,
     ) -> Option<AssetDefinitionEntry> {
-        let asset_definition = AssetDefinitionEntry::new(asset_definition, registered_by);
+        let asset_definition = AssetDefinitionEntry::new(asset_definition, owned_by);
 
         self.asset_definitions
             .insert(asset_definition.definition().id().clone(), asset_definition)

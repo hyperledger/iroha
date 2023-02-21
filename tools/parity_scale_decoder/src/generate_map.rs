@@ -76,6 +76,7 @@ pub fn generate_map() -> DumpDecodedMap {
         AssetDefinitionEventFilter,
         AssetDefinitionFilter,
         AssetDefinitionId,
+        AssetDefinitionOwnerChanged,
         AssetDefinitionTotalQuantityChanged,
         AssetEvent,
         AssetEventFilter,

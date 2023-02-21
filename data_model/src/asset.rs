@@ -76,8 +76,8 @@ declare_item! {
         /// Asset definition.
         #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
         definition: AssetDefinition,
-        /// The account that registered this asset.
-        registered_by: <Account as Identifiable>::Id,
+        /// The account that owns this asset definition.
+        owned_by: <Account as Identifiable>::Id,
     }
 }
 
@@ -102,13 +102,10 @@ impl Ord for AssetDefinitionEntry {
 #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl AssetDefinitionEntry {
     /// Constructor.
-    pub const fn new(
-        definition: AssetDefinition,
-        registered_by: <Account as Identifiable>::Id,
-    ) -> Self {
+    pub const fn new(definition: AssetDefinition, owned_by: <Account as Identifiable>::Id) -> Self {
         Self {
             definition,
-            registered_by,
+            owned_by,
         }
     }
 }
@@ -121,6 +118,11 @@ impl AssetDefinitionEntry {
     /// If the asset was declared as `Mintable::Infinitely`
     pub fn forbid_minting(&mut self) -> Result<(), MintabilityError> {
         self.definition.forbid_minting()
+    }
+
+    /// Change owner for this asset definition.
+    pub fn set_owner(&mut self, new_owner: <Account as Identifiable>::Id) {
+        self.owned_by = new_owner
     }
 }
 

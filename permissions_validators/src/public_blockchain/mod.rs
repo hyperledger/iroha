@@ -173,12 +173,12 @@ pub fn check_asset_creator_for_asset_definition(
     authority: &AccountId,
     wsv: &WorldStateView,
 ) -> ValidatorVerdict {
-    let registered_by_signer_account = wsv
+    let owned_by_signer_account = wsv
         .asset_definition_entry(definition_id)
-        .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
+        .map(|asset_definition_entry| asset_definition_entry.owned_by() == authority)
         .unwrap_or(false);
-    if !registered_by_signer_account {
-        return Deny("Cannot grant access for assets registered by another account.".to_owned());
+    if !owned_by_signer_account {
+        return Deny("Cannot grant access for assets owned by another account.".to_owned());
     }
     Allow
 }
