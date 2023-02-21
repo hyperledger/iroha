@@ -403,7 +403,7 @@ impl IsGrantAllowed for GrantMyAssetDefinitionSet {
 }
 
 // Validator that checks Grant instruction so that the access is granted to the assets defintion
-/// registered by signer account.
+/// owned by signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
 #[display(fmt = "the signer is the asset creator")]
 pub struct GrantMyAssetDefinitionRemove;
@@ -421,7 +421,7 @@ impl IsGrantAllowed for GrantMyAssetDefinitionRemove {
     }
 }
 
-/// Checks that account can set keys for asset definitions only registered by the signer account.
+/// Checks that account can set keys for asset definitions only owned by the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
 #[display(fmt = "Allow only the asset creator to set asset definition metadata keys")]
 pub struct AssetDefinitionSetOnlyForSignerAccount;
@@ -442,21 +442,20 @@ impl IsAllowed for AssetDefinitionSetOnlyForSignerAccount {
         let object_id: AssetDefinitionId =
             ok_or_skip!(try_evaluate_or_deny!(set_kv_box.object_id, wsv).try_into());
 
-        let registered_by_signer_account = wsv
+        let owned_by_signer_account = wsv
             .asset_definition_entry(&object_id)
-            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
+            .map(|asset_definition_entry| asset_definition_entry.owned_by() == authority)
             .unwrap_or(false);
-        if !registered_by_signer_account {
+        if !owned_by_signer_account {
             return Deny(
-                "Cannot set key values to asset definitions registered by other accounts"
-                    .to_owned(),
+                "Cannot set key values to asset definitions owned by other accounts".to_owned(),
             );
         }
         Allow
     }
 }
 
-/// Checks that account can set keys for asset definitions only registered by the signer account.
+/// Checks that account can set keys for asset definitions only owned by the signer account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
 #[display(fmt = "Allow only the asset creator to remove asset definition metadata keys")]
 pub struct AssetDefinitionRemoveOnlyForSignerAccount;
@@ -477,13 +476,13 @@ impl IsAllowed for AssetDefinitionRemoveOnlyForSignerAccount {
         let object_id: AssetDefinitionId =
             ok_or_skip!(try_evaluate_or_deny!(rem_kv_box.object_id, wsv).try_into());
 
-        let registered_by_signer_account = wsv
+        let owned_by_signer_account = wsv
             .asset_definition_entry(&object_id)
-            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
+            .map(|asset_definition_entry| asset_definition_entry.owned_by() == authority)
             .unwrap_or(false);
-        if !registered_by_signer_account {
+        if !owned_by_signer_account {
             return Deny(
-                "Cannot remove key values from asset definitions registered by other accounts"
+                "Cannot remove key values from asset definitions owned by other accounts"
                     .to_owned(),
             );
         }

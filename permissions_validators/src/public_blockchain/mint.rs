@@ -12,7 +12,7 @@ declare_token!(
     "can_mint_user_asset_definitions"
 );
 
-/// Checks that account can mint only the assets which were registered by this account.
+/// Checks that account can mint only the assets which were owned by this account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
 #[display(fmt = "Allow to mint only the assets created by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
@@ -35,10 +35,10 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                             .map_or_else(
                                 |err| Deny(err.to_string()),
                                 |asset_definition_entry| {
-                                if asset_definition_entry.registered_by() == authority {
+                                if asset_definition_entry.owned_by() == authority {
                                     Allow
                                 } else {
-                                    Deny("Can't register assets with definitions registered by other accounts.".to_owned()) }
+                                    Deny("Can't register assets with definitions owned by other accounts.".to_owned()) }
                                 }
                             )
                     }
@@ -53,11 +53,11 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
                     .map_or_else(
                         |err| Deny(err.to_string()),
                         |asset_definition_entry| {
-                            if asset_definition_entry.registered_by() == authority {
+                            if asset_definition_entry.owned_by() == authority {
                                 Allow
                             } else {
                                 Deny(
-                                    "Can't mint assets with definitions registered by other accounts."
+                                    "Can't mint assets with definitions owned by other accounts."
                                         .to_owned(),
                                 )
                             }

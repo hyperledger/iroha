@@ -23,9 +23,9 @@ declare_token!(
     "can_burn_user_assets"
 );
 
-/// Checks that account can burn only the assets which were registered by this account.
+/// Checks that account can burn only the assets which were owned by this account.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
-#[display(fmt = "Allow to burn only the assets registered by the signer")]
+#[display(fmt = "Allow to burn only the assets owned by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
 
 impl IsAllowed for OnlyAssetsCreatedByThisAccount {
@@ -40,15 +40,16 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
         match instruction {
             Instruction::Unregister(unregister) => {
                 if let IdBox::AssetId(asset_id) = try_evaluate_or_deny!(unregister.object_id, wsv) {
-                    let registered_by_signer_account = wsv
+                    let owned_by_signer_account = wsv
                         .asset_definition_entry(&asset_id.definition_id)
                         .map(|asset_definition_entry| {
-                            asset_definition_entry.registered_by() == authority
+                            asset_definition_entry.owned_by() == authority
                         })
                         .unwrap_or(false);
-                    if !registered_by_signer_account {
+                    if !owned_by_signer_account {
                         return Deny(
-                            "Can't unregister assets with definitions registered by other accounts.".to_owned()
+                            "Can't unregister assets with definitions owned by other accounts."
+                                .to_owned(),
                         );
                     }
                 }
@@ -57,16 +58,13 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
             Instruction::Burn(burn_box) => {
                 let destination_id = try_evaluate_or_deny!(burn_box.destination_id, wsv);
                 let asset_id: AssetId = ok_or_skip!(destination_id.try_into());
-                let registered_by_signer_account = wsv
+                let owned_by_signer_account = wsv
                     .asset_definition_entry(&asset_id.definition_id)
-                    .map(|asset_definition_entry| {
-                        asset_definition_entry.registered_by() == authority
-                    })
+                    .map(|asset_definition_entry| asset_definition_entry.owned_by() == authority)
                     .unwrap_or(false);
-                if !registered_by_signer_account {
+                if !owned_by_signer_account {
                     return Deny(
-                        "Can't burn assets with definitions registered by other accounts."
-                            .to_owned(),
+                        "Can't burn assets with definitions owned by other accounts.".to_owned(),
                     );
                 }
                 Allow

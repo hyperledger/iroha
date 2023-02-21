@@ -1246,7 +1246,7 @@
           "ty": "iroha_data_model::asset::AssetDefinition"
         },
         {
-          "name": "registered_by",
+          "name": "owned_by",
           "ty": "iroha_data_model::account::Id"
         }
       ]
@@ -1904,23 +1904,28 @@
           "ty": "iroha_data_model::asset::DefinitionId"
         },
         {
-          "name": "Deleted",
+          "name": "OwnerChanged",
           "discriminant": 2,
+          "ty": "iroha_data_model::events::data::events::asset::AssetDefinitionOwnerChanged"
+        },
+        {
+          "name": "Deleted",
+          "discriminant": 3,
           "ty": "iroha_data_model::asset::DefinitionId"
         },
         {
           "name": "MetadataInserted",
-          "discriminant": 3,
-          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>"
-        },
-        {
-          "name": "MetadataRemoved",
           "discriminant": 4,
           "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>"
         },
         {
-          "name": "TotalQuantityChanged",
+          "name": "MetadataRemoved",
           "discriminant": 5,
+          "ty": "iroha_data_model::events::data::events::MetadataChanged<iroha_data_model::asset::DefinitionId>"
+        },
+        {
+          "name": "TotalQuantityChanged",
+          "discriminant": 6,
           "ty": "iroha_data_model::events::data::events::asset::AssetDefinitionTotalQuantityChanged"
         }
       ]
@@ -1940,23 +1945,28 @@
           "ty": null
         },
         {
-          "name": "ByDeleted",
+          "name": "ByOwnerChanged",
           "discriminant": 2,
           "ty": null
         },
         {
-          "name": "ByMetadataInserted",
+          "name": "ByDeleted",
           "discriminant": 3,
           "ty": null
         },
         {
-          "name": "ByMetadataRemoved",
+          "name": "ByMetadataInserted",
           "discriminant": 4,
           "ty": null
         },
         {
-          "name": "ByTotalQuantityChanged",
+          "name": "ByMetadataRemoved",
           "discriminant": 5,
+          "ty": null
+        },
+        {
+          "name": "ByTotalQuantityChanged",
+          "discriminant": 6,
           "ty": null
         }
       ]
@@ -1972,6 +1982,20 @@
         {
           "name": "event_filter",
           "ty": "iroha_data_model::events::data::filters::FilterOpt<iroha_data_model::events::data::events::asset::AssetDefinitionEventFilter>"
+        }
+      ]
+    }
+  },
+  "iroha_data_model::events::data::events::asset::AssetDefinitionOwnerChanged": {
+    "Struct": {
+      "declarations": [
+        {
+          "name": "asset_definition_id",
+          "ty": "iroha_data_model::asset::DefinitionId"
+        },
+        {
+          "name": "new_owner",
+          "ty": "iroha_data_model::account::Id"
         }
       ]
     }
