@@ -192,6 +192,7 @@ impl Network {
     }
 
     /// Collect the freeze handles from all the peers in the network.
+    #[cfg(debug_assertions)]
     pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
         self.peers()
             .filter_map(|peer| peer.iroha.as_ref())

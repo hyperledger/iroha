@@ -418,6 +418,7 @@ impl Iroha {
             torii,
             thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
             _sumeragi_relay: sumeragi_relay,
+            #[cfg(debug_assertions)]
             freeze_status,
         })
     }
