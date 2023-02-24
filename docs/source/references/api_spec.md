@@ -55,6 +55,15 @@
 | Conversion err. | 400    | `QueryError::Conversion(String)`                       |
 | Success         | 200    | `VersionedPaginatedQueryResult`                        |
 
+#### Account Not Found 404
+
+Whether each prerequisite object was found and `FindError`:
+
+| Domain | Account | `FindError`                     |
+| ------ | ------- | ------------------------------- |
+| N      | -       | `FindError::Domain(DomainId)`   |
+| Y      | N       | `FindError::Account(AccountId)` |
+
 #### Asset Not Found 404
 
 Whether each prerequisite object was found and `FindError`:
@@ -65,15 +74,6 @@ Whether each prerequisite object was found and `FindError`:
 | Y      | N       | -                | -     | `FindError::Account(AccountId)`                 |
 | Y      | -       | N                | -     | `FindError::AssetDefinition(AssetDefinitionId)` |
 | Y      | Y       | Y                | N     | `FindError::Asset(AssetId)`                     |
-
-#### Account Not Found 404
-
-Whether each prerequisite object was found and `FindError`:
-
-| Domain | Account | `FindError`                     |
-| ------ | ------- | ------------------------------- |
-| N      | -       | `FindError::Domain(DomainId)`   |
-| Y      | N       | `FindError::Account(AccountId)` |
 
 ### Events
 
@@ -248,20 +248,32 @@ the [respective configuration options](./config.md#loggermaxloglevel).
 
 ```json5
 {
-  // Number of connected peers, except for the reporting peer itself
+  /**
+   * Number of connected peers, except for the reporting peer itself
+   */
   peers: 3,
-  // Number of committed blocks (block height)
+  /**
+   * Number of committed blocks (block height)
+   */
   blocks: 1,
-  // Total number of accepted transactions
+  /**
+   * Total number of accepted transactions
+   */
   txs_accepted: 3,
-  // Total number of rejected transactions
+  /**
+   * Total number of rejected transactions
+   */
   txs_rejected: 0,
-  // Uptime with nanosecond precision since creation of the genesis block
+  /**
+   * Uptime with nanosecond precision since creation of the genesis block
+   */
   uptime: {
     secs: 5,
     nanos: 937000000,
   },
-  // Number of view changes in the current round
+  /**
+   * Number of view changes in the current round
+   */
   view_changes: 0,
 }
 ```
