@@ -12,10 +12,12 @@ extern crate alloc;
 use alloc::{format, string::ToString, vec::Vec};
 use core::str::FromStr;
 
-use iroha_wasm::{data_model::prelude::*, DebugUnwrapExt, Execute};
+use iroha_wasm::{data_model::prelude::*, debug::DebugUnwrapExt as _, ExecuteOnHost as _};
 
 #[iroha_wasm::entrypoint]
 fn trigger_entrypoint() {
+    iroha_wasm::info!("Executing smart contract");
+
     let query = QueryBox::FindAllAccounts(FindAllAccounts {});
     let accounts: Vec<Account> = query.execute().try_into().dbg_unwrap();
 
@@ -48,6 +50,8 @@ fn trigger_entrypoint() {
         ))
         .execute();
     }
+
+    iroha_wasm::info!("Smart contract executed successfully");
 }
 
 fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefinitionId {

@@ -6,7 +6,11 @@
 
 extern crate alloc;
 
-use iroha_wasm::validator::{pass_conditions, prelude::*, utils};
+use iroha_wasm::{
+    data_model::prelude::*,
+    debug::DebugExpectExt as _,
+    validator::{pass_conditions, prelude::*, utils},
+};
 
 /// Strongly-typed representation of `can_unregister_asset_definition` permission token.
 #[derive(Token, Validate, pass_conditions::derive_conversions::asset_definition::Owner)]
@@ -44,7 +48,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
     };
 
     let IdBox::AssetDefinitionId(asset_definition_id) = unregister.object_id
-        .evaluate_on_host()
+        .evaluate()
         .dbg_expect("Failed to evaluate `Unregister` object id") else {
         pass!();
     };

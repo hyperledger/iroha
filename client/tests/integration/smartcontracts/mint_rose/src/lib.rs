@@ -11,7 +11,7 @@
 
 use core::str::FromStr as _;
 
-use iroha_wasm::{data_model::prelude::*, DebugExpectExt};
+use iroha_wasm::data_model::prelude::*;
 
 /// Mint 1 rose for authority
 #[iroha_wasm::entrypoint(params = "[authority]")]

@@ -5,7 +5,11 @@
 
 extern crate alloc;
 
-use iroha_wasm::validator::{prelude::*, utils};
+use iroha_wasm::{
+    data_model::prelude::*,
+    debug::DebugExpectExt as _,
+    validator::{prelude::*, utils},
+};
 
 /// Validate [`Transfer`] instruction
 ///
@@ -25,7 +29,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
     };
 
     let IdBox::AssetDefinitionId(asset_definition_id) = transfer.source_id
-        .evaluate_on_host()
+        .evaluate()
         .dbg_expect("Failed to evaluate `Transfer` source id") else {
         pass!();
     };

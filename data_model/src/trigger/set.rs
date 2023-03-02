@@ -378,7 +378,7 @@ impl Set {
     /// Repeats count of failed actions won't be decreased.
     pub fn inspect_matched<F, E>(&self, f: F) -> Result<(), Vec<E>>
     where
-        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
+        F: Fn(&TriggerId, &dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
     {
         let (succeed, res) = self.map_matched(f);
 
@@ -408,18 +408,18 @@ impl Set {
     /// and result with errors vector if there are some
     fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, Result<(), Vec<E>>)
     where
-        F: Fn(&dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
+        F: Fn(&TriggerId, &dyn ActionTrait, Event) -> std::result::Result<(), E> + Copy,
     {
         let mut succeed = Vec::new();
         let mut errors = Vec::new();
 
-        let apply_f = move |action: &dyn ActionTrait, event: Event| {
+        let apply_f = move |id: &TriggerId, action: &dyn ActionTrait, event: Event| {
             if let Repeats::Exactly(atomic) = action.repeats() {
                 if atomic.get() == 0 {
                     return None;
                 }
             }
-            Some(f(action, event))
+            Some(f(id, action, event))
         };
 
         // Cloning and clearing `self.matched_ids` so that `handle_` call won't deadlock
@@ -436,19 +436,19 @@ impl Set {
                 Event::Data(_) => self
                     .data_triggers
                     .get(&id)
-                    .map(|entry| apply_f(entry.value(), event)),
+                    .map(|entry| apply_f(entry.key(), entry.value(), event)),
                 Event::Pipeline(_) => self
                     .pipeline_triggers
                     .get(&id)
-                    .map(|entry| apply_f(entry.value(), event)),
+                    .map(|entry| apply_f(entry.key(), entry.value(), event)),
                 Event::Time(_) => self
                     .time_triggers
                     .get(&id)
-                    .map(|entry| apply_f(entry.value(), event)),
+                    .map(|entry| apply_f(entry.key(), entry.value(), event)),
                 Event::ExecuteTrigger(_) => self
                     .by_call_triggers
                     .get(&id)
-                    .map(|entry| apply_f(entry.value(), event)),
+                    .map(|entry| apply_f(entry.key(), entry.value(), event)),
             };
 
             match result.flatten() {

@@ -1,3 +1,5 @@
+//! WASM debugging utilities
+
 use core::fmt::Debug;
 
 #[cfg(feature = "debug")]
@@ -15,7 +17,7 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        pub(crate) fn dbg(ptr: *const u8, len: usize);
+        pub(super) fn dbg(ptr: *const u8, len: usize);
     }
 }
 
@@ -125,7 +127,6 @@ impl<T, E: Debug> DebugExpectExt for Result<T, E> {
     #[allow(clippy::panic)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
-        #[allow(clippy::expect_used)]
         return self.expect(msg);
 
         #[cfg(feature = "debug")]
@@ -147,7 +148,6 @@ impl<T> DebugExpectExt for Option<T> {
     #[allow(clippy::panic)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
-        #[allow(clippy::expect_used)]
         return self.expect(msg);
 
         #[cfg(feature = "debug")]
@@ -165,9 +165,23 @@ impl<T> DebugExpectExt for Option<T> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "debug")]
+    use alloc::string::String;
+
+    use webassembly_test::webassembly_test;
+
+    use crate::_decode_from_raw;
+
+    fn get_dbg_message() -> &'static str {
+        "dbg_message"
+    }
+
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _dbg_mock(ptr: *const u8, len: usize) {
-        let _string_bytes = core::slice::from_raw_parts(ptr, len);
+    pub unsafe extern "C" fn _dbg_mock(ptr: *const u8, len: usize) {
+        assert_eq!(_decode_from_raw::<String>(ptr, len), get_dbg_message());
+    }
+
+    #[webassembly_test]
+    fn dbg_call() {
+        super::dbg(get_dbg_message());
     }
 }

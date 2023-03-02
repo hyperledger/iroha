@@ -1098,7 +1098,7 @@ fn sumeragi_init_commit_genesis<F: FaultInjection>(
 ) {
     std::thread::sleep(Duration::from_millis(250));
 
-    iroha_logger::info!("Initializing iroha using the genesis block.");
+    info!("Initializing iroha using the genesis block.");
 
     assert_eq!(state.latest_block_height, 0);
     assert_eq!(state.latest_block_hash, None);

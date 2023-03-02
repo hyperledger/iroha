@@ -74,19 +74,19 @@ fn impl_token(
                     ::iroha_wasm::data_model::prelude::Identifiable
                 >::Id
             ) -> bool {
-                use ::iroha_wasm::Execute as _;
-
                 let permission_token = #permission_token_conversion_code;
 
-                ::iroha_wasm::data_model::prelude::QueryBox::from(
-                    ::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
-                        account_id.clone(),
-                        permission_token,
-                    )
+                ::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                    ::iroha_wasm::ExecuteOnHost::execute(
+                        &::iroha_wasm::data_model::prelude::QueryBox::from(
+                            ::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
+                                account_id.clone(),
+                                permission_token,
+                            )
+                        )
+                    ).try_into(),
+                    "Failed to convert `DoesAccountHavePermission` query result into `bool`"
                 )
-                .execute()
-                .try_into()
-                .dbg_expect("Failed to convert `DoesAccountHavePermission` query result into `bool`")
             }
         }
     }

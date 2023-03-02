@@ -212,7 +212,12 @@ impl WorldStateView {
             .map_or(false, |mut permissions| permissions.remove(token))
     }
 
-    fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
+    fn process_trigger(
+        &self,
+        id: &TriggerId,
+        action: &dyn ActionTrait,
+        event: Event,
+    ) -> Result<()> {
         let authority = action.technical_account();
 
         match action.executable() {
@@ -224,7 +229,7 @@ impl WorldStateView {
                     .with_configuration(self.config.wasm_runtime_config)
                     .build()?;
                 wasm_runtime
-                    .execute_trigger(self, authority.clone(), bytes, event)
+                    .execute_trigger(self, id, authority.clone(), bytes, event)
                     .map_err(Into::into)
             }
         }
@@ -287,7 +292,9 @@ impl WorldStateView {
         let res = self
             .world
             .triggers
-            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) });
+            .inspect_matched(|id, action, event| -> Result<()> {
+                self.process_trigger(id, action, event)
+            });
 
         if let Err(errors) = res {
             warn!(
