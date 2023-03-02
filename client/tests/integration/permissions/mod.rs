@@ -292,18 +292,18 @@ mod token_parameters {
 
     use super::*;
 
-    lazy_static::lazy_static! {
-        pub static ref TEST_TOKEN_DEFINITION_ID: <PermissionTokenDefinition as Identifiable>::Id =
-            <PermissionTokenDefinition as Identifiable>::Id::new(
-                "test_permission_token_definition".parse().expect("Valid"),
-            );
+    static TEST_TOKEN_DEFINITION_ID: once_cell::sync::Lazy<
+        <PermissionTokenDefinition as Identifiable>::Id,
+    > = once_cell::sync::Lazy::new(|| {
+        <PermissionTokenDefinition as Identifiable>::Id::new(
+            "test_permission_token_definition".parse().expect("Valid"),
+        )
+    });
 
-        pub static ref NUMBER_PARAMETER_NAME: Name =
-            "number".parse().expect("Valid");
-
-        pub static ref STRING_PARAMETER_NAME: Name =
-            "string".parse().expect("Valid");
-    }
+    static NUMBER_PARAMETER_NAME: once_cell::sync::Lazy<Name> =
+        once_cell::sync::Lazy::new(|| "number".parse().expect("Valid"));
+    static STRING_PARAMETER_NAME: once_cell::sync::Lazy<Name> =
+        once_cell::sync::Lazy::new(|| "string".parse().expect("Valid"));
 
     #[ignore = "ignore, more in #2851"]
     #[test]
