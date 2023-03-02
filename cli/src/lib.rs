@@ -58,19 +58,20 @@ pub struct Arguments {
     pub config_path: ConfigPath,
 }
 
-lazy_static::lazy_static! {
-    /// Default configuration path
-    pub static ref CONFIGURATION_PATH: &'static std::path::Path = std::path::Path::new("config");
-    /// Default genesis path
-    pub static ref GENESIS_PATH : &'static std::path::Path = std::path::Path::new("genesis");
-}
+/// Default configuration path
+static CONFIGURATION_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
+    once_cell::sync::Lazy::new(|| std::path::Path::new("config"));
+
+/// Default genesis path
+static GENESIS_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
+    once_cell::sync::Lazy::new(|| std::path::Path::new("genesis"));
 
 impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: false,
-            genesis_path: Some(ConfigPath::default(*GENESIS_PATH)),
-            config_path: ConfigPath::default(*CONFIGURATION_PATH),
+            genesis_path: Some(ConfigPath::default(&GENESIS_PATH)),
+            config_path: ConfigPath::default(&CONFIGURATION_PATH),
         }
     }
 }
