@@ -67,11 +67,7 @@ impl VerifiedQueryRequest {
             )));
         }
         wsv.validators_view()
-            .validate(
-                wsv,
-                self.payload.account_id.clone(),
-                self.payload.query.clone(),
-            )
+            .validate(wsv, &self.payload.account_id, self.payload.query.clone())
             .map_err(|err| QueryError::Permission(err.to_string()))?;
         Ok((
             ValidQueryRequest::new(self.payload.query),

@@ -18,7 +18,7 @@ impl ActorId {
     pub fn new(name: Option<&'static str>) -> Self {
         Self {
             name,
-            id: ACTOR_ID_COUNTER.fetch_add(1, Ordering::SeqCst),
+            id: ACTOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
         }
     }
 }

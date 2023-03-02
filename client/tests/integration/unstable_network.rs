@@ -98,7 +98,7 @@ fn unstable_network(
     for _i in 0..n_transactions {
         // Make random peers faulty.
         for f in freezers.choose_multiple(&mut rng, n_offline_peers as usize) {
-            f.store(true, Ordering::Relaxed);
+            f.store(true, Ordering::SeqCst);
         }
 
         let quantity = 1;
@@ -131,7 +131,7 @@ fn unstable_network(
 
         // Return all peers to normal function.
         for f in &freezers {
-            f.store(false, Ordering::Relaxed);
+            f.store(false, Ordering::SeqCst);
         }
     }
 }

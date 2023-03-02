@@ -64,8 +64,10 @@ impl super::params::ConstructArg for ParamType {
                     use ::iroha_wasm::debug::DebugExpectExt as _;
 
                     let top_event = ::iroha_wasm::query_triggering_event();
-                    ::core::convert::TryInto::try_into(top_event)
-                        .dbg_expect("Failed to convert top-level event to the concrete one")
+                    ::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                        ::core::convert::TryInto::try_into(top_event),
+                        "Failed to convert top-level event to the concrete one"
+                    )
                 }}
             }
         }
@@ -95,7 +97,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_wasm::Execute as _;
+            use ::iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _};
         ),
     );
 
@@ -103,8 +105,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         /// Smart contract entrypoint
         #[no_mangle]
         #[doc(hidden)]
-        pub unsafe extern "C" fn _iroha_wasm_main(
-        ) {
+        unsafe extern "C" fn _iroha_wasm_main() {
             #fn_name(#args)
         }
 

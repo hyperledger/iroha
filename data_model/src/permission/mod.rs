@@ -30,5 +30,5 @@ pub type Permissions = btree_set::BTreeSet<token::Token>;
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::{Permissions, Token};
+    pub use super::{validator::Verdict, Permissions};
 }

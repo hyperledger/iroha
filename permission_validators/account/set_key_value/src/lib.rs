@@ -6,7 +6,11 @@
 
 extern crate alloc;
 
-use iroha_wasm::validator::{pass_conditions, prelude::*};
+use iroha_wasm::{
+    data_model::prelude::*,
+    debug::DebugExpectExt as _,
+    validator::{pass_conditions, prelude::*},
+};
 
 /// Strongly-typed representation of `can_set_key_value_in_user_account` permission token.
 #[derive(Token, Validate, pass_conditions::derive_conversions::account::Owner)]
@@ -44,7 +48,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
     };
 
     let IdBox::AccountId(account_id) = set_key_value.object_id
-        .evaluate_on_host()
+        .evaluate()
         .dbg_expect("Failed to evaluate `SetKeyValue` object id") else {
         pass!();
     };

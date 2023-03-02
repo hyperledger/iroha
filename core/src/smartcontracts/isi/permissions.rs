@@ -79,7 +79,7 @@ pub fn check_query_permissions(
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     wsv.validators_view()
-        .validate(wsv, account_id.clone(), query.clone())
+        .validate(wsv, account_id, query.clone())
         .map_err(|error| NotPermittedFail {
             reason: error.to_string(),
         })
@@ -93,7 +93,7 @@ fn check_permissions_directly(
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
         wsv.validators_view()
-            .validate(wsv, account_id.clone(), isi.clone())
+            .validate(wsv, account_id, isi.clone())
             .map_err(|error| NotPermittedFail {
                 reason: error.to_string(),
             })

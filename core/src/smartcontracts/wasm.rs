@@ -14,7 +14,12 @@ use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
 };
-use iroha_data_model::{permission, prelude::*, ParseError};
+use iroha_data_model::{
+    permission::{self, validator},
+    prelude::*,
+};
+// NOTE: Using error_span so that span info is logged on every event
+use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
 use parity_scale_codec::{DecodeAll, Encode};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
@@ -39,13 +44,13 @@ pub mod export {
     pub const WASM_MEMORY_NAME: &str = "memory";
     /// Name of the exported entry for smart contract (or trigger) execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-    /// Name of the exported entry for runtime validator execution
-    pub const WASM_VALIDATOR_MAIN_FN_NAME: &str = "_iroha_validator_main";
 }
 
 pub mod import {
     //! Module functions names imported from iroha to wasm
 
+    /// Name of the linked wasm module
+    pub const MODULE_NAME: &str = "iroha";
     /// Name of the imported function to execute instructions
     pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
     /// Name of the imported function to execute queries
@@ -59,8 +64,12 @@ pub mod import {
     pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
     /// Name of the imported function to evaluate the expression on the host side
     pub const EVALUATE_ON_HOST_FN_NAME: &str = "evaluate_on_host";
+    /// Name of the imported function to query max log level on host
+    pub const QUERY_MAX_LOG_LEVEL: &str = "query_max_log_level";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
+    /// Name of the imported function to log objects
+    pub const LOG_FN_NAME: &str = "log";
 }
 
 /// `WebAssembly` execution error type
@@ -81,25 +90,13 @@ pub enum Error {
     /// consumed
     #[error("Exported function call failed: {0}")]
     ExportFnCall(#[from] Trap),
-    /// Parse Error
-    #[error("Failed to Parse valid name: {0}")]
-    Parse(#[source] ParseError),
     /// Error during decoding object with length prefix
     #[error("Failed to decode object from bytes with length prefix: {0}")]
-    DecodeWithPrefix(#[source] anyhow::Error),
-    /// Some other error happened
-    #[error(transparent)]
-    Other(eyre::Error),
+    Decode(#[source] anyhow::Error),
 }
 
 /// [`Result`] type for this module
 pub type Result<T, E = Error> = core::result::Result<T, E>;
-
-impl From<ParseError> for Error {
-    fn from(err: ParseError) -> Self {
-        Self::Parse(err)
-    }
-}
 
 /// Create [`Engine`] with a predefined configuration.
 ///
@@ -193,10 +190,17 @@ struct State<'wrld> {
     triggering_event: Option<Event>,
     /// Operation to pass to a runtime permission validator
     operation_to_validate: Option<permission::validator::NeedsPermissionBox>,
+    /// Span inside of which all logs are recorded for this smart contract
+    log_span: Span,
 }
 
 impl<'wrld> State<'wrld> {
-    fn new(wsv: &'wrld WorldStateView, account_id: AccountId, config: Configuration) -> Self {
+    fn new(
+        wsv: &'wrld WorldStateView,
+        account_id: AccountId,
+        config: Configuration,
+        log_span: Span,
+    ) -> Self {
         Self {
             wsv,
             account_id,
@@ -212,6 +216,7 @@ impl<'wrld> State<'wrld> {
                 .memories(1)
                 .tables(1)
                 .build(),
+            log_span,
         }
     }
 
@@ -232,9 +237,9 @@ impl<'wrld> State<'wrld> {
 
     fn with_operation_to_validate(
         mut self,
-        operation: permission::validator::NeedsPermissionBox,
+        operation: &permission::validator::NeedsPermissionBox,
     ) -> Self {
-        self.operation_to_validate = Some(operation);
+        self.operation_to_validate = Some(operation.clone());
         self
     }
 }
@@ -404,11 +409,65 @@ impl<'wrld> Runtime<'wrld> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let bytes = Self::encode_with_length_prefix(&value)?;
         let value_offset = Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
+
         Ok(value_offset)
     }
 
-    /// Host defined function which prints given string. When calling
-    /// this function, module serializes ISI to linear memory and
+    fn query_max_log_level() -> u32 {
+        iroha_logger::layer::max_log_level() as u32
+    }
+
+    /// Log the given string at the given log level. When this function
+    /// is called, the module serializes the string to linear memory and
+    /// provides log level, offset and length as parameters
+    ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided
+    /// allocation
+    ///
+    /// # Errors
+    ///
+    /// If log level or string decoding fails
+    fn log(
+        mut caller: Caller<State>,
+        log_level: u32,
+        offset: WasmUsize,
+        len: WasmUsize,
+    ) -> Result<(), Trap> {
+        const TARGET: &str = "WASM";
+
+        let error_msg = || Trap::new(format!("{}: not a valid log level", log_level));
+        let Ok(log_level) = log_level.try_into() else {
+          return Err(error_msg());
+        };
+
+        let memory = Self::get_memory(&mut caller)?;
+        let msg: String = Self::decode_from_memory(&memory, &caller, offset, len)?;
+
+        let _span = caller.data().log_span.enter();
+        match LogLevel::from_repr(log_level).ok_or_else(error_msg)? {
+            LogLevel::TRACE => {
+                iroha_logger::trace!(target: TARGET, msg);
+            }
+            LogLevel::DEBUG => {
+                iroha_logger::debug!(target: TARGET, msg);
+            }
+            LogLevel::INFO => {
+                iroha_logger::info!(target: TARGET, msg);
+            }
+            LogLevel::WARN => {
+                iroha_logger::warn!(target: TARGET, msg);
+            }
+            LogLevel::ERROR => {
+                iroha_logger::error!(target: TARGET, msg);
+            }
+        }
+        Ok(())
+    }
+
+    /// Host-defined function which prints the given string. When this function
+    /// is called, the module serializes the string to linear memory and
     /// provides offset and length as parameters
     ///
     /// # Warning
@@ -432,40 +491,54 @@ impl<'wrld> Runtime<'wrld> {
 
         linker
             .func_wrap(
-                "iroha",
+                import::MODULE_NAME,
                 import::EXECUTE_ISI_FN_NAME,
                 Self::execute_instruction,
             )
-            .and_then(|l| l.func_wrap("iroha", import::EXECUTE_QUERY_FN_NAME, Self::execute_query))
             .and_then(|l| {
                 l.func_wrap(
-                    "iroha",
+                    import::MODULE_NAME,
+                    import::EXECUTE_QUERY_FN_NAME,
+                    Self::execute_query,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    import::MODULE_NAME,
                     import::QUERY_AUTHORITY_FN_NAME,
                     Self::query_authority,
                 )
             })
             .and_then(|l| {
                 l.func_wrap(
-                    "iroha",
+                    import::MODULE_NAME,
                     import::QUERY_TRIGGERING_EVENT_FN_NAME,
                     Self::query_triggering_event,
                 )
             })
             .and_then(|l| {
                 l.func_wrap(
-                    "iroha",
+                    import::MODULE_NAME,
                     import::QUERY_OPERATION_TO_VALIDATE_FN_NAME,
                     Self::query_operation_to_validate,
                 )
             })
             .and_then(|l| {
                 l.func_wrap(
-                    "iroha",
+                    import::MODULE_NAME,
                     import::EVALUATE_ON_HOST_FN_NAME,
                     Self::evaluate_on_host,
                 )
             })
-            .and_then(|l| l.func_wrap("iroha", import::DBG_FN_NAME, Self::dbg))
+            .and_then(|l| {
+                l.func_wrap(
+                    import::MODULE_NAME,
+                    import::QUERY_MAX_LOG_LEVEL,
+                    Self::query_max_log_level,
+                )
+            })
+            .and_then(|l| l.func_wrap(import::MODULE_NAME, import::LOG_FN_NAME, Self::log))
+            .and_then(|l| l.func_wrap(import::MODULE_NAME, import::DBG_FN_NAME, Self::dbg))
             .map_err(Error::Initialization)?;
 
         Ok(linker)
@@ -501,12 +574,13 @@ impl<'wrld> Runtime<'wrld> {
     pub fn validate(
         &mut self,
         wsv: &WorldStateView,
-        account_id: &AccountId,
+        account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
     ) -> Result<()> {
+        let span = wasm_log_span!("Smart contract validation", %account_id);
         let state =
-            State::new(wsv, account_id.clone(), self.config).with_validator(max_instruction_count);
+            State::new(wsv, account_id, self.config, span).with_validator(max_instruction_count);
 
         self.execute_main_with_state(bytes, state)
     }
@@ -521,11 +595,13 @@ impl<'wrld> Runtime<'wrld> {
     pub fn execute_trigger(
         &mut self,
         wsv: &WorldStateView,
+        id: &TriggerId,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         event: Event,
     ) -> Result<()> {
-        let state = State::new(wsv, account_id, self.config).with_triggering_event(event);
+        let span = wasm_log_span!("Trigger execution", %id, %account_id);
+        let state = State::new(wsv, account_id, self.config, span).with_triggering_event(event);
         self.execute_main_with_state(bytes, state)
     }
 
@@ -539,11 +615,15 @@ impl<'wrld> Runtime<'wrld> {
     pub fn execute_permission_validator_module(
         &self,
         wsv: &WorldStateView,
-        account_id: AccountId,
+        authority: &<Account as Identifiable>::Id,
+        id: &validator::Id,
         module: &wasmtime::Module,
-        operation: permission::validator::NeedsPermissionBox,
+        operation: &permission::validator::NeedsPermissionBox,
     ) -> Result<permission::validator::Verdict> {
-        let state = State::new(wsv, account_id, self.config).with_operation_to_validate(operation);
+        let span = wasm_log_span!("Permission validation", %id);
+        let state = State::new(wsv, authority.clone(), self.config, span)
+            .with_operation_to_validate(operation);
+
         let mut store = self.create_store(state)?;
         let instance = self
             .linker
@@ -551,7 +631,7 @@ impl<'wrld> Runtime<'wrld> {
             .map_err(Error::Instantiation)?;
 
         let validate_fn = instance
-            .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_VALIDATOR_MAIN_FN_NAME)
+            .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
         // NOTE: This function takes ownership of the pointer
@@ -579,7 +659,9 @@ impl<'wrld> Runtime<'wrld> {
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<()> {
-        let state = State::new(wsv, account_id, self.config);
+        let span = wasm_log_span!("Smart contract execution", %account_id);
+        let state = State::new(wsv, account_id, self.config, span);
+
         self.execute_main_with_state(bytes, state)
     }
 
@@ -632,9 +714,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
             .try_into()
-            .map_err(|err| {
-                Error::DecodeWithPrefix(anyhow!("Can't convert `usize` to `u32`: {err}"))
-            })?;
+            .map_err(|err| Error::Decode(anyhow!("Can't convert `usize` to `u32`: {err}")))?;
         let len = u32::from_le_bytes(
             memory.data(&mut context)[offset as usize..(offset + len_size_bytes) as usize]
                 .try_into()
@@ -646,7 +726,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let obj =
             T::decode_all(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
-                .map_err(|err| Error::DecodeWithPrefix(err.into()))?;
+                .map_err(|err| Error::Decode(err.into()))?;
 
         dealloc_fn
             .call(&mut context, (offset, len))
@@ -836,12 +916,12 @@ mod tests {
 
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
 
         let isi_hex = {
-            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
@@ -874,7 +954,7 @@ mod tests {
 
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
 
@@ -915,13 +995,13 @@ mod tests {
 
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
 
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
 
         let isi_hex = {
-            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
@@ -949,7 +1029,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&wsv, &account_id, wat, 1);
+        let res = runtime.validate(&wsv, account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
@@ -963,12 +1043,12 @@ mod tests {
 
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
 
         let isi_hex = {
-            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
@@ -996,7 +1076,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&wsv, &account_id, wat, 1);
+        let res = runtime.validate(&wsv, account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
@@ -1010,7 +1090,7 @@ mod tests {
 
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
 
@@ -1042,7 +1122,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&wsv, &account_id, wat, 1);
+        let res = runtime.validate(&wsv, account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap

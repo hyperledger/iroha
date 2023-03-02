@@ -4003,7 +4003,7 @@
           "ty": "iroha_data_model::name::Name"
         },
         {
-          "name": "account_id",
+          "name": "owned_by",
           "ty": "iroha_data_model::account::Id"
         }
       ]

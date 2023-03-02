@@ -132,7 +132,7 @@ impl TransactionValidator {
                 signatures,
             };
             Self::validate_with_runtime_validators(
-                signed_tx.payload.account_id.clone(),
+                &signed_tx.payload.account_id.clone(),
                 signed_tx,
                 wsv,
             )?;
@@ -183,7 +183,7 @@ impl TransactionValidator {
                     if !is_genesis {
                         debug!("Validating instruction: {:?}", instruction);
                         Self::validate_with_runtime_validators(
-                            account_id.clone(),
+                            &account_id,
                             instruction.clone(),
                             wsv,
                         )?;
@@ -210,7 +210,7 @@ impl TransactionValidator {
                 wasm_runtime
                     .validate(
                         wsv,
-                        &account_id,
+                        account_id,
                         bytes,
                         self.transaction_limits.max_instruction_number,
                     )
@@ -223,7 +223,7 @@ impl TransactionValidator {
     }
 
     fn validate_with_runtime_validators(
-        authority: <Account as Identifiable>::Id,
+        authority: &<Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
         wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {

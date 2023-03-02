@@ -2,19 +2,9 @@
 
 use alloc::string::String;
 
+pub use iroha_wasm_derive::{validator_entrypoint as entrypoint, Token, Validate};
+
 use crate::data_model::{permission::validator::Verdict, prelude::*};
-
-pub mod prelude {
-    //! Contains useful re-exports
-
-    pub use iroha_data_model::{permission::validator::Verdict, prelude::*};
-    pub use iroha_wasm_derive::{validator_entrypoint as entrypoint, Token, Validate};
-
-    pub use super::traits::{Token, Validate};
-    #[cfg(feature = "debug")]
-    pub use crate::DebugExpectExt as _;
-    pub use crate::{deny, pass, pass_if, validate_grant_revoke, EvaluateOnHost as _};
-}
 
 pub mod macros {
     //! Contains useful macros
@@ -121,13 +111,10 @@ pub mod macros {
             )
         };
         ($l:literal as $t:ty) => {
-            $l.parse::<$t>().dbg_expect(concat!(
-                "Failed to parse `",
-                $l,
-                "` as `",
-                stringify!($t),
-                "`"
-            ))
+            $crate::debug::DebugExpectExt::dbg_expect(
+                $l.parse::<$t>(),
+                concat!("Failed to parse `", $l, "` as `", stringify!($t), "`"),
+            )
         };
     }
 
@@ -166,12 +153,13 @@ pub mod macros {
         (< $($token:ty),+ $(,)?>, ($authority:ident, $instruction:ident $(,)?)) => {
             match &$instruction {
                 $crate::data_model::prelude::Instruction::Grant(grant) => {
-                    let value = <
+                    let value = $crate::debug::DebugExpectExt::dbg_expect(<
                         $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
                         as
                         $crate::EvaluateOnHost
-                    >::evaluate_on_host(&grant.object)
-                    .dbg_expect("Failed to evaluate `Grant` object");
+                    >::evaluate(&grant.object),
+                        "Failed to evaluate `Grant` object"
+                    );
 
                     if let $crate::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
                         if let Ok(concrete_token) =
@@ -189,12 +177,13 @@ pub mod macros {
                     )+}
                 }
                 $crate::data_model::prelude::Instruction::Revoke(revoke) => {
-                    let value = <
+                    let value = $crate::debug::DebugExpectExt::dbg_expect(<
                         $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
                         as
                         $crate::EvaluateOnHost
-                    >::evaluate_on_host(&revoke.object)
-                    .dbg_expect("Failed to evaluate `Revoke` object");
+                    >::evaluate(&revoke.object),
+                        "Failed to evaluate `Revoke` object"
+                    );
 
                     if let $crate::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
                         if let Ok(concrete_token) =
@@ -474,4 +463,16 @@ pub mod utils {
         .try_into()
         .dbg_expect("Failed to convert `IsAssetDefinitionOwner` query result into `bool`")
     }
+}
+
+pub mod prelude {
+    //! Contains useful re-exports
+
+    pub use iroha_wasm_derive::{Token, Validate};
+
+    pub use super::{
+        entrypoint,
+        traits::{Token, Validate},
+    };
+    pub use crate::{deny, pass, pass_if, validate_grant_revoke, EvaluateOnHost as _};
 }
