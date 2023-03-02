@@ -6,7 +6,10 @@
 
 extern crate alloc;
 
-use iroha_wasm::validator::{pass_conditions, prelude::*};
+use iroha_wasm::{
+    data_model::prelude::*,
+    validator::{pass_conditions, prelude::*},
+};
 
 /// Strongly-typed representation of `can_grant_permission_to_set_parameters` permission token.
 #[derive(Token, Validate, Clone, Copy)]

@@ -22,12 +22,12 @@ mod validator;
 ///
 /// ## Authority
 ///
-/// A real function parameter type corresponding to the `authority` should have
+/// A function parameter type corresponding to the `authority` should have
 /// `iroha_wasm::data_model::prelude::AccountId` type.
 ///
 /// ## Triggering event
 ///
-/// A real function parameter type corresponding to the `triggering_event` should have
+/// A function parameter type corresponding to the `triggering_event` should have
 /// type implementing `TryFrom<iroha_data_model::prelude::Event>`.
 ///
 /// So any subtype of `Event` can be specified, i.e. `TimeEvent` or `DataEvent`.

@@ -79,12 +79,12 @@ impl Registered for Validator {
     FfiType,
     IntoSchema,
 )]
-#[display(fmt = "{name}%{account_id}")]
+#[display(fmt = "{name}%{owned_by}")]
 pub struct Id {
     /// Name given to validator by its creator.
     pub name: Name,
-    /// Authority id.
-    pub account_id: <Account as Identifiable>::Id,
+    /// Account that owns the validator.
+    pub owned_by: <Account as Identifiable>::Id,
 }
 
 impl core::str::FromStr for Id {
@@ -101,7 +101,7 @@ impl core::str::FromStr for Id {
         match (split.next(), split.next(), split.next()) {
             (Some(name), Some(account_id), None) => Ok(Self {
                 name: name.parse()?,
-                account_id: account_id.parse()?,
+                owned_by: account_id.parse()?,
             }),
             _ => Err(ParseError {
                 reason: "Validator ID should have format `validator%account_id`",
@@ -168,6 +168,8 @@ impl NeedsPermission for Expression {
     Debug,
     Display,
     Clone,
+    PartialEq,
+    Eq,
     derive_more::From,
     derive_more::TryInto,
     Encode,

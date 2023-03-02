@@ -50,7 +50,7 @@ static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 /// If the logger is already set, raises a generic error.
 pub fn init(configuration: &Configuration) -> Result<Option<Telemetries>> {
     if LOGGER_SET
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
         return Ok(None);
@@ -65,22 +65,19 @@ pub fn init(configuration: &Configuration) -> Result<Option<Telemetries>> {
 /// Returns true on success.
 pub fn disable_logger() -> bool {
     LOGGER_SET
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
 }
 
 fn setup_logger(configuration: &Configuration) -> Result<Telemetries> {
+    let layer = tracing_subscriber::fmt::layer()
+        .with_ansi(configuration.terminal_colors)
+        .with_test_writer();
+
     if configuration.compact_mode {
-        let layer = tracing_subscriber::fmt::layer()
-            .with_ansi(configuration.terminal_colors)
-            .with_test_writer()
-            .compact();
-        Ok(add_bunyan(configuration, layer)?)
+        add_bunyan(configuration, layer.compact())
     } else {
-        let layer = tracing_subscriber::fmt::layer()
-            .with_ansi(configuration.terminal_colors)
-            .with_test_writer();
-        Ok(add_bunyan(configuration, layer)?)
+        add_bunyan(configuration, layer)
     }
 }
 

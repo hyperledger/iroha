@@ -88,8 +88,6 @@ pub struct Metrics {
 }
 
 impl Default for Metrics {
-    // The constructors either always fail, or never.
-    #[allow(clippy::expect_used)]
     fn default() -> Self {
         let txs = IntCounterVec::new(Opts::new("txs", "Transactions committed"), &["type"])
             .expect("Infallible");

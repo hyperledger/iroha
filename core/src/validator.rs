@@ -175,7 +175,7 @@ impl Chain {
     pub fn validate(
         &self,
         wsv: &WorldStateView,
-        authority: <Account as Identifiable>::Id,
+        authority: &<Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<()> {
         let operation = operation.into();
@@ -192,20 +192,7 @@ impl Chain {
             .build()?;
 
         for validator_id in validators.value() {
-            trace!(%validator_id, "Running validator");
-            let loaded_validator = self.all_validators.get(validator_id).expect(
-                "Validator chain internal collections inconsistency error \
-                 when validating an operation. This is a bug",
-            );
-            let res = Self::execute_validator(
-                &runtime,
-                loaded_validator.value(),
-                wsv,
-                authority.clone(),
-                operation.clone(),
-            );
-            trace!(%validator_id, "Validator Executed");
-            res?;
+            self.execute_validator(&runtime, wsv, authority, validator_id, &operation)?
         }
 
         Ok(())
@@ -217,23 +204,30 @@ impl Chain {
     }
 
     fn execute_validator(
+        &self,
         runtime: &wasm::Runtime,
-        loaded_validator: &LoadedValidator,
         wsv: &WorldStateView,
-        authority: <Account as Identifiable>::Id,
-        operation: NeedsPermissionBox,
+        authority: &<Account as Identifiable>::Id,
+        validator_id: &iroha_data_model::permission::validator::Id,
+        operation: &NeedsPermissionBox,
     ) -> Result<()> {
-        let validator_id = &loaded_validator.id;
+        let validator = self.all_validators.get(validator_id).expect(
+            "Validator chain internal collections inconsistency error \
+             when validating an operation. This is a bug",
+        );
 
+        trace!(%validator_id, "Running validator");
         let verdict = runtime.execute_permission_validator_module(
             wsv,
             authority,
-            &loaded_validator.module,
-            operation.clone(),
+            validator_id,
+            &validator.module,
+            operation,
         )?;
+
         Result::<(), DenialReason>::from(verdict).map_err(|reason| Error::ValidatorDeny {
             validator_id: validator_id.clone(),
-            operation,
+            operation: operation.clone(),
             reason,
         })
     }
@@ -255,7 +249,7 @@ impl ChainView<'_> {
     pub fn validate(
         self,
         wsv: &WorldStateView,
-        authority: <Account as Identifiable>::Id,
+        authority: &<Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
     ) -> Result<()> {
         self.chain.validate(wsv, authority, operation)

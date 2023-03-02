@@ -348,7 +348,7 @@ mod tests {
         type Sink = FallibleSender<Message, F>;
 
         async fn create(&mut self) -> Result<Self::Sink> {
-            if self.fail.load(Ordering::Acquire) {
+            if self.fail.load(Ordering::SeqCst) {
                 Err(eyre!("failed to create"))
             } else {
                 Ok(self.sender.clone())
@@ -371,7 +371,7 @@ mod tests {
             let message_sender = {
                 let fail = Arc::clone(&fail_send);
                 FallibleSender::new(message_sender, move || {
-                    if fail.load(Ordering::Acquire) {
+                    if fail.load(Ordering::SeqCst) {
                         Err(Error::ConnectionClosed)
                     } else {
                         Ok(())
@@ -502,7 +502,7 @@ mod tests {
         } = suite;
 
         // Fail sending the first message
-        fail_send.store(true, Ordering::Release);
+        fail_send.store(true, Ordering::SeqCst);
         telemetry_sender
             .send(system_connected_telemetry())
             .await
@@ -511,7 +511,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The second message is not sent because the sink is reset
-        fail_send.store(false, Ordering::Release);
+        fail_send.store(false, Ordering::SeqCst);
         telemetry_sender
             .send(system_interval_telemetry(1))
             .await
@@ -520,7 +520,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Fail the reconnection
-        fail_factory_create.store(true, Ordering::Release);
+        fail_factory_create.store(true, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // The third message is not sent because the sink is not created yet
@@ -540,7 +540,7 @@ mod tests {
         } = suite;
 
         // Fail sending the first message
-        fail_send.store(true, Ordering::Release);
+        fail_send.store(true, Ordering::SeqCst);
         telemetry_sender
             .send(system_connected_telemetry())
             .await
@@ -549,7 +549,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The second message is not sent because the sink is reset
-        fail_send.store(false, Ordering::Release);
+        fail_send.store(false, Ordering::SeqCst);
         telemetry_sender
             .send(system_interval_telemetry(1))
             .await
@@ -558,12 +558,12 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Fail sending the first message after reconnect
-        fail_send.store(true, Ordering::Release);
+        fail_send.store(true, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_secs(1)).await;
         message_receiver.try_next().unwrap_err();
 
         // The message is sent
-        fail_send.store(false, Ordering::Release);
+        fail_send.store(false, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_secs(1)).await;
         message_receiver.try_next().unwrap();
     }
