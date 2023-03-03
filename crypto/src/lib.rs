@@ -30,8 +30,9 @@ use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
-use parity_scale_codec::{Decode, Encode, Error as ScaleError};
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 pub use signature::*;
 #[cfg(feature = "std")]
 pub use ursa;
@@ -71,98 +72,22 @@ impl std::error::Error for NoSuchAlgorithm {}
 
 ffi::ffi_item! {
     /// Algorithm for hashing
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, FfiType, IntoSchema)]
+    #[derive(Default, Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, FfiType, IntoSchema, SerializeDisplay, DeserializeFromStr, Encode, Decode)]
     #[repr(u8)]
     pub enum Algorithm {
-        //#[codec(index = 101)]
         /// Ed25519
+        #[display(fmt = "{ED_25519}")]
+        #[default]
         Ed25519,
         /// Secp256k1
+        #[display(fmt = "{SECP_256_K1}")]
         Secp256k1,
         /// BlsNormal
+        #[display(fmt = "{BLS_NORMAL}")]
         BlsNormal,
         /// BlsSmall
+        #[display(fmt = "{BLS_SMALL}")]
         BlsSmall,
-    }
-}
-
-impl fmt::Display for Algorithm {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let str = match self {
-            Algorithm::Ed25519 => ED_25519,
-            Algorithm::Secp256k1 => SECP_256_K1,
-            Algorithm::BlsNormal => BLS_NORMAL,
-            Algorithm::BlsSmall => BLS_SMALL,
-        };
-
-        write!(fmt, "{str}")
-    }
-}
-
-impl From<Algorithm> for String {
-    fn from(a: Algorithm) -> Self {
-        format!("{a}")
-    }
-}
-
-impl Encode for Algorithm {
-    fn encode(&self) -> Vec<u8> {
-        let mut ovec: Vec<u8> = vec![];
-
-        let ostr = self.to_string();
-
-        let ol = ostr.len().try_into().expect("Failed try"); //Just 256 symbols now
-
-        ovec.push(ol);
-        ovec.append(&mut self.to_string().as_bytes().to_vec());
-
-        ovec
-    }
-}
-
-impl Decode for Algorithm {
-    fn decode<I: parity_scale_codec::Input>(input: &mut I) -> Result<Self, ScaleError> {
-        let mut buf: Vec<u8> = vec![0]; //len
-
-        input.read(&mut buf[..])?;
-
-        let lin = buf[0];
-        let mut buf: Vec<u8> = vec![0; lin as usize]; //data
-
-        input.read(&mut buf[..])?;
-
-        Algorithm::from_str(&String::from_utf8(buf).unwrap())
-            .map_err(|_: _| ScaleError::from("Algorithm not supported"))
-    }
-}
-
-impl serde::Serialize for Algorithm {
-    fn serialize<E>(&self, serializer: E) -> Result<E::Ok, E::Error>
-    where
-        E: serde::Serializer,
-    {
-        serializer.serialize_str(&format!("{self}"))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Algorithm {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error as _;
-
-        let ast = String::deserialize(deserializer)?;
-
-        //let public_key_str = <Cow<str>>::deserialize(deserializer)?;
-
-        Algorithm::from_str(&ast).map_err(D::Error::custom)
-    }
-}
-
-impl Default for Algorithm {
-    fn default() -> Self {
-        Algorithm::Ed25519
     }
 }
 
@@ -244,7 +169,7 @@ impl KeyGenConfiguration {
 
 ffi::ffi_item! {
     /// Pair of Public and Private keys.
-    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, Deserialize, FfiType)]
+    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, FfiType)]
     #[getset(get = "pub")]
     pub struct KeyPair {
         /// Public Key.
@@ -267,7 +192,7 @@ pub enum Error {
     #[display(fmt = "Signing failed. {_0}")]
     Signing(String),
     /// Returned when an error occurs during key generation
-    #[display(fmt = "Key generation failed. {_0} sss")]
+    #[display(fmt = "Key generation failed. {_0}")]
     KeyGen(String),
     /// Returned when an error occurs during digest generation
     #[display(fmt = "Digest generation failed. {_0}")]
@@ -355,7 +280,7 @@ impl KeyPair {
 
                 SignatureOf::new(key_pair.clone(), &dummy_payload)?
                     .verify(&dummy_payload)
-                    .map_err(|_err| Error::KeyGen(String::from("Key pair mismatch sss")))?;
+                    .map_err(|_err| Error::KeyGen(String::from("Key pair mismatch")))?;
 
                 Ok(key_pair)
             }
@@ -403,6 +328,26 @@ impl KeyPair {
     }
 }
 
+#[cfg(feature = "std")]
+impl<'de> Deserialize<'de> for KeyPair {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        #[derive(Deserialize)]
+        struct KeyPairCandidate {
+            public_key: PublicKey,
+            private_key: PrivateKey,
+        }
+
+        let key_pair = KeyPairCandidate::deserialize(deserializer)?;
+        // Check that received key pair is consistent
+        Self::new(key_pair.public_key, key_pair.private_key).map_err(D::Error::custom)
+    }
+}
+
 impl From<KeyPair> for (PublicKey, PrivateKey) {
     fn from(key_pair: KeyPair) -> Self {
         (key_pair.public_key, key_pair.private_key)
@@ -426,7 +371,7 @@ impl std::error::Error for KeyParseError {}
 
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, FfiType, IntoSchema, Serialize, Deserialize, Decode)]
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, FfiType, IntoSchema, SerializeDisplay, DeserializeFromStr, Decode)]
     #[debug(
         fmt = "{{ digest: {digest_function}, payload: {} }}",
         "hex::encode_upper(payload.as_slice())"
@@ -434,7 +379,6 @@ ffi::ffi_item! {
     pub struct PublicKey {
         /// Digest function
         digest_function: Algorithm,
-        #[serde(with = "hex::serde")]
         /// Key payload
         payload: Vec<u8>,
     }
@@ -700,23 +644,15 @@ mod tests {
             Algorithm::BlsNormal,
             Algorithm::BlsSmall,
         ] {
-            let ee = algorithm.encode();
+            let encoded_algorithm = algorithm.encode();
 
-            let mut a: &[u8] = &ee;
-
-            let _s = match std::str::from_utf8(a) {
-                Ok(v) => v,
-                Err(e) => panic!("Invalid UTF-8 sequence: {e}"),
-            };
-
-            let uu = Algorithm::decode(&mut a);
-
-            let s = match uu {
-                Ok(v) => v,
-                Err(e) => panic!("Incorrect param: {e}"),
-            };
-
-            assert_eq!(algorithm, s, "Failed to decode encoded {:?}", &algorithm)
+            let decoded_algorithm =
+                Algorithm::decode(&mut encoded_algorithm.as_slice()).expect("Failed to decode");
+            assert_eq!(
+                algorithm, decoded_algorithm,
+                "Failed to decode encoded {:?}",
+                &algorithm
+            )
         }
     }
 
@@ -751,22 +687,16 @@ mod tests {
                 KeyGenConfiguration::default().with_algorithm(algorithm),
             )
             .expect("Failed to generate key pair");
+            let (public_key, _) = key_pair.into();
 
-            let ee = key_pair.public_key.encode();
+            let encoded_public_key = public_key.encode();
 
-            let mut a: &[u8] = &ee;
-
-            let uu = PublicKey::decode(&mut a);
-
-            let s = match uu {
-                Ok(v) => v,
-                Err(e) => panic!("Incorrect param: {e}"),
-            };
-
+            let decoded_public_key =
+                PublicKey::decode(&mut encoded_public_key.as_slice()).expect("Failed to decode");
             assert_eq!(
-                key_pair.public_key, s,
+                public_key, decoded_public_key,
                 "Failed to decode encoded Public Key{:?}",
-                &key_pair.public_key
+                &public_key
             )
         }
     }
@@ -853,13 +783,10 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_keys_1() {
+    fn deserialize_keys_ed25519() {
         assert_eq!(
-            serde_json::from_str::<TestJson>("{
-                \"public_key\": {
-                    \"digest_function\": \"ed25519\",
-                    \"payload\": \"1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4\"
-                },
+            serde_json::from_str::<'_, TestJson>("{
+                \"public_key\": \"ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4\",
                 \"private_key\": {
                     \"digest_function\": \"ed25519\",
                     \"payload\": \"3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4\"
@@ -883,13 +810,10 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_keys_2() {
+    fn deserialize_keys_secp256k1() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": {
-                    \"digest_function\": \"secp256k1\",
-                    \"payload\": \"0312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc\"
-                },
+                \"public_key\": \"e701210312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc\",
                 \"private_key\": {
                     \"digest_function\": \"secp256k1\",
                     \"payload\": \"4df4fca10762d4b529fe40a2188a60ca4469d2c50a825b5f33adc2cb78c69445\"
@@ -913,13 +837,10 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_keys_3() {
+    fn deserialize_keys_bls() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": {
-                    \"digest_function\": \"bls_normal\",
-                    \"payload\": \"04175b1e79b15e8a2d5893bf7f8933ca7d0863105d8bac3d6f976cb043378a0e4b885c57ed14eb85fc2fabc639adc7de7f0020c70c57acc38dee374af2c04a6f61c11de8df9034b12d849c7eb90099b0881267d0e1507d4365d838d7dcc31511e7\"
-                },
+                \"public_key\": \"ea016104175b1e79b15e8a2d5893bf7f8933ca7d0863105d8bac3d6f976cb043378a0e4b885c57ed14eb85fc2fabc639adc7de7f0020c70c57acc38dee374af2c04a6f61c11de8df9034b12d849c7eb90099b0881267d0e1507d4365d838d7dcc31511e7\",
                 \"private_key\": {
                     \"digest_function\": \"bls_normal\",
                     \"payload\": \"000000000000000000000000000000002f57460183837efbac6aa6ab3b8dbb7cffcfc59e9448b7860a206d37d470cba3\"
@@ -942,10 +863,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": {
-                    \"digest_function\": \"bls_small\",
-                    \"payload\": \"040cb3231f601e7245a6ec9a647b450936f707ca7dc347ed258586c1924941d8bc38576473a8ba3bb2c37e3e121130ab67103498a96d0d27003e3ad960493da79209cf024e2aa2ae961300976aeee599a31a5e1b683eaa1bcffc47b09757d20f21123c594cf0ee0baf5e1bdd272346b7dc98a8f12c481a6b28174076a352da8eae881b90911013369d7fa960716a5abc5314307463fa2285a5bf2a5b5c6220d68c2d34101a91dbfc531c5b9bbfb2245ccc0c50051f79fc6714d16907b1fc40e0c0\"
-                },
+                \"public_key\": \"eb01c1040cb3231f601e7245a6ec9a647b450936f707ca7dc347ed258586c1924941d8bc38576473a8ba3bb2c37e3e121130ab67103498a96d0d27003e3ad960493da79209cf024e2aa2ae961300976aeee599a31a5e1b683eaa1bcffc47b09757d20f21123c594cf0ee0baf5e1bdd272346b7dc98a8f12c481a6b28174076a352da8eae881b90911013369d7fa960716a5abc5314307463fa2285a5bf2a5b5c6220d68c2d34101a91dbfc531c5b9bbfb2245ccc0c50051f79fc6714d16907b1fc40e0c0\",
                 \"private_key\": {
                     \"digest_function\": \"bls_small\",
                     \"payload\": \"0000000000000000000000000000000060f3c1ac9addbbed8db83bc1b2ef22139fb049eecb723a557a41ca1a4b1fed63\"
