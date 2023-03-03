@@ -27,6 +27,7 @@ iroha_schema = { path = "../schema" }
 derive_more = { version = "0.99.17", default-features = false, features = ["deref", "deref_mut", "display"] }
 parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive", "full"] }
 serde = { version = "1.0.151", default-features = false, features = ["derive"] }
+serde_with = { version = "2.1.0", default-features = false, features = ["macros"] }
 hex = { version = "0.4.3", default-features = false, features = ["alloc", "serde"] }
 openssl-sys = { version = "0.9.80", features = ["vendored"], optional = true }
 ursa = { version = "0.3.7", optional = true }

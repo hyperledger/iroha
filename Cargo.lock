@@ -2051,6 +2051,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "serde_with",
  "ursa",
 ]
 
