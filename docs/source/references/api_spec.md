@@ -17,7 +17,7 @@
 **Responses**:
 
 | Status | Description                                                            |
-| ------ | ---------------------------------------------------------------------- |
+|--------|------------------------------------------------------------------------|
 | 200    | Transaction Accepted (But not guaranteed to have passed consensus yet) |
 | 400    | Transaction Rejected (Malformed)                                       |
 | 401    | Transaction Rejected (Improperly signed)                               |
@@ -46,7 +46,7 @@
 **Responses**:
 
 | Response        | Status | [Body](#iroha-structures)                              |
-| --------------- | ------ | ------------------------------------------------------ |
+|-----------------|--------|--------------------------------------------------------|
 | Decode err.     | 400    | `QueryError::Decode(Box<iroha_version::error::Error>)` |
 | Signature err.  | 401    | `QueryError::Signature(String)`                        |
 | Permission err. | 403    | `QueryError::Permission(String)`                       |
@@ -60,7 +60,7 @@
 Whether each prerequisite object was found and `FindError`:
 
 | Domain | Account | `FindError`                     |
-| ------ | ------- | ------------------------------- |
+|--------|---------|---------------------------------|
 | N      | -       | `FindError::Domain(DomainId)`   |
 | Y      | N       | `FindError::Account(AccountId)` |
 
@@ -69,7 +69,7 @@ Whether each prerequisite object was found and `FindError`:
 Whether each prerequisite object was found and `FindError`:
 
 | Domain | Account | Asset Definition | Asset | `FindError`                                     |
-| ------ | ------- | ---------------- | ----- | ----------------------------------------------- |
+|--------|---------|------------------|-------|-------------------------------------------------|
 | N      | -       | -                | -     | `FindError::Domain(DomainId)`                   |
 | Y      | N       | -                | -     | `FindError::Account(AccountId)`                 |
 | Y      | -       | N                | -     | `FindError::AssetDefinition(AssetDefinitionId)` |
@@ -117,7 +117,7 @@ the `Committed` (or `Rejected`) status depending on the information found in the
 
 **Expects**:
 
-_Internal use only_. Returns the transactions pending at the moment.
+_Internal use only._ Returns the transactions pending at the moment.
 
 ### Blocks Stream
 
@@ -163,7 +163,11 @@ Here is an example for getting a field `a.b.c`:
 
 ```json
 {
-  "Docs": ["a", "b", "c"]
+  "Docs": [
+    "a",
+    "b",
+    "c"
+  ]
 }
 ```
 
@@ -179,7 +183,7 @@ curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configurat
 - 200 OK: Field was found and either doc or value is returned in json body.
 - 404 Not Found: Field wasn't found
 
-### Update Configuration
+### Configuration
 
 **Protocol**: HTTP
 
@@ -244,9 +248,11 @@ the [respective configuration options](./config.md#loggermaxloglevel).
 
 **Responses**:
 
-200 OK reports status:
+200 OK reports status as JSON:
 
 ```json5
+// Note: while this snippet is JSON5 (for better readability),
+//       the actual response is JSON
 {
   /**
    * Number of connected peers, except for the reporting peer itself
@@ -379,8 +385,8 @@ codec's [GitHub repository](https://github.com/paritytech/parity-scale-codec).
 
 ## Iroha Structures
 
-| Object name                          | Fully qualified object name                                           |
-| ----------------------------------- | -------------------------------------------------------------- |
+| Object name                         | Fully qualified object name                                    |
+|-------------------------------------|----------------------------------------------------------------|
 | `VersionedSignedTransaction`        | `iroha_data_model::transaction::VersionedSignedTransaction`    |
 | `VersionedSignedQueryRequest`       | `iroha_data_model::query::VersionedSignedQueryRequest`         |
 | `VersionedPaginatedQueryResult`     | `iroha_data_model::query::VersionedPaginatedQueryResult`       |
