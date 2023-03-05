@@ -279,7 +279,7 @@ the [respective configuration options](./config.md#loggermaxloglevel).
 ```
 
 **CAUTION**: Almost all fields are 64-bit integers and should be handled with care in JavaScript. Only the `nanos` field
-is 32-bit integer. See `iroha_telemetry::metrics::Status`.
+is a 32-bit integer. See `iroha_telemetry::metrics::Status`.
 
 **Sub-routing**: To obtain the value of a specific field, one can append the name of the field to the path,
 e.g. `status/peers`. This returns the corresponding JSON value, inline, so strings are quoted, numbers are not and maps
@@ -379,7 +379,7 @@ codec's [GitHub repository](https://github.com/paritytech/parity-scale-codec).
 
 ## Iroha Structures
 
-| Short name                          | Fully qualified name                                           |
+| Object name                          | Fully qualified object name                                           |
 | ----------------------------------- | -------------------------------------------------------------- |
 | `VersionedSignedTransaction`        | `iroha_data_model::transaction::VersionedSignedTransaction`    |
 | `VersionedSignedQueryRequest`       | `iroha_data_model::query::VersionedSignedQueryRequest`         |
