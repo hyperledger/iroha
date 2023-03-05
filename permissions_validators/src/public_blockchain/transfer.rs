@@ -41,13 +41,27 @@ impl IsAllowed for OnlyOwnedAssets {
         let Instruction::Transfer(transfer_box) = instruction else {
             return Skip;
         };
-        let source_id: AssetId =
-            ok_or_skip!(try_evaluate_or_deny!(transfer_box.source_id, wsv).try_into());
 
-        if &source_id.account_id != authority {
-            return Deny("Cannot transfer assets of another account.".to_owned());
+        let source_id = try_evaluate_or_deny!(transfer_box.source_id, wsv);
+
+        if let Ok(asset_id) = AssetId::try_from(source_id.clone()) {
+            if &asset_id.account_id != authority {
+                return Deny("Cannot transfer assets of another account.".to_owned());
+            }
+            return Allow;
         }
-        Allow
+
+        if let Ok(asset_definition_id) = AssetDefinitionId::try_from(source_id) {
+            let entry = ok_or_deny!(wsv
+                .asset_definition_entry(&asset_definition_id)
+                .map_err(|_| "Asset definition doesn't exist".to_owned()));
+            if entry.owned_by() != authority {
+                return Deny("Cannot transfer asset definitions of another account.".to_owned());
+            }
+            return Allow;
+        }
+
+        Skip
     }
 }
 

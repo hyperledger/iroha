@@ -13,7 +13,7 @@ declare_token!(
 );
 
 /// Checks that account can un-register only the assets which were
-/// registered by this account in the first place.
+/// owned by this account in the first place.
 #[derive(Debug, Display, Copy, Clone, Serialize)]
 #[display(fmt = "Allow to unregister only the assets created by the signer")]
 pub struct OnlyAssetsCreatedByThisAccount;
@@ -33,12 +33,12 @@ impl IsAllowed for OnlyAssetsCreatedByThisAccount {
 
         let object_id = try_evaluate_or_deny!(unregister_box.object_id, wsv);
         let asset_definition_id: AssetDefinitionId = ok_or_skip!(object_id.try_into());
-        let registered_by_signer_account = wsv
+        let owned_by_signer_account = wsv
             .asset_definition_entry(&asset_definition_id)
-            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
+            .map(|asset_definition_entry| asset_definition_entry.owned_by() == authority)
             .unwrap_or(false);
-        if !registered_by_signer_account {
-            return Deny("Cannot unregister assets registered by other accounts.".to_owned());
+        if !owned_by_signer_account {
+            return Deny("Cannot unregister assets owned by other accounts.".to_owned());
         }
         Allow
     }

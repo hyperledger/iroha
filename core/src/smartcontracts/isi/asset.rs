@@ -86,6 +86,22 @@ pub mod isi {
         }
     }
 
+    impl Execute for Transfer<Account, AssetDefinition, Account> {
+        type Error = Error;
+
+        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+            wsv.modify_asset_definition_entry(self.object.id(), |entry| {
+                entry.set_owner(self.destination_id.clone());
+                Ok(AssetDefinitionEvent::OwnerChanged(
+                    AssetDefinitionOwnerChanged {
+                        asset_definition_id: self.object.id().clone(),
+                        new_owner: self.destination_id,
+                    },
+                ))
+            })
+        }
+    }
+
     macro_rules! impl_mint {
         ($ty:ty, $metrics:literal) => {
             impl InnerMint for $ty {}

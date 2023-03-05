@@ -94,6 +94,8 @@ mod asset {
         #[has_origin(asset_definition => asset_definition.id())]
         Created(NewAssetDefinition),
         MintabilityChanged(AssetDefinitionId),
+        #[has_origin(ownership_changed => &ownership_changed.asset_definition_id)]
+        OwnerChanged(AssetDefinitionOwnerChanged),
         Deleted(AssetDefinitionId),
         #[has_origin(metadata_changed => &metadata_changed.target_id)]
         MetadataInserted(AssetDefinitionMetadataChanged),
@@ -143,6 +145,28 @@ mod asset {
     pub struct AssetDefinitionTotalQuantityChanged {
         pub asset_definition_id: AssetDefinitionId,
         pub total_amount: NumericValue,
+    }
+
+    /// [`Self`] represents updated asset definition ownership.
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct AssetDefinitionOwnerChanged {
+        /// Id of asset definition being updated
+        pub asset_definition_id: AssetDefinitionId,
+        /// Id of new owning account
+        pub new_owner: <Account as Identifiable>::Id,
     }
 }
 
@@ -656,7 +680,8 @@ pub mod prelude {
         },
         asset::{
             AssetChanged, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
-            AssetDefinitionTotalQuantityChanged, AssetEvent, AssetEventFilter, AssetFilter,
+            AssetDefinitionOwnerChanged, AssetDefinitionTotalQuantityChanged, AssetEvent,
+            AssetEventFilter, AssetFilter,
         },
         config::ConfigurationEvent,
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
