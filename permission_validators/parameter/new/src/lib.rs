@@ -6,19 +6,16 @@
 
 extern crate alloc;
 
-use iroha_wasm::{
-    data_model::prelude::*,
-    validator::{pass_conditions, prelude::*},
-};
+use iroha_validator::{pass_conditions, prelude::*};
 
 /// Strongly-typed representation of `can_grant_permission_to_create_parameters` permission token.
 #[derive(Token, Validate, Clone, Copy)]
-#[validate(pass_conditions::AlwaysDeny)] // Can be granted only in genesis
+#[validate(pass_conditions::OnlyGenesis)]
 pub struct CanGrantPermissionToCreateParameters;
 
 /// Strongly-typed representation of `can_revoke_permission_to_create_parameters` permission token.
 #[derive(Token, Validate, Clone, Copy)]
-#[validate(pass_conditions::AlwaysDeny)] // Can be granted only in genesis
+#[validate(pass_conditions::OnlyGenesis)]
 pub struct CanRevokePermissionToCreateParameters;
 
 /// Strongly-typed representation of `can_create_parameters` permission token.

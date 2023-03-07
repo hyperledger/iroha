@@ -48,10 +48,10 @@ members = [
 ]
 
 [workspace.dependencies]
-iroha_wasm = { path = "../wasm", features = ["debug"]}
+iroha_validator = { version = "2.0.0-pre-rc.13", path = "../wasm/validator", features = ["debug"]}
 
 [dependencies]
-iroha_wasm.workspace = true
+iroha_validator.workspace = true
 
 iroha_asset_burn_validator = { path = "asset/burn" }
 iroha_asset_mint_validator = { path = "asset/mint" }

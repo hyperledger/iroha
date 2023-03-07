@@ -11,4 +11,4 @@ license.workspace = true
 crate-type = ['rlib']
 
 [dependencies]
-iroha_wasm.workspace = true
+iroha_validator.workspace = true

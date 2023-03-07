@@ -15,7 +15,7 @@ pub fn impl_derive_validate(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics ::iroha_wasm::validator::traits::Validate for #ident #ty_generics
+        impl #impl_generics ::iroha_validator::traits::Validate for #ident #ty_generics
         #where_clause
         {
             #validate_grant_impl
@@ -179,10 +179,10 @@ fn gen_validate_impl(isi_name: IsiName, pass_condition: &Type) -> proc_macro2::T
 
     let doc_intro = match isi_name {
         IsiName::Grant => {
-            "Validate [`Grant`](::iroha_wasm::data_model::prelude::Grant) instruction.\n"
+            "Validate [`Grant`](::iroha_validator::data_model::prelude::Grant) instruction.\n"
         }
         IsiName::Revoke => {
-            "Validate [`Revoke`](::iroha_wasm::data_model::prelude::Revoke) instruction.\n"
+            "Validate [`Revoke`](::iroha_validator::data_model::prelude::Revoke) instruction.\n"
         }
     };
 
@@ -196,13 +196,13 @@ fn gen_validate_impl(isi_name: IsiName, pass_condition: &Type) -> proc_macro2::T
         #[inline]
         fn #fn_name(
             &self,
-            authority: &<::iroha_wasm::data_model::account::Account as ::iroha_wasm::data_model::prelude::Identifiable>::Id
-        ) -> ::iroha_wasm::data_model::permission::validator::Verdict {
+            authority: &<::iroha_validator::data_model::account::Account as ::iroha_validator::data_model::prelude::Identifiable>::Id
+        ) -> ::iroha_validator::data_model::permission::validator::Verdict {
             let condition = <#pass_condition as ::core::convert::From<&Self>>::from(&self);
             <
                 #pass_condition
                 as
-                ::iroha_wasm::validator::pass_conditions::PassCondition
+                ::iroha_validator::pass_conditions::PassCondition
             >::validate(&condition, authority)
         }
     }

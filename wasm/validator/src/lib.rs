@@ -1,19 +1,36 @@
-//! Contains functionality related to validators
+//! Create for *Runtime Permission Validators*.
+
+#![no_std]
+
+extern crate alloc;
 
 use alloc::string::String;
 
-pub use iroha_wasm_derive::{validator_entrypoint as entrypoint, Token, Validate};
+use iroha_wasm::data_model::{permission::validator::Verdict, prelude::*};
+pub use iroha_wasm::{self, data_model, ExecuteOnHost};
 
-use crate::data_model::{permission::validator::Verdict, prelude::*};
+pub mod prelude {
+    //! Contains useful re-exports
 
-pub mod macros {
+    pub use iroha_wasm::{
+        data_model::{permission::validator::Verdict, prelude::*},
+        prelude::*,
+        EvaluateOnHost,
+    };
+    pub use iroha_validator_derive::{entrypoint, Token, Validate};
+
+    pub use super::traits::{Token, Validate};
+    pub use crate::{deny, pass, pass_if, validate_grant_revoke};
+}
+
+mod macros {
     //! Contains useful macros
 
     /// Shortcut for `return Verdict::Pass`.
     #[macro_export]
     macro_rules! pass {
         () => {
-            return $crate::data_model::permission::validator::Verdict::Pass
+            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Pass
         };
     }
 
@@ -29,7 +46,7 @@ pub mod macros {
     macro_rules! pass_if {
         ($e:expr) => {
             if $e {
-                return $crate::data_model::permission::validator::Verdict::Pass;
+                return $crate::iroha_wasm::data_model::permission::validator::Verdict::Pass;
             }
         };
     }
@@ -49,15 +66,15 @@ pub mod macros {
     #[macro_export]
     macro_rules! deny {
         ($l:literal $(,)?) => {
-            return $crate::data_model::permission::validator::Verdict::Deny(
+            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Deny(
                 ::alloc::fmt::format(::core::format_args!($l))
             )
         };
         ($e:expr $(,)?) =>{
-            return $crate::data_model::permission::validator::Verdict::Deny($e)
+            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Deny($e)
         };
         ($fmt:expr, $($arg:tt)*) => {
-            return $crate::data_model::permission::validator::Verdict::Deny(
+            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Deny(
                 ::alloc::format!($fmt, $($arg)*)
             )
         };
@@ -98,7 +115,7 @@ pub mod macros {
     ///
     /// ```no_run
     /// use iroha_wasm::parse;
-    /// use iroha_wasm::data_model::prelude::*;
+    /// use data_model::prelude::*;
     ///
     /// let account_id = parse!("alice@wonderland" as <Account as Identifiable>::Id);
     /// ```
@@ -111,7 +128,7 @@ pub mod macros {
             )
         };
         ($l:literal as $t:ty) => {
-            $crate::debug::DebugExpectExt::dbg_expect(
+            $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(
                 $l.parse::<$t>(),
                 concat!("Failed to parse `", $l, "` as `", stringify!($t), "`"),
             )
@@ -152,48 +169,48 @@ pub mod macros {
     macro_rules! validate_grant_revoke {
         (< $($token:ty),+ $(,)?>, ($authority:ident, $instruction:ident $(,)?)) => {
             match &$instruction {
-                $crate::data_model::prelude::Instruction::Grant(grant) => {
-                    let value = $crate::debug::DebugExpectExt::dbg_expect(<
-                        $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
+                $crate::iroha_wasm::data_model::prelude::Instruction::Grant(grant) => {
+                    let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
+                        $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
                         as
-                        $crate::EvaluateOnHost
+                        $crate::iroha_wasm::EvaluateOnHost
                     >::evaluate(grant.object()),
                         "Failed to evaluate `Grant` object"
                     );
 
-                    if let $crate::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
+                    if let $crate::iroha_wasm::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
                         if let Ok(concrete_token) =
                             <$token as ::core::convert::TryFrom<_>>::try_from(
                                 <
-                                    $crate::data_model::permission::token::Token as ::core::clone::Clone
+                                    $crate::iroha_wasm::data_model::permission::token::Token as ::core::clone::Clone
                                 >::clone(&permission_token)
                             )
                         {
-                            return <$token as ::iroha_wasm::validator::traits::Validate>::validate_grant(
+                            return <$token as ::iroha_validator::traits::Validate>::validate_grant(
                                 &concrete_token,
                                 &$authority
                             );
                         }
                     )+}
                 }
-                $crate::data_model::prelude::Instruction::Revoke(revoke) => {
-                    let value = $crate::debug::DebugExpectExt::dbg_expect(<
-                        $crate::data_model::prelude::EvaluatesTo<$crate::data_model::prelude::Value>
+                $crate::iroha_wasm::data_model::prelude::Instruction::Revoke(revoke) => {
+                    let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
+                        $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
                         as
-                        $crate::EvaluateOnHost
+                        $crate::iroha_wasm::EvaluateOnHost
                     >::evaluate(revoke.object()),
                         "Failed to evaluate `Revoke` object"
                     );
 
-                    if let $crate::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
+                    if let $crate::iroha_wasm::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
                         if let Ok(concrete_token) =
                             <$token as ::core::convert::TryFrom<_>>::try_from(
                                 <
-                                    $crate::data_model::permission::token::Token as ::core::clone::Clone
+                                    $crate::iroha_wasm::data_model::permission::token::Token as ::core::clone::Clone
                                 >::clone(&permission_token)
                             )
                         {
-                            return <$token as ::iroha_wasm::validator::traits::Validate>::validate_revoke(
+                            return <$token as ::iroha_validator::traits::Validate>::validate_revoke(
                                 &concrete_token,
                                 &$authority
                             );
@@ -315,10 +332,9 @@ pub mod traits {
 }
 
 pub mod pass_conditions {
-    //! Contains some common pass conditions used in [`Validate`](crate::validator::prelude::Validate)
+    //! Contains some common pass conditions used in [`Validate`](crate::data_model::validator::prelude::Validate)
 
     use super::*;
-    use crate::*;
 
     /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
     pub trait PassCondition {
@@ -327,24 +343,24 @@ pub mod pass_conditions {
 
     pub mod derive_conversions {
         //! Module with derive macros to generate conversion from custom strongly-typed token
-        //! to some pass condition to successfully derive [`Validate`](iroha_wasm_derive::Validate)
+        //! to some pass condition to successfully derive [`Validate`](iroha_validator_derive::Validate)
 
         pub mod asset {
             //! Module with derives related to asset tokens
 
-            pub use iroha_wasm_derive::RefIntoAssetOwner as Owner;
+            pub use iroha_validator_derive::RefIntoAssetOwner as Owner;
         }
 
         pub mod asset_definition {
             //! Module with derives related to asset definition tokens
 
-            pub use iroha_wasm_derive::RefIntoAssetDefinitionOwner as Owner;
+            pub use iroha_validator_derive::RefIntoAssetDefinitionOwner as Owner;
         }
 
         pub mod account {
             //! Module with derives related to account tokens
 
-            pub use iroha_wasm_derive::RefIntoAccountOwner as Owner;
+            pub use iroha_validator_derive::RefIntoAccountOwner as Owner;
         }
     }
 
@@ -424,19 +440,20 @@ pub mod pass_conditions {
         }
     }
 
-    /// Pass condition that always denies.
+    /// Pass condition that allows operation only in genesis.
     ///
-    /// That means, that [`Grant`] and/or [`Revoke`] can be executed only in genesis block.
+    /// In other words it always denies the operation, because runtime validators are not used
+    /// in genesis validation.
     #[derive(Debug, Default, Copy, Clone)]
-    pub struct AlwaysDeny;
+    pub struct OnlyGenesis;
 
-    impl PassCondition for AlwaysDeny {
+    impl PassCondition for OnlyGenesis {
         fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
             deny!("This operation is always denied and only allowed inside the genesis block")
         }
     }
 
-    impl<T: traits::Token> From<&T> for AlwaysDeny {
+    impl<T: traits::Token> From<&T> for OnlyGenesis {
         fn from(_: &T) -> Self {
             Self::default()
         }
@@ -447,7 +464,6 @@ pub mod utils {
     //! Contains some utils for validators
 
     use super::*;
-    use crate::*;
 
     /// Check if `authority` is the owner of `asset_definition_id`.
     ///
@@ -456,6 +472,8 @@ pub mod utils {
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
     ) -> bool {
+        use iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _};
+
         QueryBox::from(IsAssetDefinitionOwner::new(
             asset_definition_id.clone(),
             authority.clone(),
@@ -464,16 +482,4 @@ pub mod utils {
         .try_into()
         .dbg_expect("Failed to convert `IsAssetDefinitionOwner` query result into `bool`")
     }
-}
-
-pub mod prelude {
-    //! Contains useful re-exports
-
-    pub use iroha_wasm_derive::{Token, Validate};
-
-    pub use super::{
-        entrypoint,
-        traits::{Token, Validate},
-    };
-    pub use crate::{deny, pass, pass_if, validate_grant_revoke, EvaluateOnHost as _};
 }
