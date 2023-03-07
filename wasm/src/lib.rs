@@ -23,7 +23,6 @@ use parity_scale_codec::{DecodeAll, Encode};
 
 pub mod debug;
 pub mod log;
-pub mod validator;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -340,7 +339,7 @@ pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{entrypoint, ExecuteOnHost};
+    pub use crate::{debug::*, entrypoint, ExecuteOnHost};
 }
 
 #[cfg(test)]

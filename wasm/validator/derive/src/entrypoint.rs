@@ -56,10 +56,10 @@ impl ParamType {
         parse_quote! {{
             use ::alloc::format;
 
-            let needs_permission = ::iroha_wasm::query_operation_to_validate();
-            ::iroha_wasm::debug::DebugExpectExt::dbg_expect(
-                <::iroha_wasm::data_model::prelude::#operation_type as
-                    ::core::convert::TryFrom<::iroha_wasm::data_model::permission::validator::NeedsPermissionBox>>::try_from(needs_permission),
+            let needs_permission = ::iroha_validator::iroha_wasm::query_operation_to_validate();
+            ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                <::iroha_validator::iroha_wasm::data_model::prelude::#operation_type as
+                    ::core::convert::TryFrom<::iroha_validator::iroha_wasm::data_model::permission::validator::NeedsPermissionBox>>::try_from(needs_permission),
                     &format!("Failed to convert `NeedsPermissionBox` to `{}`. Have you set right permission validator type?", stringify!(#operation_type))
             )
         }}
@@ -71,7 +71,7 @@ impl iroha_derive_primitives::params::ConstructArg for ParamType {
         match self {
             ParamType::Authority => {
                 parse_quote! {
-                    ::iroha_wasm::query_authority()
+                    ::iroha_validator::iroha_wasm::query_authority()
                 }
             }
             ParamType::Transaction => {
@@ -119,7 +119,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_wasm::{debug::DebugExpectExt as _, EvaluateOnHost as _};
+            use ::iroha_validator::iroha_wasm::ExecuteOnHost as _;
         ),
     );
 
@@ -129,12 +129,12 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         /// # Memory safety
         ///
         /// This function transfers the ownership of allocated
-        /// [`Verdict`](::iroha_wasm::data_model::permission::validator::Verdict)
+        /// [`Verdict`](::iroha_validator::iroha_wasm::data_model::permission::validator::Verdict)
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn _iroha_wasm_main() -> *const u8 {
-            let verdict: ::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#args);
-            let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_wasm::encode_with_length_prefix(&verdict));
+            let verdict: ::iroha_validator::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#args);
+            let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
 
             bytes_box.as_ptr()
         }

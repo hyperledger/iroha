@@ -7,10 +7,10 @@ extern crate alloc;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_wasm::data_model::prelude::*;
+use iroha_validator::prelude::*;
 
 /// Forbid every new validator registration
-#[iroha_wasm::validator::entrypoint(params = "[instruction]")]
+#[entrypoint(params = "[instruction]")]
 fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register

@@ -6,11 +6,7 @@
 
 extern crate alloc;
 
-use iroha_wasm::{
-    data_model::prelude::*,
-    debug::DebugExpectExt as _,
-    validator::{pass_conditions, prelude::*},
-};
+use iroha_validator::{pass_conditions, prelude::*};
 
 /// Strongly-typed representation of `can_transfer_assets_with_definition` permission token.
 #[derive(Token, Validate, pass_conditions::derive_conversions::asset_definition::Owner)]
