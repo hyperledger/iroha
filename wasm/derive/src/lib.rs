@@ -3,7 +3,6 @@
 use proc_macro::TokenStream;
 
 mod entrypoint;
-mod params;
 mod validator;
 
 /// Annotate the user-defined function that starts the execution of a smart contract.
@@ -295,16 +294,3 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
 pub fn derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
     validator::conversion::account::impl_derive_ref_into_account_owner(input)
 }
-
-macro_rules! parse_keywords {
-    ($input:ident, $($kw:path => $var:expr),+ $(,)?) => {
-        $(
-            if $input.parse::<$kw>().is_ok() {
-                Ok($var)
-            } else
-        )+
-        {Err($input.error(format!("expected one of: {}", stringify!($($kw),+))))}
-    };
-}
-
-pub(crate) use parse_keywords;

@@ -16,7 +16,7 @@ mod kw {
 /// Enum representing possible attributes for [`entrypoint`] macro
 enum Attr {
     /// List of parameters
-    Params(super::params::ParamsAttr<ParamType>),
+    Params(iroha_derive_primitives::params::ParamsAttr<ParamType>),
     /// Empty attribute. Used when attribute input is empty
     Empty,
 }
@@ -44,14 +44,14 @@ impl syn::parse::Parse for ParamType {
     fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
         use kw::param_types::*;
 
-        super::parse_keywords!(input,
+        iroha_derive_primitives::parse_keywords!(input,
             authority => ParamType::Authority,
             triggering_event => ParamType::TriggeringEvent,
         )
     }
 }
 
-impl super::params::ConstructArg for ParamType {
+impl iroha_derive_primitives::params::ConstructArg for ParamType {
     fn construct_arg(&self) -> syn::Expr {
         match self {
             ParamType::Authority => {
