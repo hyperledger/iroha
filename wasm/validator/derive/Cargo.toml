@@ -1,11 +1,12 @@
 [package]
-name = "iroha_wasm_derive"
+name = "iroha_validator_derive"
 
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
 license.workspace = true
+
 
 [lib]
 proc-macro = true
@@ -15,3 +16,4 @@ iroha_derive_primitives.workspace = true
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
+heck = "0.4.1"

@@ -5,11 +5,7 @@
 
 extern crate alloc;
 
-use iroha_wasm::{
-    data_model::prelude::*,
-    debug::DebugExpectExt as _,
-    validator::{prelude::*, utils},
-};
+use iroha_validator::{prelude::*, utils};
 
 /// Validate [`Transfer`] instruction
 ///

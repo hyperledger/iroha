@@ -53,15 +53,15 @@ fn impl_token(
     let permission_token_conversion_code = permission_token_conversion(fields);
 
     quote! {
-        impl #impl_generics ::iroha_wasm::validator::traits::Token for #ident #ty_generics
+        impl #impl_generics ::iroha_validator::traits::Token for #ident #ty_generics
         #where_clause
         {
-            fn definition_id() -> ::iroha_wasm::data_model::permission::token::Id {
-                ::iroha_wasm::parse!(
+            fn definition_id() -> ::iroha_validator::data_model::permission::token::Id {
+                ::iroha_validator::parse!(
                     #definition_id as <
-                        ::iroha_wasm::data_model::permission::token::Definition
+                        ::iroha_validator::data_model::permission::token::Definition
                         as
-                        ::iroha_wasm::data_model::prelude::Identifiable
+                        ::iroha_validator::data_model::prelude::Identifiable
                     >::Id
                 )
             }
@@ -69,23 +69,23 @@ fn impl_token(
             fn is_owned_by(
                 &self,
                 account_id: &<
-                    ::iroha_wasm::data_model::prelude::Account
+                    ::iroha_validator::data_model::prelude::Account
                     as
-                    ::iroha_wasm::data_model::prelude::Identifiable
+                    ::iroha_validator::data_model::prelude::Identifiable
                 >::Id
             ) -> bool {
                 let permission_token = #permission_token_conversion_code;
 
-                ::iroha_wasm::debug::DebugExpectExt::dbg_expect(
-                    ::iroha_wasm::ExecuteOnHost::execute(
-                        &::iroha_wasm::data_model::prelude::QueryBox::from(
-                            ::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
+                ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                    ::iroha_validator::iroha_wasm::ExecuteOnHost::execute(
+                        &::iroha_validator::iroha_wasm::data_model::prelude::QueryBox::from(
+                            ::iroha_validator::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
                                 account_id.clone(),
                                 permission_token,
                             )
                         )
                     ).try_into(),
-                    "Failed to convert `DoesAccountHavePermission` query result into `bool`"
+                    "Failed to convert `DoesAccountHavePermissionToken` query result into `bool`"
                 )
             }
         }
@@ -111,16 +111,16 @@ fn impl_try_from_permission_token(
             #field_ident: <
                 #field_type
                 as
-                ::core::convert::TryFrom<::iroha_wasm::data_model::prelude::Value>
+                ::core::convert::TryFrom<::iroha_validator::data_model::prelude::Value>
             >::try_from(token
-                .param(&::iroha_wasm::parse!(#field_literal as ::iroha_wasm::data_model::prelude::Name))
+                .param(&::iroha_validator::parse!(#field_literal as ::iroha_validator::data_model::prelude::Name))
                 .ok_or(
-                    ::iroha_wasm::validator::PermissionTokenConversionError::Param(#field_literal)
+                    ::iroha_validator::PermissionTokenConversionError::Param(#field_literal)
                 )?
                 .clone()
             )
             .map_err(|err| {
-                ::iroha_wasm::validator::PermissionTokenConversionError::Value(
+                ::iroha_validator::PermissionTokenConversionError::Value(
                     ::alloc::string::ToString::to_string(&err)
                 )
             })?
@@ -129,19 +129,19 @@ fn impl_try_from_permission_token(
     });
 
     quote! {
-        impl #impl_generics ::core::convert::TryFrom<::iroha_wasm::data_model::permission::Token> for #ident #ty_generics
+        impl #impl_generics ::core::convert::TryFrom<::iroha_validator::data_model::permission::Token> for #ident #ty_generics
         #where_clause
         {
-            type Error = ::iroha_wasm::validator::PermissionTokenConversionError;
+            type Error = ::iroha_validator::PermissionTokenConversionError;
 
             #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
-                token: ::iroha_wasm::data_model::permission::Token
+                token: ::iroha_validator::data_model::permission::Token
             ) -> ::core::result::Result<Self, Self::Error> {
                 if token.definition_id() !=
-                    &<Self as::iroha_wasm::validator::traits::Token>::definition_id()
+                    &<Self as::iroha_validator::traits::Token>::definition_id()
                 {
-                    return Err(::iroha_wasm::validator::PermissionTokenConversionError::Id(
+                    return Err(::iroha_validator::PermissionTokenConversionError::Id(
                         token.definition_id().clone()
                     ));
                 }
@@ -162,15 +162,15 @@ fn permission_token_conversion(
         let field_ident = field.ident.as_ref().expect("Field must have an identifier");
         let field_literal = proc_macro2::Literal::string(&field_ident.to_string());
         quote! {(
-            ::iroha_wasm::parse!(#field_literal
-                as ::iroha_wasm::data_model::prelude::Name),
+            ::iroha_validator::parse!(#field_literal
+                as ::iroha_validator::data_model::prelude::Name),
             self.#field_ident.clone().into()
         )}
     });
 
     quote! {
-        ::iroha_wasm::data_model::permission::Token::new(
-            <Self as ::iroha_wasm::validator::traits::Token>::definition_id()
+        ::iroha_validator::data_model::permission::Token::new(
+            <Self as ::iroha_validator::traits::Token>::definition_id()
         )
         .with_params([
             #(#params),*

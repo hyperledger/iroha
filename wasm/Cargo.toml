@@ -6,19 +6,6 @@ authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
 license = "Apache-2.0"
 
-[package]
-name = "iroha_wasm"
-
-edition.workspace = true
-version.workspace = true
-authors.workspace = true
-
-license.workspace = true
-
-[features]
-# Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
-debug = []
-
 [profile.dev]
 panic = "abort"
 
@@ -29,7 +16,30 @@ panic = "abort"
 resolver = "2"
 members = [
   "derive",
+  "validator",
+  "validator/derive",
 ]
+
+[workspace.dependencies]
+iroha_derive_primitives = { version = "2.0.0-pre-rc.13", path = "../derive_primitives" }
+syn = { version = "1", default-features = false, features = ["full", "extra-traits", "derive"] }
+quote = "1.0"
+proc-macro2 = "1.0.49"
+
+webassembly-test = "0.1.0"
+
+[package]
+name = "iroha_wasm"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+license.workspace = true
+
+[features]
+# Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
+debug = []
 
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", default-features = false }
@@ -39,5 +49,5 @@ parity-scale-codec = { version = "3.1.5", default-features = false }
 wee_alloc = "0.4.5"
 
 [dev-dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", default-features = false }
-webassembly-test = "0.1.0"
+webassembly-test.workspace = true
+
