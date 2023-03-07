@@ -1,4 +1,26 @@
 //! Module to parse entrypoint functions attributes with parameters
+//!
+//! # Example
+//!
+//! ```ignore
+//! enum ParamType {
+//!    // ...
+//! }
+//!
+//! impl syn::parse::Parse for ParamType {
+//!     fn parse(_: &syn::parse::ParseBuffer<'_>) -> Result<Self, syn::Error> {
+//!         // ...
+//!     }
+//! }
+//!
+//! fn impl_derive(attr: TokenStream, item: TokenStream) -> TokenStream {
+//!     let args = syn::parse_macro_input!(
+//!         attr as iroha_derive_primitives::params::ParamsAttr<ParamType>
+//!     ).construct_args();
+//!
+//!     // ...
+//! }
+//! ```
 
 use syn::{
     parse::{Parse, ParseStream, Result},

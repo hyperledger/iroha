@@ -2201,6 +2201,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_derive_primitives"
+version = "2.0.0-pre-rc.13"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "iroha_ffi"
 version = "2.0.0-pre-rc.13"
 dependencies = [
