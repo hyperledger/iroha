@@ -1,5 +1,19 @@
+[workspace.package]
+edition = "2021"
+version = "2.0.0-pre-rc.13"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+
+description = "Efficient, simple, Byzantine-fault-tolerant DLT inspired by the Kaizen principle"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-lts"
+documentation = "https://hyperledger.github.io/iroha-2-docs"
+homepage = "https://iroha.tech"
+
+license = "Apache-2.0"
+keywords = ["blockchain", "crypto", "iroha", "ledger"]
+categories = ["cryptography::cryptocurrencies"]
+
 [workspace]
-resolver = "2"
 members = [
   "actor",
   "actor/derive",
