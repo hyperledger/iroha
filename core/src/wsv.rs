@@ -14,7 +14,6 @@ use dashmap::{
     DashSet,
 };
 use eyre::Result;
-use getset::Getters;
 use iroha_config::{
     base::proxy::Builder,
     wsv::{Configuration, ConfigurationProxy},
@@ -36,7 +35,7 @@ use crate::{
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Default, Clone, Getters)]
+#[derive(Debug, Default, Clone)]
 pub struct World {
     /// Iroha config parameters.
     pub(crate) parameters: Parameters,

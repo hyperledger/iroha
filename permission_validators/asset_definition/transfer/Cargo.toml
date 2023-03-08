@@ -1,10 +1,11 @@
 [package]
 name = "iroha_asset_definition_transfer_validator"
+
+edition.workspace = true
 version.workspace = true
 authors.workspace = true
-edition.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license.workspace = true
 
 [lib]
 crate-type = ['rlib']

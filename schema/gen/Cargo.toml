@@ -1,9 +1,11 @@
 [package]
 name = "iroha_schema_gen"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
 
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../../data_model" }

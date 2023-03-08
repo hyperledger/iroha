@@ -8,8 +8,7 @@
     clippy::std_instead_of_alloc
 )]
 
-use anyhow::anyhow;
-use eyre::Context;
+use eyre::{eyre, Context};
 use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
@@ -77,13 +76,13 @@ pub mod import {
 pub enum Error {
     /// Engine or linker could not be created
     #[error("Runtime initialization failure: {0}")]
-    Initialization(#[source] anyhow::Error),
+    Initialization(#[source] eyre::Report),
     /// Module could not be compiled or instantiated
     #[error("Module instantiation failure: {0}")]
-    Instantiation(#[source] anyhow::Error),
+    Instantiation(#[source] eyre::Report),
     /// Expected named export not found in module
     #[error("Named export not found: {0}")]
-    ExportNotFound(#[source] anyhow::Error),
+    ExportNotFound(#[source] eyre::Report),
     /// Call to the function exported from module failed
     ///
     /// In Wasmtime v0.33, can also mean that max linear memory was
@@ -92,7 +91,7 @@ pub enum Error {
     ExportFnCall(#[from] Trap),
     /// Error during decoding object with length prefix
     #[error("Failed to decode object from bytes with length prefix: {0}")]
-    Decode(#[source] anyhow::Error),
+    Decode(#[source] eyre::Report),
 }
 
 /// [`Result`] type for this module
@@ -106,7 +105,9 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// Configuration is hardcoded and tested, so this function should never panic.
 pub fn create_engine() -> Engine {
     create_config()
-        .and_then(|config| Engine::new(&config).map_err(Error::Initialization))
+        .and_then(|config| {
+            Engine::new(&config).map_err(|err| Error::Initialization(eyre!(Box::new(err))))
+        })
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
@@ -118,7 +119,7 @@ pub fn create_engine() -> Engine {
 ///
 // TODO: Probably we can do some checks here such as searching for entrypoint function
 pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
-    Module::new(engine, bytes).map_err(Error::Instantiation)
+    Module::new(engine, bytes).map_err(|err| Error::Instantiation(eyre!(Box::new(err))))
 }
 
 fn create_config() -> Result<Config> {
@@ -126,7 +127,7 @@ fn create_config() -> Result<Config> {
     config
         .consume_fuel(true)
         .cache_config_load_default()
-        .map_err(Error::Initialization)?;
+        .map_err(|err| Error::Initialization(eyre!(Box::new(err))))?;
     Ok(config)
 }
 
@@ -258,7 +259,7 @@ impl<'wrld> Runtime<'wrld> {
         store.limiter(|stat| &mut stat.store_limits);
         store
             .add_fuel(self.config.fuel_limit)
-            .map_err(Error::Instantiation)?;
+            .map_err(|err| Error::Instantiation(eyre!(Box::new(err))))?;
 
         Ok(store)
     }
@@ -271,7 +272,7 @@ impl<'wrld> Runtime<'wrld> {
         load_module(&self.engine, bytes).and_then(|module| {
             self.linker
                 .instantiate(store, &module)
-                .map_err(Error::Instantiation)
+                .map_err(|err| Error::Instantiation(eyre!(Box::new(err))))
         })
     }
 
@@ -539,7 +540,7 @@ impl<'wrld> Runtime<'wrld> {
             })
             .and_then(|l| l.func_wrap(import::MODULE_NAME, import::LOG_FN_NAME, Self::log))
             .and_then(|l| l.func_wrap(import::MODULE_NAME, import::DBG_FN_NAME, Self::dbg))
-            .map_err(Error::Initialization)?;
+            .map_err(|err| Error::Initialization(eyre!(Box::new(err))))?;
 
         Ok(linker)
     }
@@ -628,11 +629,11 @@ impl<'wrld> Runtime<'wrld> {
         let instance = self
             .linker
             .instantiate(&mut store, module)
-            .map_err(Error::Instantiation)?;
+            .map_err(|err| Error::Instantiation(eyre!(Box::new(err))))?;
 
         let validate_fn = instance
             .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_MAIN_FN_NAME)
-            .map_err(Error::ExportNotFound)?;
+            .map_err(|err| Error::ExportNotFound(eyre!(Box::new(err))))?;
 
         // NOTE: This function takes ownership of the pointer
         let offset = validate_fn
@@ -642,7 +643,7 @@ impl<'wrld> Runtime<'wrld> {
         let memory = Self::get_memory(&mut (&instance, &mut store))?;
         let dealloc_fn = instance
             .get_typed_func(&mut store, export::WASM_DEALLOC_FN)
-            .map_err(Error::ExportNotFound)?;
+            .map_err(|err| Error::ExportNotFound(eyre!(Box::new(err))))?;
         Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
     }
 
@@ -671,7 +672,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let main_fn = smart_contract
             .get_typed_func(&mut store, export::WASM_MAIN_FN_NAME)
-            .map_err(Error::ExportNotFound)?;
+            .map_err(|err| Error::ExportNotFound(eyre!(Box::new(err))))?;
 
         // NOTE: This function takes ownership of the pointer
         main_fn.call(&mut store, ()).map_err(Error::ExportFnCall)
@@ -714,7 +715,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
             .try_into()
-            .map_err(|err| Error::Decode(anyhow!("Can't convert `usize` to `u32`: {err}")))?;
+            .map_err(|err| Error::Decode(eyre!("Can't convert `usize` to `u32`: {err}")))?;
         let len = u32::from_le_bytes(
             memory.data(&mut context)[offset as usize..(offset + len_size_bytes) as usize]
                 .try_into()

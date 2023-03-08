@@ -1,9 +1,11 @@
 [package]
 name = "iroha_telemetry"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
-build = "build.rs"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 
 [features]
 # Support developer-specific telemetry.
@@ -34,7 +36,7 @@ prometheus = { version = "0.13.3", default-features = false }
 
 
 [build-dependencies]
-anyhow = "1.0.68"
+eyre = "0.6.8"
 vergen = { version = "7.4.2", default-features = false, features = ["cargo", "git"] }
 libgit2-sys = {version = "=0.13.4"}
 

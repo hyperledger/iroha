@@ -439,12 +439,12 @@ mod genesis {
     }
 
     fn register_validator() -> color_eyre::Result<Instruction> {
-        const MAIN_PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators/main";
+        const PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators";
 
         let build_dir = tempfile::tempdir()
             .wrap_err("Failed to create temp dir for runtime validator output")?;
 
-        let wasm_blob = iroha_wasm_builder::Builder::new(MAIN_PERMISSION_VALIDATOR_PATH)
+        let wasm_blob = iroha_wasm_builder::Builder::new(PERMISSION_VALIDATOR_PATH)
             .out_dir(build_dir.path())
             .build()?
             .optimize()?

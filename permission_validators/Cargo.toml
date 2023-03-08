@@ -1,5 +1,34 @@
+[workspace.package]
+edition = "2021"
+version = "2.0.0-pre-rc.13"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+
+license = "Apache-2.0"
+
+[package]
+name = "iroha_main_validator"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+strip = "debuginfo" # Remove debugging info from the binary
+panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
+lto = true          # Link-time-optimization produces notable decrease in binary size
+opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
+codegen-units = 1   # Further reduces binary size but increases compilation time
+
 [workspace]
-resolver = "2"
 members = [
   "asset/burn",
   "asset/mint",
@@ -14,23 +43,24 @@ members = [
   "account/set_key_value",
   "account/remove_key_value",
   "parameter/set",
-  "main",
 ]
-
-[workspace.package]
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
 
 [workspace.dependencies]
 iroha_wasm = { path = "../wasm", features = ["debug"]}
 
-[profile.dev]
-panic = "abort"
+[dependencies]
+iroha_wasm.workspace = true
 
-[profile.release]
-strip = "debuginfo" # Remove debugging info from the binary
-panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
-lto = true          # Link-time-optimization produces notable decrease in binary size
-opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
-codegen-units = 1   # Further reduces binary size but increases compilation time
+iroha_asset_burn_validator = { path = "asset/burn" }
+iroha_asset_mint_validator = { path = "asset/mint" }
+iroha_asset_set_key_value_validator = { path = "asset/set_key_value" }
+iroha_asset_remove_key_value_validator = { path = "asset/remove_key_value" }
+iroha_asset_transfer_validator = { path = "asset/transfer" }
+iroha_asset_unregister_validator = { path = "asset/unregister" }
+iroha_asset_definition_set_key_value_validator = { path = "asset_definition/set_key_value" }
+iroha_asset_definition_remove_key_value_validator = { path = "asset_definition/remove_key_value" }
+iroha_asset_definition_unregister_validator = { path = "asset_definition/unregister" }
+iroha_asset_definition_transfer_validator = { path = "asset_definition/transfer" }
+iroha_account_set_key_value_validator = { path = "account/set_key_value" }
+iroha_account_remove_key_value_validator = { path = "account/remove_key_value" }
+iroha_parameter_set_validator = { path = "parameter/set" }

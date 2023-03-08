@@ -1,10 +1,23 @@
+[workspace.package]
+edition = "2021"
+version = "2.0.0-pre-rc.13"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+
+license = "Apache-2.0"
+
 [package]
 name = "iroha_wasm"
-version = "0.1.0"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[features]
+# Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
+debug = []
 
 [profile.dev]
 panic = "abort"
@@ -16,10 +29,6 @@ panic = "abort"
 members = [
   "derive",
 ]
-
-[features]
-# Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
-debug = []
 
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", default-features = false }
