@@ -1,4 +1,5 @@
-//! Build script to extract git hash of iroha build and to build runtime permission validators
+//! Build script to extract git hash of iroha build and to check runtime permission validators
+
 use eyre::{eyre, Result};
 use vergen::{vergen, Config};
 

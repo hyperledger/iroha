@@ -1,15 +1,12 @@
 [package]
 name = "iroha_p2p"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
-homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
-repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
-license = "Apache-2.0"
-keywords = ["crypto", "blockchain", "ledger", "iroha"]
-categories = ["cryptography::cryptocurrencies", "network-programming"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+categories = ["network-programming"]
 
 [dependencies]
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
