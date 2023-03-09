@@ -1,4 +1,4 @@
-//! Create for *Runtime Permission Validators*.
+//! API for *Runtime Permission Validators*.
 
 #![no_std]
 
@@ -12,12 +12,12 @@ pub use iroha_wasm::{self, data_model, ExecuteOnHost};
 pub mod prelude {
     //! Contains useful re-exports
 
+    pub use iroha_validator_derive::{entrypoint, Token, Validate};
     pub use iroha_wasm::{
         data_model::{permission::validator::Verdict, prelude::*},
         prelude::*,
         EvaluateOnHost,
     };
-    pub use iroha_validator_derive::{entrypoint, Token, Validate};
 
     pub use super::traits::{Token, Validate};
     pub use crate::{deny, pass, pass_if, validate_grant_revoke};

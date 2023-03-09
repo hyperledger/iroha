@@ -7,7 +7,8 @@
 #![no_main]
 #![allow(clippy::all)]
 
-//! Sample smartcontract which mints 1 rose for it's authority
+#[cfg(not(test))]
+extern crate panic_halt;
 
 use core::str::FromStr as _;
 
