@@ -8,7 +8,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
+use std::{fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
 use derive_more::Deref;
 use eyre::{bail, eyre, Result, WrapErr};
@@ -24,16 +24,11 @@ use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::{time, time::Duration};
 
-use crate::{
-    sumeragi::network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-    tx::VersionedAcceptedTransaction,
-    IrohaNetwork,
-};
+use crate::{sumeragi::network_topology::Topology, tx::VersionedAcceptedTransaction, IrohaNetwork};
 
 // TODO: 8 is just the optimal value for tests. This number should be
 // revised as soon as we have real data, to fix #1855.
 type Online = SmallVec<[PeerId; 8]>;
-type Offline = SmallVec<[PeerId; 8]>;
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -88,31 +83,13 @@ async fn try_get_online_topology(
     network_topology: &Topology,
     network: Addr<IrohaNetwork>,
 ) -> Result<Topology> {
-    let (online_peers, offline_peers) =
-        check_peers_status(this_peer_id, network_topology, network).await;
+    let online_peers = check_peers_status(this_peer_id, network_topology, network).await;
     let set_a_len = network_topology.min_votes_for_commit();
     if online_peers.len() < set_a_len {
-        return Err(eyre!("Not enough online peers for consensus."));
+        eyre::bail!("Not enough online peers for consensus.");
     }
-    let genesis_topology = if network_topology.sorted_peers().len() == 1 {
-        network_topology.clone()
-    } else {
-        let set_a: HashSet<_> = online_peers[..set_a_len].iter().cloned().collect();
-        let set_b: HashSet<_> = online_peers[set_a_len..]
-            .iter()
-            .cloned()
-            .chain(offline_peers.into_iter())
-            .collect();
-        #[allow(clippy::expect_used)]
-        GenesisTopologyBuilder::new()
-            .with_leader(this_peer_id.clone())
-            .with_set_a(set_a)
-            .with_set_b(set_b)
-            .build()
-            .expect("Preconditions should be already checked.")
-    };
     iroha_logger::info!("Waiting for active peers finished.");
-    Ok(genesis_topology)
+    Ok(network_topology.clone())
 }
 
 /// Checks which [`Peer`]s are online and which are offline
@@ -121,7 +98,7 @@ async fn check_peers_status(
     this_peer_id: &PeerId,
     network_topology: &Topology,
     network: Addr<IrohaNetwork>,
-) -> (Online, Offline) {
+) -> Online {
     #[allow(clippy::expect_used)]
     let peers = network
         .send(iroha_p2p::network::GetConnectedPeers)
@@ -130,13 +107,13 @@ async fn check_peers_status(
         .peers;
     iroha_logger::info!(peer_count = peers.len(), "Peers status");
 
-    let (online, offline): (SmallVec<_>, SmallVec<_>) = network_topology
-        .sorted_peers()
+    let (online, _offline): (SmallVec<_>, SmallVec<_>) = network_topology
+        .sorted_peers
         .iter()
         .cloned()
         .partition(|id| peers.contains(&id.public_key) || this_peer_id.public_key == id.public_key);
 
-    (online, offline)
+    online
 }
 
 #[async_trait::async_trait]
