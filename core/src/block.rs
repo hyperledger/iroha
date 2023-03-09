@@ -79,6 +79,7 @@ impl PendingBlock {
         height: u64,
         previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
         view_change_index: u64,
+        committed_with_topology: Topology,
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -91,13 +92,13 @@ impl PendingBlock {
                 previous_block_hash,
                 transactions_hash: None,
                 rejected_transactions_hash: None,
-                genesis_topology: None,
+                committed_with_topology,
             },
         }
     }
 
     /// Create a new blockchain with current block as a first block.
-    pub fn chain_first_with_genesis_topology(self, genesis_topology: Topology) -> ChainedBlock {
+    pub fn chain_first_with_topology(self, genesis_topology: Topology) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
             event_recommendations: self.event_recommendations,
@@ -109,7 +110,7 @@ impl PendingBlock {
                 previous_block_hash: None,
                 transactions_hash: None,
                 rejected_transactions_hash: None,
-                genesis_topology: Some(genesis_topology),
+                committed_with_topology: genesis_topology,
             },
         }
     }
@@ -127,7 +128,7 @@ impl PendingBlock {
                 previous_block_hash: None,
                 transactions_hash: None,
                 rejected_transactions_hash: None,
-                genesis_topology: None,
+                committed_with_topology: Topology::new(Vec::new()),
             },
         }
     }
@@ -162,8 +163,8 @@ pub struct BlockHeader {
     pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
     pub rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-    /// Genesis topology
-    pub genesis_topology: Option<Topology>,
+    /// Network topology when the block was committed.
+    pub committed_with_topology: Topology,
 }
 
 impl BlockHeader {
@@ -388,7 +389,7 @@ impl SignedBlock {
                 previous_block_hash: None,
                 transactions_hash: None,
                 rejected_transactions_hash: None,
-                genesis_topology: None,
+                committed_with_topology: Topology::new(Vec::new()),
             },
             rejected_transactions: Vec::new(),
             transactions: Vec::new(),

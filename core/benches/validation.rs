@@ -5,6 +5,7 @@ use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
     prelude::*,
+    sumeragi::network_topology::Topology,
     tx::{AcceptedTransaction, TransactionValidator},
     wsv::World,
 };
@@ -149,10 +150,12 @@ fn chain_blocks(criterion: &mut Criterion) {
     let _ = criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block =
-                block
-                    .clone()
-                    .chain(success_count, Some(previous_block_hash.transmute()), 0);
+            let new_block = block.clone().chain(
+                success_count,
+                Some(previous_block_hash.transmute()),
+                0,
+                Topology::new(Vec::new()),
+            );
             previous_block_hash = new_block.hash();
         });
     });

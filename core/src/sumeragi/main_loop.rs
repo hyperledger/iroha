@@ -196,7 +196,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
 
     #[allow(clippy::needless_pass_by_value)]
     fn broadcast_packet(&self, msg: MessagePacket, topology: &Topology) {
-        self.broadcast_packet_to(msg, topology.sorted_peers());
+        self.broadcast_packet_to(msg, &topology.sorted_peers);
     }
 
     fn gossip_transactions(&self, state: &State, view_change_proof_chain: &ProofChain) {
@@ -222,7 +222,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
         let peers_expected = {
-            let mut res = topology.sorted_peers().to_owned();
+            let mut res = topology.sorted_peers.clone();
             res.retain(|id| id.address != self.peer_id.address);
             res.shuffle(&mut rand::thread_rng());
             res
@@ -286,7 +286,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             Ok(packet) => {
                 if let Err(error) = view_change_proof_chain.merge(
                     packet.view_change_proofs,
-                    current_topology.sorted_peers(),
+                    &current_topology.sorted_peers,
                     current_topology.max_faults(),
                     state.latest_block_hash,
                 ) {
@@ -368,11 +368,6 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
                     };
 
                     if block.header().is_genesis() {
-                        if let Some(topology) = block.header().genesis_topology.clone().take() {
-                            state.current_topology = topology;
-                            info!("Using genesis topology");
-                        }
-
                         commit_block(self, state, block);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
@@ -421,8 +416,25 @@ fn commit_block<F: FaultInjection>(
         %block_hash, "Committing block"
     );
 
+    *current_topology = committed_block.header().committed_with_topology.clone();
+    current_topology.lift_up_peers(
+        &committed_block
+            .signatures()
+            .into_iter()
+            .map(|s| s.public_key().clone())
+            .collect::<Vec<PublicKey>>(),
+    );
+    current_topology.rotate_set_a();
+    current_topology.update_peer_list(
+        &state
+            .wsv
+            .peers_ids()
+            .iter()
+            .map(|id| id.clone())
+            .collect::<Vec<PeerId>>(),
+    );
+
     sumeragi.kura.store_block(committed_block);
-    current_topology.recreate(&state.wsv, block_hash);
 
     cache_transaction(state, sumeragi);
 }
@@ -464,8 +476,25 @@ fn replace_top_block<F: FaultInjection>(
         %block_hash, "Replacing top block"
     );
 
+    *current_topology = committed_block.header().committed_with_topology.clone();
+    current_topology.lift_up_peers(
+        &committed_block
+            .signatures()
+            .into_iter()
+            .map(|s| s.public_key().clone())
+            .collect::<Vec<PublicKey>>(),
+    );
+    current_topology.rotate_set_a();
+    current_topology.update_peer_list(
+        &state
+            .wsv
+            .peers_ids()
+            .iter()
+            .map(|id| id.clone())
+            .collect::<Vec<PeerId>>(),
+    );
+
     sumeragi.kura.replace_top_block(committed_block);
-    current_topology.recreate(&state.wsv, block_hash);
 
     cache_transaction(state, sumeragi)
 }
@@ -497,7 +526,7 @@ fn suggest_view_change<F: FaultInjection>(
 
     view_change_proof_chain
         .insert_proof(
-            state.current_topology.sorted_peers(),
+            &state.current_topology.sorted_peers,
             state.current_topology.max_faults(),
             state.latest_block_hash,
             suspect_proof,
@@ -517,7 +546,7 @@ fn prune_view_change_proofs_and_calculate_current_index(
 ) -> u64 {
     view_change_proof_chain.prune(state.latest_block_hash);
     view_change_proof_chain.verify_with_state(
-        state.current_topology.sorted_peers(),
+        &state.current_topology.sorted_peers,
         state.current_topology.max_faults(),
         state.latest_block_hash,
     ) as u64
@@ -628,6 +657,9 @@ fn handle_message<F: FaultInjection>(
                 let voting_block_hash = voted_block.block.hash();
 
                 if hash == voting_block_hash.transmute() {
+                    // The manipulation of the topology relies upon all peers seeing the same signature set.
+                    // Therefore we must clear the signatures and accept what the proxy tail giveth.
+                    voted_block.block.signatures.clear();
                     add_signatures::<true>(&mut voted_block, signatures.transmute());
 
                     match voted_block.block.commit(current_topology) {
@@ -749,6 +781,7 @@ fn process_message_independent<F: FaultInjection>(
                             state.latest_block_height,
                             state.latest_block_hash,
                             current_view_change_index,
+                            state.current_topology.clone(),
                         )
                         .validate(&sumeragi.transaction_validator, &state.wsv)
                         .sign(sumeragi.key_pair.clone())
@@ -842,17 +875,19 @@ fn reset_state(
         // a view change a new block is immediately created by the leader
         *round_start_time = Instant::now();
         was_commit_or_view_change = true;
+        *old_view_change_index = 0;
     }
 
-    if current_view_change_index != *old_view_change_index {
-        current_topology.rebuild_with_new_view_change_count(current_view_change_index);
+    while *old_view_change_index < current_view_change_index {
+        *old_view_change_index += 1;
+        error!(addr=%peer_id.address, "Rotating the entire topology.");
+        current_topology.rotate_all();
         was_commit_or_view_change = true;
     }
 
     // Reset state for the next round.
     if was_commit_or_view_change {
         *old_latest_block_height = current_latest_block_height;
-        *old_view_change_index = current_view_change_index;
 
         *voting_block = None;
         voting_signatures.clear();
@@ -985,11 +1020,11 @@ pub(crate) fn run<F: FaultInjection>(
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
                 // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
-                warn!(%role, block=%block.hash(), "Block not committed in due time, requesting view change...");
+                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.hash(), "Block not committed in due time, requesting view change...");
             } else {
                 // NOTE: Suspecting the leader node because it hasn't produced a block
                 // If the current node has a transaction, the leader should have as well
-                warn!(%role, "No block produced in due time, requesting view change...");
+                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, "No block produced in due time, requesting view change...");
             }
 
             suggest_view_change(
@@ -1074,6 +1109,15 @@ fn vote_for_block<F: FaultInjection>(
         return None;
     }
 
+    if block.header().committed_with_topology != state.current_topology {
+        error!(
+            %addr, %role, block_topology=?block.header().committed_with_topology, my_topology=?state.current_topology, hash=%block.hash(),
+            "The block is rejected as because the topology field is incorrect."
+        );
+
+        return None;
+    }
+
     let block = {
         let span = span!(Level::TRACE, "block revalidation");
         let _enter = span.enter();
@@ -1119,7 +1163,7 @@ fn sumeragi_init_commit_genesis<F: FaultInjection>(
         "Genesis transaction set contains no valid transactions"
     );
     let block = PendingBlock::new(transactions, Vec::new())
-        .chain_first_with_genesis_topology(state.current_topology.clone());
+        .chain_first_with_topology(state.current_topology.clone());
 
     {
         info!(block_hash = %block.hash(), "Publishing genesis block.");

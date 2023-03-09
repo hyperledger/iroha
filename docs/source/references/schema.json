@@ -71,9 +71,6 @@
   "Option<Duration>": {
     "Option": "Duration"
   },
-  "Option<iroha_core::sumeragi::network_topology::Topology>": {
-    "Option": "iroha_core::sumeragi::network_topology::Topology"
-  },
   "Option<iroha_crypto::hash::Hash>": {
     "Option": "iroha_crypto::hash::Hash"
   },
@@ -281,8 +278,8 @@
           "ty": "Option<iroha_crypto::hash::HashOf<iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>>>"
         },
         {
-          "name": "genesis_topology",
-          "ty": "Option<iroha_core::sumeragi::network_topology::Topology>"
+          "name": "committed_with_topology",
+          "ty": "iroha_core::sumeragi::network_topology::Topology"
         }
       ]
     }
