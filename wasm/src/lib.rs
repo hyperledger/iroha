@@ -27,13 +27,6 @@ pub mod log;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[cfg(not(test))]
-#[panic_handler]
-// NOTE: UNREACHABLE: `WebAssembly` always raises a `trap` on panic
-fn panic(_info: &::core::panic::PanicInfo) -> ! {
-    loop {}
-}
-
 #[no_mangle]
 extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
     if len == 0 {

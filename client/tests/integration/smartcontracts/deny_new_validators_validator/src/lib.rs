@@ -4,6 +4,8 @@
 #![no_main]
 
 extern crate alloc;
+#[cfg(not(test))]
+extern crate panic_halt;
 
 use alloc::borrow::ToOwned as _;
 

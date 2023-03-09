@@ -4,6 +4,8 @@
 #![no_main]
 
 extern crate alloc;
+#[cfg(not(test))]
+extern crate panic_halt;
 
 use iroha_validator::prelude::*;
 
