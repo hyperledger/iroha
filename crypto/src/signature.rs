@@ -329,8 +329,7 @@ impl<T: IntoSchema> IntoSchema for SignatureWrapperOf<T> {
 /// If the public key of the added signature is already in the set,
 /// the associated signature will be replaced with the new one.
 ///
-/// GUARANTEE 1: This container always contains at least 1 signature
-/// GUARANTEE 2: Each signature corresponds to a different public key
+/// GUARANTEE 1: Each signature corresponds to a different public key
 #[allow(clippy::derive_hash_xor_eq)]
 #[derive(Hash, Encode, Serialize, IntoSchema)]
 #[serde(transparent)]
@@ -498,6 +497,11 @@ impl<T> SignaturesOf<T> {
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.signatures.len()
+    }
+
+    /// Clear signatures.
+    pub fn clear(&mut self) {
+        self.signatures.clear()
     }
 
     /// Verify signatures for this hash
