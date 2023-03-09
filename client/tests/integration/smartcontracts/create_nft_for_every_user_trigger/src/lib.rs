@@ -8,6 +8,8 @@
 #![allow(clippy::all)]
 
 extern crate alloc;
+#[cfg(not(test))]
+extern crate panic_halt;
 
 use alloc::{format, string::ToString, vec::Vec};
 use core::str::FromStr;

@@ -67,3 +67,5 @@ iroha_account_set_key_value_validator = { path = "account/set_key_value" }
 iroha_account_remove_key_value_validator = { path = "account/remove_key_value" }
 iroha_parameter_new_validator = { path = "parameter/new" }
 iroha_parameter_set_validator = { path = "parameter/set" }
+
+panic-halt = "0.2.0"

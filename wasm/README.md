@@ -50,6 +50,7 @@ By following this list of optimization steps you can reduce the size of your bin
     [dependencies]
     iroha_data_model = { git = "https://github.com/hyperledger/iroha/", branch = "iroha2", default-features = false }
     iroha_wasm = { git = "https://github.com/hyperledger/iroha/", branch = "iroha2" }
+    panic-halt = "0.2.0"
   ```
 
 2. Re-build `libcore` and `alloc` with excluded panicking infrastructure:
