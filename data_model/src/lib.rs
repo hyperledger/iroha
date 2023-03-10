@@ -1542,7 +1542,7 @@ pub mod ffi {
     #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     macro_rules! ffi_fn {
         ($macro_name: ident) => {
-            iroha_ffi::$macro_name! { pub Clone:
+            iroha_ffi::$macro_name! { "iroha_data_model" Clone:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1550,7 +1550,7 @@ pub mod ffi {
                 permission::Token,
                 role::Role,
             }
-            iroha_ffi::$macro_name! { pub Eq:
+            iroha_ffi::$macro_name! { "iroha_data_model" Eq:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1558,7 +1558,7 @@ pub mod ffi {
                 permission::Token,
                 role::Role,
             }
-            iroha_ffi::$macro_name! { pub Ord:
+            iroha_ffi::$macro_name! { "iroha_data_model" Ord:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1566,7 +1566,7 @@ pub mod ffi {
                 permission::Token,
                 role::Role,
             }
-            iroha_ffi::$macro_name! { pub Drop:
+            iroha_ffi::$macro_name! { "iroha_data_model" Drop:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1590,6 +1590,18 @@ pub mod ffi {
     ffi_fn! {decl_ffi_fn}
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     ffi_fn! {def_ffi_fn}
+
+    // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
+    #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    mod dylib {
+        #[cfg(not(feature = "std"))]
+        use alloc::alloc;
+        #[cfg(feature = "std")]
+        use std::alloc;
+
+        iroha_ffi::def_ffi_fn! {dealloc}
+    }
 
     pub(crate) use declare_item;
 }

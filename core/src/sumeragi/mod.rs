@@ -280,22 +280,15 @@ impl Sumeragi {
         let latest_block_hash = wsv.latest_block_hash();
         let previous_block_hash = wsv.previous_block_hash();
 
-        let current_topology = latest_block_hash.map_or_else(
-            || {
-                assert!(!sumeragi.config.trusted_peers.peers.is_empty());
-                Topology::builder()
-                    .with_peers(sumeragi.config.trusted_peers.peers.clone())
-                    .build(0)
-                    .expect("This builder must have been valid. This is a programmer error.")
-            },
-            |block_hash| {
-                Topology::builder()
-                    .with_peers(wsv.peers().iter().map(|peer| peer.id().clone()))
-                    .at_block(block_hash)
-                    .build(0)
-                    .expect("Should be able to reconstruct topology from `wsv`")
-            },
-        );
+        let current_topology = if latest_block_height == 0 {
+            assert!(!sumeragi.config.trusted_peers.peers.is_empty());
+            Topology::new(sumeragi.config.trusted_peers.peers.clone())
+        } else {
+            let block_ref = sumeragi.internal.kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+            let mut topology = block_ref.header().committed_with_topology.clone();
+            topology.rotate_set_a();
+            topology
+        };
 
         let sumeragi_state_machine_data = State {
             previous_block_hash,

@@ -255,7 +255,12 @@ mod tests {
 
         for height in 1u64..blocks {
             let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
-                .chain(height, Some(curr_hash), 0)
+                .chain(
+                    height,
+                    Some(curr_hash),
+                    0,
+                    crate::sumeragi::network_topology::Topology::new(vec![]),
+                )
                 .validate(&TransactionValidator::new(limits), &wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")

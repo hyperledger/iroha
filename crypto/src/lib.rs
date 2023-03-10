@@ -565,10 +565,10 @@ pub mod ffi {
     #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     macro_rules! ffi_fn {
         ($macro_name: ident) => {
-            iroha_ffi::$macro_name! { Clone: KeyPair, PublicKey, PrivateKey }
-            iroha_ffi::$macro_name! { Eq: KeyPair, PublicKey, PrivateKey }
-            iroha_ffi::$macro_name! { Ord: PublicKey }
-            iroha_ffi::$macro_name! { Drop: KeyPair, PublicKey, PrivateKey }
+            iroha_ffi::$macro_name! { "iroha_crypto" Clone: KeyPair, PublicKey, PrivateKey }
+            iroha_ffi::$macro_name! { "iroha_crypto" Eq: KeyPair, PublicKey, PrivateKey }
+            iroha_ffi::$macro_name! { "iroha_crypto" Ord: PublicKey }
+            iroha_ffi::$macro_name! { "iroha_crypto" Drop: KeyPair, PublicKey, PrivateKey }
         };
     }
 
@@ -578,6 +578,18 @@ pub mod ffi {
     ffi_fn! {decl_ffi_fn}
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     ffi_fn! {def_ffi_fn}
+
+    // NOTE: Makes sure that only one `dealloc` is exported generated dynamic library
+    #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    mod dylib {
+        #[cfg(not(feature = "std"))]
+        use alloc::alloc;
+        #[cfg(feature = "std")]
+        use std::alloc;
+
+        iroha_ffi::def_ffi_fn! {dealloc}
+    }
 
     pub(crate) use ffi_item;
 }
