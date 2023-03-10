@@ -192,12 +192,8 @@ mod internal {
         fn build_options() -> impl Iterator<Item = &'static str> {
             [
                 "--release",
-                "-Z",
-                "build-std",
-                "-Z",
-                "build-std-features=panic_immediate_abort",
-                "-Z",
-                "unstable-options",
+                "-Zbuild-std",
+                "-Zbuild-std-features=panic_immediate_abort",
                 "--target",
                 "wasm32-unknown-unknown",
             ]
@@ -233,7 +229,11 @@ mod internal {
                 .env("CARGO_TARGET_DIR", self.out_dir.as_ref())
                 .arg("build")
                 .args(Self::build_options())
-                .args(["--out-dir", &out_dir.path().display().to_string()])
+                .args([
+                    "--out-dir",
+                    &out_dir.path().display().to_string(),
+                    "-Zunstable-options",
+                ])
                 .output()
                 .wrap_err("Failed to run `cargo build`")?;
 

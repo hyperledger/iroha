@@ -45,8 +45,111 @@ unsafe extern "C" fn _iroha_wasm_dealloc(offset: *mut u8, len: usize) {
     let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
 }
 
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Marks a type whose values can be queried from the host environment and passed
+/// as arguments to `entrypoint` of a smart contract
+pub trait QueryHost: sealed::Sealed {
+    /// Return requested [`Self`] object from the host
+    fn query() -> Self;
+}
+
+impl sealed::Sealed for AccountId {}
+impl QueryHost for AccountId {
+    fn query() -> Self {
+        #[cfg(not(test))]
+        use host::query_authority as host_query_authority;
+        #[cfg(test)]
+        use tests::query_authority_mock as host_query_authority;
+
+        // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+        unsafe { decode_with_length_prefix_from_raw(host_query_authority()) }
+    }
+}
+
+impl sealed::Sealed for Event {}
+impl QueryHost for Event {
+    fn query() -> Self {
+        #[cfg(not(test))]
+        use host::query_triggering_event as host_query_triggering_event;
+        #[cfg(test)]
+        use tests::query_triggering_event_mock as host_query_triggering_event;
+
+        // Safety: ownership of the result is transferred into `_decode_from_raw`
+        unsafe { decode_with_length_prefix_from_raw(host_query_triggering_event()) }
+    }
+}
+
+impl sealed::Sealed for NeedsPermissionBox {}
+impl QueryHost for NeedsPermissionBox {
+    fn query() -> Self {
+        #[cfg(not(test))]
+        use host::query_operation_to_validate as host_query_operation_to_validate;
+        #[cfg(test)]
+        use tests::query_operation_to_validate_mock as host_query_operation_to_validate;
+
+        // Safety: ownership of the result is transferred into `_decode_from_raw`
+        unsafe { decode_with_length_prefix_from_raw(host_query_operation_to_validate()) }
+    }
+}
+
+macro_rules! impl_query_event {
+    ( $($type:ty),* $(,)?) => {
+     $( impl sealed::Sealed for $type {}
+
+        impl QueryHost for $type {
+            fn query() -> Self {
+                #[cfg(not(test))]
+                use host::query_triggering_event as host_query_triggering_event;
+                #[cfg(test)]
+                use tests::query_triggering_event_mock as host_query_triggering_event;
+
+                <iroha_data_model::events::Event as TryInto<_>>::try_into(
+                    // Safety: ownership of the result is transferred into `_decode_from_raw`
+                    unsafe {decode_with_length_prefix_from_raw(host_query_triggering_event())}
+                ).expect(&format!("{}: Failed to convert from `Event`", stringify!($type)))
+            }
+        } )*
+    }
+}
+
+macro_rules! impl_query_operation {
+    ( $($type:ty),* $(,)?) => {
+     $( impl sealed::Sealed for $type {}
+
+        impl QueryHost for $type {
+            fn query() -> Self {
+                #[cfg(not(test))]
+                use host::query_operation_to_validate as host_query_operation_to_validate;
+                #[cfg(test)]
+                use tests::query_operation_to_validate_mock as host_query_operation_to_validate;
+
+                <iroha_data_model::permission::validator::NeedsPermissionBox as TryInto<_>>::try_into(
+                    // Safety: ownership of the result is transferred into `_decode_from_raw`
+                    unsafe {decode_with_length_prefix_from_raw(host_query_operation_to_validate())}
+                ).expect(&format!("{}: Failed to convert from `NeedsPermissionBox`", stringify!($type)))
+            }
+        } )*
+    }
+}
+
+impl_query_event!(
+    iroha_data_model::events::pipeline::Event,
+    iroha_data_model::events::data::Event,
+    iroha_data_model::events::time::Event,
+    iroha_data_model::events::execute_trigger::Event
+);
+impl_query_operation!(
+    data_model::isi::Instruction,
+    data_model::query::QueryBox,
+    data_model::transaction::SignedTransaction,
+    data_model::expression::Expression
+);
+
 /// Implementing types can be executed on the host
-pub trait ExecuteOnHost {
+pub trait ExecuteOnHost: sealed::Sealed {
     /// The resulting value
     type Result;
 
@@ -62,7 +165,7 @@ impl ExecuteOnHost for data_model::isi::Instruction {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
-        use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
+        use tests::execute_instruction_mock as host_execute_instruction;
 
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
         unsafe { encode_and_execute(self, host_execute_instruction) };
@@ -77,7 +180,7 @@ impl ExecuteOnHost for data_model::query::QueryBox {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
-        use tests::_iroha_wasm_execute_query_mock as host_execute_query;
+        use tests::execute_query_mock as host_execute_query;
 
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
@@ -86,7 +189,7 @@ impl ExecuteOnHost for data_model::query::QueryBox {
 }
 
 /// Calculate the result of the expression on the host side without mutating the state.
-pub trait EvaluateOnHost {
+pub trait EvaluateOnHost: sealed::Sealed {
     /// The resulting type of the expression.
     type Value;
     /// Type of error
@@ -100,6 +203,7 @@ pub trait EvaluateOnHost {
     fn evaluate(&self) -> Result<Self::Value, Self::Error>;
 }
 
+impl<V: TryFrom<Value> + DecodeAll> sealed::Sealed for EvaluatesTo<V> {}
 impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
     type Value = V;
     type Error = <V as TryFrom<Value>>::Error;
@@ -108,7 +212,7 @@ impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
         #[cfg(not(test))]
         use host::evaluate_on_host as host_evaluate_on_host;
         #[cfg(test)]
-        use tests::_iroha_wasm_evaluate_on_host_mock as host_evaluate_on_host;
+        use tests::evaluate_on_host_mock as host_evaluate_on_host;
 
         // Safety: - `host_evaluate_on_host` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
@@ -120,47 +224,6 @@ impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
         };
         value.try_into()
     }
-}
-
-/// Query the authority of the smart contract, trigger or permission validator
-pub fn query_authority() -> <Account as Identifiable>::Id {
-    #[cfg(not(test))]
-    use host::query_authority as host_query_authority;
-    #[cfg(test)]
-    use tests::_iroha_wasm_query_authority_mock as host_query_authority;
-
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_query_authority()) }
-}
-
-/// Query the event which have triggered trigger execution.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was not called from a trigger.
-pub fn query_triggering_event() -> Event {
-    #[cfg(not(test))]
-    use host::query_triggering_event as host_query_triggering_event;
-    #[cfg(test)]
-    use tests::_iroha_wasm_query_triggering_event_mock as host_query_triggering_event;
-
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_query_triggering_event()) }
-}
-
-/// Query an operation which needs to be validated by a permission validator.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was not called from a permission validator.
-pub fn query_operation_to_validate() -> NeedsPermissionBox {
-    #[cfg(not(test))]
-    use host::query_operation_to_validate as host_query_operation_to_validate;
-    #[cfg(test)]
-    use tests::_iroha_wasm_query_operation_to_validate_mock as host_query_operation_to_validate;
-
-    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_query_operation_to_validate()) }
 }
 
 #[cfg(not(test))]
@@ -308,7 +371,6 @@ unsafe fn encode_and_execute<T: Encode, O>(
 }
 
 /// Encode the given `val` as a vector of bytes with the size of the object at the beginning
-//
 // TODO: Write a separate crate for codec/protocol between Iroha and smartcontract
 pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
     let len_size_bytes = core::mem::size_of::<usize>();
@@ -342,6 +404,7 @@ mod tests {
 
     use core::{mem::ManuallyDrop, slice};
 
+    use data_model::permission::validator::NeedsPermissionBox;
     use webassembly_test::webassembly_test;
 
     use super::*;
@@ -365,33 +428,29 @@ mod tests {
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
         Add::new(1_u32, 2_u32).into()
     }
-    fn get_test_event() -> Event {
+    fn get_test_event() -> DataEvent {
         DataEvent::Account(AccountEvent::Deleted(
             "alice@wonderland".parse().expect("Valid"),
         ))
-        .into()
     }
-    fn get_test_operation() -> NeedsPermissionBox {
+    fn get_test_operation() -> Instruction {
         let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
         let rose_definition_id: <AssetDefinition as Identifiable>::Id =
             "rose#wonderland".parse().expect("Valid");
         let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
 
-        NeedsPermissionBox::Instruction(MintBox::new(1u32, alice_rose_id).into())
+        MintBox::new(1u32, alice_rose_id).into()
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(ptr: *const u8, len: usize) {
+    pub unsafe extern "C" fn execute_instruction_mock(ptr: *const u8, len: usize) {
         let bytes = slice::from_raw_parts(ptr, len);
         let instruction = Instruction::decode_all(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_execute_query_mock(
-        ptr: *const u8,
-        len: usize,
-    ) -> *const u8 {
+    pub unsafe extern "C" fn execute_query_mock(ptr: *const u8, len: usize) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
         let query = QueryBox::decode_all(&mut &*bytes).unwrap();
         assert_eq!(query, get_test_query());
@@ -400,25 +459,25 @@ mod tests {
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
+    pub unsafe extern "C" fn query_authority_mock() -> *const u8 {
         ManuallyDrop::new(encode_with_length_prefix(&get_test_authority())).as_ptr()
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_query_triggering_event_mock() -> *const u8 {
-        ManuallyDrop::new(encode_with_length_prefix(&get_test_event())).as_ptr()
+    pub unsafe extern "C" fn query_triggering_event_mock() -> *const u8 {
+        ManuallyDrop::new(encode_with_length_prefix(&Event::from(get_test_event()))).as_ptr()
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_query_operation_to_validate_mock() -> *const u8 {
-        ManuallyDrop::new(encode_with_length_prefix(&get_test_operation())).as_ptr()
+    pub unsafe extern "C" fn query_operation_to_validate_mock() -> *const u8 {
+        ManuallyDrop::new(encode_with_length_prefix(&NeedsPermissionBox::from(
+            get_test_operation(),
+        )))
+        .as_ptr()
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_evaluate_on_host_mock(
-        ptr: *const u8,
-        len: usize,
-    ) -> *const u8 {
+    pub unsafe extern "C" fn evaluate_on_host_mock(ptr: *const u8, len: usize) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
         let expression = ExpressionBox::decode_all(&mut &*bytes).unwrap();
         assert_eq!(*expression, *get_test_expression().expression());
@@ -433,7 +492,7 @@ mod tests {
 
     #[webassembly_test]
     fn execute_query() {
-        assert_eq!(get_test_query().execute(), QUERY_RESULT);
+        assert_eq!(QueryBox::query().execute(), QUERY_RESULT);
     }
 
     #[webassembly_test]
@@ -443,16 +502,16 @@ mod tests {
 
     #[webassembly_test]
     fn get_authority() {
-        assert_eq!(query_authority(), get_test_authority());
+        assert_eq!(<Account as Identifiable>::Id::query(), get_test_authority());
     }
 
     #[webassembly_test]
     fn get_trigger_event() {
-        assert_eq!(query_triggering_event(), get_test_event());
+        assert_eq!(DataEvent::query(), get_test_event());
     }
 
     #[webassembly_test]
     fn get_operation_to_validate() {
-        assert_eq!(query_operation_to_validate(), get_test_operation());
+        assert_eq!(Instruction::query(), get_test_operation());
     }
 }

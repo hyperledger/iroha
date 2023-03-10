@@ -12,8 +12,8 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-iroha_derive_primitives.workspace = true
 syn.workspace = true
-quote.workspace = true
+proc-macro-error.workspace = true
 proc-macro2.workspace = true
+quote.workspace = true
 heck = "0.4.1"

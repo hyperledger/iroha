@@ -6,6 +6,7 @@ extern crate alloc;
 
 use alloc::string::String;
 
+pub use iroha_validator_derive::entrypoint;
 use iroha_wasm::data_model::{permission::validator::Verdict, prelude::*};
 pub use iroha_wasm::{self, data_model, ExecuteOnHost};
 

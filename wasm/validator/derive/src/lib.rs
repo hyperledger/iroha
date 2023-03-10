@@ -102,8 +102,8 @@ mod validate;
 /// ```
 ///
 #[proc_macro_attribute]
-pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
-    entrypoint::impl_entrypoint(attr, item)
+pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
+    entrypoint::impl_entrypoint(item)
 }
 
 /// Derive macro for `Token` trait.

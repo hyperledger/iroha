@@ -1,6 +1,7 @@
 //! Module with [`derive_validate`](crate::derive_validate) macro implementation
 
 use proc_macro2::Span;
+use proc_macro_error::abort;
 use syn::{Attribute, Ident, Path, Type};
 
 use super::*;
@@ -61,44 +62,54 @@ impl ValidateAttribute {
             let Some(proc_macro2::TokenTree::Group(group))= attribute.tokens.clone().into_iter().next() else {
                 panic!("Expected parentheses group");
             };
-            assert!(
-                group.delimiter() == proc_macro2::Delimiter::Parenthesis,
-                "Expected parentheses"
-            );
+            if group.delimiter() != proc_macro2::Delimiter::Parenthesis {
+                abort!(group, "Expected parentheses");
+            }
             let tokens = group.stream().into();
 
             match path {
                 _general if path == &general_path => {
-                    assert!(grant_condition.is_none() && revoke_condition.is_none(),
-                        "`validate` attribute can't be used with `validate_grant` or `validate_revoke` attributes");
-                    assert!(
-                        general_condition.is_none(),
-                        "`validate` attribute duplication is not allowed"
-                    );
+                    if grant_condition.is_some() || revoke_condition.is_some() {
+                        abort!(grant_condition, "`validate` attribute can't be used with `validate_grant` or `validate_revoke` attributes");
+                    }
+                    if general_condition.is_some() {
+                        abort!(
+                            general_condition,
+                            "`validate` attribute duplication is not allowed"
+                        );
+                    }
 
                     general_condition.replace(syn::parse(tokens).unwrap());
                 }
                 _grant if path == &grant_path => {
-                    assert!(
-                        general_condition.is_none(),
-                        "`validate_grant` attribute can't be used with `validate` attribute"
-                    );
-                    assert!(
-                        grant_condition.is_none(),
-                        "`validate_grant` attribute duplication is not allowed"
-                    );
+                    if general_condition.is_some() {
+                        abort!(
+                            general_condition,
+                            "`validate_grant` attribute can't be used with `validate` attribute"
+                        );
+                    }
+                    if grant_condition.is_some() {
+                        abort!(
+                            grant_condition,
+                            "`validate_grant` attribute duplication is not allowed"
+                        );
+                    }
 
                     grant_condition.replace(syn::parse(tokens).unwrap());
                 }
                 _revoke if path == &revoke_path => {
-                    assert!(
-                        general_condition.is_none(),
-                        "`validate_revoke` attribute can't be used with `validate` attribute"
-                    );
-                    assert!(
-                        revoke_condition.is_none(),
-                        "`validate_revoke` attribute duplication is not allowed"
-                    );
+                    if general_condition.is_some() {
+                        abort!(
+                            general_condition,
+                            "`validate_revoke` attribute can't be used with `validate` attribute"
+                        );
+                    }
+                    if revoke_condition.is_some() {
+                        abort!(
+                            revoke_condition,
+                            "`validate_revoke` attribute duplication is not allowed"
+                        );
+                    }
 
                     revoke_condition.replace(syn::parse(tokens).unwrap());
                 }

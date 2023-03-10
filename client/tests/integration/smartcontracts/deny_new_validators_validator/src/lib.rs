@@ -9,10 +9,8 @@ extern crate panic_halt;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_validator::prelude::*;
-
 /// Forbid every new validator registration
-#[entrypoint(params = "[instruction]")]
+#[iroha_validator::entrypoint]
 fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register
