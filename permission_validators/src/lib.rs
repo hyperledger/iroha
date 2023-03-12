@@ -59,5 +59,8 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
                 instruction.clone(),
             )
         })
+        .and_then(|| {
+            iroha_parameter_new_validator::validate(authority.clone(), instruction.clone())
+        })
         .and_then(|| iroha_parameter_set_validator::validate(authority, instruction))
 }

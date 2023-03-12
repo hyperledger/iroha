@@ -75,7 +75,7 @@
       "max": 128
     },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 18000000,
+      "FUEL_LIMIT": 20000000,
       "MAX_MEMORY": 524288000
     }
   },
