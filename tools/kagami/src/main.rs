@@ -692,9 +692,9 @@ mod tokens {
     #[derive(StructOpt, Debug, Clone, Copy)]
     pub struct Args;
 
-    pub fn permission_token_definitions() -> Result<[PermissionTokenDefinition; 17]> {
+    pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
         // TODO: Not hardcode this. Instead get this info from validator it-self
-        Ok([
+        Ok(vec![
             // Account
             token_with_account_id("can_remove_key_value_in_user_account")?,
             token_with_account_id("can_set_key_value_in_user_account")?,
@@ -713,6 +713,9 @@ mod tokens {
             token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
             token_with_asset_definition_id("can_unregister_asset_definition")?,
             // Parameter
+            bare_token("can_grant_permission_to_create_parameters")?,
+            bare_token("can_revoke_permission_to_create_parameters")?,
+            bare_token("can_create_parameters")?,
             bare_token("can_grant_permission_to_set_parameters")?,
             bare_token("can_revoke_permission_to_set_parameters")?,
             bare_token("can_set_parameters")?,

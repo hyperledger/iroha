@@ -3,7 +3,7 @@
 use iroha_config_base::derive::{Documented, Proxy};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_FUEL_LIMIT: u64 = 18_000_000;
+const DEFAULT_FUEL_LIMIT: u64 = 20_000_000;
 const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
 
 /// `WebAssembly Runtime` configuration.
