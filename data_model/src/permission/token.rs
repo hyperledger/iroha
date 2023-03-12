@@ -163,7 +163,7 @@ impl Registered for Definition {
 impl Definition {
     /// Construct new [`Definition`]
     #[inline]
-    pub fn new(id: <Definition as Identifiable>::Id) -> Self {
+    pub const fn new(id: <Definition as Identifiable>::Id) -> Self {
         Self {
             id,
             params: btree_map::BTreeMap::new(),
