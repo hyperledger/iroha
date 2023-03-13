@@ -385,55 +385,20 @@ fn commit_block<F: FaultInjection>(
     block: impl Into<VersionedCommittedBlock>,
 ) {
     let committed_block = block.into();
-    let block_hash = committed_block.hash();
 
     state.finalized_wsv = state.wsv.clone();
-    state
-        .wsv
-        .apply(&committed_block)
-        .expect("Failed to apply block on WSV. Bailing.");
-    sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
-
-    // Update WSV copy that is public facing
-    *sumeragi.wsv.lock() = state.wsv.clone();
-
-    // This sends "Block committed" event, so it should be done
-    // AFTER public facing WSV update
-    sumeragi.send_events(&committed_block);
-
+    update_state(state, sumeragi, &committed_block);
     state.previous_block_hash = state.latest_block_hash;
-    state.latest_block_height = committed_block.header().height;
-    state.latest_block_hash = Some(committed_block.hash());
-    state.latest_block_view_change_index = committed_block.header().view_change_index;
-
-    let current_topology = &mut state.current_topology;
-    let role = current_topology.role(&sumeragi.peer_id);
 
     info!(
-        addr=%sumeragi.peer_id.address, %role,
+        addr=%sumeragi.peer_id.address,
+        role=%state.current_topology.role(&sumeragi.peer_id),
         block_height=%state.latest_block_height,
-        %block_hash, "Committing block"
+        block_hash=%committed_block.hash(),
+        "Committing block"
     );
 
-    *current_topology = Topology {
-        sorted_peers: committed_block.header().committed_with_topology.clone(),
-    };
-    current_topology.lift_up_peers(
-        &committed_block
-            .signatures()
-            .into_iter()
-            .map(|s| s.public_key().clone())
-            .collect::<Vec<PublicKey>>(),
-    );
-    current_topology.rotate_set_a();
-    current_topology.update_peer_list(
-        &state
-            .wsv
-            .peers_ids()
-            .iter()
-            .map(|id| id.clone())
-            .collect::<Vec<PeerId>>(),
-    );
+    update_topology(state, &committed_block);
 
     sumeragi.kura.store_block(committed_block);
 
@@ -446,12 +411,57 @@ fn replace_top_block<F: FaultInjection>(
     block: impl Into<VersionedCommittedBlock>,
 ) {
     let committed_block = block.into();
-    let block_hash = committed_block.hash();
 
     state.wsv = state.finalized_wsv.clone();
+    update_state(state, sumeragi, &committed_block);
+    // state.previous_block_hash stays the same.
+
+    info!(
+        addr=%sumeragi.peer_id.address,
+        role=%state.current_topology.role(&sumeragi.peer_id),
+        block_height=%state.latest_block_height,
+        block_hash=%committed_block.hash(),
+        "Replacing top block"
+    );
+
+    update_topology(state, &committed_block);
+
+    sumeragi.kura.replace_top_block(committed_block);
+
+    cache_transaction(state, sumeragi)
+}
+
+fn update_topology(state: &mut State, committed_block: &VersionedCommittedBlock) {
+    let mut topology = Topology {
+        sorted_peers: committed_block.header().committed_with_topology.clone(),
+    };
+    topology.lift_up_peers(
+        &committed_block
+            .signatures()
+            .into_iter()
+            .map(|s| s.public_key().clone())
+            .collect::<Vec<PublicKey>>(),
+    );
+    topology.rotate_set_a();
+    topology.update_peer_list(
+        &state
+            .wsv
+            .peers_ids()
+            .iter()
+            .map(|id| id.clone())
+            .collect::<Vec<PeerId>>(),
+    );
+    state.current_topology = topology;
+}
+
+fn update_state<F: FaultInjection>(
+    state: &mut State,
+    sumeragi: &SumeragiWithFault<F>,
+    committed_block: &VersionedCommittedBlock,
+) {
     state
         .wsv
-        .apply(&committed_block)
+        .apply(committed_block)
         .expect("Failed to apply block on WSV. Bailing.");
 
     sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
@@ -461,45 +471,11 @@ fn replace_top_block<F: FaultInjection>(
 
     // This sends "Block committed" event, so it should be done
     // AFTER public facing WSV update
-    sumeragi.send_events(&committed_block);
+    sumeragi.send_events(committed_block);
 
-    // state.previous_block_hash stays the same.
     state.latest_block_height = committed_block.header().height;
-    state.latest_block_hash = Some(block_hash);
+    state.latest_block_hash = Some(committed_block.hash());
     state.latest_block_view_change_index = committed_block.header().view_change_index;
-
-    let current_topology = &mut state.current_topology;
-    let role = current_topology.role(&sumeragi.peer_id);
-
-    info!(
-        addr=%sumeragi.peer_id.address, %role,
-        block_height=%state.latest_block_height,
-        %block_hash, "Replacing top block"
-    );
-
-    *current_topology = Topology {
-        sorted_peers: committed_block.header().committed_with_topology.clone(),
-    };
-    current_topology.lift_up_peers(
-        &committed_block
-            .signatures()
-            .into_iter()
-            .map(|s| s.public_key().clone())
-            .collect::<Vec<PublicKey>>(),
-    );
-    current_topology.rotate_set_a();
-    current_topology.update_peer_list(
-        &state
-            .wsv
-            .peers_ids()
-            .iter()
-            .map(|id| id.clone())
-            .collect::<Vec<PeerId>>(),
-    );
-
-    sumeragi.kura.replace_top_block(committed_block);
-
-    cache_transaction(state, sumeragi)
 }
 
 fn cache_transaction<F: FaultInjection>(state: &mut State, sumeragi: &SumeragiWithFault<F>) {
