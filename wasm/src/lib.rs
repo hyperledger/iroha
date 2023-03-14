@@ -1,6 +1,5 @@
 //! API which simplifies writing of smartcontracts
 
-#![feature(alloc_error_handler)]
 // Required because of `unsafe` code and `no_mangle` use
 #![allow(unsafe_code)]
 #![no_std]
@@ -29,21 +28,11 @@ pub mod validator;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[no_mangle]
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &::core::panic::PanicInfo) -> ! {
-    // Need to provide a tiny `panic` implementation for `#![no_std]`.
-    // This translates into an `unreachable` instruction that will
-    // raise a `trap` in the `WebAssembly` if execution of said WASM panics.
-    unreachable!("Program should have aborted")
-}
-
-#[no_mangle]
-#[cfg(not(test))]
-#[alloc_error_handler]
-fn oom(layout: ::core::alloc::Layout) -> ! {
-    panic!("Allocation({} bytes) failed", layout.size())
+    // NOTE: Unreachable: `WebAssembly` raises a `trap` on panic
+    loop {}
 }
 
 #[no_mangle]
