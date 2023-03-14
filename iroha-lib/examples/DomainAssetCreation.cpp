@@ -7,7 +7,7 @@
 #include "model/utils/Utils.h"
 
 
-constexpr const char* LINE = "-----------";
+static constexpr const char* LINE = "-----------";
 
 
 iroha_lib::Query generateQueryBase(const std::string& account_name, const std::string& key_path);
