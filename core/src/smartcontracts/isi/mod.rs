@@ -1,5 +1,5 @@
 //! This module contains enumeration of all possible Iroha Special
-//! Instructions `Instruction`, generic instruction types and related
+//! Instructions [`InstructionBox`], generic instruction types and related
 //! implementations.
 #![allow(
     clippy::arithmetic_side_effects,
@@ -18,8 +18,11 @@ pub mod world;
 
 use eyre::Result;
 use iroha_data_model::{
-    expression::prelude::*,
-    isi::{error::InstructionExecutionFailure as Error, *},
+    isi::{
+        error::{EvaluationError, InstructionExecutionFailure as Error},
+        *,
+    },
+    permission,
     prelude::*,
 };
 use iroha_logger::prelude::*;
@@ -63,6 +66,7 @@ impl Execute for InstructionBox {
             ExecuteTrigger(execute_trigger) => execute_trigger.execute(authority, wsv),
             SetParameter(parameter_box) => parameter_box.execute(authority, wsv),
             NewParameter(parameter_box) => parameter_box.execute(authority, wsv),
+            Upgrade(upgrade_box) => upgrade_box.execute(authority, wsv),
         }
     }
 }
@@ -94,10 +98,6 @@ impl Execute for RegisterBox {
                 Register::<PermissionTokenDefinition>::new(*token_definition)
                     .execute(authority, wsv)
             }
-            RegistrableBox::Validator(validator) => {
-                Register::<iroha_data_model::permission::Validator>::new(*validator)
-                    .execute(authority, wsv)
-            }
         }
     }
 }
@@ -127,10 +127,6 @@ impl Execute for UnregisterBox {
             IdBox::RoleId(role_id) => Unregister::<Role>::new(role_id).execute(authority, wsv),
             IdBox::TriggerId(trigger_id) => {
                 Unregister::<Trigger<FilterBox, Executable>>::new(trigger_id)
-                    .execute(authority, wsv)
-            }
-            IdBox::ValidatorId(validator_id) => {
-                Unregister::<iroha_data_model::permission::Validator>::new(validator_id)
                     .execute(authority, wsv)
             }
             IdBox::ParameterId(_) => Err(Error::Evaluate(InstructionType::Unregister.into())),
@@ -442,6 +438,20 @@ impl Execute for NewParameterBox {
         let context = Context::new(wsv);
         let parameter = self.parameter.evaluate(&context)?;
         NewParameter::<Parameter>::new(parameter).execute(authority, wsv)
+    }
+}
+
+impl Execute for UpgradeBox {
+    type Error = Error;
+
+    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        let context = Context::new(wsv);
+        let object = self.object.evaluate(&context)?;
+        match object {
+            UpgradableBox::Validator(validator) => {
+                Upgrade::<permission::Validator>::new(validator).execute(authority, wsv)
+            }
+        }
     }
 }
 

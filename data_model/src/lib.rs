@@ -38,6 +38,7 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From, FromStr};
 use events::FilterBox;
 use getset::Getters;
+pub use iroha_crypto::SignatureOf;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_model_derive::{
     model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
@@ -437,8 +438,6 @@ model! {
         RoleId(<role::Role as Identifiable>::Id),
         /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
         PermissionTokenDefinitionId(<permission::token::PermissionTokenDefinition as Identifiable>::Id),
-        /// [`ValidatorId`](`permission::ValidatorId`) variant.
-        ValidatorId(<permission::Validator as Identifiable>::Id),
         /// [`ParameterId`](`parameter::ParameterId`) variant.
         ParameterId(<parameter::Parameter as Identifiable>::Id),
     }
@@ -463,8 +462,6 @@ model! {
         Role(Box<<role::Role as Registered>::With>),
         /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
         PermissionTokenDefinition(Box<<permission::token::PermissionTokenDefinition as Registered>::With>),
-        /// [`Validator`](`permission::Validator`) variant.
-        Validator(Box<<permission::Validator as Registered>::With>),
     }
 
     /// Sized container for all possible entities.
@@ -495,8 +492,6 @@ model! {
         Role(Box<role::Role>),
         /// [`PermissionTokenDefinition`](`permission::token::PermissionTokenDefinition`) variant.
         PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
-        /// [`Validator`](`permission::Validator`) variant.
-        Validator(Box<permission::Validator>),
         /// [`Parameter`](`parameter::Parameter`) variant.
         Parameter(Box<parameter::Parameter>),
     }
@@ -509,6 +504,18 @@ model! {
         Raw(Box<trigger::Trigger<FilterBox, Executable>>),
         /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
         Optimized(Box<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>>),
+    }
+
+    /// Sized container for all possible upgradable entities.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    // SAFETY: `UpgradableBox` has no trap representations in `permission::Validator`
+    #[ffi_type(unsafe {robust})]
+    #[serde(untagged)]
+    #[repr(transparent)]
+    pub enum UpgradableBox {
+        /// [`Validator`](`permission::Validator`) variant.
+        #[display(fmt = "Validator")]
+        Validator(permission::Validator),
     }
 }
 
@@ -542,7 +549,6 @@ impl IdentifiableBox {
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
             IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
-            IdentifiableBox::Validator(a) => a.id().clone().into(),
             IdentifiableBox::Parameter(a) => a.id().clone().into(),
         }
     }
@@ -610,6 +616,7 @@ model! {
         Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
         #[serde_partially_tagged(untagged)]
         Numeric(NumericValue),
+        Validator(permission::Validator),
     }
 
     /// Enum for all supported numeric values
@@ -713,6 +720,7 @@ impl fmt::Display for Value {
             Value::MetadataLimits(v) => fmt::Display::fmt(&v, f),
             Value::TransactionLimits(v) => fmt::Display::fmt(&v, f),
             Value::LengthLimits(v) => fmt::Display::fmt(&v, f),
+            Value::Validator(v) => write!(f, "Validator({} bytes)", v.wasm.as_ref().len()),
         }
     }
 }
@@ -741,7 +749,8 @@ impl Value {
             | MetadataLimits(_)
             | TransactionLimits(_)
             | LengthLimits(_)
-            | Numeric(_) => 1_usize,
+            | Numeric(_)
+            | Validator(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -868,7 +877,6 @@ from_and_try_from_value_identifiablebox!(
     Asset(Box<asset::Asset>),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
-    Validator(Box<permission::Validator>),
     Parameter(Box<parameter::Parameter>),
 );
 
@@ -884,7 +892,6 @@ from_and_try_from_value_identifiable!(
     Trigger(TriggerBox),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
-    Validator(Box<permission::Validator>),
     Parameter(Box<parameter::Parameter>),
 );
 
@@ -928,7 +935,6 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
-            Validator(validator) => Ok(RegistrableBox::Validator(validator)),
             Domain(_)
             | Account(_)
             | AssetDefinition(_)
@@ -956,7 +962,6 @@ impl From<RegistrableBox> for IdentifiableBox {
             PermissionTokenDefinition(token_definition) => {
                 IdentifiableBox::PermissionTokenDefinition(token_definition)
             }
-            Validator(validator) => IdentifiableBox::Validator(validator),
         }
     }
 }
@@ -1121,6 +1126,17 @@ impl TryFrom<Value> for trigger::Trigger<FilterBox, trigger::OptimizedExecutable
         }
 
         Err(Self::Error::default())
+    }
+}
+
+impl TryFrom<Value> for UpgradableBox {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Validator(validator) => Ok(Self::Validator(validator)),
+            _ => Err(Self::Error::default()),
+        }
     }
 }
 
@@ -1537,6 +1553,9 @@ pub mod ffi {
 
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
+    pub use iroha_crypto::PublicKey;
+    pub use iroha_primitives::fixed::Fixed;
+
     #[cfg(feature = "std")]
     pub use super::current_time;
     pub use super::{
@@ -1545,8 +1564,8 @@ pub mod prelude {
         name::prelude::*, parameter::prelude::*, peer::prelude::*, permission::prelude::*,
         query::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
         EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits,
-        NumericValue, PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue,
-        ValidationError, Value,
+        NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut, TryAsRef,
+        TryToValue, UpgradableBox, ValidationError, Value,
     };
     #[cfg(feature = "http")]
     pub use super::{pagination::prelude::*, sorting::prelude::*};

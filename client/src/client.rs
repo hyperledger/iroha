@@ -430,7 +430,7 @@ impl Client {
         &self,
         transaction: SignedTransaction,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
-        iroha_logger::trace!(tx=?transaction);
+        iroha_logger::trace!(tx=?transaction, "Submitting");
         let (req, hash, resp_handler) =
             self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
         let response = req

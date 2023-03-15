@@ -13,10 +13,8 @@ use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
 };
-use iroha_data_model::{
-    permission::{self, validator},
-    prelude::*,
-};
+use iroha_data_model::{permission, prelude::*};
+use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
 use parity_scale_codec::{DecodeAll, Encode};
@@ -146,7 +144,7 @@ impl Validator {
     ///
     /// If number of instructions exceeds maximum
     #[inline]
-    fn check_instruction_len(&mut self) -> Result<(), Trap> {
+    pub fn check_instruction_limits(&mut self) -> Result<(), Trap> {
         self.instruction_count += 1;
 
         if self.instruction_count > self.max_instruction_count {
@@ -157,27 +155,6 @@ impl Validator {
         }
 
         Ok(())
-    }
-
-    fn validate_instruction(
-        &mut self,
-        account_id: &AccountId,
-        instruction: &InstructionBox,
-        wsv: &WorldStateView,
-    ) -> Result<(), Trap> {
-        self.check_instruction_len()?;
-
-        super::isi::permissions::check_instruction_permissions(account_id, instruction, wsv)
-            .map_err(|err| Trap::new(err.to_string()))
-    }
-
-    fn validate_query(
-        account_id: &AccountId,
-        query: &QueryBox,
-        wsv: &WorldStateView,
-    ) -> Result<(), Trap> {
-        super::isi::permissions::check_query_permissions(account_id, query, wsv)
-            .map_err(|err| Trap::new(err.to_string()))
     }
 }
 
@@ -295,10 +272,16 @@ impl<'wrld> Runtime<'wrld> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
-        let query = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        let query: QueryBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
 
-        Validator::validate_query(&caller.data().account_id, &query, caller.data().wsv)
-            .map_err(|error| Trap::new(error.to_string()))?;
+        let wsv = caller.data().wsv;
+        wsv.validator_view()
+            .validate(wsv, &caller.data().account_id, query.clone())
+            .map_err(|error| NotPermittedFail {
+                reason: error.to_string(),
+            })
+            .map_err(TransactionRejectionReason::NotPermitted)
+            .map_err(|err| Trap::new(err.to_string()))?;
 
         let res_bytes = Self::encode_with_length_prefix(
             &query
@@ -330,26 +313,40 @@ impl<'wrld> Runtime<'wrld> {
     ) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
 
-        let instruction = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        let instruction: InstructionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        debug!(%instruction, "Executing");
 
         let State {
             wsv,
             account_id,
             validator,
+            operation_to_validate,
             ..
         } = caller.data_mut();
 
-        if let Some(validator) = validator {
-            validator
-                .validate_instruction(account_id, &instruction, wsv)
-                .map_err(|error| Trap::new(error.to_string()))?;
+        let is_permission_validator = operation_to_validate.is_some();
+        if is_permission_validator {
+            // If permission validator wants to execute instruction,
+            // we allow this without additional validation.
+            // Otherwise it would be infinite recursion.
+            instruction
+                .execute(account_id.clone(), wsv)
+                .map_err(|error| Trap::new(error.to_string()))
+        } else {
+            // Else we want to validate instruction first.
+            // Note that validator will execute instruction by itself.
+            if let Some(validator) = validator {
+                validator
+                    .check_instruction_limits()
+                    .map_err(|error| Trap::new(error.to_string()))?;
+            }
+            wsv.validator_view()
+                .validate(wsv, account_id, instruction)
+                .map_err(|error| NotPermittedFail {
+                    reason: error.to_string(),
+                })
+                .map_err(|err| Trap::new(err.to_string()))
         }
-
-        instruction
-            .execute(account_id.clone(), wsv)
-            .map_err(|error| Trap::new(error.to_string()))?;
-
-        Ok(())
     }
 
     fn query_authority(mut caller: Caller<State>) -> Result<WasmUsize, Trap> {
@@ -616,11 +613,10 @@ impl<'wrld> Runtime<'wrld> {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        id: &validator::ValidatorId,
         module: &wasmtime::Module,
         operation: &permission::validator::NeedsPermissionBox,
     ) -> Result<permission::validator::Verdict> {
-        let span = wasm_log_span!("Permission validation", %id);
+        let span = wasm_log_span!("Permission validation");
         let state = State::new(wsv, authority.clone(), self.config, span)
             .with_operation_to_validate(operation);
 

@@ -14,6 +14,8 @@ use derive_more::Deref;
 use eyre::{bail, eyre, Result, WrapErr};
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
+#[cfg(not(test))]
+use iroha_data_model::permission::Validator;
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
@@ -21,6 +23,8 @@ use iroha_data_model::{
 use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::IntoSchema;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use MockValidator as Validator;
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -70,9 +74,13 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .clone()
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         )?;
-        let transactions = raw_block
-            .transactions
-            .iter()
+        let transactions_iter = raw_block.transactions.into_iter();
+        #[cfg(not(test))]
+        let transactions_iter = transactions_iter.chain(std::iter::once(GenesisTransaction {
+            isi: SmallVec(smallvec![UpgradeBox::new(raw_block.validator).into()]),
+        }));
+
+        let transactions = transactions_iter
             .map(|raw_transaction| {
                 raw_transaction.sign_and_accept(genesis_key_pair.clone(), tx_limits)
             })
@@ -92,13 +100,21 @@ impl GenesisNetworkTrait for GenesisNetwork {
     }
 }
 
-/// [`RawGenesisBlock`] is an initial block of the network
-#[derive(Debug, Clone, Default, Deserialize, Serialize, IntoSchema)]
-#[serde(transparent)]
+/// Mock of [`Validator`](iroha_data_model::permission::Validator) for unit tests
+///
+/// Aliased to `Validator` when `cfg(test)`.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, IntoSchema)]
 #[repr(transparent)]
+pub struct MockValidator;
+
+/// [`RawGenesisBlock`] is an initial block of the network
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 pub struct RawGenesisBlock {
     /// Transactions
     pub transactions: SmallVec<[GenesisTransaction; 2]>,
+    /// Runtime Permission Validator
+    pub validator: Validator,
 }
 
 impl RawGenesisBlock {
@@ -124,17 +140,6 @@ impl RawGenesisBlock {
             &path
         ))
     }
-
-    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`Account`].
-    pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
-        RawGenesisBlock {
-            transactions: SmallVec(smallvec![GenesisTransaction::new(
-                account_name,
-                domain_id,
-                public_key,
-            )]),
-        }
-    }
 }
 
 /// `GenesisTransaction` is a transaction for initialize settings.
@@ -152,34 +157,17 @@ impl GenesisTransaction {
     /// # Errors
     /// Fails if signing or accepting fails
     pub fn sign_and_accept(
-        &self,
+        self,
         genesis_key_pair: KeyPair,
         limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
-        let transaction = TransactionBuilder::new(
-            AccountId::genesis(),
-            self.isi.clone(),
-            GENESIS_TRANSACTIONS_TTL_MS,
-        )
-        .sign(genesis_key_pair)?;
+        let transaction =
+            TransactionBuilder::new(AccountId::genesis(), self.isi, GENESIS_TRANSACTIONS_TTL_MS)
+                .sign(genesis_key_pair)?;
 
         AcceptedTransaction::accept::<true>(transaction, limits)
             .wrap_err("Failed to accept transaction")
             .map(Into::into)
-    }
-
-    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
-    pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
-        Self {
-            isi: SmallVec(smallvec![
-                RegisterBox::new(Domain::new(domain_id.clone())).into(),
-                RegisterBox::new(Account::new(
-                    AccountId::new(account_name, domain_id),
-                    [public_key],
-                ))
-                .into()
-            ]),
-        }
     }
 }
 
@@ -188,21 +176,32 @@ impl GenesisTransaction {
 /// produced. Use with caution in tests and other things
 /// to register domains and accounts.
 #[must_use]
-#[repr(transparent)]
-pub struct RawGenesisBlockBuilder {
+pub struct RawGenesisBlockBuilder<S> {
     transaction: GenesisTransaction,
+    state: S,
 }
 
 /// `Domain` subsection of the `RawGenesisBlockBuilder`. Makes
 /// it easier to create accounts and assets without needing to
 /// provide a `DomainId`.
 #[must_use]
-pub struct RawGenesisDomainBuilder {
+pub struct RawGenesisDomainBuilder<S> {
     transaction: GenesisTransaction,
     domain_id: DomainId,
+    state: S,
 }
 
-impl RawGenesisBlockBuilder {
+mod validator_state {
+    use super::Validator;
+
+    #[cfg_attr(test, derive(Clone, Copy))]
+    pub struct Set(pub Validator);
+
+    #[derive(Clone, Copy)]
+    pub struct Unset;
+}
+
+impl RawGenesisBlockBuilder<validator_state::Unset> {
     /// Initiate the building process.
     pub fn new() -> Self {
         // Do not add `impl Default`. While it can technically be
@@ -213,12 +212,23 @@ impl RawGenesisBlockBuilder {
             transaction: GenesisTransaction {
                 isi: SmallVec::new(),
             },
+            state: validator_state::Unset,
         }
     }
 
+    /// Set the validator.
+    pub fn validator(self, validator: Validator) -> RawGenesisBlockBuilder<validator_state::Set> {
+        RawGenesisBlockBuilder {
+            transaction: self.transaction,
+            state: validator_state::Set(validator),
+        }
+    }
+}
+
+impl<S> RawGenesisBlockBuilder<S> {
     /// Create a domain and return a domain builder which can
     /// be used to create assets and accounts.
-    pub fn domain(self, domain_name: Name) -> RawGenesisDomainBuilder {
+    pub fn domain(self, domain_name: Name) -> RawGenesisDomainBuilder<S> {
         self.domain_with_metadata(domain_name, Metadata::default())
     }
 
@@ -228,7 +238,7 @@ impl RawGenesisBlockBuilder {
         mut self,
         domain_name: Name,
         metadata: Metadata,
-    ) -> RawGenesisDomainBuilder {
+    ) -> RawGenesisDomainBuilder<S> {
         let domain_id = DomainId::new(domain_name);
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
         self.transaction
@@ -237,23 +247,28 @@ impl RawGenesisBlockBuilder {
         RawGenesisDomainBuilder {
             transaction: self.transaction,
             domain_id,
-        }
-    }
-
-    /// Finish building and produce a `RawGenesisBlock`.
-    pub fn build(self) -> RawGenesisBlock {
-        RawGenesisBlock {
-            transactions: SmallVec(smallvec![self.transaction]),
+            state: self.state,
         }
     }
 }
 
-impl RawGenesisDomainBuilder {
+impl RawGenesisBlockBuilder<validator_state::Set> {
+    /// Finish building and produce a `RawGenesisBlock`.
+    pub fn build(self) -> RawGenesisBlock {
+        RawGenesisBlock {
+            transactions: SmallVec(smallvec![self.transaction]),
+            validator: self.state.0,
+        }
+    }
+}
+
+impl<S> RawGenesisDomainBuilder<S> {
     /// Finish this domain and return to
     /// genesis block building.
-    pub fn finish_domain(self) -> RawGenesisBlockBuilder {
+    pub fn finish_domain(self) -> RawGenesisBlockBuilder<S> {
         RawGenesisBlockBuilder {
             transaction: self.transaction,
+            state: self.state,
         }
     }
 
@@ -319,7 +334,12 @@ mod tests {
         };
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
-            RawGenesisBlock::new("alice".parse()?, "wonderland".parse()?, alice_public_key),
+            RawGenesisBlockBuilder::new()
+                .domain("wonderland".parse()?)
+                .account("alice".parse()?, alice_public_key)
+                .finish_domain()
+                .validator(MockValidator)
+                .build(),
             Some(
                 &ConfigurationProxy {
                     account_public_key: Some(genesis_public_key),
@@ -352,7 +372,8 @@ mod tests {
             .asset("hats".parse().unwrap(), AssetValueType::BigQuantity)
             .finish_domain();
 
-        let finished_genesis_block = genesis_builder.build();
+        // In real cases validator should be constructed from a wasm blob
+        let finished_genesis_block = genesis_builder.validator(MockValidator).build();
         {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(

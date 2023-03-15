@@ -1465,9 +1465,6 @@ pub mod error {
             /// Failed to find [`PermissionToken`] by id.
             #[display(fmt = "Failed to find permission definition token by id: `{_0}`")]
             PermissionTokenDefinition(PermissionTokenId),
-            /// Failed to find [`Validator`](permission::Validator) by id.
-            #[display(fmt = "Failed to find permission validator by id: `{_0}`")]
-            Validator(permission::validator::ValidatorId),
             /// Failed to find specified [`Parameter`] variant.
             #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
             Parameter(ParameterId),

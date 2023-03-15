@@ -15,7 +15,7 @@ pub fn impl_derive_validate(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics ::iroha_validator::traits::Validate for #ident #ty_generics
+        impl #impl_generics ::iroha_validator::traits::ValidateGrantRevoke for #ident #ty_generics
         #where_clause
         {
             #validate_grant_impl

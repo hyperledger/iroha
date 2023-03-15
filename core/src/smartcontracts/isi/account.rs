@@ -504,7 +504,7 @@ pub mod query {
             let tokens = wsv.map_account(&account_id, |account| {
                 wsv.account_permission_tokens(account)
             })?;
-            Ok(tokens)
+            Ok(tokens.into_iter().collect())
         }
     }
 

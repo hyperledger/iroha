@@ -168,7 +168,7 @@ model! {
     /// Wrapper for byte representation of [`Executable::Wasm`].
     ///
     /// Uses **base64** (de-)serialization format.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[debug(fmt = "WASM binary(len = {})", "self.0.len()")]
     #[serde(transparent)]
     #[repr(transparent)]
@@ -911,6 +911,7 @@ pub mod error {
                 ExecuteTrigger(_) => "execute trigger",
                 SetParameter(_) => "set parameter",
                 NewParameter(_) => "new parameter",
+                Upgrade(_) => "upgrade",
             };
             write!(
                 f,

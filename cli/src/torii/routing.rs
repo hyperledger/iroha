@@ -74,7 +74,7 @@ impl VerifiedQuery {
                 "Signature public key doesn't correspond to the account.",
             )));
         }
-        wsv.validators_view()
+        wsv.validator_view()
             .validate(wsv, &self.payload.account_id, self.payload.query.clone())
             .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
         Ok((

@@ -192,7 +192,7 @@ mod genesis {
         asset::AssetValueType,
         isi::{MintBox, RegisterBox},
         metadata::Limits,
-        permission::{validator, Validator},
+        permission::Validator,
         prelude::AssetId,
         IdBox,
     };
@@ -269,6 +269,7 @@ mod genesis {
             .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
             .asset("cabbage".parse()?, AssetValueType::Quantity)
             .finish_domain()
+            .validator(construct_validator()?)
             .build();
 
         let mint = MintBox::new(
@@ -368,8 +369,6 @@ mod genesis {
             .isi
             .push(register_user_metadata_access);
 
-        genesis.transactions[0].isi.push(register_validator()?);
-
         Ok(genesis)
     }
 
@@ -379,6 +378,19 @@ mod genesis {
             .map(RegisterBox::new)
             .map(Into::into)
             .collect())
+    }
+
+    fn construct_validator() -> color_eyre::Result<Validator> {
+        let build_dir = tempfile::tempdir()
+            .wrap_err("Failed to create temp dir for runtime validator output")?;
+
+        let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
+            .out_dir(build_dir.path())
+            .build()?
+            .optimize()?
+            .into_bytes();
+
+        Ok(Validator::new(WasmSmartContract::new(wasm_blob)))
     }
 
     fn generate_synthetic(
@@ -408,7 +420,7 @@ mod genesis {
 
             builder = domain_builder.finish_domain();
         }
-        let mut genesis = builder.build();
+        let mut genesis = builder.validator(construct_validator()?).build();
 
         let mints = {
             let mut acc = Vec::new();
@@ -437,26 +449,6 @@ mod genesis {
             .extend(register_permission_token_definitions()?);
 
         Ok(genesis)
-    }
-
-    fn register_validator() -> color_eyre::Result<InstructionBox> {
-        const PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators";
-
-        let build_dir = tempfile::tempdir()
-            .wrap_err("Failed to create temp dir for runtime validator output")?;
-
-        let wasm_blob = iroha_wasm_builder::Builder::new(PERMISSION_VALIDATOR_PATH)
-            .out_dir(build_dir.path())
-            .build()?
-            .optimize()?
-            .into_bytes();
-
-        Ok(RegisterBox::new(Validator::new(
-            "permission_validator%genesis@genesis".parse()?,
-            validator::ValidatorType::Instruction,
-            WasmSmartContract::new(wasm_blob),
-        ))
-        .into())
     }
 }
 
@@ -696,22 +688,31 @@ mod tokens {
         // TODO: Not hardcode this. Instead get this info from validator it-self
         Ok(vec![
             // Account
-            token_with_account_id("can_remove_key_value_in_user_account")?,
+            token_with_account_id("can_unregister_account")?,
+            token_with_account_id("can_mint_user_public_keys")?,
+            token_with_account_id("can_burn_user_public_keys")?,
+            token_with_account_id("can_mint_user_signature_check_conditions")?,
             token_with_account_id("can_set_key_value_in_user_account")?,
+            token_with_account_id("can_remove_key_value_in_user_account")?,
             // Asset
+            token_with_asset_definition_id("can_register_assets_with_definition")?,
+            token_with_asset_definition_id("can_unregister_assets_with_definition")?,
+            token_with_asset_definition_id("can_unregister_user_assets")?,
             token_with_asset_definition_id("can_burn_assets_with_definition")?,
             token_with_asset_id("can_burn_user_asset")?,
             token_with_asset_definition_id("can_mint_assets_with_definition")?,
-            token_with_asset_id("can_remove_key_value_in_user_asset")?,
-            token_with_asset_id("can_set_key_value_in_user_asset")?,
             token_with_asset_definition_id("can_transfer_assets_with_definition")?,
             token_with_asset_id("can_transfer_user_asset")?,
-            token_with_asset_definition_id("can_unregister_assets_with_definition")?,
-            token_with_asset_id("can_unregister_user_assets")?,
+            token_with_asset_id("can_set_key_value_in_user_asset")?,
+            token_with_asset_id("can_remove_key_value_in_user_asset")?,
             // Asset definition
-            token_with_asset_definition_id("can_remove_key_value_in_asset_definition")?,
-            token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
             token_with_asset_definition_id("can_unregister_asset_definition")?,
+            token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
+            token_with_asset_definition_id("can_remove_key_value_in_asset_definition")?,
+            // Domain
+            token_with_domain_id("can_unregister_domain")?,
+            token_with_domain_id("can_set_key_value_in_domain")?,
+            token_with_domain_id("can_remove_key_value_in_domain")?,
             // Parameter
             bare_token("can_grant_permission_to_create_parameters")?,
             bare_token("can_revoke_permission_to_create_parameters")?,
@@ -719,6 +720,16 @@ mod tokens {
             bare_token("can_grant_permission_to_set_parameters")?,
             bare_token("can_revoke_permission_to_set_parameters")?,
             bare_token("can_set_parameters")?,
+            // Peer
+            bare_token("can_unregister_any_peer")?,
+            // Role
+            bare_token("can_unregister_any_role")?,
+            // Trigger
+            token_with_trigger_id("can_execute_user_trigger")?,
+            token_with_trigger_id("can_unregister_user_trigger")?,
+            token_with_trigger_id("can_mint_user_trigger")?,
+            // Validator
+            bare_token("can_upgrade_validator")?,
         ])
     }
 
@@ -727,18 +738,28 @@ mod tokens {
     }
 
     fn token_with_asset_definition_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([("asset_definition_id".parse()?, ValueKind::Id)]))
+        token_with_id_param(token_id, "asset_definition_id")
     }
 
     fn token_with_asset_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([("asset_id".parse()?, ValueKind::Id)]))
+        token_with_id_param(token_id, "asset_id")
     }
 
     fn token_with_account_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        token_with_id_param(token_id, "account_id")
+    }
+
+    fn token_with_domain_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        token_with_id_param(token_id, "domain_id")
+    }
+
+    fn token_with_trigger_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        token_with_id_param(token_id, "trigger_id")
+    }
+
+    fn token_with_id_param(token_id: &str, param_name: &str) -> Result<PermissionTokenDefinition> {
         Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([("account_id".parse()?, ValueKind::Id)]))
+            .with_params([(param_name.parse()?, ValueKind::Id)]))
     }
 
     impl<T: Write> RunArgs<T> for Args {

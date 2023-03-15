@@ -2,13 +2,13 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    collections::{btree_map, btree_set},
+    collections::{btree_map, BTreeSet},
     format,
     string::String,
     vec::Vec,
 };
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::collections::{btree_map, BTreeSet};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
@@ -26,13 +26,13 @@ pub use token::PermissionToken;
 pub use validator::Validator;
 
 /// Collection of [`Token`]s
-pub type Permissions = btree_set::BTreeSet<token::PermissionToken>;
+pub type Permissions = BTreeSet<token::PermissionToken>;
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
     pub use super::{
         token::{PermissionTokenDefinition, PermissionTokenId},
-        validator::Verdict,
+        validator::{NeedsPermissionBox, Validator, Verdict},
         PermissionToken, Permissions,
     };
 }

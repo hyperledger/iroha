@@ -16,8 +16,8 @@ iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../../data_model" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.13", path = "../../schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../../schema" }
 iroha_primitives = { version = "2.0.0-pre-rc.13", path = "../../primitives" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../../wasm_builder" }
 iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../../genesis" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../../wasm_builder" }
 
 color-eyre = "0.6.2"
 clap = { version = "3.2.23", features = ["derive"] }

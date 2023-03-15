@@ -1,18 +1,14 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
-use core::fmt::{self, Debug, Formatter};
-
-use dashmap::DashMap;
+use derive_more::DebugCustom;
+#[cfg(test)]
 use iroha_data_model::{
-    permission::validator::{
-        DenialReason, NeedsPermission as _, NeedsPermissionBox, Validator, ValidatorId,
-        ValidatorType,
-    },
-    prelude::Account,
-    Identifiable,
+    isi::InstructionBox, permission::validator::NeedsPermissionBox, transaction::Executable,
+};
+use iroha_data_model::{
+    permission::validator as data_model_validator, prelude::Account, Identifiable,
 };
 use iroha_logger::trace;
-use iroha_primitives::must_use::MustUse;
 
 use super::wsv::WorldStateView;
 use crate::smartcontracts::wasm;
@@ -24,234 +20,236 @@ pub enum Error {
     #[error("WASM error: {0}")]
     Wasm(#[from] wasm::Error),
     /// Validator denied the operation.
-    #[error("Validator `{validator_id}` denied the operation `{operation}`: `{reason}`")]
+    #[error("Validator denied the operation `{operation}`: `{reason}`")]
     ValidatorDeny {
-        /// Validator ID.
-        validator_id: <Validator as Identifiable>::Id,
         /// Denial reason.
-        reason: DenialReason,
+        reason: data_model_validator::DenialReason,
         /// Denied operation.
-        operation: NeedsPermissionBox,
+        operation: data_model_validator::NeedsPermissionBox,
     },
 }
 
-/// Result type for [`Chain`] operations.
+/// Result type for [`Validator`] operations.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-/// Chain of *runtime* permission validators. Used to validate operations that require permissions.
+/// Validator that checks if user has permission to perform some operation.
 ///
-/// Works similarly to the
-/// [`Chain of responsibility`](https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern).
-/// The validation of an operation is forwarded to all
-/// validators in the chain which have the required type.
-/// The validation stops at the first
-/// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) verdict.
-#[derive(Clone)]
-pub struct Chain {
-    all_validators: DashMap<ValidatorId, LoadedValidator>,
-    concrete_type_validators: DashMap<ValidatorType, Vec<ValidatorId>>,
+/// Can be upgraded with [`Upgrade`](iroha_data_model::isi::Upgrade) instruction.
+#[derive(DebugCustom, Clone)]
+#[debug(
+    fmt = "Validator {{ loaded_validator: {0:?}, engine: <Engine is truncated> }}",
+    "&self.loaded_validator"
+)]
+pub struct Validator {
+    /// Pre-loaded validator.
+    /// Can be set with [`update()`](Validator::update).
+    loaded_validator: LoadedValidator,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute validators.
     engine: wasmtime::Engine,
 }
 
-impl Debug for Chain {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Chain")
-            .field("all_validators", &self.all_validators)
-            .field("concrete_type_validators", &self.concrete_type_validators)
-            .field("engine", &"<Engine is truncated>")
-            .finish()
-    }
-}
-
-impl Default for Chain {
-    fn default() -> Self {
-        Self {
-            all_validators: DashMap::default(),
-            concrete_type_validators: DashMap::default(),
-            engine: wasm::create_engine(),
-        }
-    }
-}
-
-/// [`Validator`] with [`Module`](wasmtime::Module) for execution.
-///
-/// Creating [`Module`] is expensive, so we do it once on [`add_validator()`](Chain::add_validator) step and reuse it on
-/// [`validate()`](Chain::validate) step.
-#[derive(Clone)]
-struct LoadedValidator {
-    id: ValidatorId,
-    validator_type: ValidatorType,
-    module: wasmtime::Module,
-}
-
-impl Debug for LoadedValidator {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LoadedValidator")
-            .field("id", &self.id)
-            .field("validator_type", &self.validator_type)
-            .field("module", &"<Module is truncated>")
-            .finish()
-    }
-}
-
-impl Chain {
-    /// Construct new [`Chain`].
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Add new [`Validator`] to the [`Chain`].
-    ///
-    /// Returns `true` if the validator was added
-    /// and `false` if a validator with the same id already exists.
+impl Validator {
+    /// Create new [`Validator`] from raw validator.
     ///
     /// # Errors
     ///
-    /// Fails if WASM module loading fails.
-    pub fn add_validator(&self, validator: Validator) -> Result<MustUse<bool>> {
-        use dashmap::mapref::entry::Entry::*;
-
-        let id = validator.id.clone();
-        let Vacant(vacant) = self.all_validators.entry(id.clone()) else {
-            return Ok(MustUse(false));
-        };
-
-        match self
-            .concrete_type_validators
-            .entry(*validator.validator_type())
-        {
-            Occupied(mut occupied) => {
-                occupied.get_mut().push(id);
-            }
-            Vacant(concrete_type_vacant) => {
-                concrete_type_vacant.insert(vec![id]);
-            }
-        }
-
-        let loaded_validator = LoadedValidator {
-            id: validator.id,
-            validator_type: validator.validator_type,
-            module: wasm::load_module(&self.engine, validator.wasm)?,
-        };
-
-        vacant.insert(loaded_validator);
-        Ok(MustUse(true))
-    }
-
-    /// Remove [`Validator`] from the [`Chain`].
-    ///
-    /// Return `true` if the validator was removed
-    /// and `false` if no validator with the given id was found.
-    #[allow(clippy::expect_used)]
-    pub fn remove_validator(&self, id: &ValidatorId) -> bool {
-        self.all_validators.get(id).map_or(false, |entry| {
-            let type_ = &entry.validator_type;
-
-            self.all_validators
-                .remove(id)
-                .and_then(|_| self.concrete_type_validators.get_mut(type_))
-                .expect(
-                    "Validator chain internal collections inconsistency error \
-                         when removing a validator. This is a bug",
-                )
-                .retain(|validator_id| validator_id != id);
-            true
+    /// Fails if failed to load wasm blob.
+    pub fn new(raw_validator: data_model_validator::Validator) -> Result<Self> {
+        let engine = wasm::create_engine();
+        Ok(Self {
+            loaded_validator: LoadedValidator::load(&engine, raw_validator)?,
+            engine,
         })
     }
 
-    /// Validate given `operation` with all [`Chain`] validators of required type.
-    ///
-    /// If no validator with required type is found, then return [`Ok`].
+    /// Validate operation.
     ///
     /// # Errors
     ///
-    /// Will abort the validation at first
-    /// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) validator verdict and
-    /// return an [`Err`](Result::Err).
-    ///
-    // TODO: Possibly we can use a separate validator thread
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    /// - Failed to prepare runtime for WASM execution;
+    /// - Failed to execute WASM blob;
+    /// - Validator denied the operation
     pub fn validate(
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<NeedsPermissionBox>,
+        operation: impl Into<data_model_validator::NeedsPermissionBox>,
     ) -> Result<()> {
         let operation = operation.into();
-        let Some(validators) = self
-            .concrete_type_validators
-            .get(&operation.required_validator_type()) else
-        {
-            return Ok(())
-        };
 
         let runtime = wasm::RuntimeBuilder::new()
             .with_engine(self.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
             .with_configuration(wsv.config.wasm_runtime_config)
             .build()?;
 
-        for validator_id in validators.value() {
-            self.execute_validator(&runtime, wsv, authority, validator_id, &operation)?
-        }
-
-        Ok(())
-    }
-
-    /// Get constant view to the [`Chain`] without interior mutability
-    pub fn view(&self) -> ChainView {
-        ChainView { chain: self }
-    }
-
-    fn execute_validator(
-        &self,
-        runtime: &wasm::Runtime,
-        wsv: &WorldStateView,
-        authority: &<Account as Identifiable>::Id,
-        validator_id: &iroha_data_model::permission::validator::ValidatorId,
-        operation: &NeedsPermissionBox,
-    ) -> Result<()> {
-        let validator = self.all_validators.get(validator_id).expect(
-            "Validator chain internal collections inconsistency error \
-             when validating an operation. This is a bug",
-        );
-
-        trace!(%validator_id, "Running validator");
+        trace!("Running validator");
         let verdict = runtime.execute_permission_validator_module(
             wsv,
             authority,
-            validator_id,
-            &validator.module,
-            operation,
+            &self.loaded_validator.module,
+            &operation,
         )?;
 
-        Result::<(), DenialReason>::from(verdict).map_err(|reason| Error::ValidatorDeny {
-            validator_id: validator_id.clone(),
-            operation: operation.clone(),
-            reason,
+        Result::<(), data_model_validator::DenialReason>::from(verdict).map_err(|reason| {
+            Error::ValidatorDeny {
+                operation: operation.clone(),
+                reason,
+            }
         })
     }
 }
 
-/// Constant view to the [`Chain`].
+/// Mock of validator for unit tests of `iroha_core`.
 ///
-/// Provides [`Chain`] const methods without interior mutability.
-#[derive(Debug, Copy, Clone)]
-pub struct ChainView<'chain> {
-    chain: &'chain Chain,
-}
+/// We can't use real validator because WASM for it is produced in runtime from outside world.
+#[cfg(test)]
+#[derive(Default, Debug, Copy, Clone)]
+pub struct MockValidator;
 
-impl ChainView<'_> {
-    /// Wrapper around [`Self::validate()`].
+#[cfg(test)]
+impl MockValidator {
+    /// Mock for creating new validator from raw validator.
     ///
     /// # Errors
-    /// See [`Chain::validate()`].
+    ///
+    /// Never fails with [`Err`].
+    ///
+    /// # Panics
+    ///
+    /// Will immediately panic, because you shouldn't call it in tests.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new(_raw_validator: data_model_validator::Validator) -> Result<Self> {
+        panic!("You probably don't need this method in tests")
+    }
+
+    /// Mock for operation validation.
+    /// Will just execute instructions if there are some.
+    ///
+    /// Without this step invalid transactions won't be marked as rejected in
+    /// [`ChainedBlock::validate`].
+    /// Real [`Validator`] assumes that internal WASM performs this.
+    ///
+    /// # Errors
+    ///
+    /// Never fails.
+    #[allow(
+        clippy::unused_self,
+        clippy::unnecessary_wraps,
+        clippy::trivially_copy_pass_by_ref,
+        clippy::needless_pass_by_value
+    )]
     pub fn validate(
-        self,
+        &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<NeedsPermissionBox>,
+        operation: impl Into<data_model_validator::NeedsPermissionBox>,
     ) -> Result<()> {
-        self.chain.validate(wsv, authority, operation)
+        match operation.into() {
+            NeedsPermissionBox::Instruction(isi) => {
+                Self::execute_instruction(wsv, authority.clone(), isi)
+            }
+            NeedsPermissionBox::Transaction(tx) => {
+                let Executable::Instructions(instructions) = tx.payload.instructions else {
+                    return Ok(());
+                };
+                for isi in instructions {
+                    Self::execute_instruction(wsv, authority.clone(), isi)?;
+                }
+                Ok(())
+            }
+            NeedsPermissionBox::Query(_) => Ok(()),
+        }
+    }
+
+    fn execute_instruction(
+        wsv: &WorldStateView,
+        authority: <Account as Identifiable>::Id,
+        instruction: InstructionBox,
+    ) -> Result<()> {
+        use super::smartcontracts::Execute as _;
+
+        instruction
+            .clone()
+            .execute(authority, wsv)
+            .map_err(|err| Error::ValidatorDeny {
+                reason: err.to_string(),
+                operation: instruction.into(),
+            })
+    }
+}
+
+/// [`Validator`] with [`Module`](wasmtime::Module) for execution.
+///
+/// Creating [`Module`] is expensive, so we do it once on [`upgrade()`](Validator::upgrade)
+/// step and reuse it on [`validate()`](Validator::validate) step.
+#[derive(DebugCustom, Clone)]
+#[debug(fmt = "LoadedValidator {{ module: <Module is truncated> }}")]
+struct LoadedValidator {
+    #[cfg_attr(test, allow(dead_code))]
+    module: wasmtime::Module,
+}
+
+impl LoadedValidator {
+    pub fn load(
+        engine: &wasmtime::Engine,
+        raw_validator: data_model_validator::Validator,
+    ) -> Result<Self> {
+        Ok(Self {
+            module: wasm::load_module(engine, raw_validator.wasm)?,
+        })
+    }
+}
+
+/// Constant view to a [`Validator`] used by [`WorldStateView`].
+///
+/// Serves to the same purpose as [`RwLockReadGuard`](parking_lot::RwLockReadGuard),
+/// but holds [`Option`] instead of [`Validator`].
+/// That is required because [`WorldStateView`] may have uninitialized [`Validator`].
+/// However we still want to provide direct access to [`Validator`] for users, so that they
+/// don't have to deal with [`Option`].
+///
+/// # Panic
+///
+/// That said, [`new()`](Self::new) and [`deref()`](std::ops::Deref::deref) will panic if option is [`None`].
+#[derive(Debug)]
+pub struct View<'validator>(
+    #[cfg(not(test))] parking_lot::RwLockReadGuard<'validator, Option<Validator>>,
+    #[cfg(test)] parking_lot::RwLockReadGuard<'validator, Option<MockValidator>>,
+);
+
+#[cfg_attr(test, allow(single_use_lifetimes))]
+impl<'validator> View<'validator> {
+    /// Construct new [`View`].
+    /// Make sure that Option is [`Some`] before calling this function.
+    ///
+    /// # Panic
+    ///
+    /// This function will panic if provided `rw_lock_guard` contains [`None`].
+    pub(crate) fn new(
+        #[cfg(not(test))] rw_lock_guard: parking_lot::RwLockReadGuard<
+            'validator,
+            Option<Validator>,
+        >,
+        #[cfg(test)] rw_lock_guard: parking_lot::RwLockReadGuard<'validator, Option<MockValidator>>,
+    ) -> Self {
+        assert!(
+            rw_lock_guard.is_some(),
+            "Validator must be initialized at that moment"
+        );
+        Self(rw_lock_guard)
+    }
+}
+
+impl std::ops::Deref for View<'_> {
+    #[cfg(not(test))]
+    type Target = Validator;
+
+    #[cfg(test)]
+    type Target = MockValidator;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+            .as_ref()
+            .expect("Validator must be initialized at that moment")
     }
 }

@@ -13,6 +13,7 @@ debug = ["iroha_wasm/debug"]
 [dependencies]
 iroha_wasm = { version = "2.0.0-pre-rc.13", path = ".." }
 iroha_validator_derive = { version = "2.0.0-pre-rc.13", path = "derive" }
+iroha_macro = { version = "2.0.0-pre-rc.13", path = "../../macro", default-features = false }
 
 [dev-dependencies]
 webassembly-test.workspace = true
