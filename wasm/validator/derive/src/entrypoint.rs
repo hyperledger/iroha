@@ -5,10 +5,7 @@ use super::*;
 mod kw {
     pub mod param_types {
         syn::custom_keyword!(authority);
-        syn::custom_keyword!(transaction);
-        syn::custom_keyword!(instruction);
-        syn::custom_keyword!(query);
-        syn::custom_keyword!(expression);
+        syn::custom_keyword!(operation);
     }
 }
 
@@ -31,10 +28,7 @@ impl syn::parse::Parse for Attr {
 #[derive(PartialEq, Eq)]
 enum ParamType {
     Authority,
-    Transaction,
-    Instruction,
-    Query,
-    Expression,
+    Operation,
 }
 
 impl syn::parse::Parse for ParamType {
@@ -43,26 +37,8 @@ impl syn::parse::Parse for ParamType {
 
         iroha_derive_primitives::parse_keywords!(input,
             authority => ParamType::Authority,
-            transaction => ParamType::Transaction,
-            instruction => ParamType::Instruction,
-            query => ParamType::Query,
-            expression => ParamType::Expression,
+            operation => ParamType::Operation,
         )
-    }
-}
-
-impl ParamType {
-    fn construct_operation_arg(operation_type: &syn::Type) -> syn::Expr {
-        parse_quote! {{
-            use ::alloc::format;
-
-            let needs_permission = ::iroha_validator::iroha_wasm::query_operation_to_validate();
-            ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
-                <::iroha_validator::iroha_wasm::data_model::prelude::#operation_type as
-                    ::core::convert::TryFrom<::iroha_validator::iroha_wasm::data_model::permission::validator::NeedsPermissionBox>>::try_from(needs_permission),
-                    &format!("Failed to convert `NeedsPermissionBox` to `{}`. Have you set right permission validator type?", stringify!(#operation_type))
-            )
-        }}
     }
 }
 
@@ -74,10 +50,11 @@ impl iroha_derive_primitives::params::ConstructArg for ParamType {
                     ::iroha_validator::iroha_wasm::query_authority()
                 }
             }
-            ParamType::Transaction => Self::construct_operation_arg(&parse_quote!(Transaction)),
-            ParamType::Instruction => Self::construct_operation_arg(&parse_quote!(InstructionBox)),
-            ParamType::Query => Self::construct_operation_arg(&parse_quote!(QueryBox)),
-            ParamType::Expression => Self::construct_operation_arg(&parse_quote!(Expression)),
+            ParamType::Operation => {
+                parse_quote! {{
+                    ::iroha_validator::iroha_wasm::query_operation_to_validate()
+                }}
+            }
         }
     }
 }
@@ -100,15 +77,12 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let args = match syn::parse_macro_input!(attr as Attr) {
         Attr::Params(params_attr) => {
-            let operation_param_count = params_attr
+            params_attr
                 .types()
-                .filter(|param_type| *param_type != &ParamType::Authority)
-                .count();
-            assert!(
-                operation_param_count == 1,
-                "Validator entrypoint macro attribute must have exactly one parameter \
-                of some operation type: `transaction`, `instruction`, `query` or `expression`"
-            );
+                .find(|param_type| *param_type == &ParamType::Operation)
+                .expect(
+                    "Validator entrypoint macro attribute must have parameter of `operation` type",
+                );
 
             params_attr.construct_args()
         }

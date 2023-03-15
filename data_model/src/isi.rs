@@ -7,6 +7,7 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
 use derive_more::{Constructor, Display};
+use getset::Getters;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -54,6 +55,8 @@ model! {
         SetParameter(SetParameterBox),
         /// `NewParameter` variant.
         NewParameter(NewParameterBox),
+        /// `Upgrade` variant.
+        Upgrade(UpgradeBox)
     }
 }
 
@@ -79,6 +82,7 @@ impl InstructionBox {
             ExecuteTrigger(execute_trigger) => execute_trigger.len(),
             SetParameter(set_parameter) => set_parameter.len(),
             NewParameter(new_parameter) => new_parameter.len(),
+            Upgrade(upgrade_box) => upgrade_box.len(),
         }
     }
 }
@@ -346,14 +350,29 @@ isi! {
     #[ffi_type(unsafe {robust})]
     pub struct ExecuteTriggerBox {
         /// Id of a trigger to execute
-        pub trigger_id: <Trigger<FilterBox, Executable> as Identifiable>::Id,
+        pub trigger_id: EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>,
+    }
+}
+
+isi! {
+    /// Sized structure for all possible Upgrades.
+    #[derive(Display)]
+    #[display(fmt = "UPGRADE `{object}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `UpgradeBox` has no trap representation in `EvaluatesTo<RegistrableBox>`
+    #[ffi_type(unsafe {robust})]
+    pub struct UpgradeBox {
+        /// The object to upgrade.
+        pub object: EvaluatesTo<UpgradableBox>,
     }
 }
 
 model! {
     /// Generic instruction to set key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct SetKeyValue<O, K, V> where O: Identifiable, K: Into<Value>, V: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct SetKeyValue<O, K, V> where O: Identifiable, K: Into<Value>, V: Into<Value> {
         /// Where to set key value.
         pub object_id: O::Id,
         /// Key.
@@ -363,8 +382,9 @@ model! {
     }
 
     /// Generic instruction to remove key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct RemoveKeyValue<O, K> where O: Identifiable, K: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct RemoveKeyValue<O, K> where O: Identifiable, K: Into<Value> {
         /// From where to remove key value.
         pub object_id: O::Id,
         /// Key of the pair to remove.
@@ -372,26 +392,29 @@ model! {
     }
 
     /// Generic instruction for a registration of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
     #[serde(transparent)]
     #[repr(transparent)]
-    struct Register<O> where O: Registered {
+    pub struct Register<O> where O: Registered {
         /// The object that should be registered, should be uniquely identifiable by its id.
         pub object: O::With,
     }
 
     /// Generic instruction for an unregistration of an object from the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
     #[serde(transparent)]
     #[repr(transparent)]
-    struct Unregister<O> where O: Registered {
+    pub struct Unregister<O> where O: Registered {
         /// [`Identifiable::Id`] of the object which should be unregistered.
         pub object_id: O::Id,
     }
 
     /// Generic instruction for a mint of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct Mint<D, O> where D: Identifiable, O: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Mint<D, O> where D: Identifiable, O: Into<Value> {
         /// Object which should be minted.
         pub object: O,
         /// Destination object [`Identifiable::Id`].
@@ -399,8 +422,9 @@ model! {
     }
 
     /// Generic instruction for a burn of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct Burn<D, O> where D: Identifiable, O: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Burn<D, O> where D: Identifiable, O: Into<Value> {
         /// Object which should be burned.
         pub object: O,
         /// Destination object [`Identifiable::Id`].
@@ -408,8 +432,9 @@ model! {
     }
 
     /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct Transfer<S: Identifiable, O, D: Identifiable> where O: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Transfer<S: Identifiable, O, D: Identifiable> where O: Into<Value> {
         /// Source object `Id`.
         pub source_id: S::Id,
         /// Object which should be transferred.
@@ -419,8 +444,9 @@ model! {
     }
 
     /// Generic instruction for granting permission to an entity.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct Grant<D, O> where D: Registered, O: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Grant<D, O> where D: Registered, O: Into<Value> {
         /// Object to grant.
         pub object: O,
         /// Entity to which to grant this token.
@@ -428,8 +454,9 @@ model! {
     }
 
     /// Generic instruction for revoking permission from an entity.
-    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode)]
-    struct Revoke<D, O> where D: Registered, O: Into<Value> {
+    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode, Getters)]
+    #[getset(get = "pub")]
+    pub struct Revoke<D, O> where D: Registered, O: Into<Value> {
         /// Object to revoke.
         pub object: O,
         /// Entity which is being revoked this token from.
@@ -437,24 +464,39 @@ model! {
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct SetParameter<P> where P: Identifiable {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct SetParameter<P> where P: Identifiable {
         /// Parameter to be changed.
         pub parameter: P,
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
-    struct NewParameter<P> where P: Identifiable {
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct NewParameter<P> where P: Identifiable {
         /// Parameter to be changed.
         pub parameter: P,
+    }
+
+    /// Generic instruction for upgrading runtime objects.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Upgrade<O> where O: Into<UpgradableBox>{
+        /// Object to upgrade.
+        pub object: O,
     }
 }
 
 impl ExecuteTriggerBox {
     /// Construct [`ExecuteTriggerBox`]
-    pub fn new(trigger_id: <Trigger<FilterBox, Executable> as Identifiable>::Id) -> Self {
-        Self { trigger_id }
+    pub fn new<I>(trigger_id: I) -> Self
+    where
+        I: Into<EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>>,
+    {
+        Self {
+            trigger_id: trigger_id.into(),
+        }
     }
     /// Length of contained instructions and queries.
     #[inline]
@@ -750,6 +792,20 @@ impl NewParameterBox {
     }
 }
 
+impl UpgradeBox {
+    /// Length of contained instructions and queries.
+    pub fn len(&self) -> usize {
+        self.object.len() + 1
+    }
+
+    /// Construct [`UpgradeBox`].
+    pub fn new<O: Into<EvaluatesTo<UpgradableBox>>>(object: O) -> Self {
+        Self {
+            object: object.into(),
+        }
+    }
+}
+
 pub mod error {
     //! Module containing errors that can occur during instruction evaluation
 
@@ -968,15 +1024,12 @@ pub mod error {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    #[cfg(feature = "transparent_api")]
     pub use super::{
-        Burn, Grant, Mint, NewParameter, Register, RemoveKeyValue, Revoke, SetKeyValue,
-        SetParameter, Transfer, Unregister,
-    };
-    pub use super::{
-        BurnBox, Conditional, ExecuteTriggerBox, FailBox, GrantBox, InstructionBox, MintBox,
-        NewParameterBox, Pair, RegisterBox, RemoveKeyValueBox, RevokeBox, SequenceBox,
-        SetKeyValueBox, SetParameterBox, TransferBox, UnregisterBox,
+        Burn, BurnBox, Conditional, ExecuteTriggerBox, FailBox, Grant, GrantBox, InstructionBox,
+        Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox, RemoveKeyValue,
+        RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox,
+        SetParameter, SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox, Upgrade,
+        UpgradeBox,
     };
 }
 

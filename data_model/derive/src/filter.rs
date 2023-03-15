@@ -146,7 +146,7 @@ impl Parse for EventVariant {
             .fields
             .into_iter()
             .next()
-            .expect("Should have at least one unnamed field")
+            .expect("Variant should have at least one unnamed field")
             .ty;
         if let syn::Type::Path(path) = field_type {
             let field_ident = path
@@ -201,7 +201,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
 
     quote! {
         iroha_data_model_derive::model! {
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[doc = #filter_doc]
             #vis struct #filter_ident #generics {
                 origin_filter: #fil_opt<#orig_fil<#imp_event>>,
@@ -246,7 +246,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
 
     quote! {
         iroha_data_model_derive::model! {
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[allow(clippy::enum_variant_names, missing_docs)]
             #[doc = #event_filter_doc]
             #vis enum #event_filter_ident #generics {

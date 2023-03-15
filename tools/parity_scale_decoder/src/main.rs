@@ -30,7 +30,7 @@ use iroha_data_model::{
         BlockHeader, CommittedBlock, VersionedCommittedBlock,
     },
     domain::{IpfsPath, NewDomain},
-    permission::validator::{Validator, ValidatorId, ValidatorType},
+    permission::validator::Validator,
     predicate::{
         ip_addr::{Ipv4Predicate, Ipv6Predicate},
         numerical::{Interval, SemiInterval, SemiRange},

@@ -3,12 +3,12 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha::samples::get_config;
+use iroha::samples::{construct_validator, get_config};
 use iroha_client::client::{asset, Client};
 use iroha_config::{base::runtime_upgrades::Reload, logger};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlockBuilder};
 use iroha_primitives::small::SmallStr;
 use iroha_version::Encode;
 use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
@@ -26,11 +26,17 @@ fn query_requests(criterion: &mut Criterion) {
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new(
-            "alice".parse().expect("Valid"),
-            "wonderland".parse().expect("Valid"),
-            get_key_pair().public_key().clone(),
-        ),
+        RawGenesisBlockBuilder::new()
+            .domain("wonderland".parse().expect("Valid"))
+            .account(
+                "alice".parse().expect("Valid"),
+                get_key_pair().public_key().clone(),
+            )
+            .finish_domain()
+            .validator(
+                construct_validator("../default_validator").expect("Failed to construct validator"),
+            )
+            .build(),
         Some(&configuration.genesis),
         &configuration.sumeragi.transaction_limits,
     )
@@ -122,11 +128,17 @@ fn instruction_submits(criterion: &mut Criterion) {
     );
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new(
-            "alice".parse().expect("Valid"),
-            "wonderland".parse().expect("Valid"),
-            configuration.public_key.clone(),
-        ),
+        RawGenesisBlockBuilder::new()
+            .domain("wonderland".parse().expect("Valid"))
+            .account(
+                "alice".parse().expect("Valid"),
+                configuration.public_key.clone(),
+            )
+            .finish_domain()
+            .validator(
+                construct_validator("../default_validator").expect("Failed to construct validator"),
+            )
+            .build(),
         Some(&configuration.genesis),
         &configuration.sumeragi.transaction_limits,
     )

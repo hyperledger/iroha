@@ -103,12 +103,24 @@ impl TestGenesis for GenesisNetwork {
             "asset_definition_id".parse().expect("valid names"),
             IdBox::from(rose_definition_id).into(),
         )]);
-        genesis.transactions[0]
-            .isi
-            .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
-        genesis.transactions[0]
-            .isi
-            .push(GrantBox::new(burn_rose_permission, alice_id).into());
+        let unregister_any_peer_permission =
+            PermissionToken::new("can_unregister_any_peer".parse().expect("valid names"));
+        let unregister_any_role_permission =
+            PermissionToken::new("can_unregister_any_role".parse().expect("valid names"));
+        let upgrade_validator_permission =
+            PermissionToken::new("can_upgrade_validator".parse().expect("valid names"));
+
+        for permission in [
+            mint_rose_permission,
+            burn_rose_permission,
+            unregister_any_peer_permission,
+            unregister_any_role_permission,
+            upgrade_validator_permission,
+        ] {
+            genesis.transactions[0]
+                .isi
+                .push(GrantBox::new(permission, alice_id.clone()).into());
+        }
 
         GenesisNetwork::from_configuration(
             submit_genesis,

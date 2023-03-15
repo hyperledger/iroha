@@ -12,13 +12,16 @@ extern crate alloc;
 extern crate panic_halt;
 
 use alloc::{format, string::ToString, vec::Vec};
-use core::str::FromStr;
 
-use iroha_wasm::{data_model::prelude::*, debug::DebugUnwrapExt as _, ExecuteOnHost as _};
+use iroha_wasm::{
+    data_model::{prelude::*, Registered},
+    debug::DebugUnwrapExt as _,
+    ExecuteOnHost as _,
+};
 
 #[iroha_wasm::entrypoint]
 fn trigger_entrypoint() {
-    iroha_wasm::info!("Executing smart contract");
+    iroha_wasm::info!("Executing trigger");
 
     let query = QueryBox::from(FindAllAccounts);
     let accounts: Vec<Account> = query.execute().try_into().dbg_unwrap();
@@ -43,14 +46,10 @@ fn trigger_entrypoint() {
             .mintable_once()
             .with_metadata(metadata);
         let account_nft_id = <Asset as Identifiable>::Id::new(nft_id, account.id().clone());
+        let account_nft = <Asset as Registered>::With::new(account_nft_id, Metadata::new());
 
         InstructionBox::from(RegisterBox::new(nft_definition)).execute();
-        InstructionBox::from(SetKeyValueBox::new(
-            account_nft_id,
-            Name::from_str("has_this_nft").dbg_unwrap(),
-            Value::Bool(true),
-        ))
-        .execute();
+        InstructionBox::from(RegisterBox::new(account_nft)).execute();
     }
 
     iroha_wasm::info!("Smart contract executed successfully");
@@ -66,6 +65,7 @@ fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefin
         .count()
         .checked_add(1)
         .dbg_unwrap();
+    iroha_wasm::debug!(&format!("New number: {}", new_number));
 
     format!(
         "nft_number_{}_for_{}#{}",

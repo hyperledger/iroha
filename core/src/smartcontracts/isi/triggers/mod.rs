@@ -168,7 +168,8 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let id = self.trigger_id;
+            let context = Context::new(wsv);
+            let id = self.trigger_id.evaluate(&context)?;
 
             wsv.triggers()
                 .inspect_by_id(&id, |action| -> Result<(), Self::Error> {

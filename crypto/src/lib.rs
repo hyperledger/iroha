@@ -13,7 +13,6 @@ mod varint;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    borrow::ToOwned,
     format,
     string::{String, ToString as _},
     vec::Vec,
@@ -30,7 +29,9 @@ use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
 use multihash::Multihash;
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
+use serde::Deserialize;
+use serde::Serialize;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 pub use signature::*;
 #[cfg(feature = "std")]

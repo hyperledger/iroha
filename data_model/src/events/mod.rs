@@ -75,7 +75,7 @@ pub trait Filter {
 model! {
     /// Event filter.
     #[allow(variant_size_differences)]
-    #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum FilterBox {
         /// Listen to pipeline events with filter.
         Pipeline(pipeline::PipelineEventFilter),

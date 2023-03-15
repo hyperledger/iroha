@@ -814,12 +814,12 @@
         "type": "PermissionTokenEvent"
       },
       {
-        "name": "PermissionValidator",
-        "type": "PermissionValidatorEvent"
-      },
-      {
         "name": "Configuration",
         "type": "ConfigurationEvent"
+      },
+      {
+        "name": "PermissionValidator",
+        "type": "PermissionValidatorEvent"
       }
     ]
   },
@@ -1069,6 +1069,14 @@
       }
     ]
   },
+  "EvaluatesTo<UpgradableBox>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
   "EvaluatesTo<Value>": {
     "Struct": [
       {
@@ -1123,7 +1131,7 @@
     "Struct": [
       {
         "name": "trigger_id",
-        "type": "TriggerId"
+        "type": "EvaluatesTo<TriggerId>"
       }
     ]
   },
@@ -1740,10 +1748,6 @@
         "type": "PermissionTokenId"
       },
       {
-        "name": "Validator",
-        "type": "ValidatorId"
-      },
-      {
         "name": "Parameter",
         "type": "ParameterId"
       }
@@ -1923,10 +1927,6 @@
         "type": "PermissionTokenId"
       },
       {
-        "name": "ValidatorId",
-        "type": "ValidatorId"
-      },
-      {
         "name": "ParameterId",
         "type": "ParameterId"
       }
@@ -1981,10 +1981,6 @@
       {
         "name": "PermissionTokenDefinition",
         "type": "PermissionTokenDefinition"
-      },
-      {
-        "name": "Validator",
-        "type": "Validator"
       },
       {
         "name": "Parameter",
@@ -2073,6 +2069,10 @@
       {
         "name": "NewParameter",
         "type": "NewParameterBox"
+      },
+      {
+        "name": "Upgrade",
+        "type": "UpgradeBox"
       }
     ]
   },
@@ -2641,12 +2641,7 @@
   "PermissionValidatorEvent": {
     "Enum": [
       {
-        "name": "Added",
-        "type": "ValidatorId"
-      },
-      {
-        "name": "Removed",
-        "type": "ValidatorId"
+        "name": "Upgraded"
       }
     ]
   },
@@ -2980,6 +2975,10 @@
       {
         "name": "transactions",
         "type": "Vec<GenesisTransaction>"
+      },
+      {
+        "name": "validator",
+        "type": "Validator"
       }
     ]
   },
@@ -3629,6 +3628,22 @@
       }
     ]
   },
+  "UpgradableBox": {
+    "Enum": [
+      {
+        "name": "Validator",
+        "type": "Validator"
+      }
+    ]
+  },
+  "UpgradeBox": {
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<UpgradableBox>"
+      }
+    ]
+  },
   "ValidTransaction": {
     "Struct": [
       {
@@ -3644,44 +3659,8 @@
   "Validator": {
     "Struct": [
       {
-        "name": "id",
-        "type": "ValidatorId"
-      },
-      {
-        "name": "validator_type",
-        "type": "ValidatorType"
-      },
-      {
         "name": "wasm",
         "type": "WasmSmartContract"
-      }
-    ]
-  },
-  "ValidatorId": {
-    "Struct": [
-      {
-        "name": "name",
-        "type": "Name"
-      },
-      {
-        "name": "owned_by",
-        "type": "AccountId"
-      }
-    ]
-  },
-  "ValidatorType": {
-    "Enum": [
-      {
-        "name": "Transaction"
-      },
-      {
-        "name": "Instruction"
-      },
-      {
-        "name": "Query"
-      },
-      {
-        "name": "Expression"
       }
     ]
   },
@@ -3770,6 +3749,10 @@
       {
         "name": "Numeric",
         "type": "NumericValue"
+      },
+      {
+        "name": "Validator",
+        "type": "Validator"
       }
     ]
   },
@@ -3837,6 +3820,9 @@
       },
       {
         "name": "Numeric"
+      },
+      {
+        "name": "Validator"
       }
     ]
   },

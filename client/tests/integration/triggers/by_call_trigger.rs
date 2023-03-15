@@ -191,8 +191,8 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             .submit_blocking(execute_trigger)
             .expect_err("Error expected")
             .root_cause()
-            .downcast_ref::<InstructionExecutionFail>(),
-        Some(&InstructionExecutionFail { .. })
+            .downcast_ref::<NotPermittedFail>(),
+        Some(&NotPermittedFail { .. })
     ));
 
     // Checking results

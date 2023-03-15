@@ -131,6 +131,8 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
                 }
             });
 
+            // See https://github.com/rust-lang/rust-clippy/issues/10417
+            #[allow(clippy::arithmetic_side_effects)]
             let item = quote! {
                 pub union #ident #impl_generics #where_clause {
                     #(#fields),*

@@ -11,7 +11,7 @@ use crate::model;
 model! {
     /// Generic [`MetadataChanged`] struct.
     /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct MetadataChanged<ID> {
@@ -24,7 +24,7 @@ model! {
 macro_rules! data_event {
     ($item:item) => {
         crate::model! {
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Filter, HasOrigin)]
+            #[derive(Debug, Clone, PartialEq, Eq, Hash, Filter, HasOrigin)]
             #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
             #[derive(serde::Deserialize, serde::Serialize)]
             #[derive(iroha_schema::IntoSchema)]
@@ -81,7 +81,7 @@ mod asset {
 
     model! {
         /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetChanged {
@@ -90,7 +90,7 @@ mod asset {
         }
 
         /// [`Self`] represents updated total asset quantity.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetDefinitionTotalQuantityChanged {
@@ -163,7 +163,6 @@ mod permission {
     //! This module contains [`PermissionTokenEvent`], [`PermissionValidatorEvent`] and their impls
 
     use super::*;
-    use crate::permission::validator::{Validator, ValidatorId};
 
     data_event! {
         #[has_origin(origin = PermissionTokenDefinition)]
@@ -172,14 +171,6 @@ mod permission {
             DefinitionCreated(PermissionTokenDefinition),
             #[has_origin(permission_token_definition => permission_token_definition.id())]
             DefinitionDeleted(PermissionTokenDefinition),
-        }
-    }
-
-    data_event! {
-        #[has_origin(origin = Validator)]
-        pub enum PermissionValidatorEvent {
-            Added(ValidatorId),
-            Removed(ValidatorId),
         }
     }
 }
@@ -306,6 +297,43 @@ mod config {
     }
 }
 
+mod validator {
+    use super::*;
+
+    model! {
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+        #[derive(serde::Deserialize, serde::Serialize)]
+        #[derive(iroha_schema::IntoSchema)]
+        #[non_exhaustive]
+        // NOTE: Single variant enums have representation of ()
+        // Make it #[ffi_type] if more variants are added
+        #[ffi_type(opaque)]
+        #[serde(untagged)]
+        #[repr(transparent)]
+        pub enum PermissionValidatorEvent {
+            Upgraded
+        }
+
+        /// Filter for [`PermissionValidatorEvent`].
+        pub enum ValidatorFilter {
+            Upgraded,
+        }
+
+    }
+
+    #[cfg(feature = "transparent_api")]
+    impl Filter for ValidatorFilter {
+        type Event = PermissionValidatorEvent;
+
+        fn matches(&self, event: &Self::Event) -> bool {
+            match (self, event) {
+                (Self::Upgraded, Self::Event::Upgraded) => true,
+            }
+        }
+    }
+}
+
 /// Trait for events originating from [`HasOrigin::Origin`].
 pub trait HasOrigin {
     /// Type of the origin.
@@ -325,8 +353,8 @@ model! {
         Role(role::RoleEvent),
         Trigger(trigger::TriggerEvent),
         PermissionToken(permission::PermissionTokenEvent),
-        PermissionValidator(permission::PermissionValidatorEvent),
         Configuration(config::ConfigurationEvent),
+        Validator(validator::PermissionValidatorEvent),
     }
 }
 
@@ -364,11 +392,11 @@ impl WorldEvent {
             WorldEvent::PermissionToken(token_event) => {
                 events.push(DataEvent::PermissionToken(token_event));
             }
-            WorldEvent::PermissionValidator(validator_event) => {
-                events.push(DataEvent::PermissionValidator(validator_event));
-            }
             WorldEvent::Configuration(config_event) => {
                 events.push(DataEvent::Configuration(config_event));
+            }
+            WorldEvent::Validator(validator_event) => {
+                events.push(DataEvent::PermissionValidator(validator_event));
             }
         }
 
@@ -397,10 +425,10 @@ model! {
         Role(role::RoleEvent),
         /// Permission token event
         PermissionToken(permission::PermissionTokenEvent),
-        /// Permission validator event
-        PermissionValidator(permission::PermissionValidatorEvent),
         /// Configuration event
         Configuration(config::ConfigurationEvent),
+        /// Validator event
+        PermissionValidator(validator::PermissionValidatorEvent),
     }
 }
 
@@ -436,11 +464,12 @@ pub mod prelude {
         config::ConfigurationEvent,
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
-        permission::{PermissionTokenEvent, PermissionValidatorEvent},
+        permission::PermissionTokenEvent,
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
+        validator::{PermissionValidatorEvent, ValidatorFilter},
         DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
 }

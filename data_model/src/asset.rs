@@ -251,7 +251,7 @@ model! {
     }
 
     /// Asset's inner value.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema)]
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema)]
     #[ffi_type]
     pub enum AssetValue {
         /// Asset's Quantity.
