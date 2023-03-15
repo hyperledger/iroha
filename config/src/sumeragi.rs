@@ -9,9 +9,9 @@ use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
 
 /// Default Amount of time peer waits for transactions before creating a block.
-pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+pub const DEFAULT_BLOCK_TIME_MS: u64 = 2000;
 /// Default amount of time allocated for voting on a block before a peer can ask for a view change.
-pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 2000;
+pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;

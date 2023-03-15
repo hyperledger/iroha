@@ -1940,6 +1940,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "supports-color 2.0.0",
+ "tempfile",
  "thiserror",
  "thread-local-panic-hook",
  "tokio",

@@ -12,15 +12,15 @@ pub use iroha_wasm::{self, data_model, ExecuteOnHost};
 pub mod prelude {
     //! Contains useful re-exports
 
-    pub use iroha_validator_derive::{entrypoint, Token, Validate};
+    pub use iroha_validator_derive::{entrypoint, Token, ValidateGrantRevoke};
     pub use iroha_wasm::{
         data_model::{permission::validator::Verdict, prelude::*},
         prelude::*,
         Context,
     };
 
-    pub use super::traits::{Token, Validate};
-    pub use crate::{deny, pass, pass_if, validate_grant_revoke};
+    pub use super::traits::{Token, ValidateGrantRevoke};
+    pub use crate::{declare_tokens, deny, pass, pass_if};
 }
 
 mod macros {
@@ -135,91 +135,30 @@ mod macros {
         };
     }
 
-    /// Macro to create [`Grant`](crate::data_model::prelude::Grant) and
-    /// [`Revoke`](crate::data_model::prelude::Revoke) instructions validation
-    /// for a given token type using its [`Validate`](super::traits::Validate) implementation.
+    /// Declare token types of current module. Use it with a full path to the token.
     ///
-    /// Generated code will do early return with `instruction` validation verdict
-    /// only if it is a `Grant` or `Revoke` instruction.
+    /// Used to iterate over token types to validate `Grant` and `Revoke` instructions.
     ///
-    /// Otherwise it will proceed with the rest of the function.
     ///
-    /// # Syntax
-    ///
-    /// ```no_run
-    /// validate_grant_revoke!(<Token1, Token2, ...>, (authority_ident, instruction_ident));
+    /// TODO: Replace with procedural macro. Example:
     /// ```
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// #[derive(Token, Validate)]
-    /// #[validate(Creator)]
-    /// struct CanMintAssetsWithDefinition {
-    ///     asset_definition_id: <AssetDefinition as Identifiable>::Id,
-    /// }
-    ///
-    /// #[entrypoint(params = "[authority, instruction]")]
-    /// pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
-    ///    validate_grant_revoke!(<CanMintAssetsWithDefinition>, (authority, instruction));
-    ///    // ...
+    /// #[tokens(path = "crate::current_module")]
+    /// mod tokens {
+    ///     #[derive(Token, ...)]
+    ///     pub struct MyToken;
     /// }
     /// ```
     #[macro_export]
-    macro_rules! validate_grant_revoke {
-        (< $($token:ty),+ $(,)?>, ($authority:ident, $instruction:ident $(,)?)) => {
-            match &$instruction {
-                $crate::iroha_wasm::data_model::prelude::InstructionBox::Grant(grant) => {
-                    let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
-                        $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
-                        as
-                        $crate::iroha_wasm::data_model::prelude::Evaluate
-                    >::evaluate(grant.object(), &Context::new()),
-                        "Failed to evaluate `Grant` object"
-                    );
-
-                    if let $crate::iroha_wasm::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
-                        if let Ok(concrete_token) =
-                            <$token as ::core::convert::TryFrom<_>>::try_from(
-                                <
-                                    $crate::iroha_wasm::data_model::permission::token::PermissionToken as ::core::clone::Clone
-                                >::clone(&permission_token)
-                            )
-                        {
-                            return <$token as ::iroha_validator::traits::Validate>::validate_grant(
-                                &concrete_token,
-                                &$authority
-                            );
-                        }
-                    )+}
-                }
-                $crate::iroha_wasm::data_model::prelude::InstructionBox::Revoke(revoke) => {
-                    let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
-                        $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
-                        as
-                        $crate::iroha_wasm::data_model::prelude::Evaluate
-                    >::evaluate(revoke.object(), &Context::new()),
-                        "Failed to evaluate `Revoke` object"
-                    );
-
-                    if let $crate::iroha_wasm::data_model::prelude::Value::PermissionToken(permission_token) = value {$(
-                        if let Ok(concrete_token) =
-                            <$token as ::core::convert::TryFrom<_>>::try_from(
-                                <
-                                    $crate::iroha_wasm::data_model::permission::token::PermissionToken as ::core::clone::Clone
-                                >::clone(&permission_token)
-                            )
-                        {
-                            return <$token as ::iroha_validator::traits::Validate>::validate_revoke(
-                                &concrete_token,
-                                &$authority
-                            );
-                        }
-                    )+}
-                }
-                _ => {}
+    macro_rules! declare_tokens {
+        ($($token_ty:ty),+ $(,)?) => {
+            macro_rules! map_tokens {
+                ($callback:ident) => {$(
+                    $callback!($token_ty)
+                );+}
             }
-        };
+
+            pub(crate) use map_tokens;
+        }
     }
 
     #[cfg(test)]
@@ -308,7 +247,7 @@ pub mod traits {
 
     /// [`Token`] trait is used to check if the token is owned by the account.
     pub trait Token:
-        TryFrom<PermissionToken, Error = PermissionTokenConversionError> + Validate
+        TryFrom<PermissionToken, Error = PermissionTokenConversionError> + ValidateGrantRevoke
     {
         /// Get definition id of this token
         fn definition_id() -> PermissionTokenId;
@@ -322,7 +261,7 @@ pub mod traits {
     /// Trait that should be implemented for all permission tokens.
     /// Provides a function to check validity of [`Grant`] and [`Revoke`]
     /// instructions containing implementing token.
-    pub trait Validate {
+    pub trait ValidateGrantRevoke {
         /// Validate [`Grant`] instruction for this token.
         fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
 
@@ -332,7 +271,7 @@ pub mod traits {
 }
 
 pub mod pass_conditions {
-    //! Contains some common pass conditions used in [`Validate`](crate::data_model::validator::prelude::Validate)
+    //! Contains some common pass conditions used in [`ValidateGrantRevoke`](crate::data_model::validator::prelude::ValidateGrantRevoke)
 
     use super::*;
 
@@ -343,7 +282,7 @@ pub mod pass_conditions {
 
     pub mod derive_conversions {
         //! Module with derive macros to generate conversion from custom strongly-typed token
-        //! to some pass condition to successfully derive [`Validate`](iroha_validator_derive::Validate)
+        //! to some pass condition to successfully derive [`ValidateGrantRevoke`](iroha_validator_derive::ValidateGrantRevoke)
 
         pub mod asset {
             //! Module with derives related to asset tokens

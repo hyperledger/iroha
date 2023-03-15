@@ -4,6 +4,7 @@ use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha_client::client;
+use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
@@ -233,17 +234,57 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 }
 
 #[allow(unused_must_use)]
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::expect_fun_call)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_675).start_with_runtime();
+
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid.");
+    let seller_id: AccountId = "seller@company".parse().expect("Valid.");
+    let buyer_id: AccountId = "buyer@company".parse().expect("Valid.");
+
+    let seller_btc: AssetId = "btc#crypto#seller@company".parse().expect("Valid.");
+    let buyer_eth: AssetId = "eth#crypto#buyer@company".parse().expect("Valid.");
+
+    let seller_keypair = KeyPair::generate().expect("Failed to generate seller KeyPair.");
+    let buyer_keypair = KeyPair::generate().expect("Failed to generate seller KeyPair.");
+
+    let register_account = |account_id: AccountId, signature: PublicKey| {
+        RegisterBox::new(Account::new(account_id, [signature]))
+    };
+
+    let grant_alice_asset_transfer_permission = |asset_id: AssetId, owner_keypair: KeyPair| {
+        let allow_alice_to_transfer_asset = GrantBox::new(
+            PermissionToken::new("can_transfer_user_asset".parse().expect("Valid"))
+                .with_params([("asset_id".parse().expect("Valid"), asset_id.clone().into())]),
+            alice_id.clone(),
+        )
+        .into();
+
+        let grant_asset_transfer_tx = TransactionBuilder::new(
+            asset_id.account_id().clone(),
+            vec![allow_alice_to_transfer_asset],
+            100_000,
+        )
+        .sign(owner_keypair)
+        .expect("Failed to sign seller transaction");
+
+        test_client
+            .submit_transaction_blocking(grant_asset_transfer_tx)
+            .expect(&format!(
+                "Failed to grant permission alice to transfer {}.",
+                asset_id
+            ));
+    };
 
     test_client
         .submit_all_blocking(vec![
             register::domain("exchange").into(),
             register::domain("company").into(),
             register::domain("crypto").into(),
-            register::account("seller", "company").into(),
-            register::account("buyer", "company").into(),
+            register_account(seller_id, seller_keypair.public_key().clone()).into(),
+            register_account(buyer_id, buyer_keypair.public_key().clone()).into(),
             register::account("dex", "exchange").into(),
             register::asset_definition("btc", "crypto").into(),
             register::asset_definition("eth", "crypto").into(),
@@ -263,43 +304,49 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
                 IdBox::AssetId(asset_id_new("btc2eth_rate", "exchange", "dex", "exchange")),
             )
             .into(),
-            Pair::new(
-                TransferBox::new(
-                    IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
-                    EvaluatesTo::new_evaluates_to_value(
-                        Expression::Query(
-                            FindAssetQuantityById::new(asset_id_new(
-                                "btc2eth_rate",
-                                "exchange",
-                                "dex",
-                                "exchange",
-                            ))
-                            .into(),
-                        )
-                        .into(),
-                    ),
-                    IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
-                ),
-                TransferBox::new(
-                    IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
-                    EvaluatesTo::new_evaluates_to_value(
-                        Expression::Query(
-                            FindAssetQuantityById::new(asset_id_new(
-                                "btc2eth_rate",
-                                "exchange",
-                                "dex",
-                                "exchange",
-                            ))
-                            .into(),
-                        )
-                        .into(),
-                    ),
-                    IdBox::AssetId(asset_id_new("eth", "crypto", "seller", "company")),
-                ),
-            )
-            .into(),
         ])
-        .expect("Failed to execute Iroha Special Instruction.");
+        .expect("Failed to prepare accounts.");
+
+    grant_alice_asset_transfer_permission(seller_btc, seller_keypair);
+    grant_alice_asset_transfer_permission(buyer_eth, buyer_keypair);
+
+    test_client
+        .submit_all_blocking(vec![Pair::new(
+            TransferBox::new(
+                IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
+                EvaluatesTo::new_evaluates_to_value(
+                    Expression::Query(
+                        FindAssetQuantityById::new(asset_id_new(
+                            "btc2eth_rate",
+                            "exchange",
+                            "dex",
+                            "exchange",
+                        ))
+                        .into(),
+                    )
+                    .into(),
+                ),
+                IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
+            ),
+            TransferBox::new(
+                IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
+                EvaluatesTo::new_evaluates_to_value(
+                    Expression::Query(
+                        FindAssetQuantityById::new(asset_id_new(
+                            "btc2eth_rate",
+                            "exchange",
+                            "dex",
+                            "exchange",
+                        ))
+                        .into(),
+                    )
+                    .into(),
+                ),
+                IdBox::AssetId(asset_id_new("eth", "crypto", "seller", "company")),
+            ),
+        )
+        .into()])
+        .expect("Failed to exchange eth for btc.");
 
     let expected_seller_eth = NumericValue::U32(20);
     let expected_buyer_eth = NumericValue::U32(180);

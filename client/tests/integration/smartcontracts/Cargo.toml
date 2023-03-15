@@ -10,8 +10,8 @@ license = "Apache-2.0"
 resolver = "2"
 members = [
     "create_nft_for_every_user_trigger",
-    "deny_new_validators_validator",
     "mint_rose",
+    "validator_with_admin",
 ]
 
 [profile.dev]
@@ -27,4 +27,5 @@ codegen-units = 1   # Further reduces binary size but increases compilation time
 [workspace.dependencies]
 iroha_wasm = { version = "=2.0.0-pre-rc.13", path = "../../../../wasm", features = ["debug"]}
 iroha_validator = { version = "=2.0.0-pre-rc.13", path = "../../../../wasm/validator" }
+iroha_default_validator = { version = "=2.0.0-pre-rc.13", path = "../../../../default_validator", default-features = false }
 panic-halt = "0.2.0"

@@ -18,7 +18,7 @@ impl Registrable for NewRole {
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use eyre::Result;
-    use iroha_data_model::{permission, prelude::*, query::error::FindError};
+    use iroha_data_model::{prelude::*, query::error::FindError};
 
     use super::*;
 
@@ -335,55 +335,6 @@ pub mod isi {
         Ok(())
     }
 
-    impl Execute for Register<permission::Validator> {
-        type Error = Error;
-
-        #[metrics(+"register_validator")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
-            let validator = self.object;
-            let validator_id = validator.id().clone();
-
-            wsv.modify_validators(|validator_chain| {
-                let inserted = validator_chain
-                    .add_validator(validator)
-                    .map_err(|err| ValidationError::new(err.to_string()))?;
-                if !*inserted {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::ValidatorId(validator_id),
-                    ));
-                }
-
-                Ok(PermissionValidatorEvent::Added(validator_id))
-            })
-        }
-    }
-
-    impl Execute for Unregister<permission::Validator> {
-        type Error = Error;
-
-        #[metrics(+"register_validator")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
-            let validator_id = self.object_id;
-
-            wsv.modify_validators(|validator_chain| {
-                if !validator_chain.remove_validator(&validator_id) {
-                    return Err(FindError::Validator(validator_id).into());
-                }
-
-                Ok(PermissionValidatorEvent::Removed(validator_id))
-            })
-        }
-    }
-
     impl Execute for SetParameter<Parameter> {
         type Error = Error;
 
@@ -405,29 +356,54 @@ pub mod isi {
             })
         }
     }
-}
 
-impl Execute for NewParameter<Parameter> {
-    type Error = Error;
+    impl Execute for NewParameter<Parameter> {
+        type Error = Error;
 
-    #[metrics(+"new_parameter")]
-    fn execute(
-        self,
-        _authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let parameter = self.parameter;
+        #[metrics(+"new_parameter")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let parameter = self.parameter;
 
-        wsv.modify_world(|world| {
-            if world.parameters.insert(parameter.clone()) {
-                Ok(ConfigurationEvent::Created(parameter.id).into())
-            } else {
-                Err(Error::Repetition(
-                    InstructionType::NewParameter,
-                    IdBox::ParameterId(parameter.id),
-                ))
-            }
-        })
+            wsv.modify_world(|world| {
+                if world.parameters.insert(parameter.clone()) {
+                    Ok(ConfigurationEvent::Created(parameter.id).into())
+                } else {
+                    Err(Error::Repetition(
+                        InstructionType::NewParameter,
+                        IdBox::ParameterId(parameter.id),
+                    ))
+                }
+            })
+        }
+    }
+
+    impl Execute for Upgrade<permission::Validator> {
+        type Error = Error;
+
+        #[metrics(+"upgrade_validator")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            #[cfg(test)]
+            use crate::validator::MockValidator as Validator;
+            #[cfg(not(test))]
+            use crate::validator::Validator;
+
+            let raw_validator = self.object;
+            wsv.modify_world(|world| {
+                let new_validator = Validator::new(raw_validator).map_err(|err| {
+                    ValidationError::new(format!("Failed to load wasm blob: {err}"))
+                })?;
+                let _ = world.upgraded_validator.write().insert(new_validator);
+                Ok(PermissionValidatorEvent::Upgraded.into())
+            })
+        }
     }
 }
 /// Query module provides `IrohaQuery` Peer related implementations.

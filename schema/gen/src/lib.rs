@@ -52,6 +52,7 @@ pub fn build_schemas() -> MetaMap {
         VersionedPaginatedQueryResult,
         VersionedSignedQuery,
         VersionedPendingTransactions,
+        UpgradableBox,
     }
 }
 
@@ -117,7 +118,6 @@ types!(
     Box<PermissionTokenDefinition>,
     Box<Role>,
     Box<Trigger<FilterBox, Executable>>,
-    Box<Validator>,
     Box<Value>,
     Box<ValuePredicate>,
     Box<VersionedRejectedTransaction>,
@@ -156,6 +156,8 @@ types!(
     EvaluatesTo<RegistrableBox>,
     EvaluatesTo<RoleId>,
     EvaluatesTo<TriggerId>,
+    EvaluatesTo<UpgradableBox>,
+    UpgradableBox,
     EvaluatesTo<Value>,
     EvaluatesTo<Vec<Value>>,
     EvaluatesTo<bool>,
@@ -379,8 +381,6 @@ types!(
     UnsatisfiedSignatureConditionFail,
     ValidTransaction,
     Validator,
-    ValidatorId,
-    ValidatorType,
     Value,
     ValueKind,
     ValueOfKey,
@@ -443,7 +443,7 @@ mod tests {
             BlockHeader, CommittedBlock, VersionedCommittedBlock,
         },
         domain::{IpfsPath, NewDomain},
-        permission::validator::{Validator, ValidatorId, ValidatorType},
+        permission::validator::Validator,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
             numerical::{Interval, SemiInterval, SemiRange},

@@ -90,7 +90,7 @@ impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
 impl<T> DebugUnwrapExt for Option<T> {
     type Output = T;
 
-    #[allow(clippy::panic)]
+    #[allow(clippy::panic, clippy::single_match_else, clippy::option_if_let_else)]
     fn dbg_unwrap(self) -> Self::Output {
         #[cfg(not(feature = "debug"))]
         #[allow(clippy::unwrap_used)]
@@ -145,7 +145,7 @@ impl<T, E: Debug> DebugExpectExt for Result<T, E> {
 impl<T> DebugExpectExt for Option<T> {
     type Output = T;
 
-    #[allow(clippy::panic)]
+    #[allow(clippy::panic, clippy::single_match_else, clippy::option_if_let_else)]
     fn dbg_expect(self, msg: &str) -> Self::Output {
         #[cfg(not(feature = "debug"))]
         return self.expect(msg);

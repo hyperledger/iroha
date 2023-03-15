@@ -76,7 +76,7 @@ impl<F: Filter> Filter for FilterOpt<F> {
 }
 
 model! {
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(clippy::enum_variant_names)]
     /// Filters event by entity
     pub enum DataEntityFilter {

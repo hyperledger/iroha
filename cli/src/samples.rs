@@ -1,14 +1,15 @@
 #![allow(clippy::restriction)]
 //! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::HashSet, path::Path, str::FromStr};
 
+use eyre::WrapErr as _;
 use iroha_config::{
     iroha::{Configuration, ConfigurationProxy},
     sumeragi::TrustedPeers,
     torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_P2P_ADDR, DEFAULT_TORII_TELEMETRY_URL},
 };
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::peer::PeerId;
+use iroha_data_model::{peer::PeerId, permission::Validator, prelude::*};
 
 /// Get sample trusted peers. The public key must be the same as `configuration.public_key`
 ///
@@ -98,4 +99,29 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
     get_config_proxy(trusted_peers, key_pair)
         .build()
         .expect("Iroha config should build as all required fields were provided")
+}
+
+/// Construct validator from path.
+///
+/// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
+///
+/// # Errors
+///
+/// - Failed to create temp dir for validator output
+/// - Failed to build validator
+/// - Failed to optimize validator
+pub fn construct_validator<P>(relative_path: &P) -> color_eyre::Result<Validator>
+where
+    P: AsRef<Path> + ?Sized,
+{
+    let build_dir =
+        tempfile::tempdir().wrap_err("Failed to create temp dir for runtime validator output")?;
+
+    let wasm_blob = iroha_wasm_builder::Builder::new(relative_path)
+        .out_dir(build_dir.path())
+        .build()?
+        .optimize()?
+        .into_bytes();
+
+    Ok(Validator::new(WasmSmartContract::new(wasm_blob)))
 }
