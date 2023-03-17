@@ -38,7 +38,6 @@ add_install_step_for_bin(irohalib_query_example)
 
 
 ####### irohalib_domainassetcreation_example:
-
 add_executable(irohalib_domainassetcreation_example
     DomainAssetCreation.cpp
 )
