@@ -1,8 +1,8 @@
-//! This module contains `Block` structures for each state, it's
+//! This module contains [`Block`] structures for each state, it's
 //! transitions, implementations and related traits
-//! implementations. `Block`s are organised into a linear sequence
+//! implementations. [`Block`]s are organised into a linear sequence
 //! over time (also known as the block chain).  A Block's life-cycle
-//! starts from `PendingBlock`.
+//! starts from [`PendingBlock`].
 #![allow(
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
@@ -39,7 +39,7 @@ mod pending {
     declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_macro::FromVariant);
 
     /// Transaction data is permanently recorded in files called
-    /// blocks.  This is the first stage of a `Block`s life-cycle.
+    /// blocks.  This is the first stage of a [`Block`]s life-cycle.
     #[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct PendingBlock {
@@ -52,7 +52,7 @@ mod pending {
     }
 
     impl PendingBlock {
-        /// Create a new `PendingBlock` from transactions.
+        /// Create a new [`PendingBlock`] from transactions.
         #[inline]
         pub fn new(
             transactions: Vec<VersionedAcceptedTransaction>,
@@ -133,7 +133,7 @@ mod pending {
 mod chained {
     use super::*;
 
-    /// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
+    /// When [`PendingBlock`] chained with a blockchain it becomes [`ChainedBlock`]
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ChainedBlock {
         /// Block header
@@ -201,7 +201,7 @@ mod chained {
 mod valid {
     use super::*;
 
-    /// After full validation `ChainedBlock` can transform into `ValidBlock`.
+    /// After full validation [`ChainedBlock`] can transform into [`ValidBlock`].
     #[derive(Debug, Clone)]
     pub struct ValidBlock {
         /// Block header
@@ -222,7 +222,7 @@ mod valid {
             HashOf::new(&self.header).transmute()
         }
 
-        /// Sign this block and get `SignedBlock`.
+        /// Sign this block and get [`SignedBlock`].
         ///
         /// # Errors
         /// Fails if signature generation fails
@@ -245,7 +245,7 @@ mod valid {
 mod signed {
     use super::*;
 
-    /// After receiving first signature, `ValidBlock` can transform into `SignedBlock`.
+    /// After receiving first signature, [`ValidBlock`] can transform into [`SignedBlock`].
     #[derive(Debug, Clone)]
     pub struct SignedBlock {
         /// Block header
@@ -267,9 +267,8 @@ mod signed {
             HashOf::new(&self.header).transmute()
         }
 
-        /// Return signatures that are verified with the `hash` of this block, removing all other
-        /// signatures.
-
+        /// Return signatures that are verified with the `hash` of this block,
+        /// removing all other signatures.
         #[inline]
         pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
             self.signatures.retain_verified_by_hash(self.hash())
@@ -331,7 +330,7 @@ mod signed {
             Ok(self.commit_unchecked())
         }
 
-        /// Add additional signatures for `SignedBlock`.
+        /// Add additional signatures for [`SignedBlock`].
         ///
         /// # Errors
         /// Fails if signature generation fails
@@ -344,7 +343,7 @@ mod signed {
                 })
         }
 
-        /// Add additional signature for `SignedBlock`
+        /// Add additional signature for [`SignedBlock`]
         ///
         /// # Errors
         /// Fails if given signature doesn't match block hash
@@ -360,7 +359,7 @@ mod signed {
                 ))
         }
 
-        /// Create dummy `ValidBlock`. Used in tests
+        /// Create dummy [`ValidBlock`]. Used in tests
         ///
         /// # Panics
         /// If generating keys or block signing fails.
@@ -441,7 +440,7 @@ mod candidate {
     }
 
     impl VersionedCandidateBlock {
-        /// Convert from `&VersionedCandidateBlock` to V1 reference
+        #[allow(missing_docs)]
         #[inline]
         pub const fn as_v1(&self) -> &CandidateBlock {
             match self {
@@ -449,7 +448,7 @@ mod candidate {
             }
         }
 
-        /// Convert from `&mut VersionedCandidateBlock` to V1 mutable reference
+        #[allow(missing_docs)]
         #[inline]
         pub fn as_mut_v1(&mut self) -> &mut CandidateBlock {
             match self {
@@ -457,7 +456,7 @@ mod candidate {
             }
         }
 
-        /// Perform the conversion from `VersionedCandidateBlock` to V1
+        #[allow(missing_docs)]
         #[inline]
         pub fn into_v1(self) -> CandidateBlock {
             match self {
@@ -472,14 +471,12 @@ mod candidate {
         }
 
         /// Calculate the hash of the current block.
-
         #[inline]
         pub fn hash(&self) -> HashOf<Self> {
             self.as_v1().hash().transmute()
         }
 
         /// Return signatures that are verified with the `hash` of this block, removing all other signatures.
-
         #[inline]
         pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
             self.as_mut_v1()
@@ -715,7 +712,7 @@ mod candidate_committed {
     declare_versioned_with_scale!(VersionedCandidateCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant);
 
     /// Block state used to transfer accepted by consensus block through network to the other peers.
-    /// This block state is not entirely trusted and require hash revalidation to obtain `CommittedBlock`.
+    /// This block state is not entirely trusted and require hash revalidation to obtain [`CommittedBlock`].
     #[version_with_scale(n = 1, versioned = "VersionedCandidateCommittedBlock")]
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct CandidateCommittedBlock {
@@ -732,7 +729,7 @@ mod candidate_committed {
     }
 
     impl VersionedCandidateCommittedBlock {
-        /// Convert from `&VersionedCandidateCommittedBlock` to V1 reference
+        #[allow(missing_docs)]
         #[inline]
         pub const fn as_v1(&self) -> &CandidateCommittedBlock {
             match self {
@@ -740,7 +737,7 @@ mod candidate_committed {
             }
         }
 
-        /// Convert from `&mut VersionedCandidateCommittedBlock` to V1 mutable reference
+        #[allow(missing_docs)]
         #[inline]
         pub fn as_mut_v1(&mut self) -> &mut CandidateCommittedBlock {
             match self {
@@ -748,7 +745,7 @@ mod candidate_committed {
             }
         }
 
-        /// Performs the conversion from `VersionedCandidateCommittedBlock` to V1
+        #[allow(missing_docs)]
         #[inline]
         pub fn into_v1(self) -> CandidateCommittedBlock {
             match self {
@@ -757,7 +754,7 @@ mod candidate_committed {
         }
 
         /// Calculate the hash of the current block.
-        /// `VersionedCandidateCommittedBlock` should have the same hash as `VersionedCommittedBlock`.
+        /// [`VersionedCandidateCommittedBlock`] should have the same hash as [`VersionedCommittedBlock`].
 
         #[inline]
         pub fn hash(&self) -> HashOf<Self> {
@@ -799,8 +796,7 @@ mod candidate_committed {
 
     impl CandidateCommittedBlock {
         /// Calculate the hash of the current block.
-        /// `CommitedBlock` should have the same hash as `ValidBlock`.
-
+        /// [`CommittedBlock`] should have the same hash as [`ValidBlock`].
         #[inline]
         pub fn hash(&self) -> HashOf<Self> {
             HashOf::new(&self.header).transmute()
