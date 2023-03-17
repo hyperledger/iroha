@@ -245,7 +245,7 @@ mod valid {
 mod signed {
     use super::*;
 
-    /// After receiving first signature, [`ValidBlock`] can transform into `SignedBlock`.
+    /// After receiving first signature, [`ValidBlock`] can transform into [`SignedBlock`].
     #[derive(Debug, Clone)]
     pub struct SignedBlock {
         /// Block header
