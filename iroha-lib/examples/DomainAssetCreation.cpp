@@ -7,9 +7,6 @@
 #include "model/utils/Utils.h"
 
 
-static constexpr const char* LINE = "-----------";
-
-
 iroha_lib::Query generateQueryBase(const std::string& account_name, const std::string& key_path);
 iroha::protocol::Query generateGetAccountAssetsQuery(const std::string& account_name, const std::string& key_path);
 iroha::protocol::Query generateGetAccountTransactionsQuery(const std::string& account_name, const std::string& key_path);

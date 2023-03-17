@@ -9,7 +9,7 @@ namespace iroha_lib {
 Query::Query(
         const iroha::keypair_t& keypair,
         uint64_t counter,
-        const uint64_t created_time)
+        uint64_t created_time)
     : counter_(counter),
       created_time_(created_time),
       keypair_(keypair)
