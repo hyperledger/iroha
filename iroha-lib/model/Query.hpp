@@ -1,5 +1,4 @@
-#ifndef QUERY_HPP
-#define QUERY_HPP
+#pragma once
 
 #include "LibsAndClassDeclarations.h"
 
@@ -47,5 +46,3 @@ public:
 };
 
 }  // namespace iroha_lib
-
-#endif
