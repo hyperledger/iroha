@@ -1,10 +1,11 @@
 #![allow(clippy::restriction)]
 use eyre::Result;
 use iroha_client::client::ClientQueryError;
-use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, query::asset::FindTotalAssetQuantityByAssetDefinitionId};
-use iroha_permissions_validators::public_blockchain::burn::CanBurnUserAssets;
+use iroha_data_model::{
+    prelude::*,
+    query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFailure},
+};
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
@@ -88,32 +89,6 @@ fn find_asset_total_quantity() -> Result<()> {
             .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
             .collect::<Vec<_>>();
 
-        // Give Alice ability to burn other accounts assets
-        asset_ids
-            .iter()
-            .skip(1)
-            .cloned()
-            .map(|asset_id| CanBurnUserAssets::new(asset_id).into())
-            .map(|permission_token: PermissionToken| {
-                GrantBox::new(permission_token, accounts[0].clone())
-            })
-            .zip(accounts.iter().skip(1).cloned())
-            .zip(keys.iter().cloned())
-            .map(|((grant_box, account_id), key_pair)| {
-                Transaction::new(
-                    account_id,
-                    Executable::Instructions(vec![grant_box.into()]),
-                    100_000,
-                )
-                .sign(key_pair)
-                .expect("Signing failed")
-            })
-            .for_each(|transaction| {
-                test_client
-                    .submit_transaction_blocking(transaction)
-                    .expect("Unable to execute transaction");
-            });
-
         // Assert that initial total quantity before any burns and mints is zero
         let initial_total_asset_quantity = test_client.request(
             FindTotalAssetQuantityByAssetDefinitionId::new(definition_id.clone()),
@@ -169,7 +144,7 @@ fn find_asset_total_quantity() -> Result<()> {
         ));
         assert!(matches!(
             result,
-            Err(ClientQueryError::QueryError(QueryError::Find(_)))
+            Err(ClientQueryError::QueryError(QueryExecutionFailure::Find(_)))
         ));
     }
 
@@ -184,32 +159,6 @@ fn find_asset_total_quantity() -> Result<()> {
         .cloned()
         .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
         .collect::<Vec<_>>();
-
-    // Give Alice ability to burn other accounts assets
-    asset_ids
-        .iter()
-        .skip(1)
-        .cloned()
-        .map(|asset_id| CanBurnUserAssets::new(asset_id).into())
-        .map(|permission_token: PermissionToken| {
-            GrantBox::new(permission_token, accounts[0].clone())
-        })
-        .zip(accounts.iter().skip(1).cloned())
-        .zip(keys.iter().cloned())
-        .map(|((grant_box, account_id), key_pair)| {
-            Transaction::new(
-                account_id,
-                Executable::Instructions(vec![grant_box.into()]),
-                100_000,
-            )
-            .sign(key_pair)
-            .expect("Signing failed")
-        })
-        .for_each(|transaction| {
-            test_client
-                .submit_transaction_blocking(transaction)
-                .expect("Unable to execute transaction");
-        });
 
     // Assert that initial total quantity before any registrations and unregistrations is zero
     let initial_total_asset_quantity = test_client.request(
@@ -253,7 +202,7 @@ fn find_asset_total_quantity() -> Result<()> {
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::QueryError(QueryError::Find(_)))
+        Err(ClientQueryError::QueryError(QueryExecutionFailure::Find(_)))
     ));
 
     Ok(())

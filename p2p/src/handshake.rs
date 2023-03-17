@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use iroha_actor::broker::Broker;
 use iroha_crypto::ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
 use iroha_data_model::{peer, Identifiable};
-use iroha_data_model_derive::IdOrdEqHash;
+use iroha_data_model_derive::IdEqOrdHash;
 use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 use crate::peer::{Connection, Cryptographer};
@@ -111,7 +111,7 @@ pub mod peer_state {
 
     /// Peer that is connecting. This is the initial stage of a new
     /// outgoing peer.
-    #[derive(Debug, IdOrdEqHash)]
+    #[derive(Debug, IdEqOrdHash)]
     pub struct Connecting(#[id] peer::Id, pub Broker);
 
     impl Connecting {
@@ -123,7 +123,7 @@ pub mod peer_state {
     }
 
     /// Peer that is being connected to.
-    #[derive(Debug, IdOrdEqHash)]
+    #[derive(Debug, IdEqOrdHash)]
     pub struct ConnectedTo(#[id] peer::Id, Broker, Connection);
 
     impl ConnectedTo {
@@ -151,7 +151,7 @@ pub mod peer_state {
     }
 
     /// Peer that is being connected from
-    #[derive(Debug, IdOrdEqHash)]
+    #[derive(Debug, IdEqOrdHash)]
     pub struct ConnectedFrom(#[id] peer::Id, Broker, Connection);
 
     impl ConnectedFrom {
@@ -254,10 +254,10 @@ pub mod peer_state {
     );
 
     /// Peer in disconnected state.
-    #[derive(Debug, IdOrdEqHash)]
+    #[derive(Debug, IdEqOrdHash)]
     pub struct Disconnected(#[id] peer::Id);
 
     /// Peer in broken state.
-    #[derive(Debug, IdOrdEqHash)]
+    #[derive(Debug, IdEqOrdHash)]
     pub struct Broken(#[id] peer::Id, crate::Error);
 }

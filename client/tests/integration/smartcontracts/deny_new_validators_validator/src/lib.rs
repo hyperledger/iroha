@@ -4,18 +4,20 @@
 #![no_main]
 
 extern crate alloc;
+#[cfg(not(test))]
+extern crate panic_halt;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_wasm::{validator::prelude::*, DebugExpectExt as _};
+use iroha_validator::prelude::*;
 
 /// Forbid every new validator registration
-#[entrypoint]
-pub fn validate(instruction: Instruction) -> Verdict {
+#[entrypoint(params = "[instruction]")]
+fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register
-            .object
-            .evaluate_on_host()
+            .object()
+            .evaluate()
             .dbg_expect("Failed to evaluate `Register` expression as `RegistrableBox` value")
         {
             return Verdict::Deny("New validators are not allowed".to_owned());

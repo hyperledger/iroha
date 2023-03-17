@@ -5,12 +5,13 @@
 use std::sync::mpsc;
 
 use iroha_crypto::HashOf;
+use iroha_data_model::{block::*, transaction::error::TransactionExpired};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
 use super::*;
-use crate::{genesis::GenesisNetwork, sumeragi::tracing::instrument};
+use crate::{block::*, sumeragi::tracing::instrument};
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {}
@@ -196,7 +197,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
 
     #[allow(clippy::needless_pass_by_value)]
     fn broadcast_packet(&self, msg: MessagePacket, topology: &Topology) {
-        self.broadcast_packet_to(msg, topology.sorted_peers());
+        self.broadcast_packet_to(msg, &topology.sorted_peers);
     }
 
     fn gossip_transactions(&self, state: &State, view_change_proof_chain: &ProofChain) {
@@ -222,7 +223,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
         let peers_expected = {
-            let mut res = topology.sorted_peers().to_owned();
+            let mut res = topology.sorted_peers.clone();
             res.retain(|id| id.address != self.peer_id.address);
             res.shuffle(&mut rand::thread_rng());
             res
@@ -286,7 +287,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             Ok(packet) => {
                 if let Err(error) = view_change_proof_chain.merge(
                     packet.view_change_proofs,
-                    current_topology.sorted_peers(),
+                    &current_topology.sorted_peers,
                     current_topology.max_faults(),
                     state.latest_block_hash,
                 ) {
@@ -368,11 +369,6 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
                     };
 
                     if block.header().is_genesis() {
-                        if let Some(topology) = block.header().genesis_topology.clone().take() {
-                            state.current_topology = topology;
-                            info!("Using genesis topology");
-                        }
-
                         commit_block(self, state, block);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
@@ -399,10 +395,13 @@ fn commit_block<F: FaultInjection>(
         .apply(&committed_block)
         .expect("Failed to apply block on WSV. Bailing.");
     sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
-    sumeragi.send_events(&committed_block);
 
     // Update WSV copy that is public facing
     *sumeragi.wsv.lock() = state.wsv.clone();
+
+    // This sends "Block committed" event, so it should be done
+    // AFTER public facing WSV update
+    sumeragi.send_events(&committed_block);
 
     state.previous_block_hash = state.latest_block_hash;
     state.latest_block_height = committed_block.header().height;
@@ -418,8 +417,27 @@ fn commit_block<F: FaultInjection>(
         %block_hash, "Committing block"
     );
 
+    *current_topology = Topology {
+        sorted_peers: committed_block.header().committed_with_topology.clone(),
+    };
+    current_topology.lift_up_peers(
+        &committed_block
+            .signatures()
+            .into_iter()
+            .map(|s| s.public_key().clone())
+            .collect::<Vec<PublicKey>>(),
+    );
+    current_topology.rotate_set_a();
+    current_topology.update_peer_list(
+        &state
+            .wsv
+            .peers_ids()
+            .iter()
+            .map(|id| id.clone())
+            .collect::<Vec<PeerId>>(),
+    );
+
     sumeragi.kura.store_block(committed_block);
-    current_topology.recreate(&state.wsv, block_hash);
 
     cache_transaction(state, sumeragi);
 }
@@ -439,15 +457,18 @@ fn replace_top_block<F: FaultInjection>(
         .expect("Failed to apply block on WSV. Bailing.");
 
     sumeragi.send_events(state.wsv.events_buffer.replace(Vec::new()));
+
+    // Update WSV copy that is public facing
+    *sumeragi.wsv.lock() = state.wsv.clone();
+
+    // This sends "Block committed" event, so it should be done
+    // AFTER public facing WSV update
     sumeragi.send_events(&committed_block);
 
     // state.previous_block_hash stays the same.
     state.latest_block_height = committed_block.header().height;
     state.latest_block_hash = Some(block_hash);
     state.latest_block_view_change_index = committed_block.header().view_change_index;
-
-    // Update WSV copy that is public facing
-    *sumeragi.wsv.lock() = state.wsv.clone();
 
     let current_topology = &mut state.current_topology;
     let role = current_topology.role(&sumeragi.peer_id);
@@ -458,8 +479,27 @@ fn replace_top_block<F: FaultInjection>(
         %block_hash, "Replacing top block"
     );
 
+    *current_topology = Topology {
+        sorted_peers: committed_block.header().committed_with_topology.clone(),
+    };
+    current_topology.lift_up_peers(
+        &committed_block
+            .signatures()
+            .into_iter()
+            .map(|s| s.public_key().clone())
+            .collect::<Vec<PublicKey>>(),
+    );
+    current_topology.rotate_set_a();
+    current_topology.update_peer_list(
+        &state
+            .wsv
+            .peers_ids()
+            .iter()
+            .map(|id| id.clone())
+            .collect::<Vec<PeerId>>(),
+    );
+
     sumeragi.kura.replace_top_block(committed_block);
-    current_topology.recreate(&state.wsv, block_hash);
 
     cache_transaction(state, sumeragi)
 }
@@ -491,7 +531,7 @@ fn suggest_view_change<F: FaultInjection>(
 
     view_change_proof_chain
         .insert_proof(
-            state.current_topology.sorted_peers(),
+            &state.current_topology.sorted_peers,
             state.current_topology.max_faults(),
             state.latest_block_hash,
             suspect_proof,
@@ -511,7 +551,7 @@ fn prune_view_change_proofs_and_calculate_current_index(
 ) -> u64 {
     view_change_proof_chain.prune(state.latest_block_hash);
     view_change_proof_chain.verify_with_state(
-        state.current_topology.sorted_peers(),
+        &state.current_topology.sorted_peers,
         state.current_topology.max_faults(),
         state.latest_block_hash,
     ) as u64
@@ -525,9 +565,8 @@ fn enqueue_transaction<F: FaultInjection>(
     let tx = tx.into_v1();
 
     let addr = &sumeragi.peer_id.address;
-    match VersionedAcceptedTransaction::from_transaction::<false>(tx, &sumeragi.transaction_limits)
-    {
-        Ok(tx) => match sumeragi.queue.push(tx, wsv) {
+    match AcceptedTransaction::accept::<false>(tx, &sumeragi.transaction_limits) {
+        Ok(tx) => match sumeragi.queue.push(tx.into(), wsv) {
             Ok(_) => {}
             Err(crate::queue::Failure {
                 tx,
@@ -622,6 +661,9 @@ fn handle_message<F: FaultInjection>(
                 let voting_block_hash = voted_block.block.hash();
 
                 if hash == voting_block_hash.transmute() {
+                    // The manipulation of the topology relies upon all peers seeing the same signature set.
+                    // Therefore we must clear the signatures and accept what the proxy tail giveth.
+                    voted_block.block.signatures.clear();
                     add_signatures::<true>(&mut voted_block, signatures.transmute());
 
                     match voted_block.block.commit(current_topology) {
@@ -743,6 +785,7 @@ fn process_message_independent<F: FaultInjection>(
                             state.latest_block_height,
                             state.latest_block_hash,
                             current_view_change_index,
+                            state.current_topology.clone(),
                         )
                         .validate(&sumeragi.transaction_validator, &state.wsv)
                         .sign(sumeragi.key_pair.clone())
@@ -836,17 +879,19 @@ fn reset_state(
         // a view change a new block is immediately created by the leader
         *round_start_time = Instant::now();
         was_commit_or_view_change = true;
+        *old_view_change_index = 0;
     }
 
-    if current_view_change_index != *old_view_change_index {
-        current_topology.rebuild_with_new_view_change_count(current_view_change_index);
+    while *old_view_change_index < current_view_change_index {
+        *old_view_change_index += 1;
+        error!(addr=%peer_id.address, "Rotating the entire topology.");
+        current_topology.rotate_all();
         was_commit_or_view_change = true;
     }
 
     // Reset state for the next round.
     if was_commit_or_view_change {
         *old_latest_block_height = current_latest_block_height;
-        *old_view_change_index = current_view_change_index;
 
         *voting_block = None;
         voting_signatures.clear();
@@ -935,9 +980,18 @@ pub(crate) fn run<F: FaultInjection>(
             // Checking if transactions are in the blockchain is costly
             .retain(|tx| !tx.is_expired(sumeragi.queue.tx_time_to_live));
 
-        sumeragi
-            .queue
-            .get_transactions_for_block(&state.wsv, &mut state.transaction_cache);
+        let mut expired_transactions = Vec::new();
+        sumeragi.queue.get_transactions_for_block(
+            &state.wsv,
+            &mut state.transaction_cache,
+            &mut expired_transactions,
+        );
+        sumeragi.send_events(
+            expired_transactions
+                .iter()
+                .map(expired_event)
+                .collect::<Vec<_>>(),
+        );
 
         if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
             sumeragi.gossip_transactions(&state, &view_change_proof_chain);
@@ -970,11 +1024,11 @@ pub(crate) fn run<F: FaultInjection>(
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
                 // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
-                warn!(%role, block=%block.hash(), "Block not committed in due time, requesting view change...");
+                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.hash(), "Block not committed in due time, requesting view change...");
             } else {
                 // NOTE: Suspecting the leader node because it hasn't produced a block
                 // If the current node has a transaction, the leader should have as well
-                warn!(%role, "No block produced in due time, requesting view change...");
+                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, "No block produced in due time, requesting view change...");
             }
 
             suggest_view_change(
@@ -1037,6 +1091,20 @@ fn add_signatures<const EXPECT_VALID: bool>(
     }
 }
 
+/// Create expired pipeline event for the given transaction.
+fn expired_event(txn: &impl Txn) -> Event {
+    PipelineEvent {
+        entity_kind: PipelineEntityKind::Transaction,
+        status: PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
+            TransactionRejectionReason::Expired(TransactionExpired {
+                time_to_live_ms: txn.payload().time_to_live_ms,
+            }),
+        )),
+        hash: txn.hash().into(),
+    }
+    .into()
+}
+
 fn vote_for_block<F: FaultInjection>(
     sumeragi: &SumeragiWithFault<F>,
     state: &State,
@@ -1054,6 +1122,15 @@ fn vote_for_block<F: FaultInjection>(
         error!(
             %addr, %role, leader=%state.current_topology.leader().address, hash=%block.hash(),
             "The block is rejected as it is not signed by the leader."
+        );
+
+        return None;
+    }
+
+    if block.header().committed_with_topology != state.current_topology.sorted_peers {
+        error!(
+            %addr, %role, block_topology=?block.header().committed_with_topology, my_topology=?state.current_topology, hash=%block.hash(),
+            "The block is rejected as because the topology field is incorrect."
         );
 
         return None;
@@ -1092,7 +1169,7 @@ fn sumeragi_init_commit_genesis<F: FaultInjection>(
 ) {
     std::thread::sleep(Duration::from_millis(250));
 
-    iroha_logger::info!("Initializing iroha using the genesis block.");
+    info!("Initializing iroha using the genesis block.");
 
     assert_eq!(state.latest_block_height, 0);
     assert_eq!(state.latest_block_hash, None);
@@ -1104,7 +1181,7 @@ fn sumeragi_init_commit_genesis<F: FaultInjection>(
         "Genesis transaction set contains no valid transactions"
     );
     let block = PendingBlock::new(transactions, Vec::new())
-        .chain_first_with_genesis_topology(state.current_topology.clone());
+        .chain_first_with_topology(state.current_topology.clone());
 
     {
         info!(block_hash = %block.hash(), "Publishing genesis block.");
@@ -1159,4 +1236,3 @@ fn early_return(
         Err(TryRecvError::Empty) => Ok(()),
     }
 }
-

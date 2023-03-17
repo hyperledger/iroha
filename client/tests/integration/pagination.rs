@@ -18,9 +18,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {
-            Instruction::Register(RegisterBox::new(AssetDefinition::quantity(
-                asset_definition_id,
-            )))
+            RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into()
         })
         .collect();
     iroha_client

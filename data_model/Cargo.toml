@@ -1,14 +1,11 @@
 [package]
 name = "iroha_data_model"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
-description = "Iroha uses a simple data model made up of domains, peers, accounts, assets, signatories, and permissions. This library contains basic data model structures."
-readme = "README.md"
-homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
-repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
-license = "Apache-2.0"
-keywords = ["crypto", "blockchain", "ledger", "iroha", "model"]
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [badges]
@@ -21,14 +18,16 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Disabled for WASM interoperability, to reduce the binary size.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
-std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
+std = ["iroha_macro/std", "iroha_version/std", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
+# Enable API for HTTP requests. Should be activated for HTTP clients
+http = ["std", "warp", "iroha_version/http"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-#ffi_import = ["iroha_crypto/ffi_import"]
+#ffi_import = ["iroha_ffi", "iroha_primitives/ffi_import", "iroha_crypto/ffi_import"]
 
 # Expose FFI API for dynamic linking (Internal use only)
-ffi_export = ["std", "iroha_crypto/ffi_export"]
+ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export", "iroha_crypto/ffi_export"]
 # Expose API for mutating structures (Internal use only)
-mutable_api = []
+transparent_api = []
 
 [dependencies]
 iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.13", default-features = false }
@@ -37,15 +36,15 @@ iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.13", default-featu
 iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.13", default-features = false }
 iroha_version = { path = "../version", version = "=2.0.0-pre-rc.13", default-features = false, features = ["derive", "json", "scale"] }
 iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.13" }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.13" }
+iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.13", optional = true }
 
 dashmap = { version = "5.4.0", optional = true }
 tokio = { version = "1.23.0", features = ["sync", "rt-multi-thread"], optional = true }
 parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
 derive_more = { version = "0.99.17", default-features = false, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
 serde = { version = "1.0.151", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.91", default-features = false }
 serde_with = {version = "2.1.0", default-features = false, features = ["macros"]}
+serde_json = { version = "1.0.91", default-features = false }
 warp = { version = "0.3.3", default-features = false, optional = true }
 thiserror = { version = "1.0.38", optional = true }
 getset = "0.1.2"
@@ -53,13 +52,8 @@ strum = { version = "0.24.1", default-features = false, features = ["derive"] }
 base64 = { version = "0.13.1", default-features = false, features = ["alloc"]}
 
 [dev-dependencies]
-iroha_core = { path = "../core", version = "=2.0.0-pre-rc.13" }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.13" }
-iroha = { path = "../cli" }
 
-test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.13" }
-
-tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread"] }
 trybuild = "1.0.73"
 criterion = "0.3.6"
 

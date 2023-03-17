@@ -10,11 +10,9 @@
 use alloc::{format, string::String, vec::Vec};
 use core::str::FromStr;
 
-use derive_more::{Display, FromStr};
-use getset::{Getters, MutGetters};
-use iroha_crypto::PublicKey;
-use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::FfiType;
+use derive_more::{Constructor, Display, FromStr};
+use getset::Getters;
+use iroha_data_model_derive::IdEqOrdHash;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -24,81 +22,65 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use crate::{
     account::{Account, AccountsMap},
     asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap, AssetTotalQuantityMap},
-    ffi::declare_item,
     metadata::Metadata,
-    HasMetadata, Identifiable, Name, NumericValue, ParseError, Registered,
+    model, HasMetadata, Identifiable, Name, NumericValue, ParseError, Registered,
 };
 
-/// The domain name of the genesis domain.
-///
-/// The genesis domain should only contain the genesis account.
-pub const GENESIS_DOMAIN_NAME: &str = "genesis";
-
-/// Genesis domain. It will contain only one `genesis` account.
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct GenesisDomain {
-    genesis_key: PublicKey,
-}
-
-impl GenesisDomain {
-    /// Returns `GenesisDomain`.
-    #[inline]
-    #[must_use]
-    pub const fn new(genesis_key: PublicKey) -> Self {
-        Self { genesis_key }
+model! {
+    /// Identification of a [`Domain`].
+    #[derive(Debug, Display, FromStr, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[display(fmt = "{name}")]
+    #[getset(get = "pub")]
+    #[repr(transparent)]
+    #[ffi_type(opaque)]
+    pub struct Id {
+        /// [`Name`] unique to a [`Domain`] e.g. company name
+        pub name: Name,
     }
-}
 
-#[cfg(feature = "mutable_api")]
-impl From<GenesisDomain> for Domain {
-    fn from(domain: GenesisDomain) -> Self {
-        #[cfg(not(feature = "std"))]
-        use alloc::collections::btree_map;
-        #[cfg(feature = "std")]
-        use std::collections::btree_map;
-
-        #[allow(clippy::expect_used)]
-        Self {
-            id: Id::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
-            accounts: core::iter::once((
-                <Account as Identifiable>::Id::genesis(),
-                crate::account::GenesisAccount::new(domain.genesis_key).into(),
-            ))
-            .collect(),
-            asset_definitions: btree_map::BTreeMap::default(),
-            asset_total_quantities: btree_map::BTreeMap::default(),
-            metadata: Metadata::default(),
-            logo: None,
-        }
-    }
-}
-
-declare_item! {
-    /// Builder which can be submitted in a transaction to create a new [`Domain`]
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
+    /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "[{id}]")]
-    pub struct NewDomain {
-        /// The identification associated with the domain builder.
-        pub id: <Domain as Identifiable>::Id,
-        /// The (IPFS) link to the logo of this domain.
+    #[ffi_type]
+    pub struct Domain {
+        /// Identification of this [`Domain`].
+        pub id: Id,
+        /// [`Account`]s of the domain.
+        pub accounts: AccountsMap,
+        /// [`Asset`](AssetDefinition)s defined of the `Domain`.
+        pub asset_definitions: AssetDefinitionsMap,
+        /// Total amount of [`Asset`].
+        pub asset_total_quantities: AssetTotalQuantityMap,
+        /// IPFS link to the `Domain` logo
+        #[getset(get = "pub")]
         pub logo: Option<IpfsPath>,
-        /// Metadata associated with the domain builder.
+        /// [`Metadata`] of this `Domain` as a key-value store.
         pub metadata: Metadata,
     }
+
+    /// Builder which can be submitted in a transaction to create a new [`Domain`]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "[{id}]")]
+    #[ffi_type]
+    pub struct NewDomain {
+        /// The identification associated with the domain builder.
+        id: <Domain as Identifiable>::Id,
+        /// The (IPFS) link to the logo of this domain.
+        logo: Option<IpfsPath>,
+        /// Metadata associated with the domain builder.
+        metadata: Metadata,
+    }
+
+    /// Represents path in IPFS. Performs checks to ensure path validity.
+    /// Construct using [`FromStr::from_str`] method.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[repr(transparent)]
+    #[ffi_type(opaque)]
+    pub struct IpfsPath(ConstString);
 }
 
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 impl crate::Registrable for NewDomain {
     type Target = Domain;
 
@@ -123,11 +105,6 @@ impl HasMetadata for NewDomain {
     }
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl NewDomain {
     /// Create a [`NewDomain`], reserved for internal use.
     #[must_use]
@@ -154,46 +131,6 @@ impl NewDomain {
     }
 }
 
-declare_item! {
-    /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Getters,
-        MutGetters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), iroha_ffi::ffi_export)]
-    #[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-    #[allow(clippy::multiple_inherent_impl)]
-    #[display(fmt = "[{id}]")]
-    pub struct Domain {
-        /// Identification of this [`Domain`].
-        id: Id,
-        /// [`Account`]s of the domain.
-        accounts: AccountsMap,
-        /// [`Asset`](AssetDefinition)s defined of the `Domain`.
-        asset_definitions: AssetDefinitionsMap,
-        /// Total amount of [`Asset`].
-        asset_total_quantities: AssetTotalQuantityMap,
-        /// IPFS link to the `Domain` logo
-        // FIXME: Getter implemented manually because `getset`
-        // returns &Option<T> when it should return Option<&T>
-        logo: Option<IpfsPath>,
-        /// [`Metadata`] of this `Domain` as a key-value store.
-        #[getset(get = "pub")]
-        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-        metadata: Metadata,
-    }
-}
-
 impl HasMetadata for Domain {
     #[inline]
     fn metadata(&self) -> &crate::metadata::Metadata {
@@ -205,22 +142,15 @@ impl Registered for Domain {
     type With = NewDomain;
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
+    #[inline]
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id)
     }
+}
 
-    /// IPFS link to the `Domain` logo
-    pub fn logo(&self) -> Option<&IpfsPath> {
-        self.logo.as_ref()
-    }
-
+impl Domain {
     /// Return a reference to the [`Account`] corresponding to the account id.
     #[inline]
     pub fn account(&self, account_id: &<Account as Identifiable>::Id) -> Option<&Account> {
@@ -264,17 +194,8 @@ impl Domain {
     }
 }
 
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 impl Domain {
-    /// Return a mutable reference to the [`Account`] corresponding to the account id.
-    #[inline]
-    pub fn account_mut(
-        &mut self,
-        account_id: &<Account as Identifiable>::Id,
-    ) -> Option<&mut Account> {
-        self.accounts.get_mut(account_id)
-    }
-
     /// Add [`Account`] into the [`Domain`] returning previous account stored under the same id
     #[inline]
     pub fn add_account(&mut self, account: Account) -> Option<Account> {
@@ -290,21 +211,6 @@ impl Domain {
         self.accounts.remove(account_id)
     }
 
-    /// Get a mutable iterator over accounts of the domain
-    #[inline]
-    pub fn accounts_mut(&mut self) -> impl ExactSizeIterator<Item = &mut Account> {
-        self.accounts.values_mut()
-    }
-
-    /// Get a mutable iterator over asset definitions of the [`Domain`]
-    #[inline]
-    pub fn asset_definition_mut(
-        &mut self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&mut AssetDefinitionEntry> {
-        self.asset_definitions.get_mut(asset_definition_id)
-    }
-
     /// Add asset definition into the [`Domain`] returning previous
     /// asset definition stored under the same id
     #[inline]
@@ -316,7 +222,7 @@ impl Domain {
         let asset_definition = AssetDefinitionEntry::new(asset_definition, owned_by);
 
         self.asset_definitions
-            .insert(asset_definition.definition().id().clone(), asset_definition)
+            .insert(asset_definition.definition.id().clone(), asset_definition)
     }
 
     /// Remove asset definition from the [`Domain`] and return it
@@ -326,15 +232,6 @@ impl Domain {
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Option<AssetDefinitionEntry> {
         self.asset_definitions.remove(asset_definition_id)
-    }
-
-    /// Return a reference to the total [`AssetValue`] corresponding to the asset definition id
-    #[inline]
-    pub fn asset_total_quantity_mut(
-        &mut self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&mut NumericValue> {
-        self.asset_total_quantities.get_mut(asset_definition_id)
     }
 
     /// Add asset total amount into the [`Domain`] returning previous
@@ -367,25 +264,6 @@ impl FromIterator<Domain> for crate::Value {
             .into()
     }
 }
-
-/// Represents path in IPFS. Performs checks to ensure path validity.
-/// Construct using [`FromStr::from_str`] method.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Encode,
-    SerializeDisplay,
-    DeserializeFromStr,
-    FfiType,
-    IntoSchema,
-)]
-pub struct IpfsPath(ConstString);
 
 impl FromStr for IpfsPath {
     type Err = ParseError;
@@ -454,44 +332,24 @@ impl Decode for IpfsPath {
     }
 }
 
-/// Identification of a [`Domain`].
-#[derive(
-    Debug,
-    Display,
-    FromStr,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{name}")]
-pub struct Id {
-    /// [`Name`] unique to a [`Domain`] e.g. company name
-    pub name: Name,
-}
-
 impl Id {
-    /// Construct [`Id`] if the given domain `name` is valid.
-    ///
-    /// # Errors
-    /// Fails if any sub-construction fails
+    #[cfg(feature = "transparent_api")]
+    const GENESIS_DOMAIN_NAME: &str = "genesis";
+
+    /// Construct [`Id`] of the genesis domain.
     #[inline]
-    pub const fn new(name: Name) -> Self {
-        Self { name }
+    #[must_use]
+    #[cfg(feature = "transparent_api")]
+    pub fn genesis() -> Self {
+        Self {
+            name: Self::GENESIS_DOMAIN_NAME.parse().expect("Valid"),
+        }
     }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Domain, GenesisDomain, Id as DomainId, GENESIS_DOMAIN_NAME};
+    pub use super::{Domain, Id as DomainId};
 }
 
 #[cfg(test)]

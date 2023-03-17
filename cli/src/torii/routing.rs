@@ -16,38 +16,43 @@ use iroha_config::{
     torii::uri,
     GetConfiguration, PostConfiguration,
 };
-use iroha_core::{
-    block::stream::{
-        BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-        VersionedBlockSubscriptionRequest,
-    },
-    smartcontracts::{
-        isi::query::{Error as QueryError, ValidQueryRequest},
-        permissions::prelude::*,
-    },
-};
+use iroha_core::smartcontracts::isi::query::ValidQueryRequest;
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
+    block::{
+        stream::{
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
+        },
+        VersionedCommittedBlock,
+    },
     predicate::PredicateBox,
     prelude::*,
-    query::{self, SignedQueryRequest},
+    query,
+    query::error::QueryExecutionFailure,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
+use pagination::{paginate, Paginate};
 use parity_scale_codec::{Decode, Encode};
 use tokio::task;
 
 use super::*;
 use crate::stream::{Sink, Stream};
 
+/// Filter for warp which extracts sorting
+pub fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Rejection> + Copy {
+    warp::query()
+}
+
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 pub struct VerifiedQueryRequest {
     /// Payload, containing the time, the query, the authenticating
     /// user account and a filter
-    payload: query::Payload,
+    payload: query::http::Payload,
     /// Signature of the authenticating user
-    signature: SignatureOf<query::Payload>,
+    signature: SignatureOf<query::http::Payload>,
 }
 
 impl VerifiedQueryRequest {
@@ -60,23 +65,18 @@ impl VerifiedQueryRequest {
     pub fn validate(
         self,
         wsv: &WorldStateView,
-        query_judge: &dyn Judge<Operation = QueryBox>,
-    ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
+    ) -> Result<(ValidQueryRequest, PredicateBox), QueryExecutionFailure> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.contains_signatory(self.signature.public_key())
+            account.signatories.contains(self.signature.public_key())
         })?;
         if !account_has_public_key {
-            return Err(QueryError::Signature(String::from(
+            return Err(QueryExecutionFailure::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",
             )));
         }
-        query_judge
-            .judge(&self.payload.account_id, &self.payload.query, wsv)
-            .and_then(|_| {
-                wsv.validators_view()
-                    .validate(wsv, self.payload.query.clone())
-            })
-            .map_err(QueryError::Permission)?;
+        wsv.validators_view()
+            .validate(wsv, &self.payload.account_id, self.payload.query.clone())
+            .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
             self.payload.filter,
@@ -85,7 +85,7 @@ impl VerifiedQueryRequest {
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
-    type Error = QueryError;
+    type Error = QueryExecutionFailure;
 
     fn try_from(query: SignedQueryRequest) -> Result<Self, Self::Error> {
         query
@@ -107,11 +107,10 @@ pub(crate) async fn handle_instructions(
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction = VersionedAcceptedTransaction::from_transaction::<false>(
-        transaction,
-        &iroha_cfg.sumeragi.transaction_limits,
-    )
-    .map_err(Error::AcceptTransaction)?;
+    let transaction =
+        AcceptedTransaction::accept::<false>(transaction, &iroha_cfg.sumeragi.transaction_limits)
+            .map_err(Error::AcceptTransaction)?
+            .into();
     #[allow(clippy::map_err_ignore)]
     queue
         .push(transaction, &sumeragi.wsv_mutex_access())
@@ -130,7 +129,6 @@ pub(crate) async fn handle_instructions(
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_queries(
     sumeragi: Arc<Sumeragi>,
-    query_judge: QueryJudgeArc,
     pagination: Pagination,
     sorting: Sorting,
     request: VersionedSignedQueryRequest,
@@ -140,7 +138,7 @@ pub(crate) async fn handle_queries(
 
     let (result, filter) = {
         let wsv = sumeragi.wsv_mutex_access().clone();
-        let (valid_request, filter) = request.validate(&wsv, query_judge.as_ref())?;
+        let (valid_request, filter) = request.validate(&wsv)?;
         let original_result = valid_request.execute(&wsv)?;
         (filter.filter(original_result), filter)
     };
@@ -156,7 +154,7 @@ pub(crate) async fn handle_queries(
 
     let total = total
         .try_into()
-        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
+        .map_err(|e: TryFromIntError| QueryExecutionFailure::Conversion(e.to_string()))?;
     let result = QueryResult(result);
     let paginated_result = PaginatedQueryResult {
         result,
@@ -173,7 +171,7 @@ fn apply_sorting_and_pagination(
     sorting: &Sorting,
     pagination: Pagination,
 ) -> Vec<Value> {
-    if let Some(ref key) = sorting.sort_by_metadata_key {
+    if let Some(key) = &sorting.sort_by_metadata_key {
         let mut pairs: Vec<(Option<Value>, Value)> = vec_of_val
             .into_iter()
             .map(|value| {
@@ -238,7 +236,8 @@ async fn handle_pending_transactions(
             .map(VersionedAcceptedTransaction::into_v1)
             .map(SignedTransaction::from)
             .paginate(pagination)
-            .collect(),
+            .collect::<PendingTransactions>()
+            .into(),
     ))
 }
 
@@ -312,8 +311,9 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
             _ = interval.tick() => {
                 if let Some(block) = kura.get_block_by_height(from_height) {
                     stream
+                        // TODO: to avoid clone `VersionedBlockMessage` could be split into sending and receiving parts
                         .send(VersionedBlockMessage::from(
-                            BlockMessage(VersionedCommittedBlock::clone(&block)), // TODO: Remove unnecessary clone.
+                            BlockMessage(VersionedCommittedBlock::clone(&block)),
                         ))
                         .await?;
                     from_height += 1;
@@ -475,7 +475,6 @@ impl Torii {
     pub fn from_configuration(
         iroha_cfg: Configuration,
         queue: Arc<Queue>,
-        query_judge: QueryJudgeArc,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
         sumeragi: Arc<Sumeragi>,
@@ -484,7 +483,6 @@ impl Torii {
         Self {
             iroha_cfg,
             events,
-            query_judge,
             queue,
             notify_shutdown,
             sumeragi,
@@ -562,10 +560,10 @@ impl Torii {
                 ))
                 .and(body::versioned()),
         )
-        .or(endpoint5(
+        .or(endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state!(self.sumeragi, self.query_judge))
+                .and(add_state!(self.sumeragi))
                 .and(paginate())
                 .and(sorting())
                 .and(body::versioned()),

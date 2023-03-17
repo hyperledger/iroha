@@ -1,10 +1,10 @@
-[package]
-name = "iroha_wasm"
-version = "0.1.0"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+[workspace.package]
 edition = "2021"
+version = "2.0.0-pre-rc.13"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "Apache-2.0"
 
 [profile.dev]
 panic = "abort"
@@ -13,9 +13,29 @@ panic = "abort"
 panic = "abort"
 
 [workspace]
+resolver = "2"
 members = [
   "derive",
+  "validator",
+  "validator/derive",
 ]
+
+[workspace.dependencies]
+iroha_derive_primitives = { version = "2.0.0-pre-rc.13", path = "../derive_primitives" }
+syn = { version = "1", default-features = false, features = ["full", "extra-traits", "derive"] }
+quote = "1.0"
+proc-macro2 = "1.0.49"
+
+webassembly-test = "0.1.0"
+
+[package]
+name = "iroha_wasm"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+license.workspace = true
 
 [features]
 # Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
@@ -23,10 +43,11 @@ debug = []
 
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", default-features = false }
-iroha_wasm_derive = { path = "derive" }
+iroha_wasm_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
 
 parity-scale-codec = { version = "3.1.5", default-features = false }
 wee_alloc = "0.4.5"
 
 [dev-dependencies]
-webassembly-test = "0.1.0"
+webassembly-test.workspace = true
+

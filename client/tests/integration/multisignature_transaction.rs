@@ -4,7 +4,7 @@ use std::{str::FromStr as _, thread, time::Duration};
 
 use iroha_client::client::{self, Client};
 use iroha_config::client::Configuration as ClientConfiguration;
-use iroha_core::prelude::*;
+use iroha_crypto::KeyPair;
 use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*, val_vec};
 use iroha_primitives::small::SmallStr;
 use test_network::*;
@@ -24,7 +24,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
-        SignatureCheckCondition(EvaluatesTo::new_unchecked(
+        SignatureCheckCondition::new(EvaluatesTo::new_unchecked(
             ContainsAll::new(
                 EvaluatesTo::new_unchecked(
                     ContextValue::new(
@@ -63,7 +63,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
     let instructions: Vec<Instruction> = vec![mint_asset.clone().into()];
     let transaction = iroha_client
-        .build_transaction(instructions.into(), UnlimitedMetadata::new())
+        .build_transaction(instructions, UnlimitedMetadata::new())
         .expect("Failed to create transaction.");
     iroha_client
         .submit_transaction(
@@ -85,7 +85,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
             .request(request.clone())
             .expect("Query failed.")
             .len(),
-        1 // Alice has roses from Genesis
+        2 // Alice has roses and cabbage from Genesis
     );
     let (public_key2, private_key2) = key_pair_2.into();
     client_configuration.public_key = public_key2;
@@ -93,7 +93,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let iroha_client_2 = Client::new(&client_configuration).expect("Invalid client configuration");
     let instructions: Vec<Instruction> = vec![mint_asset.into()];
     let transaction = iroha_client_2
-        .build_transaction(instructions.into(), UnlimitedMetadata::new())
+        .build_transaction(instructions, UnlimitedMetadata::new())
         .expect("Failed to create transaction.");
     let transaction = iroha_client_2
         .get_original_transaction(&transaction, 3, Duration::from_millis(100))

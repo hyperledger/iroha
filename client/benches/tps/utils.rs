@@ -17,9 +17,6 @@ use std::{
 use eyre::{Result, WrapErr};
 use iroha_client::client::Client;
 use iroha_data_model::prelude::*;
-use iroha_permissions_validators::public_blockchain::{
-    burn::CanBurnUserAssets, transfer::CanTransferUserAssets,
-};
 use serde::Deserialize;
 use test_network::*;
 
@@ -156,8 +153,7 @@ impl MeasurerUnit {
     /// Submit initial transactions for measurement
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn ready(self) -> Result<Self> {
-        let keypair =
-            iroha_core::prelude::KeyPair::generate().expect("Failed to generate KeyPair.");
+        let keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
         let account_id = account_id(self.name);
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
@@ -169,19 +165,20 @@ impl MeasurerUnit {
         ));
         self.client.submit_blocking(register_me)?;
 
-        let can_burn_my_asset: PermissionToken = CanBurnUserAssets::new(asset_id.clone()).into();
+        let can_burn_my_asset = PermissionToken::new("can_burn_user_asset".parse()?)
+            .with_params([("asset_id".parse()?, asset_id.clone().into())]);
         let allow_alice_to_burn_my_asset =
             GrantBox::new(can_burn_my_asset, alice_id.clone()).into();
-        let can_transfer_my_asset: PermissionToken =
-            CanTransferUserAssets::new(asset_id.clone()).into();
+        let can_transfer_my_asset = PermissionToken::new("can_transfer_user_asset".parse()?)
+            .with_params([("asset_id".parse()?, asset_id.clone().into())]);
         let allow_alice_to_transfer_my_asset =
             GrantBox::new(can_transfer_my_asset, alice_id).into();
         let grant_tx = Transaction::new(
             account_id,
-            Executable::Instructions(vec![
+            vec![
                 allow_alice_to_burn_my_asset,
                 allow_alice_to_transfer_my_asset,
-            ]),
+            ],
             100_000,
         )
         .sign(keypair)?;
@@ -233,7 +230,7 @@ impl MeasurerUnit {
                 match shutdown_signal.try_recv() {
                     Err(mpsc::TryRecvError::Empty) => {
                         let transaction =
-                            Transaction::new(alice_id.clone(), [instruction].into(), u64::MAX)
+                            Transaction::new(alice_id.clone(), [instruction], u64::MAX)
                                 .with_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
                         let transaction = submitter
                             .sign_transaction(transaction)

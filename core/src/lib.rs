@@ -2,7 +2,6 @@
 
 pub mod block;
 pub mod block_sync;
-pub mod genesis;
 pub mod kura;
 pub mod modules;
 pub mod queue;
@@ -111,11 +110,6 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{
-        block::{
-            CommittedBlock, PendingBlock, SignedBlock, VersionedCandidateBlock,
-            VersionedCommittedBlock, DEFAULT_CONSENSUS_ESTIMATION_MS,
-        },
-        smartcontracts::permissions::prelude::*,
         smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,

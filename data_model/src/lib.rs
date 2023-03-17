@@ -33,16 +33,16 @@ use core::{
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 
-use block_value::{BlockHeaderValue, BlockValue};
+use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From, FromStr};
 use events::FilterBox;
-use ffi::declare_item;
 use getset::Getters;
 use iroha_crypto::{Hash, PublicKey};
-use iroha_data_model_derive::{IdOrdEqHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
-use iroha_ffi::FfiType;
+use iroha_data_model_derive::{
+    model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
+};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
     fixed,
@@ -59,98 +59,30 @@ use crate::{account::SignatureCheckCondition, name::Name, transaction::Transacti
 
 pub mod account;
 pub mod asset;
-pub mod block_value;
+pub mod block;
 pub mod domain;
 pub mod events;
 pub mod expression;
 pub mod isi;
 pub mod metadata;
 pub mod name;
+#[cfg(feature = "http")]
 pub mod pagination;
 pub mod peer;
 pub mod permission;
+#[cfg(feature = "http")]
 pub mod predicate;
 pub mod query;
 pub mod role;
+#[cfg(feature = "http")]
 pub mod sorting;
 pub mod transaction;
 pub mod trigger;
 
 pub mod utils {
-    #![allow(clippy::doc_link_with_quotes)]
     //! Module with useful utilities shared between crates
 
     use core::fmt::*;
-
-    /// Wrapper for type implementing [`Display`] trait.
-    /// Adds back quotes when item is printed.
-    pub struct BackQuotedWrapper<T: Display>(T);
-
-    impl<T: Display> Display for BackQuotedWrapper<T> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-            write!(f, "`{}`", self.0)
-        }
-    }
-
-    /// Iterator which wraps each element in [`BackQuotedWrapper`]
-    /// to display items with back quotes
-    pub struct BackQuotedIterator<T, I>
-    where
-        T: Display,
-        I: Iterator<Item = T>,
-    {
-        iter: I,
-    }
-
-    impl<T, I> Iterator for BackQuotedIterator<T, I>
-    where
-        T: Display,
-        I: Iterator<Item = T>,
-    {
-        type Item = BackQuotedWrapper<T>;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            self.iter.next().map(BackQuotedWrapper)
-        }
-    }
-
-    /// Trait to wrap iterator items in back quotes when displaying.
-    ///
-    /// Auto-implemented for all [`Iterator`]s which [`Item`](Iterator::Item) implements [`Display`].
-    pub trait BackQuoted<T: Display>: Iterator<Item = T> + Sized {
-        /// Function to construct new iterator with back quotes around items.
-        ///
-        /// # Examples
-        ///
-        /// ```rust
-        /// use iroha_data_model::utils::{
-        ///     format_comma_separated,
-        ///     BackQuoted as _,
-        /// };
-        ///
-        /// struct Keys([String; 2]);
-        ///
-        /// impl core::fmt::Display for Keys {
-        ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        ///         format_comma_separated(self.0.iter().back_quoted(), ('{', '}'), f)
-        ///     }
-        /// }
-        ///
-        /// let keys = Keys(["key1".to_owned(), "key2".to_owned()]);
-        /// assert_eq!(keys.to_string(), "{`key1`, `key2`}");
-        /// ```
-        fn back_quoted(self) -> BackQuotedIterator<T, Self>;
-    }
-
-    impl<T, I> BackQuoted<T> for I
-    where
-        T: Display,
-        I: Iterator<Item = T>,
-    {
-        fn back_quoted(self) -> BackQuotedIterator<T, Self> {
-            BackQuotedIterator { iter: self }
-        }
-    }
 
     /// Format `input` separating items with a comma, wrapping the whole output into `[` and `]`
     ///
@@ -194,18 +126,20 @@ pub mod utils {
 
 /// Error which occurs when parsing string into a data model entity
 #[derive(Debug, Display, Clone, Copy)]
+#[repr(transparent)]
 pub struct ParseError {
     reason: &'static str,
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ParseError {}
-
 /// Validation of the data model entity failed.
 #[derive(Debug, Display, Clone)]
+#[repr(transparent)]
 pub struct ValidationError {
     reason: Cow<'static, str>,
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for ParseError {}
 
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
@@ -241,6 +175,7 @@ pub trait TryAsRef<T> {
 
 /// Error which occurs when converting an enum reference to a variant reference
 #[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
 pub struct EnumTryAsError<EXPECTED, GOT> {
     expected: core::marker::PhantomData<EXPECTED>,
     /// Actual enum variant which was being converted
@@ -272,266 +207,305 @@ impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
 #[cfg(feature = "std")]
 impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED, GOT> {}
 
-/// Identification of a [`Parameter`].
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    FromStr,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{name}")]
-pub struct Id {
-    /// [`Name`] unique to a [`Parameter`].
-    pub name: Name,
-}
+pub mod parameter {
+    //! Structures, traits and impls related to `Paramater`s.
 
-declare_item! {
-    #[derive(
-        Debug, Display, Clone, IdOrdEqHash, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, FfiType, IntoSchema,
-    )]
-    #[display(fmt = "?{id}={val}")]
-    #[getset(get = "pub")]
-    /// A chain-wide configuration parameter and its value.
-    pub struct Parameter {
-        /// Unique [`Id`] of the [`Parameter`].
-        id: Id,
-        /// Current value of the [`Parameter`].
-        val: Value,
+    use derive_more::Constructor;
+
+    use super::*;
+
+    model! {
+        /// Identification of a [`Parameter`].
+        #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, FromStr, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[display(fmt = "{name}")]
+        #[getset(get = "pub")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        #[ffi_type(opaque)]
+        pub struct Id {
+            /// [`Name`] unique to a [`Parameter`].
+            pub name: Name,
+        }
     }
-}
 
-impl FromStr for Parameter {
-    type Err = ParseError;
+    model! {
+        #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Constructor, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+        #[display(fmt = "?{id}={val}")]
+        /// A chain-wide configuration parameter and its value.
+        #[ffi_type]
+        pub struct Parameter {
+            /// Unique [`Id`] of the [`Parameter`].
+            pub id: Id,
+            /// Current value of the [`Parameter`].
+            #[getset(get = "pub")]
+            pub val: Value,
+        }
+    }
 
-    fn from_str(string: &str) -> Result<Self, Self::Err> {
-        if let Some((parameter_id_candidate, val_candidate)) = string.rsplit_once('=') {
-            if let Some(parameter_id_candidate) = parameter_id_candidate.strip_prefix('?') {
-                let param_id: <Parameter as Identifiable>::Id =
-                    parameter_id_candidate.parse().map_err(|_| ParseError {
-                        reason: "Failed to parse the `param_id` part of the `Parameter`.",
-                    })?;
-                if let Some((val, ty)) = val_candidate.rsplit_once('_') {
-                    let val = match ty {
-                        // Shorthand for `LengthLimits`
-                        "LL" => {
-                            let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
+    impl FromStr for Parameter {
+        type Err = ParseError;
+
+        fn from_str(string: &str) -> Result<Self, Self::Err> {
+            if let Some((parameter_id_candidate, val_candidate)) = string.rsplit_once('=') {
+                if let Some(parameter_id_candidate) = parameter_id_candidate.strip_prefix('?') {
+                    let param_id: <Parameter as Identifiable>::Id =
+                        parameter_id_candidate.parse().map_err(|_| ParseError {
+                            reason: "Failed to parse the `param_id` part of the `Parameter`.",
+                        })?;
+                    if let Some((val, ty)) = val_candidate.rsplit_once('_') {
+                        let val = match ty {
+                            // Shorthand for `LengthLimits`
+                            "LL" => {
+                                let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
+                                        reason:
+                                            "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Two comma-separated values are expected.",
+                                    })?;
+                                let lower = lower.parse::<u32>().map_err(|_| ParseError {
                                     reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Two comma-separated values are expected.",
+                                        "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid lower `u32` bound.",
                                 })?;
-                            let lower = lower.parse::<u32>().map_err(|_| ParseError {
-                                reason:
-                                    "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid lower `u32` bound.",
-                            })?;
-                            let upper = upper.parse::<u32>().map_err(|_| ParseError {
-                                reason:
-                                    "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid upper `u32` bound.",
-                            })?;
-                            Value::LengthLimits(LengthLimits::new(lower, upper))
-                        }
-                        // Shorthand for `TransactionLimits`
-                        "TL" => {
-                            let (max_instr, max_wasm_size) = val.rsplit_once(',').ok_or( ParseError {
+                                let upper = upper.parse::<u32>().map_err(|_| ParseError {
                                     reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. Two comma-separated values are expected.",
+                                        "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid upper `u32` bound.",
                                 })?;
-                            let max_instr = max_instr.parse::<u64>().map_err(|_| ParseError {
-                                reason:
-                                    "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_instruction_number` field should be a valid `u64`.",
-                            })?;
-                            let max_wasm_size = max_wasm_size.parse::<u64>().map_err(|_| ParseError {
-                                reason:
-                                    "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_wasm_size_bytes` field should be a valid `u64`.",
-                            })?;
-                            Value::TransactionLimits(transaction::TransactionLimits::new(
-                                max_instr,
-                                max_wasm_size,
-                            ))
-                        }
-                        // Shorthand for `MetadataLimits`
-                        "ML" => {
-                            let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
+                                Value::LengthLimits(LengthLimits::new(lower, upper))
+                            }
+                            // Shorthand for `TransactionLimits`
+                            "TL" => {
+                                let (max_instr, max_wasm_size) = val.rsplit_once(',').ok_or( ParseError {
+                                        reason:
+                                            "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. Two comma-separated values are expected.",
+                                    })?;
+                                let max_instr = max_instr.parse::<u64>().map_err(|_| ParseError {
                                     reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Two comma-separated values are expected.",
+                                        "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_instruction_number` field should be a valid `u64`.",
                                 })?;
-                            let lower = lower.parse::<u32>().map_err(|_| ParseError {
+                                let max_wasm_size = max_wasm_size.parse::<u64>().map_err(|_| ParseError {
+                                    reason:
+                                        "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_wasm_size_bytes` field should be a valid `u64`.",
+                                })?;
+                                Value::TransactionLimits(transaction::TransactionLimits::new(
+                                    max_instr,
+                                    max_wasm_size,
+                                ))
+                            }
+                            // Shorthand for `MetadataLimits`
+                            "ML" => {
+                                let (lower, upper) = val.rsplit_once(',').ok_or( ParseError {
+                                        reason:
+                                            "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Two comma-separated values are expected.",
+                                    })?;
+                                let lower = lower.parse::<u32>().map_err(|_| ParseError {
+                                    reason:
+                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_len` field.",
+                                })?;
+                                let upper = upper.parse::<u32>().map_err(|_| ParseError {
+                                    reason:
+                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_byte_size` field.",
+                                })?;
+                                Value::MetadataLimits(metadata::Limits::new(lower, upper))
+                            }
+                            _ => return Err(ParseError {
                                 reason:
-                                    "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_len` field.",
-                            })?;
-                            let upper = upper.parse::<u32>().map_err(|_| ParseError {
-                                reason:
-                                    "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_byte_size` field.",
-                            })?;
-                            Value::MetadataLimits(metadata::Limits::new(lower, upper))
-                        }
-                        _ => return Err(ParseError {
-                            reason:
-                                "Unsupported type provided for the `val` part of the `Parameter`.",
-                        }),
-                    };
-                    Ok(Self { id: param_id, val })
+                                    "Unsupported type provided for the `val` part of the `Parameter`.",
+                            }),
+                        };
+                        Ok(Self { id: param_id, val })
+                    } else {
+                        let val = val_candidate.parse::<u64>().map_err(|_| ParseError {
+                            reason: "Failed to parse the `val` part of the `Parameter` as `u64`.",
+                        })?;
+                        Ok(Self {
+                            id: param_id,
+                            val: Value::Numeric(NumericValue::from(val)),
+                        })
+                    }
                 } else {
-                    let val = val_candidate.parse::<u64>().map_err(|_| ParseError {
-                        reason: "Failed to parse the `val` part of the `Parameter` as `u64`.",
-                    })?;
-                    Ok(Self {
-                        id: param_id,
-                        val: Value::Numeric(NumericValue::from(val)),
+                    Err(ParseError {
+                        reason: "`param_id` part of `Parameter` must start with `?`",
                     })
                 }
             } else {
                 Err(ParseError {
-                    reason: "`param_id` part of `Parameter` must start with `?`",
+                    reason: "The `Parameter` string did not contain the `=` character.",
                 })
             }
-        } else {
-            Err(ParseError {
-                reason: "The `Parameter` string did not contain the `=` character.",
-            })
         }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{prelude::*, *};
+        use crate::prelude::{MetadataLimits, TransactionLimits};
+
+        const INVALID_PARAM: [&str; 4] = [
+            "",
+            "Block?SyncGossipPeriod=20000",
+            "?BlockSyncGossipPeriod20000",
+            "?BlockSyncGossipPeriod=20000_u32",
+        ];
+
+        #[test]
+        fn test_invalid_parameter_str() {
+            assert!(matches!(
+                parameter::Parameter::from_str(INVALID_PARAM[0]),
+                Err(err) if err.reason == "The `Parameter` string did not contain the `=` character."
+            ));
+            assert!(matches!(
+                parameter::Parameter::from_str(INVALID_PARAM[1]),
+                Err(err) if err.reason == "`param_id` part of `Parameter` must start with `?`"
+            ));
+            assert!(matches!(
+                parameter::Parameter::from_str(INVALID_PARAM[2]),
+                Err(err) if err.to_string() == "The `Parameter` string did not contain the `=` character."
+            ));
+            assert!(matches!(
+                parameter::Parameter::from_str(INVALID_PARAM[3]),
+                Err(err) if err.to_string() == "Unsupported type provided for the `val` part of the `Parameter`."
+            ));
+        }
+
+        #[test]
+        fn test_parameter_serialize_deserialize_consistent() {
+            let parameters = [
+                Parameter::new(
+                    ParameterId {
+                        name: Name::from_str("TransactionLimits").expect("Failed to parse `Name`"),
+                    },
+                    Value::TransactionLimits(TransactionLimits::new(42, 24)),
+                ),
+                Parameter::new(
+                    ParameterId {
+                        name: Name::from_str("MetadataLimits").expect("Failed to parse `Name`"),
+                    },
+                    Value::MetadataLimits(MetadataLimits::new(42, 24)),
+                ),
+                Parameter::new(
+                    ParameterId {
+                        name: Name::from_str("LengthLimits").expect("Failed to parse `Name`"),
+                    },
+                    Value::LengthLimits(LengthLimits::new(24, 42)),
+                ),
+                Parameter::new(
+                    ParameterId {
+                        name: Name::from_str("Int").expect("Failed to parse `Name`"),
+                    },
+                    Value::Numeric(NumericValue::U64(42)),
+                ),
+            ];
+
+            for parameter in parameters {
+                assert_eq!(
+                    parameter,
+                    serde_json::to_string(&parameter)
+                        .and_then(|parameter| serde_json::from_str(&parameter))
+                        .unwrap_or_else(|_| panic!(
+                            "Failed to de/serialize parameter {:?}",
+                            &parameter
+                        ))
+                );
+            }
+        }
+    }
+
+    pub mod prelude {
+        //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
+
+        pub use super::{Id as ParameterId, Parameter};
     }
 }
 
-/// Sized container for all possible identifications.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    FfiType,
-    IntoSchema,
-)]
-#[ffi_type(local)]
-#[allow(clippy::enum_variant_names)]
-pub enum IdBox {
-    /// [`DomainId`](`domain::Id`) variant.
-    DomainId(<domain::Domain as Identifiable>::Id),
-    /// [`AccountId`](`account::Id`) variant.
-    AccountId(<account::Account as Identifiable>::Id),
-    /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
-    AssetDefinitionId(<asset::AssetDefinition as Identifiable>::Id),
-    /// [`AssetId`](`asset::Id`) variant.
-    AssetId(<asset::Asset as Identifiable>::Id),
-    /// [`PeerId`](`peer::Id`) variant.
-    PeerId(<peer::Peer as Identifiable>::Id),
-    /// [`TriggerId`](trigger::Id) variant.
-    TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
-    /// [`RoleId`](`role::Id`) variant.
-    RoleId(<role::Role as Identifiable>::Id),
-    /// [`PermissionTokenId`](`permission::token::Id`) variant.
-    PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
-    /// [`Validator`](`permission::Validator`) variant.
-    ValidatorId(<permission::Validator as Identifiable>::Id),
-    /// [`Parameter`](`Parameter`) variant.
-    ParameterId(<Parameter as Identifiable>::Id),
-}
+model! {
+    /// Sized container for all possible identifications.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(clippy::enum_variant_names)]
+    #[ffi_type]
+    pub enum IdBox {
+        /// [`DomainId`](`domain::Id`) variant.
+        DomainId(<domain::Domain as Identifiable>::Id),
+        /// [`AccountId`](`account::Id`) variant.
+        AccountId(<account::Account as Identifiable>::Id),
+        /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
+        AssetDefinitionId(<asset::AssetDefinition as Identifiable>::Id),
+        /// [`AssetId`](`asset::Id`) variant.
+        AssetId(<asset::Asset as Identifiable>::Id),
+        /// [`PeerId`](`peer::Id`) variant.
+        PeerId(<peer::Peer as Identifiable>::Id),
+        /// [`TriggerId`](trigger::Id) variant.
+        TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
+        /// [`RoleId`](`role::Id`) variant.
+        RoleId(<role::Role as Identifiable>::Id),
+        /// [`PermissionTokenId`](`permission::token::Id`) variant.
+        PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
+        /// [`Validator`](`permission::Validator`) variant.
+        ValidatorId(<permission::Validator as Identifiable>::Id),
+        /// [`Parameter`](`parameter::Parameter`) variant.
+        ParameterId(<parameter::Parameter as Identifiable>::Id),
+    }
 
-/// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-pub enum RegistrableBox {
-    /// [`Peer`](`peer::Peer`) variant.
-    Peer(Box<<peer::Peer as Registered>::With>),
-    /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<<domain::Domain as Registered>::With>),
-    /// [`Account`](`account::Account`) variant.
-    Account(Box<<account::Account as Registered>::With>),
-    /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-    AssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
-    /// [`Asset`](`asset::Asset`) variant.
-    Asset(Box<<asset::Asset as Registered>::With>),
-    /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
-    /// [`Role`](`role::Role`) variant.
-    Role(Box<<role::Role as Registered>::With>),
-    /// [`PermissionTokenId`](`permission::token::Id`) variant.
-    PermissionTokenDefinition(Box<<permission::token::Definition as Registered>::With>),
-    /// [`Validator`](`permission::Validator`) variant.
-    Validator(Box<<permission::Validator as Registered>::With>),
-}
+    /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub enum RegistrableBox {
+        /// [`Peer`](`peer::Peer`) variant.
+        Peer(Box<<peer::Peer as Registered>::With>),
+        /// [`Domain`](`domain::Domain`) variant.
+        Domain(Box<<domain::Domain as Registered>::With>),
+        /// [`Account`](`account::Account`) variant.
+        Account(Box<<account::Account as Registered>::With>),
+        /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
+        AssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
+        /// [`Asset`](`asset::Asset`) variant.
+        Asset(Box<<asset::Asset as Registered>::With>),
+        /// [`Trigger`](`trigger::Trigger`) variant.
+        Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
+        /// [`Role`](`role::Role`) variant.
+        Role(Box<<role::Role as Registered>::With>),
+        /// [`PermissionTokenId`](`permission::token::Id`) variant.
+        PermissionTokenDefinition(Box<<permission::token::Definition as Registered>::With>),
+        /// [`Validator`](`permission::Validator`) variant.
+        Validator(Box<<permission::Validator as Registered>::With>),
+    }
 
-/// Sized container for all possible entities.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Hash,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    FfiType,
-    IntoSchema,
-)]
-pub enum IdentifiableBox {
-    /// [`NewDomain`](`domain::NewDomain`) variant.
-    NewDomain(Box<<domain::Domain as Registered>::With>),
-    /// [`NewAccount`](`account::NewAccount`) variant.
-    NewAccount(Box<<account::Account as Registered>::With>),
-    /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
-    NewAssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
-    /// [`NewRole`](`role::NewRole`) variant.
-    NewRole(Box<<role::Role as Registered>::With>),
-    /// [`Peer`](`peer::Peer`) variant.
-    Peer(Box<peer::Peer>),
-    /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<domain::Domain>),
-    /// [`Account`](`account::Account`) variant.
-    Account(Box<account::Account>),
-    /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-    AssetDefinition(Box<asset::AssetDefinition>),
-    /// [`Asset`](`asset::Asset`) variant.
-    Asset(Box<asset::Asset>),
-    /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<trigger::Trigger<FilterBox>>),
-    /// [`Role`](`role::Role`) variant.
-    Role(Box<role::Role>),
-    /// [`PermissionTokenDefinition`](`permission::token::Definition`) variant.
-    PermissionTokenDefinition(Box<permission::token::Definition>),
-    /// [`Validator`](`permission::Validator`) variant.
-    Validator(Box<permission::Validator>),
-    /// [`Parameter`](`Parameter`) variant.
-    Parameter(Box<Parameter>),
+    /// Sized container for all possible entities.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Hash, Ord, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub enum IdentifiableBox {
+        /// [`NewDomain`](`domain::NewDomain`) variant.
+        NewDomain(Box<<domain::Domain as Registered>::With>),
+        /// [`NewAccount`](`account::NewAccount`) variant.
+        NewAccount(Box<<account::Account as Registered>::With>),
+        /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
+        NewAssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
+        /// [`NewRole`](`role::NewRole`) variant.
+        NewRole(Box<<role::Role as Registered>::With>),
+        /// [`Peer`](`peer::Peer`) variant.
+        Peer(Box<peer::Peer>),
+        /// [`Domain`](`domain::Domain`) variant.
+        Domain(Box<domain::Domain>),
+        /// [`Account`](`account::Account`) variant.
+        Account(Box<account::Account>),
+        /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
+        AssetDefinition(Box<asset::AssetDefinition>),
+        /// [`Asset`](`asset::Asset`) variant.
+        Asset(Box<asset::Asset>),
+        /// [`Trigger`](`trigger::Trigger`) variant.
+        Trigger(Box<trigger::Trigger<FilterBox>>),
+        /// [`Role`](`role::Role`) variant.
+        Role(Box<role::Role>),
+        /// [`PermissionTokenDefinition`](`permission::token::Definition`) variant.
+        PermissionTokenDefinition(Box<permission::token::Definition>),
+        /// [`Validator`](`permission::Validator`) variant.
+        Validator(Box<permission::Validator>),
+        /// [`Parameter`](`parameter::Parameter`) variant.
+        Parameter(Box<parameter::Parameter>),
+    }
 }
 
 // TODO: think of a way to `impl Identifiable for IdentifiableBox`.
 // The main problem is lifetimes and conversion cost.
 
+#[cfg(feature = "http")]
 impl IdentifiableBox {
     fn id_box(&self) -> IdBox {
         match self {
@@ -584,89 +558,52 @@ macro_rules! val_vec {
 /// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 
-/// Sized container for all possible values.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    FromVariant,
-    IntoSchema,
-    EnumDiscriminants,
-    PartiallyTaggedSerialize,
-    PartiallyTaggedDeserialize,
-)]
-#[strum_discriminants(
-    name(ValueKind),
-    derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema),
-    allow(missing_docs)
-)]
-#[allow(clippy::enum_variant_names, missing_docs)]
-pub enum Value {
-    Bool(bool),
-    String(String),
-    Name(Name),
-    Vec(
-        #[skip_from]
-        #[skip_try_from]
-        Vec<Value>,
-    ),
-    LimitedMetadata(metadata::Metadata),
-    MetadataLimits(metadata::Limits),
-    TransactionLimits(transaction::TransactionLimits),
-    LengthLimits(LengthLimits),
-    #[serde_partially_tagged(untagged)]
-    Id(IdBox),
-    #[serde_partially_tagged(untagged)]
-    Identifiable(IdentifiableBox),
-    PublicKey(PublicKey),
-    SignatureCheckCondition(SignatureCheckCondition),
-    TransactionValue(TransactionValue),
-    TransactionQueryResult(TransactionQueryResult),
-    PermissionToken(permission::Token),
-    Hash(Hash),
-    Block(BlockValueWrapper),
-    BlockHeader(BlockHeaderValue),
-    Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
-    Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
-    #[serde_partially_tagged(untagged)]
-    Numeric(NumericValue),
-}
+model! {
+    /// Sized container for all possible values.
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, FromVariant, IntoSchema, EnumDiscriminants, PartiallyTaggedSerialize, PartiallyTaggedDeserialize)]
+    #[strum_discriminants(name(ValueKind), derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema), allow(missing_docs))]
+    #[allow(clippy::enum_variant_names, missing_docs)]
+    #[ffi_type(opaque)]
+    pub enum Value {
+        Bool(bool),
+        String(String),
+        Name(Name),
+        Vec(#[skip_from] #[skip_try_from] Vec<Value>),
+        LimitedMetadata(metadata::Metadata),
+        MetadataLimits(metadata::Limits),
+        TransactionLimits(transaction::TransactionLimits),
+        LengthLimits(LengthLimits),
+        #[serde_partially_tagged(untagged)]
+        Id(IdBox),
+        #[serde_partially_tagged(untagged)]
+        Identifiable(IdentifiableBox),
+        PublicKey(PublicKey),
+        SignatureCheckCondition(SignatureCheckCondition),
+        TransactionValue(TransactionValue),
+        TransactionQueryResult(TransactionQueryResult),
+        PermissionToken(permission::Token),
+        Hash(Hash),
+        Block(VersionedCommittedBlockWrapper),
+        BlockHeader(block::BlockHeader),
+        Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
+        Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
+        #[serde_partially_tagged(untagged)]
+        Numeric(NumericValue),
+    }
 
-/// Enum for all supported numeric values
-#[derive(
-    Debug,
-    Display,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    FfiType,
-    IntoSchema,
-)]
-#[ffi_type(opaque)]
-pub enum NumericValue {
-    /// `u32` value
-    U32(u32),
-    /// `u64` value
-    U64(u64),
-    /// `u128` value
-    U128(u128),
-    /// `Fixed` value
-    Fixed(fixed::Fixed),
+    /// Enum for all supported numeric values
+    #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub enum NumericValue {
+        /// `u32` value
+        U32(u32),
+        /// `u64` value
+        U64(u64),
+        /// `u128` value
+        U128(u128),
+        /// `Fixed` value
+        Fixed(fixed::Fixed),
+    }
 }
 
 impl NumericValue {
@@ -682,79 +619,43 @@ impl NumericValue {
     }
 }
 
-#[cfg(not(target_arch = "aarch64"))]
-ffi::declare_item! {
-    /// Cross-platform wrapper for `BlockValue`.
-    #[derive(
-        AsRef,
-        Clone,
-        Debug,
-        Decode,
-        Deref,
-        Deserialize,
-        Encode,
-        Eq,
-        From,
-        Into,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Hash,
-        Serialize,
-        FfiType,
-    )]
-    #[repr(transparent)]
-    #[serde(transparent)]
-    // SAFETY: BlockValueWrapper has no trap representations in BlockValue
+model! {
+    /// Cross-platform wrapper for [`VersionedCommittedBlock`].
+    #[cfg(not(target_arch = "aarch64"))]
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Into, Decode, Encode, Deserialize, Serialize)]
+    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
     #[ffi_type(unsafe {robust})]
-    pub struct BlockValueWrapper(BlockValue);
-}
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct VersionedCommittedBlockWrapper(VersionedCommittedBlock);
 
-#[cfg(target_arch = "aarch64")]
-ffi::declare_item! {
     /// Cross-platform wrapper for `BlockValue`.
-    #[derive(
-        AsRef,
-        Clone,
-        Debug,
-        Decode,
-        Deref,
-        Deserialize,
-        Encode,
-        Eq,
-        From,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        Hash,
-        Serialize,
-        FfiType,
-    )]
+    #[cfg(target_arch = "aarch64")]
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Decode, Encode, Deserialize, Serialize)]
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]
+    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in Box<VersionedCommittedBlock>
     #[ffi_type(unsafe {robust})]
-    #[repr(transparent)]
     #[serde(transparent)]
-    // SAFETY: BlockValueWrapper has no trap representations in Box<BlockValue>
-    #[ffi_type(unsafe {robust})]
-    pub struct BlockValueWrapper(Box<BlockValue>);
+    #[repr(transparent)]
+    pub struct VersionedCommittedBlockWrapper(Box<VersionedCommittedBlock>);
 }
 
 #[cfg(target_arch = "aarch64")]
-impl From<BlockValueWrapper> for BlockValue {
-    fn from(block_value: BlockValueWrapper) -> Self {
+impl From<VersionedCommittedBlockWrapper> for VersionedCommittedBlock {
+    fn from(block_value: VersionedCommittedBlockWrapper) -> Self {
         *block_value.0
     }
 }
 
-impl IntoSchema for BlockValueWrapper {
+impl IntoSchema for VersionedCommittedBlockWrapper {
     fn type_name() -> String {
-        BlockValue::type_name()
+        VersionedCommittedBlock::type_name()
     }
 
     fn schema(map: &mut MetaMap) {
-        BlockValue::schema(map);
+        VersionedCommittedBlock::schema(map);
     }
 }
 
@@ -827,8 +728,8 @@ impl Value {
     }
 }
 
-impl From<BlockValue> for Value {
-    fn from(block_value: BlockValue) -> Self {
+impl From<VersionedCommittedBlock> for Value {
+    fn from(block_value: VersionedCommittedBlock) -> Self {
         Value::Block(block_value.into())
     }
 }
@@ -881,7 +782,7 @@ from_and_try_from_value_idbox!(
     AssetDefinitionId(asset::DefinitionId),
     TriggerId(trigger::Id),
     RoleId(role::Id),
-    ParameterId(Id),
+    ParameterId(parameter::Id),
 );
 
 // TODO: Should we wrap String with new type in order to convert like here?
@@ -948,7 +849,7 @@ from_and_try_from_value_identifiablebox!(
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
-    Parameter(Box<Parameter>),
+    Parameter(Box<parameter::Parameter>),
 );
 
 from_and_try_from_value_identifiable!(
@@ -964,7 +865,7 @@ from_and_try_from_value_identifiable!(
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
-    Parameter(Box<Parameter>),
+    Parameter(Box<parameter::Parameter>),
 );
 
 impl TryFrom<Value> for RegistrableBox {
@@ -1062,7 +963,7 @@ where
     }
 }
 
-impl TryFrom<Value> for BlockValue {
+impl TryFrom<Value> for VersionedCommittedBlock {
     type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -1197,7 +1098,7 @@ impl<T: TryInto<Value>> TryToValue for T {
 }
 
 /// Uniquely identifiable entity ([`Domain`], [`Account`], etc.).
-/// This trait should always be derived with [`IdOrdEqHash`]
+/// This trait should always be derived with [`IdEqOrdHash`]
 pub trait Identifiable: Ord + Eq + core::hash::Hash {
     /// Type of the entity identifier
     type Id: Ord + Eq + core::hash::Hash;
@@ -1225,7 +1126,7 @@ pub trait Registered: Identifiable {
 }
 
 /// Trait for proxy objects used for registration.
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 pub trait Registrable {
     /// Constructed type
     type Target;
@@ -1234,30 +1135,18 @@ pub trait Registrable {
     fn build(self) -> Self::Target;
 }
 
-/// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Copy,
-    Hash,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    FfiType,
-)]
-#[display(fmt = "{min},{max}_LL")]
-pub struct LengthLimits {
-    /// Minimal length in number of chars (inclusive).
-    min: u32,
-    /// Maximal length in number of chars (inclusive).
-    max: u32,
+model! {
+    /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
+    #[derive(Debug, Display, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{min},{max}_LL")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct LengthLimits {
+        /// Minimal length in number of chars (inclusive).
+        min: u32,
+        /// Maximal length in number of chars (inclusive).
+        max: u32,
+    }
 }
 
 impl LengthLimits {
@@ -1524,25 +1413,15 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
+#[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
 pub mod ffi {
     //! Definitions and implementations of FFI related functionalities
 
     use super::*;
 
-    macro_rules! declare_item {
-        ($it: item) => {
-            #[cfg(not(feature = "ffi_import"))]
-            $it
-
-            #[cfg(feature = "ffi_import")]
-            iroha_ffi::ffi! { $it }
-        };
-    }
-
-    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     macro_rules! ffi_fn {
         ($macro_name: ident) => {
-            iroha_ffi::$macro_name! { pub Clone:
+            iroha_ffi::$macro_name! { "iroha_data_model" Clone:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1550,7 +1429,7 @@ pub mod ffi {
                 permission::Token,
                 role::Role,
             }
-            iroha_ffi::$macro_name! { pub Eq:
+            iroha_ffi::$macro_name! { "iroha_data_model" Eq:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1558,7 +1437,7 @@ pub mod ffi {
                 permission::Token,
                 role::Role,
             }
-            iroha_ffi::$macro_name! { pub Ord:
+            iroha_ffi::$macro_name! { "iroha_data_model" Ord:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1566,7 +1445,7 @@ pub mod ffi {
                 permission::Token,
                 role::Role,
             }
-            iroha_ffi::$macro_name! { pub Drop:
+            iroha_ffi::$macro_name! { "iroha_data_model" Drop:
                 account::Account,
                 asset::Asset,
                 domain::Domain,
@@ -1591,119 +1470,34 @@ pub mod ffi {
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
     ffi_fn! {def_ffi_fn}
 
-    pub(crate) use declare_item;
+    // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
+    #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
+    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    mod dylib {
+        #[cfg(not(feature = "std"))]
+        use alloc::alloc;
+        #[cfg(feature = "std")]
+        use std::alloc;
+
+        iroha_ffi::def_ffi_fn! {dealloc}
+    }
 }
 
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "std")]
     pub use super::current_time;
-    #[cfg(feature = "mutable_api")]
+    #[cfg(feature = "transparent_api")]
     pub use super::Registrable;
     pub use super::{
-        account::prelude::*,
-        asset::prelude::*,
-        block_value::prelude::*,
-        domain::prelude::*,
-        events::prelude::*,
-        expression::prelude::*,
-        isi::prelude::*,
-        metadata::prelude::*,
-        name::prelude::*,
-        pagination::{prelude::*, Pagination},
-        peer::prelude::*,
-        permission::{
-            token::{Definition as PermissionTokenDefinition, Id as PermissionTokenId},
-            Token as PermissionToken,
-        },
-        query::prelude::*,
-        role::prelude::*,
-        sorting::prelude::*,
-        transaction::prelude::*,
-        trigger::prelude::*,
-        EnumTryAsError, HasMetadata, Id as ParameterId, IdBox, Identifiable, IdentifiableBox,
-        LengthLimits, NumericValue, Parameter, PredicateTrait, RegistrableBox, ToValue, TryAsMut,
-        TryAsRef, TryToValue, ValidationError, Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, events::prelude::*,
+        expression::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
+        parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
+        role::prelude::*, transaction::prelude::*, trigger::prelude::*, EnumTryAsError,
+        HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, NumericValue,
+        PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, ValidationError,
+        Value,
     };
-    pub use crate::{
-        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permission::prelude::*, query::prelude::*, transaction::prelude::*, trigger::prelude::*,
-    };
-}
-
-#[cfg(test)]
-mod tests {
-
-    use prelude::{MetadataLimits, TransactionLimits};
-
-    use super::*;
-
-    const INVALID_PARAM: [&str; 4] = [
-        "",
-        "Block?SyncGossipPeriod=20000",
-        "?BlockSyncGossipPeriod20000",
-        "?BlockSyncGossipPeriod=20000_u32",
-    ];
-
-    #[test]
-    fn test_invalid_parameter_str() {
-        assert!(matches!(
-            Parameter::from_str(INVALID_PARAM[0]),
-            Err(err) if err.reason == "The `Parameter` string did not contain the `=` character."
-        ));
-        assert!(matches!(
-            Parameter::from_str(INVALID_PARAM[1]),
-            Err(err) if err.reason == "`param_id` part of `Parameter` must start with `?`"
-        ));
-        assert!(matches!(
-            Parameter::from_str(INVALID_PARAM[2]),
-            Err(err) if err.to_string() == "The `Parameter` string did not contain the `=` character."
-        ));
-        assert!(matches!(
-            Parameter::from_str(INVALID_PARAM[3]),
-            Err(err) if err.to_string() == "Unsupported type provided for the `val` part of the `Parameter`."
-        ));
-    }
-
-    #[test]
-    fn test_parameter_serialize_deserialize_consistent() {
-        let parameters = [
-            Parameter {
-                id: Id {
-                    name: Name::from_str("TransactionLimits").expect("Failed to parse `Name`"),
-                },
-                val: Value::TransactionLimits(TransactionLimits::new(42, 24)),
-            },
-            Parameter {
-                id: Id {
-                    name: Name::from_str("MetadataLimits").expect("Failed to parse `Name`"),
-                },
-                val: Value::MetadataLimits(MetadataLimits::new(42, 24)),
-            },
-            Parameter {
-                id: Id {
-                    name: Name::from_str("LengthLimits").expect("Failed to parse `Name`"),
-                },
-                val: Value::LengthLimits(LengthLimits::new(24, 42)),
-            },
-            Parameter {
-                id: Id {
-                    name: Name::from_str("Int").expect("Failed to parse `Name`"),
-                },
-                val: Value::Numeric(NumericValue::U64(42)),
-            },
-        ];
-
-        for parameter in parameters {
-            assert_eq!(
-                parameter,
-                serde_json::to_string(&parameter)
-                    .and_then(|parameter| serde_json::from_str(&parameter))
-                    .unwrap_or_else(|_| panic!(
-                        "Failed to de/serialize parameter {:?}",
-                        &parameter
-                    ))
-            );
-        }
-    }
+    #[cfg(feature = "http")]
+    pub use super::{pagination::prelude::*, sorting::prelude::*};
 }

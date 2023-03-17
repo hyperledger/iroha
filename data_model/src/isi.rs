@@ -6,63 +6,55 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
-use derive_more::Display;
+use derive_more::{Constructor, Display};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use strum::EnumDiscriminants;
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
-use crate::Registered;
+use crate::{model, Registered};
 
-/// Sized structure for all possible Instructions.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-)]
-pub enum Instruction {
-    /// `Register` variant.
-    Register(RegisterBox),
-    /// `Unregister` variant.
-    Unregister(UnregisterBox),
-    /// `Mint` variant.
-    Mint(MintBox),
-    /// `Burn` variant.
-    Burn(BurnBox),
-    /// `Transfer` variant.
-    Transfer(TransferBox),
-    /// `If` variant.
-    If(Box<If>),
-    /// `Pair` variant.
-    Pair(Box<Pair>),
-    /// `Sequence` variant.
-    Sequence(SequenceBox),
-    /// `Fail` variant.
-    Fail(FailBox),
-    /// `SetKeyValue` variant.
-    SetKeyValue(SetKeyValueBox),
-    /// `RemoveKeyValue` variant.
-    RemoveKeyValue(RemoveKeyValueBox),
-    /// `Grant` variant.
-    Grant(GrantBox),
-    /// `Revoke` variant.
-    Revoke(RevokeBox),
-    /// `ExecuteTrigger` variant.
-    ExecuteTrigger(ExecuteTriggerBox),
-    /// `SetParameter` variant.
-    SetParameter(SetParameterBox),
-    /// `NewParameter` variant.
-    NewParameter(NewParameterBox),
+model! {
+    /// Sized structure for all possible Instructions.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, EnumDiscriminants, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[strum_discriminants(name(InstructionType), derive(Display), allow(missing_docs))]
+    #[ffi_type(opaque)]
+    pub enum Instruction {
+        /// `Register` variant.
+        Register(RegisterBox),
+        /// `Unregister` variant.
+        Unregister(UnregisterBox),
+        /// `Mint` variant.
+        Mint(MintBox),
+        /// `Burn` variant.
+        Burn(BurnBox),
+        /// `Transfer` variant.
+        Transfer(TransferBox),
+        /// `If` variant.
+        If(Box<If>),
+        /// `Pair` variant.
+        Pair(Box<Pair>),
+        /// `Sequence` variant.
+        Sequence(SequenceBox),
+        /// `Fail` variant.
+        Fail(FailBox),
+        /// `SetKeyValue` variant.
+        SetKeyValue(SetKeyValueBox),
+        /// `RemoveKeyValue` variant.
+        RemoveKeyValue(RemoveKeyValueBox),
+        /// `Grant` variant.
+        Grant(GrantBox),
+        /// `Revoke` variant.
+        Revoke(RevokeBox),
+        /// `ExecuteTrigger` variant.
+        ExecuteTrigger(ExecuteTriggerBox),
+        /// `SetParameter` variant.
+        SetParameter(SetParameterBox),
+        /// `NewParameter` variant.
+        NewParameter(NewParameterBox),
+    }
 }
 
 impl Instruction {
@@ -91,142 +83,175 @@ impl Instruction {
     }
 }
 
-/// Sized structure for all possible on-chain configuration parameters.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "SET `{parameter}`")]
-pub struct SetParameterBox {
-    /// The configuration parameter being changed.
-    #[serde(flatten)]
-    pub parameter: EvaluatesTo<Parameter>,
-    /// The entity requesting the change.
-    pub source_id: EvaluatesTo<IdBox>,
+macro_rules! isi {
+    ($($meta:meta)* $item:item) => {
+        crate::model! {
+            #[derive(Debug, Clone, PartialEq, Eq, Hash, getset::Getters)]
+            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+            #[derive(serde::Deserialize, serde::Serialize)]
+            #[derive(iroha_schema::IntoSchema)]
+            #[getset(get = "pub")]
+            $($meta)*
+            $item
+        }
+    };
 }
 
-/// Sized structure for all possible on-chain configuration parameters when they are first created.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "SET `{parameter}`")]
-pub struct NewParameterBox {
-    /// The configuration parameter being created.
-    #[serde(flatten)]
-    pub parameter: EvaluatesTo<Parameter>,
-    /// The entity requesting the creation.
-    pub source_id: EvaluatesTo<IdBox>,
+isi! {
+    /// Sized structure for all possible on-chain configuration parameters.
+    #[derive(Display)]
+    #[display(fmt = "SET `{parameter}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `SetParameterBox` has no trap representation in `EvaluatesTo<Parameter>`
+    #[ffi_type(unsafe {robust})]
+    pub struct SetParameterBox {
+        /// The configuration parameter being changed.
+        #[serde(flatten)]
+        pub parameter: EvaluatesTo<Parameter>,
+    }
 }
 
-/// Sized structure for all possible key value set instructions.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
-pub struct SetKeyValueBox {
-    /// Where to set this key value.
-    #[serde(flatten)]
-    pub object_id: EvaluatesTo<IdBox>,
-    /// Key string.
-    pub key: EvaluatesTo<Name>,
-    /// Object to set as a value.
-    pub value: EvaluatesTo<Value>,
+isi! {
+    /// Sized structure for all possible on-chain configuration parameters when they are first created.
+    #[derive(Display)]
+    #[display(fmt = "SET `{parameter}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `NewParameterBox` has no trap representation in `EvaluatesTo<Parameter>`
+    #[ffi_type(unsafe {robust})]
+    pub struct NewParameterBox {
+        /// The configuration parameter being created.
+        #[serde(flatten)]
+        pub parameter: EvaluatesTo<Parameter>,
+    }
 }
 
-/// Sized structure for all possible key value pair remove instructions.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "REMOVE `{key}` from `{object_id}`")]
-pub struct RemoveKeyValueBox {
-    /// From where to remove this key value.
-    #[serde(flatten)]
-    pub object_id: EvaluatesTo<IdBox>,
-    /// Key string.
-    pub key: EvaluatesTo<Name>,
+isi! {
+    /// Sized structure for all possible key value set instructions.
+    #[derive(Display)]
+    #[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
+    #[ffi_type]
+    pub struct SetKeyValueBox {
+        /// Where to set this key value.
+        #[serde(flatten)]
+        pub object_id: EvaluatesTo<IdBox>,
+        /// Key string.
+        pub key: EvaluatesTo<Name>,
+        /// Object to set as a value.
+        pub value: EvaluatesTo<Value>,
+    }
 }
 
-/// Sized structure for all possible Registers.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "REGISTER `{object}`")]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct RegisterBox {
-    /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: EvaluatesTo<RegistrableBox>,
+isi! {
+    /// Sized structure for all possible key value pair remove instructions.
+    #[derive(Display)]
+    #[display(fmt = "REMOVE `{key}` from `{object_id}`")]
+    #[ffi_type]
+    pub struct RemoveKeyValueBox {
+        /// From where to remove this key value.
+        #[serde(flatten)]
+        pub object_id: EvaluatesTo<IdBox>,
+        /// Key string.
+        pub key: EvaluatesTo<Name>,
+    }
 }
 
-/// Sized structure for all possible Unregisters.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "UNREGISTER `{object_id}`")]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct UnregisterBox {
-    /// The id of the object that should be unregistered.
-    pub object_id: EvaluatesTo<IdBox>,
+isi! {
+    /// Sized structure for all possible Registers.
+    #[derive(Display)]
+    #[display(fmt = "REGISTER `{object}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `RegisterBox` has no trap representation in `EvaluatesTo<RegistrableBox>`
+    #[ffi_type(unsafe {robust})]
+    pub struct RegisterBox {
+        /// The object that should be registered, should be uniquely identifiable by its id.
+        pub object: EvaluatesTo<RegistrableBox>,
+    }
 }
 
-/// Sized structure for all possible Mints.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "MINT `{object}` TO `{destination_id}`")]
-pub struct MintBox {
-    /// Object to mint.
-    #[serde(flatten)]
-    pub object: EvaluatesTo<Value>,
-    /// Entity to mint to.
-    pub destination_id: EvaluatesTo<IdBox>,
+isi! {
+    /// Sized structure for all possible Unregisters.
+    #[derive(Display)]
+    #[display(fmt = "UNREGISTER `{object_id}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `UnregisterBox` has no trap representation in `EvaluatesTo<IdBox>`
+    #[ffi_type(unsafe {robust})]
+    pub struct UnregisterBox {
+        /// The id of the object that should be unregistered.
+        pub object_id: EvaluatesTo<IdBox>,
+    }
 }
 
-/// Sized structure for all possible Burns.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
-pub struct BurnBox {
-    /// Object to burn.
-    #[serde(flatten)]
-    pub object: EvaluatesTo<Value>,
-    /// Entity to burn from.
-    pub destination_id: EvaluatesTo<IdBox>,
+isi! {
+    /// Sized structure for all possible Mints.
+    #[derive(Display)]
+    #[display(fmt = "MINT `{object}` TO `{destination_id}`")]
+    #[ffi_type]
+    pub struct MintBox {
+        /// Object to mint.
+        #[serde(flatten)]
+        pub object: EvaluatesTo<Value>,
+        /// Entity to mint to.
+        pub destination_id: EvaluatesTo<IdBox>,
+    }
 }
 
-/// Sized structure for all possible Transfers.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "TRANSFER `{object}` FROM `{source_id}` TO `{destination_id}`")]
-pub struct TransferBox {
-    /// Entity to transfer from.
-    pub source_id: EvaluatesTo<IdBox>,
-    /// Object to transfer.
-    #[serde(flatten)]
-    pub object: EvaluatesTo<Value>,
-    /// Entity to transfer to.
-    pub destination_id: EvaluatesTo<IdBox>,
+isi! {
+    /// Sized structure for all possible Burns.
+    #[derive(Display)]
+    #[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
+    #[ffi_type]
+    pub struct BurnBox {
+        /// Object to burn.
+        #[serde(flatten)]
+        pub object: EvaluatesTo<Value>,
+        /// Entity to burn from.
+        pub destination_id: EvaluatesTo<IdBox>,
+    }
 }
 
-/// Composite instruction for a pair of instructions.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "(`{left_instruction}`, `{right_instruction}`)")]
-pub struct Pair {
-    /// Left instruction
-    pub left_instruction: Instruction,
-    /// Right instruction
-    pub right_instruction: Instruction,
+isi! {
+    /// Sized structure for all possible Transfers.
+    #[derive(Display)]
+    #[display(fmt = "TRANSFER `{object}` FROM `{source_id}` TO `{destination_id}`")]
+    #[ffi_type]
+    pub struct TransferBox {
+        /// Entity to transfer from.
+        pub source_id: EvaluatesTo<IdBox>,
+        /// Object to transfer.
+        #[serde(flatten)]
+        pub object: EvaluatesTo<Value>,
+        /// Entity to transfer to.
+        pub destination_id: EvaluatesTo<IdBox>,
+    }
 }
 
-/// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
-pub struct SequenceBox {
-    /// Sequence of Iroha Special Instructions to execute.
-    pub instructions: Vec<Instruction>,
+isi! {
+    /// Composite instruction for a pair of instructions.
+    #[derive(Display)]
+    #[display(fmt = "(`{left_instruction}`, `{right_instruction}`)")]
+    #[ffi_type]
+    pub struct Pair {
+        /// Left instruction
+        pub left_instruction: Instruction,
+        /// Right instruction
+        pub right_instruction: Instruction,
+    }
+}
+
+isi! {
+    /// Composite instruction for a sequence of instructions.
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `SequenceBox` has no trap representation in `Vec<Instruction>`
+    #[ffi_type(unsafe {robust})]
+    pub struct SequenceBox {
+        /// Sequence of Iroha Special Instructions to execute.
+        pub instructions: Vec<Instruction>,
+    }
 }
 
 impl core::fmt::Display for SequenceBox {
@@ -245,15 +270,17 @@ impl core::fmt::Display for SequenceBox {
     }
 }
 
-/// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash)]
-pub struct If {
-    /// Condition to be checked.
-    pub condition: EvaluatesTo<bool>,
-    /// Instruction to be executed if condition pass.
-    pub then: Instruction,
-    /// Optional instruction to be executed if condition fail.
-    pub otherwise: Option<Instruction>,
+isi! {
+    /// Composite instruction for a conditional execution of other instructions.
+    #[ffi_type]
+    pub struct If {
+        /// Condition to be checked.
+        pub condition: EvaluatesTo<bool>,
+        /// Instruction to be executed if condition pass.
+        pub then: Instruction,
+        /// Optional instruction to be executed if condition fail.
+        pub otherwise: Option<Instruction>,
+    }
 }
 
 impl core::fmt::Display for If {
@@ -267,377 +294,172 @@ impl core::fmt::Display for If {
     }
 }
 
-/// Utilitary instruction to fail execution and submit an error `message`.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "FAIL `{message}`")]
-pub struct FailBox {
-    /// Message to submit.
-    pub message: String,
-}
-
-/// Sized structure for all possible Grants.
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Hash,
-)]
-#[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
-pub struct GrantBox {
-    /// Object to grant.
-    #[serde(flatten)]
-    pub object: EvaluatesTo<Value>,
-    /// Entity to which to grant this token.
-    pub destination_id: EvaluatesTo<IdBox>,
-}
-
-/// Sized structure for all possible Grants.
-#[derive(
-    Debug, Display, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema, Hash,
-)]
-#[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
-pub struct RevokeBox {
-    /// Object to grant.
-    #[serde(flatten)]
-    pub object: EvaluatesTo<Value>,
-    /// Entity to which to grant this token.
-    pub destination_id: EvaluatesTo<IdBox>,
-}
-
-/// Generic instruction to set value to the object.
-#[derive(Debug, Display, Clone, Decode, Encode, Deserialize, Serialize)]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct Set<O>
-where
-    O: Into<Value>,
-{
-    /// Object to equate.
-    pub object: O,
-}
-
-/// Generic instruction to set key value at the object.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct SetKeyValue<O, K, V>
-where
-    O: Identifiable,
-    K: Into<Value>,
-    V: Into<Value>,
-{
-    /// Where to set key value.
-    pub object_id: O::Id,
-    /// Key.
-    pub key: K,
-    /// Value.
-    pub value: V,
-}
-
-/// Generic instruction to remove key value at the object.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct RemoveKeyValue<O, K>
-where
-    O: Identifiable,
-    K: Into<Value>,
-{
-    /// From where to remove key value.
-    pub object_id: O::Id,
-    /// Key of the pair to remove.
-    pub key: K,
-}
-
-/// Generic instruction for a registration of an object to the identifiable destination.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct Register<O>
-where
-    O: Registered,
-{
-    /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: O::With,
-}
-
-/// Generic instruction for an unregistration of an object from the identifiable destination.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Unregister<O>
-where
-    O: Registered,
-{
-    /// [`Identifiable::Id`] of the object which should be unregistered.
-    pub object_id: O::Id,
-}
-
-/// Generic instruction for a mint of an object to the identifiable destination.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Mint<D, O>
-where
-    D: Identifiable,
-    O: Into<Value>,
-{
-    /// Object which should be minted.
-    pub object: O,
-    /// Destination object [`Identifiable::Id`].
-    pub destination_id: D::Id,
-}
-
-/// Generic instruction for a burn of an object to the identifiable destination.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Burn<D, O>
-where
-    D: Identifiable,
-    O: Into<Value>,
-{
-    /// Object which should be burned.
-    pub object: O,
-    /// Destination object [`Identifiable::Id`].
-    pub destination_id: D::Id,
-}
-
-/// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Transfer<S: Identifiable, O, D: Identifiable>
-where
-    O: Into<Value>,
-{
-    /// Source object `Id`.
-    pub source_id: S::Id,
-    /// Object which should be transferred.
-    pub object: O,
-    /// Destination object `Id`.
-    pub destination_id: D::Id,
-}
-
-/// Generic instruction for granting permission to an entity.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Grant<D, O>
-where
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Object to grant.
-    pub object: O,
-    /// Entity to which to grant this token.
-    pub destination_id: D::Id,
-}
-
-/// Generic instruction for revoking permission from an entity.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Revoke<D, O>
-where
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Object to revoke.
-    pub object: O,
-    /// Entity which is being revoked this token from.
-    pub destination_id: D::Id,
-}
-
-/// Generic instruction for setting a chain-wide config parameter.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct SetParameter<P, S>
-where
-    P: Identifiable,
-    S: Registered,
-{
-    /// Parameter to be changed.
-    pub parameter: P,
-    /// Entity which is setting this parameter.
-    pub source_id: S::Id,
-}
-
-/// Generic instruction for setting a chain-wide config parameter.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct NewParameter<P, S>
-where
-    P: Identifiable,
-    S: Registered,
-{
-    /// Parameter to be changed.
-    pub parameter: P,
-    /// Entity which is setting this parameter.
-    pub source_id: S::Id,
-}
-
-impl<P, S> SetParameter<P, S>
-where
-    P: Identifiable,
-    S: Registered,
-{
-    /// Construct [`SetParameter`].
-    pub fn new(parameter: P, source_id: S::Id) -> Self {
-        Self {
-            parameter,
-            source_id,
-        }
+isi! {
+    /// Utilitary instruction to fail execution and submit an error `message`.
+    #[derive(Display)]
+    #[display(fmt = "FAIL `{message}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `FailBox` has no trap representation in `String`
+    #[ffi_type(unsafe {robust})]
+    pub struct FailBox {
+        /// Message to submit.
+        pub message: String,
     }
 }
 
-impl<P, S> NewParameter<P, S>
-where
-    P: Identifiable,
-    S: Registered,
-{
-    /// Construct [`SetParameter`].
-    pub fn new(parameter: P, source_id: S::Id) -> Self {
-        Self {
-            parameter,
-            source_id,
-        }
+isi! {
+    /// Sized structure for all possible Grants.
+    #[derive(Display)]
+    #[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
+    #[ffi_type]
+    pub struct GrantBox {
+        /// Object to grant.
+        #[serde(flatten)]
+        pub object: EvaluatesTo<Value>,
+        /// Entity to which to grant this token.
+        pub destination_id: EvaluatesTo<IdBox>,
     }
 }
 
-/// Instruction to execute specified trigger
-#[derive(
-    Debug, Display, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema, Hash,
-)]
-#[display(fmt = "EXECUTE `{trigger_id}`")]
-pub struct ExecuteTriggerBox {
-    /// Id of a trigger to execute
-    pub trigger_id: TriggerId,
+isi! {
+    /// Sized structure for all possible Grants.
+    #[derive(Display)]
+    #[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
+    #[ffi_type]
+    pub struct RevokeBox {
+        /// Object to grant.
+        #[serde(flatten)]
+        pub object: EvaluatesTo<Value>,
+        /// Entity to which to grant this token.
+        pub destination_id: EvaluatesTo<IdBox>,
+    }
+}
+
+isi! {
+    /// Instruction to execute specified trigger
+    #[derive(Display)]
+    #[display(fmt = "EXECUTE `{trigger_id}`")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `ExecuteTriggerBox` has no trap representation in `Trigger<FilterBox> as Identifiable>::Id`
+    #[ffi_type(unsafe {robust})]
+    pub struct ExecuteTriggerBox {
+        /// Id of a trigger to execute
+        pub trigger_id: <Trigger<FilterBox> as Identifiable>::Id,
+    }
+}
+
+model! {
+    /// Generic instruction to set key value at the object.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct SetKeyValue<O, K, V> where O: Identifiable, K: Into<Value>, V: Into<Value> {
+        /// Where to set key value.
+        pub object_id: O::Id,
+        /// Key.
+        pub key: K,
+        /// Value.
+        pub value: V,
+    }
+
+    /// Generic instruction to remove key value at the object.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct RemoveKeyValue<O, K> where O: Identifiable, K: Into<Value> {
+        /// From where to remove key value.
+        pub object_id: O::Id,
+        /// Key of the pair to remove.
+        pub key: K,
+    }
+
+    /// Generic instruction for a registration of an object to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    struct Register<O> where O: Registered {
+        /// The object that should be registered, should be uniquely identifiable by its id.
+        pub object: O::With,
+    }
+
+    /// Generic instruction for an unregistration of an object from the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    struct Unregister<O> where O: Registered {
+        /// [`Identifiable::Id`] of the object which should be unregistered.
+        pub object_id: O::Id,
+    }
+
+    /// Generic instruction for a mint of an object to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct Mint<D, O> where D: Identifiable, O: Into<Value> {
+        /// Object which should be minted.
+        pub object: O,
+        /// Destination object [`Identifiable::Id`].
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for a burn of an object to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct Burn<D, O> where D: Identifiable, O: Into<Value> {
+        /// Object which should be burned.
+        pub object: O,
+        /// Destination object [`Identifiable::Id`].
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct Transfer<S: Identifiable, O, D: Identifiable> where O: Into<Value> {
+        /// Source object `Id`.
+        pub source_id: S::Id,
+        /// Object which should be transferred.
+        pub object: O,
+        /// Destination object `Id`.
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for granting permission to an entity.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct Grant<D, O> where D: Registered, O: Into<Value> {
+        /// Object to grant.
+        pub object: O,
+        /// Entity to which to grant this token.
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for revoking permission from an entity.
+    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode)]
+    struct Revoke<D, O> where D: Registered, O: Into<Value> {
+        /// Object to revoke.
+        pub object: O,
+        /// Entity which is being revoked this token from.
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for setting a chain-wide config parameter.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct SetParameter<P> where P: Identifiable {
+        /// Parameter to be changed.
+        pub parameter: P,
+    }
+
+    /// Generic instruction for setting a chain-wide config parameter.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize)]
+    struct NewParameter<P> where P: Identifiable {
+        /// Parameter to be changed.
+        pub parameter: P,
+    }
 }
 
 impl ExecuteTriggerBox {
     /// Construct [`ExecuteTriggerBox`]
-    #[inline]
-    pub const fn new(trigger_id: TriggerId) -> Self {
+    pub fn new(trigger_id: <Trigger<FilterBox> as Identifiable>::Id) -> Self {
         Self { trigger_id }
     }
-
     /// Length of contained instructions and queries.
     #[inline]
     pub const fn len(&self) -> usize {
         1
-    }
-}
-
-impl<O, K, V> SetKeyValue<O, K, V>
-where
-    O: Identifiable,
-    K: Into<Value>,
-    V: Into<Value>,
-{
-    /// Construct [`SetKeyValue`].
-    pub fn new(object_id: O::Id, key: K, value: V) -> Self {
-        Self {
-            object_id,
-            key,
-            value,
-        }
-    }
-}
-
-impl<O, K> RemoveKeyValue<O, K>
-where
-    O: Identifiable,
-    K: Into<Value>,
-{
-    /// Construct [`RemoveKeyValue`].
-    pub fn new(object_id: O::Id, key: K) -> Self {
-        Self { object_id, key }
-    }
-}
-
-impl<O> Set<O>
-where
-    O: Into<Value>,
-{
-    /// Construct [`Set`].
-    pub fn new(object: O) -> Self {
-        Set { object }
-    }
-}
-
-impl<O> Register<O>
-where
-    O: Registered,
-{
-    /// Construct [`Register`].
-    pub fn new(object: O::With) -> Self {
-        Register { object }
-    }
-}
-
-impl<O> Unregister<O>
-where
-    O: Registered,
-{
-    /// Construct [`Register`].
-    pub fn new(object_id: O::Id) -> Self {
-        Unregister { object_id }
-    }
-}
-
-impl<D, O> Mint<D, O>
-where
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Construct [`Mint`].
-    pub fn new(object: O, destination_id: D::Id) -> Self {
-        Mint {
-            object,
-            destination_id,
-        }
-    }
-}
-
-impl<D, O> Burn<D, O>
-where
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Construct [`Burn`].
-    pub fn new(object: O, destination_id: D::Id) -> Self {
-        Burn {
-            object,
-            destination_id,
-        }
-    }
-}
-
-impl<S, O, D> Transfer<S, O, D>
-where
-    S: Registered,
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Construct [`Transfer`].
-    pub fn new(source_id: S::Id, object: O, destination_id: D::Id) -> Self {
-        Transfer {
-            source_id,
-            object,
-            destination_id,
-        }
-    }
-}
-
-impl<D, O> Grant<D, O>
-where
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Constructor.
-    #[inline]
-    pub fn new(object: O, destination_id: D::Id) -> Self {
-        Self {
-            object,
-            destination_id,
-        }
-    }
-}
-
-impl<D, O> Revoke<D, O>
-where
-    D: Registered,
-    O: Into<Value>,
-{
-    /// Constructor
-    #[inline]
-    pub fn new(object: O, destination_id: D::Id) -> Self {
-        Self {
-            object,
-            destination_id,
-        }
     }
 }
 
@@ -845,8 +667,10 @@ impl SequenceBox {
     }
 
     /// Construct [`SequenceBox`].
-    pub fn new(instructions: Vec<Instruction>) -> Self {
-        Self { instructions }
+    pub fn new(instructions: impl IntoIterator<Item = Instruction>) -> Self {
+        Self {
+            instructions: instructions.into_iter().collect(),
+        }
     }
 }
 
@@ -901,17 +725,13 @@ impl FailBox {
 impl SetParameterBox {
     /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
-        self.parameter.len() + self.source_id.len() + 1
+        self.parameter.len() + 1
     }
 
     /// Construct [`SetParameterBox`].
-    pub fn new<P: Into<EvaluatesTo<Parameter>>, S: Into<EvaluatesTo<IdBox>>>(
-        parameter: P,
-        source_id: S,
-    ) -> Self {
+    pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
             parameter: parameter.into(),
-            source_id: source_id.into(),
         }
     }
 }
@@ -919,19 +739,178 @@ impl SetParameterBox {
 impl NewParameterBox {
     /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
-        self.parameter.len() + self.source_id.len() + 1
+        self.parameter.len() + 1
     }
 
-    /// Construct [`SetParameterBox`].
-    pub fn new<P: Into<EvaluatesTo<Parameter>>, S: Into<EvaluatesTo<IdBox>>>(
-        parameter: P,
-        source_id: S,
-    ) -> Self {
+    /// Construct [`NewParameterBox`].
+    pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
             parameter: parameter.into(),
-            source_id: source_id.into(),
         }
     }
+}
+
+pub mod error {
+    //! Module containing errors that can occur during instruction evaluation
+
+    use iroha_primitives::fixed::FixedPointOperationError;
+
+    use super::*;
+    use crate::{
+        metadata,
+        query::error::{FindError, QueryExecutionFailure},
+    };
+
+    model! {
+        /// Instruction execution error type
+        #[derive(Debug, Display, FromVariant)]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
+        // TODO: Only temporarily opaque because of InstructionExecutionFailure::Repetition
+        #[ffi_type(opaque)]
+        pub enum InstructionExecutionFailure {
+            /// Failed to find some entity
+            #[display(fmt = "Failed to find. {_0}")]
+            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
+            /// Failed to assert type
+            #[display(fmt = "Type assertion failed. {_0}")]
+            Type(#[cfg_attr(feature = "std", source)] TypeError),
+            /// Failed to assert mintability
+            #[display(fmt = "Mintability violation. {_0}")]
+            Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
+            /// Failed due to math exception
+            #[display(fmt = "Math error. {_0}")]
+            Math(#[cfg_attr(feature = "std", source)] MathError),
+            /// Query Error
+            #[display(fmt = "Query failed. {_0}")]
+            Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
+            /// Metadata Error.
+            #[display(fmt = "Metadata error: {_0}")]
+            Metadata(#[cfg_attr(feature = "std", source)] metadata::Error),
+            /// Unsupported instruction.
+            #[display(fmt = "Unsupported {_0} instruction")]
+            Unsupported(InstructionType),
+            /// [`FailBox`] error
+            #[display(fmt = "Execution failed {_0}")]
+            FailBox(#[skip_from] #[skip_try_from] String),
+            /// Conversion Error
+            #[display(fmt = "Conversion Error: {_0}")]
+            Conversion(#[skip_from] #[skip_try_from] String),
+            /// Repeated instruction
+            #[display(fmt = "Repetition")]
+            Repetition(InstructionType, IdBox),
+            /// Failed to validate.
+            #[display(fmt = "Failed to validate: {_0}")]
+            Validate(#[cfg_attr(feature = "std", source)] ValidationError),
+        }
+
+        /// Generic structure used to represent a mismatch
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+        #[display(fmt = "Expected {expected:?}, actual {actual:?}")]
+        #[ffi_type]
+        pub struct Mismatch<T: Debug> {
+            /// The value that is needed for normal execution
+            pub expected: T,
+            /// The value that caused the error
+            pub actual: T,
+        }
+
+        /// Type error
+        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+        #[ffi_type]
+        pub enum TypeError {
+            /// Asset type assertion error
+            #[display(fmt = "Asset Ids correspond to assets with different underlying types. {_0}")]
+            AssetValueType(Mismatch<AssetValueType>),
+            /// Parameter type assertion error
+            #[display(fmt = "Value passed to the parameter doesn't have the right type. {_0}")]
+            ParameterValueType(Mismatch<Value>),
+            /// Asset Id mismatch
+            #[display(fmt = "AssetDefinition Ids don't match. {_0}")]
+            AssetDefinitionId(Mismatch<<AssetDefinition as Identifiable>::Id>),
+        }
+
+        /// Math error, which occurs during instruction execution
+        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, FromVariant)]
+        // TODO: Only temporarily opaque because of InstructionExecutionFailure::BinaryOpIncompatibleNumericValueTypes
+        #[ffi_type(opaque)]
+        pub enum MathError {
+            /// Overflow error inside instruction
+            #[display(fmt = "Overflow occurred.")]
+            Overflow,
+            /// Not enough quantity
+            #[display(fmt = "Not enough quantity to transfer/burn.")]
+            NotEnoughQuantity,
+            /// Divide by zero
+            #[display(fmt = "Divide by zero")]
+            DivideByZero,
+            /// Negative Value encountered
+            #[display(fmt = "Negative value encountered")]
+            NegativeValue,
+            /// Domain violation
+            #[display(fmt = "Domain violation")]
+            DomainViolation,
+            /// Unknown error. No actual function should ever return this if possible.
+            #[display(fmt = "Unknown error")]
+            Unknown,
+            /// Encountered incompatible type of arguments
+            #[display(fmt = "Binary operation does not support provided combination of arguments ({_0}, {_1})")]
+            BinaryOpIncompatibleNumericValueTypes(NumericValue, NumericValue),
+        }
+
+        /// Mintability logic error
+        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
+        #[ffi_type]
+        #[repr(u8)]
+        pub enum MintabilityError {
+            /// Tried to mint an Un-mintable asset.
+            #[display(fmt = "This asset cannot be minted more than once and it was already minted.")]
+            MintUnmintable,
+            /// Tried to forbid minting on assets that should be mintable.
+            #[display(fmt = "This asset was set as infinitely mintable. You cannot forbid its minting.")]
+            ForbidMintOnMintable,
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl<T: Debug> std::error::Error for Mismatch<T> {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for TypeError {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for MathError {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for MintabilityError {}
+
+    impl From<FixedPointOperationError> for InstructionExecutionFailure {
+        fn from(err: FixedPointOperationError) -> Self {
+            match err {
+                FixedPointOperationError::NegativeValue(_) => Self::Math(MathError::NegativeValue),
+                FixedPointOperationError::Conversion(e) => {
+                    Self::Conversion(format!("Mathematical conversion failed. {e}"))
+                }
+                FixedPointOperationError::Overflow => MathError::Overflow.into(),
+                FixedPointOperationError::DivideByZero => MathError::DivideByZero.into(),
+                FixedPointOperationError::DomainViolation => MathError::DomainViolation.into(),
+                FixedPointOperationError::Arithmetic => MathError::Unknown.into(),
+            }
+        }
+    }
+}
+
+/// The prelude re-exports most commonly used traits, structs and macros from this crate.
+pub mod prelude {
+    #[cfg(feature = "transparent_api")]
+    pub use super::{
+        Burn, Grant, Mint, NewParameter, Register, RemoveKeyValue, Revoke, SetKeyValue,
+        SetParameter, Transfer, Unregister,
+    };
+    pub use super::{
+        BurnBox, ExecuteTriggerBox, FailBox, GrantBox, If as IfInstruction, Instruction, MintBox,
+        NewParameterBox, Pair, RegisterBox, RemoveKeyValueBox, RevokeBox, SequenceBox,
+        SetKeyValueBox, SetParameterBox, TransferBox, UnregisterBox,
+    };
 }
 
 #[cfg(test)]
@@ -966,10 +945,7 @@ mod tests {
 
     #[test]
     fn len_empty_sequence() {
-        let instructions = vec![];
-
-        let inst = Instruction::Sequence(SequenceBox { instructions });
-        assert_eq!(inst.len(), 1);
+        assert_eq!(Instruction::from(SequenceBox::new(vec![])).len(), 1);
     }
 
     #[test]
@@ -983,8 +959,7 @@ mod tests {
             None,
         )];
 
-        let inst = Instruction::Sequence(SequenceBox { instructions });
-        assert_eq!(inst.len(), 4);
+        assert_eq!(Instruction::from(SequenceBox::new(instructions)).len(), 4);
     }
 
     #[test]
@@ -1002,17 +977,6 @@ mod tests {
             fail(),
         ];
 
-        let inst = Instruction::Sequence(SequenceBox { instructions });
-        assert_eq!(inst.len(), 7);
+        assert_eq!(Instruction::from(SequenceBox::new(instructions)).len(), 7);
     }
-}
-
-/// The prelude re-exports most commonly used traits, structs and macros from this crate.
-pub mod prelude {
-    pub use super::{
-        Burn, BurnBox, ExecuteTriggerBox, FailBox, Grant, GrantBox, If as IfInstruction,
-        Instruction, Mint, MintBox, NewParameterBox, Pair, Register, RegisterBox, RemoveKeyValue,
-        RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox,
-        SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox,
-    };
 }

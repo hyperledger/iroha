@@ -1,0 +1,71 @@
+[workspace.package]
+edition = "2021"
+version = "2.0.0-pre-rc.13"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+
+license = "Apache-2.0"
+
+[package]
+name = "iroha_main_validator"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+strip = "debuginfo" # Remove debugging info from the binary
+panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
+lto = true          # Link-time-optimization produces notable decrease in binary size
+opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
+codegen-units = 1   # Further reduces binary size but increases compilation time
+
+[workspace]
+resolver = "2"
+members = [
+  "asset/burn",
+  "asset/mint",
+  "asset/set_key_value",
+  "asset/remove_key_value",
+  "asset/transfer",
+  "asset/unregister",
+  "asset_definition/set_key_value",
+  "asset_definition/remove_key_value",
+  "asset_definition/unregister",
+  "asset_definition/transfer",
+  "account/set_key_value",
+  "account/remove_key_value",
+  "parameter/new",
+  "parameter/set",
+]
+
+[workspace.dependencies]
+iroha_validator = { version = "2.0.0-pre-rc.13", path = "../wasm/validator", features = ["debug"]}
+
+[dependencies]
+iroha_validator.workspace = true
+
+iroha_asset_burn_validator = { path = "asset/burn" }
+iroha_asset_mint_validator = { path = "asset/mint" }
+iroha_asset_set_key_value_validator = { path = "asset/set_key_value" }
+iroha_asset_remove_key_value_validator = { path = "asset/remove_key_value" }
+iroha_asset_transfer_validator = { path = "asset/transfer" }
+iroha_asset_unregister_validator = { path = "asset/unregister" }
+iroha_asset_definition_set_key_value_validator = { path = "asset_definition/set_key_value" }
+iroha_asset_definition_remove_key_value_validator = { path = "asset_definition/remove_key_value" }
+iroha_asset_definition_unregister_validator = { path = "asset_definition/unregister" }
+iroha_asset_definition_transfer_validator = { path = "asset_definition/transfer" }
+iroha_account_set_key_value_validator = { path = "account/set_key_value" }
+iroha_account_remove_key_value_validator = { path = "account/remove_key_value" }
+iroha_parameter_new_validator = { path = "parameter/new" }
+iroha_parameter_set_validator = { path = "parameter/set" }
+
+panic-halt = "0.2.0"

@@ -199,57 +199,19 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
     let imp_event = quote! { #import_path::#event_ident };
 
     let filter_doc = format!(" Filter for {event_ident} entity");
-    let new_doc = format!(" Construct new {filter_ident}");
 
     quote! {
-        #[derive(
-            Clone,
-            PartialEq,
-            PartialOrd,
-            Ord,
-            Eq,
-            Debug,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            iroha_ffi::FfiType,
-            IntoSchema,
-            Hash,
-        )]
-        #[doc = #filter_doc]
-        #vis struct #filter_ident #generics {
-            origin_filter: #fil_opt<#orig_fil<#imp_event>>,
-            event_filter: #fil_opt<#event_filter_ident>
-        }
-
-        impl #filter_ident {
-            #[doc = #new_doc]
-            pub const fn new(
+        iroha_data_model_derive::model! {
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[doc = #filter_doc]
+            #vis struct #filter_ident #generics {
                 origin_filter: #fil_opt<#orig_fil<#imp_event>>,
-                event_filter: #fil_opt<#event_filter_ident>,
-            ) -> Self {
-                Self {
-                    origin_filter,
-                    event_filter,
-                }
-            }
-
-            /// Get `origin_filter`
-            #[inline]
-            pub const fn origin_filter(&self) -> &#fil_opt<#orig_fil<#imp_event>> {
-                &self.origin_filter
-            }
-
-            /// Get `event_filter`
-            #[inline]
-            pub const fn event_filter(&self) -> &#fil_opt<#event_filter_ident> {
-                &self.event_filter
+                event_filter: #fil_opt<#event_filter_ident>
             }
         }
-
         impl #import_path::Filter for #filter_ident {
             type Event = #imp_event;
+
             fn matches(&self, event: &Self::Event) -> bool {
                 self.origin_filter.matches(event) && self.event_filter.matches(event)
             }
@@ -283,25 +245,14 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
     let event_filter_doc = format!(" Event filter for {event_ident} entity");
 
     quote! {
-        #[derive(
-            Clone,
-            PartialEq,
-            PartialOrd,
-            Ord,
-            Eq,
-            Debug,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-            Hash,
-        )]
-        #[allow(clippy::enum_variant_names, missing_docs)]
-        #[doc = #event_filter_doc]
-        #vis enum #event_filter_ident #generics {
-            #(#id_variants),*,
-            #(#event_variants),*
+        iroha_data_model_derive::model! {
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[allow(clippy::enum_variant_names, missing_docs)]
+            #[doc = #event_filter_doc]
+            #vis enum #event_filter_ident #generics {
+                #(#id_variants),*,
+                #(#event_variants),*
+            }
         }
 
         impl #import_path::Filter for #event_filter_ident {

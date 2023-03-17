@@ -3,56 +3,33 @@
 
 use core::{ops::Range, time::Duration};
 
-use iroha_ffi::FfiType;
+use derive_more::Constructor;
+use getset::Getters;
 
 use super::*;
+use crate::model;
 
-/// Special event that is emitted when `WSV` is ready for handling time-triggers
-///
-/// Contains time interval which is used to identify time-triggers to be executed
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Decode, Encode, Serialize, Deserialize, IntoSchema,
-)]
-pub struct Event {
-    /// Previous block timestamp and consensus durations estimation.
-    /// `None` if it's first block commit
-    pub prev_interval: Option<Interval>,
-    /// Current block timestamp and consensus durations estimation
-    pub interval: Interval,
-}
-
-impl Event {
-    /// Construct `Event` with `prev_interval` and `interval`
-    pub const fn new(prev_interval: Option<Interval>, interval: Interval) -> Self {
-        Self {
-            prev_interval,
-            interval,
-        }
+model! {
+    /// Special event that is emitted when `WSV` is ready for handling time-triggers
+    ///
+    /// Contains time interval which is used to identify time-triggers to be executed
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Event {
+        /// Previous block timestamp and consensus durations estimation.
+        /// `None` if it's first block commit
+        pub prev_interval: Option<Interval>,
+        /// Current block timestamp and consensus durations estimation
+        pub interval: Interval,
     }
-}
 
-/// Filters time-events and allows only ones which time interval contains
-#[derive(
-    Debug,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
-    Decode,
-    Encode,
-    IntoSchema,
-    Hash,
-    Serialize,
-    Deserialize,
-    FfiType,
-)]
-#[repr(transparent)]
-#[serde(transparent)]
-// SAFETY: EventFilter has no trap representations in ExecutionTime
-#[ffi_type(unsafe {robust})]
-pub struct EventFilter(pub ExecutionTime);
+    /// Filter time-events and allow only the ones within the given time interval.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct EventFilter(ExecutionTime);
+}
 
 impl Filter for EventFilter {
     type Event = Event;
@@ -69,7 +46,11 @@ impl Filter for EventFilter {
                 let current_interval = event.prev_interval.map_or(event.interval, |prev| {
                     let estimation = event.interval.since + event.interval.length;
                     let prev_estimation = prev.since + prev.length;
-                    Interval::new(prev_estimation, estimation.saturating_sub(prev_estimation))
+
+                    Interval {
+                        since: prev_estimation,
+                        length: estimation.saturating_sub(prev_estimation),
+                    }
                 });
 
                 count_matches_in_interval(schedule, &current_interval)
@@ -129,52 +110,24 @@ fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
     Duration::from_secs(new_secs)
 }
 
-/// Trigger execution time
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-    FfiType,
-    Hash,
-)]
-pub enum ExecutionTime {
-    /// Execute right before block commit
-    PreCommit,
-    /// Execute with some schedule
-    Schedule(Schedule),
-}
+model! {
+    /// Trigger execution time
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub enum ExecutionTime {
+        /// Execute right before block commit
+        PreCommit,
+        /// Execute with some schedule
+        Schedule(Schedule),
+    }
 
-/// Schedule of the trigger
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-    FfiType,
-    Hash,
-)]
-pub struct Schedule {
-    /// The first execution time
-    pub start: Duration,
-    /// If some, the period between cyclic executions
-    pub period: Option<Duration>,
+    /// Schedule of the trigger
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct Schedule {
+        /// The first execution time
+        pub start: Duration,
+        /// If some, the period between cyclic executions
+        pub period: Option<Duration>,
+    }
 }
 
 impl Schedule {
@@ -197,34 +150,16 @@ impl Schedule {
     }
 }
 
-/// Time interval in which `TimeAction` should appear
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-    Hash,
-)]
-pub struct Interval {
-    /// Since which time interval is measured
-    pub since: Duration,
-    /// Length of time interval
-    pub length: Duration,
-}
-
-impl Interval {
-    /// Construct `Interval` with `since` and `step`
-    #[inline]
-    pub const fn new(since: Duration, length: Duration) -> Self {
-        Self { since, length }
+model! {
+    /// Time interval in which `TimeAction` should appear
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Interval {
+        /// The start of a time interval
+        pub since: Duration,
+        /// The length of a time interval
+        pub length: Duration,
     }
 }
 
@@ -260,7 +195,9 @@ mod tests {
             //     p    i1     i2
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 5));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
@@ -271,7 +208,9 @@ mod tests {
             //   p, i1      i2
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
@@ -281,7 +220,9 @@ mod tests {
             //     i1     p    i2
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
@@ -292,7 +233,9 @@ mod tests {
             //    i1      i2, p
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 10));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
@@ -303,7 +246,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5))
                 .with_period(Duration::from_secs(30));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(10);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
@@ -314,8 +259,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(10));
-            let interval =
-                Interval::new(Duration::from_secs(TIMESTAMP + 35), Duration::from_secs(4));
+            let since = Duration::from_secs(TIMESTAMP + 35);
+            let length = Duration::from_secs(4);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
@@ -326,8 +272,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(6));
-            let interval =
-                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(4));
+            let since = Duration::from_secs(TIMESTAMP - 10);
+            let length = Duration::from_secs(4);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
@@ -338,8 +285,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(6));
-            let interval =
-                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(30));
+            let since = Duration::from_secs(TIMESTAMP - 10);
+            let length = Duration::from_secs(30);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 4);
         }
 
@@ -350,10 +298,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_millis(600));
-            let interval = Interval::new(
-                Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500),
-                Duration::from_secs(2),
-            );
+            let since = Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500);
+            let length = Duration::from_secs(2);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 4);
         }
 
@@ -365,7 +312,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
                 .with_period(Duration::from_secs(10));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(5);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
@@ -377,8 +326,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(5));
-            let interval =
-                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(15));
+            let since = Duration::from_secs(TIMESTAMP - 10);
+            let length = Duration::from_secs(15);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
@@ -390,7 +340,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
                 .with_period(Duration::from_secs(15));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(5);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
@@ -402,7 +354,9 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(1));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(7));
+            let since = Duration::from_secs(TIMESTAMP);
+            let length = Duration::from_secs(7);
+            let interval = Interval { since, length };
             assert_eq!(count_matches_in_interval(&schedule, &interval), 7);
         }
     }

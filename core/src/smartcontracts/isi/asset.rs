@@ -1,7 +1,11 @@
 //! This module contains [`Asset`] structure, it's implementation and related traits and
 //! instructions implementations.
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    isi::error::{MathError, Mismatch, TypeError},
+    prelude::*,
+    query::error::FindError,
+};
 use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
 
@@ -12,8 +16,10 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
+    use iroha_data_model::isi::error::MintabilityError;
 
     use super::*;
+    use crate::smartcontracts::account::isi::forbid_minting;
 
     impl Execute for SetKeyValue<Asset, Name, Value> {
         type Error = Error;
@@ -91,7 +97,8 @@ pub mod isi {
 
         fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
             wsv.modify_asset_definition_entry(self.object.id(), |entry| {
-                entry.set_owner(self.destination_id.clone());
+                entry.owned_by = self.destination_id.clone();
+
                 Ok(AssetDefinitionEvent::OwnerChanged(
                     AssetDefinitionOwnerChanged {
                         asset_definition_id: self.object.id().clone(),
@@ -364,13 +371,13 @@ pub mod isi {
         expected_value_type: AssetValueType,
     ) -> Result<AssetDefinition, Error> {
         let asset_definition = wsv.asset_definition_entry(definition_id)?;
-        let definition = asset_definition.definition();
-        if *definition.value_type() == expected_value_type {
-            Ok(definition.clone())
+        let definition = asset_definition.definition;
+        if definition.value_type == expected_value_type {
+            Ok(definition)
         } else {
             Err(TypeError::from(Mismatch {
                 expected: expected_value_type,
-                actual: *definition.value_type(),
+                actual: definition.value_type,
             })
             .into())
         }
@@ -383,11 +390,11 @@ pub mod isi {
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
-        match definition.mintable() {
+        match definition.mintable {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => wsv.modify_asset_definition_entry(definition_id, |entry| {
-                entry.forbid_minting()?;
+                forbid_minting(&mut entry.definition)?;
                 Ok(AssetDefinitionEvent::MintabilityChanged(
                     definition_id.clone(),
                 ))
@@ -405,15 +412,15 @@ pub mod isi {
         if destination.definition_id != source.definition_id {
             let expected = wsv
                 .asset_definition_entry(&destination.definition_id)?
-                .definition()
+                .definition
                 .id()
                 .clone();
             let actual = wsv
                 .asset_definition_entry(&source.definition_id)?
-                .definition()
+                .definition
                 .id()
                 .clone();
-            return Err(TypeError::from(Box::new(Mismatch { expected, actual })).into());
+            return Err(TypeError::from(Mismatch { expected, actual }).into());
         }
         assert_asset_type(&source.definition_id, wsv, value_type)?;
         assert_asset_type(&destination.definition_id, wsv, value_type)?;
@@ -424,17 +431,19 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
+    use iroha_data_model::query::{
+        asset::IsAssetDefinitionOwner, error::QueryExecutionFailure as Error,
+    };
 
     use super::*;
-    use crate::smartcontracts::query::Error;
 
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts() {
-                    for asset in account.assets() {
+                for account in domain.accounts.values() {
+                    for asset in account.assets.values() {
                         vec.push(asset.clone())
                     }
                 }
@@ -448,8 +457,8 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for asset_definition_entry in domain.asset_definitions() {
-                    vec.push(asset_definition_entry.definition().clone())
+                for asset_definition_entry in domain.asset_definitions.values() {
+                    vec.push(asset_definition_entry.definition.clone())
                 }
             }
             Ok(vec)
@@ -486,7 +495,7 @@ pub mod query {
 
             let entry = wsv.asset_definition_entry(&id).map_err(Error::from)?;
 
-            Ok(entry.definition().clone())
+            Ok(entry.definition)
         }
     }
 
@@ -501,8 +510,8 @@ pub mod query {
             iroha_logger::trace!(%name);
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts() {
-                    for asset in account.assets() {
+                for account in domain.accounts.values() {
+                    for asset in account.assets.values() {
                         if asset.id().definition_id.name == name {
                             vec.push(asset.clone())
                         }
@@ -537,8 +546,8 @@ pub mod query {
             iroha_logger::trace!(%id);
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts() {
-                    for asset in account.assets() {
+                for account in domain.accounts.values() {
+                    for asset in account.assets.values() {
                         if asset.id().definition_id == id {
                             vec.push(asset.clone())
                         }
@@ -559,8 +568,8 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
             let mut vec = Vec::new();
-            for account in wsv.domain(&id)?.accounts() {
-                for asset in account.assets() {
+            for account in wsv.domain(&id)?.accounts.values() {
+                for asset in account.assets.values() {
                     vec.push(asset.clone())
                 }
             }
@@ -583,12 +592,13 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let domain = wsv.domain(&domain_id)?;
             let _definition = domain
-                .asset_definition(&asset_definition_id)
+                .asset_definitions
+                .get(&asset_definition_id)
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
             iroha_logger::trace!(%domain_id, %asset_definition_id);
             let mut assets = Vec::new();
-            for account in domain.accounts() {
-                for asset in account.assets() {
+            for account in domain.accounts.values() {
+                for asset in account.assets.values() {
                     if asset.id().account_id.domain_id == domain_id
                         && asset.id().definition_id == asset_definition_id
                     {
@@ -618,8 +628,7 @@ pub mod query {
                         asset_err
                     }
                 })?
-                .value()
-                .clone();
+                .value;
             let value =
                 NumericValue::try_from(value).map_err(|err| Error::Conversion(err.to_string()))?;
             Ok(value)
@@ -662,7 +671,7 @@ pub mod query {
             })?;
             iroha_logger::trace!(%id, %key);
             let store: &Metadata = asset
-                .value()
+                .value
                 .try_as_ref()
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))?;
@@ -670,6 +679,25 @@ pub mod query {
                 .get(&key)
                 .ok_or_else(|| Error::Find(Box::new(FindError::MetadataKey(key))))?
                 .clone())
+        }
+    }
+
+    impl ValidQuery for IsAssetDefinitionOwner {
+        #[metrics("is_asset_definition_owner")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            let asset_definition_id = self
+                .asset_definition_id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get asset definition id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let account_id = self
+                .account_id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get account id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+
+            let entry = wsv.asset_definition_entry(&asset_definition_id)?;
+            Ok(entry.owned_by() == &account_id)
         }
     }
 }

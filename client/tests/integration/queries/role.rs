@@ -4,9 +4,7 @@ use std::collections::HashSet;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::smartcontracts::isi::query::Error as QueryError;
-use iroha_data_model::prelude::*;
-use iroha_permissions_validators::public_blockchain::key_value::CanSetKeyValueInUserMetadata;
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
 use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
@@ -43,7 +41,7 @@ fn find_roles() -> Result<()> {
         .map(|role| role.id().clone())
         .collect::<HashSet<_>>();
 
-    assert_eq!(found_role_ids, role_ids);
+    assert!(role_ids.is_subset(&found_role_ids));
 
     Ok(())
 }
@@ -69,7 +67,7 @@ fn find_role_ids() -> Result<()> {
     let found_role_ids = test_client.request(client::role::all_ids())?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
-    assert_eq!(found_role_ids, role_ids);
+    assert!(role_ids.is_subset(&found_role_ids));
 
     Ok(())
 }
@@ -107,7 +105,9 @@ fn find_unregistered_role_by_id() {
     // Not found error
     assert!(matches!(
         found_role,
-        Err(client::ClientQueryError::QueryError(QueryError::Find(_)))
+        Err(client::ClientQueryError::QueryError(
+            QueryExecutionFailure::Find(_)
+        ))
     ));
 }
 
@@ -125,8 +125,15 @@ fn find_roles_by_account_id() -> Result<()> {
         .cloned()
         .map(|role_id| {
             RegisterBox::new(
-                Role::new(role_id)
-                    .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone())),
+                Role::new(role_id).add_permission(
+                    PermissionToken::new(
+                        "can_set_key_value_in_user_account".parse().expect("Valid"),
+                    )
+                    .with_params([(
+                        "account_id".parse().expect("Valid"),
+                        alice_id.clone().into(),
+                    )]),
+                ),
             )
             .into()
         })
@@ -147,7 +154,7 @@ fn find_roles_by_account_id() -> Result<()> {
     let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
-    assert_eq!(found_role_ids, role_ids);
+    assert!(role_ids.is_subset(&found_role_ids));
 
     Ok(())
 }

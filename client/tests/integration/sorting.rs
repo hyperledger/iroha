@@ -2,6 +2,7 @@
 
 use std::{collections::HashSet, str::FromStr as _};
 
+use eyre::{Result, WrapErr as _};
 use iroha_client::client;
 use iroha_data_model::{
     predicate::{string, value, PredicateBox},
@@ -175,7 +176,7 @@ fn correct_sorting_of_entities() {
 
     let n = 10u32;
     for i in 0..n {
-        let account_id = AccountId::from_str(&format!("bob{i}@wonderland")).expect("Valid");
+        let account_id = AccountId::from_str(&format!("charlie{i}@wonderland")).expect("Valid");
         let mut account_metadata = Metadata::new();
         account_metadata
             .insert_with_limits(
@@ -201,7 +202,7 @@ fn correct_sorting_of_entities() {
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
             PredicateBox::new(value::Predicate::Identifiable(
-                string::Predicate::starts_with("bob"),
+                string::Predicate::starts_with("charlie"),
             )),
         )
         .expect("Valid");
@@ -291,7 +292,7 @@ fn correct_sorting_of_entities() {
 }
 
 #[test]
-fn sort_only_elements_which_have_sorting_key() {
+fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_680).start_with_runtime();
 
     let sort_by_metadata_key = Name::from_str("test_sort").expect("Valid");
@@ -306,7 +307,7 @@ fn sort_only_elements_which_have_sorting_key() {
 
     let n = 10u32;
     for i in 0..n {
-        let account_id = AccountId::from_str(&format!("bob{i}@wonderland")).expect("Valid");
+        let account_id = AccountId::from_str(&format!("charlie{i}@wonderland")).expect("Valid");
         let account = if !skip_set.contains(&i) {
             let mut account_metadata = Metadata::new();
             account_metadata
@@ -331,17 +332,17 @@ fn sort_only_elements_which_have_sorting_key() {
 
     test_client
         .submit_all_blocking(instructions)
-        .expect("Valid");
+        .wrap_err("Failed to register accounts")?;
 
     let res = test_client
         .request_with_sorting_and_filter(
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key),
             PredicateBox::new(value::Predicate::Identifiable(
-                string::Predicate::starts_with("bob"),
+                string::Predicate::starts_with("charlie"),
             )),
         )
-        .expect("Valid");
+        .wrap_err("Failed to submit request")?;
 
     let accounts = accounts_a
         .into_iter()
@@ -349,4 +350,6 @@ fn sort_only_elements_which_have_sorting_key() {
         .chain(accounts_b.into_iter())
         .collect::<Vec<_>>();
     assert_eq!(res.output, accounts);
+
+    Ok(())
 }

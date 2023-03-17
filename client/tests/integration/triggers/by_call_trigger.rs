@@ -4,8 +4,9 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
-use iroha_core::genesis::GenesisNetwork;
 use iroha_data_model::prelude::*;
+use iroha_genesis::GenesisNetwork;
+use iroha_logger::info;
 use test_network::*;
 
 const TRIGGER_NAME: &str = "mint_rose";
@@ -112,7 +113,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     let register_bad_trigger = RegisterBox::new(Trigger::new(
         bad_trigger_id.clone(),
         Action::new(
-            Executable::from(bad_trigger_instructions),
+            bad_trigger_instructions,
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -129,11 +130,11 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id,
         Action::new(
-            Executable::from(trigger_instructions),
+            trigger_instructions,
             Repeats::Indefinitely,
             account_id,
             // Time-triggers (which are Pre-commit triggers) will be executed last
-            FilterBox::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -164,7 +165,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            Executable::from(trigger_instructions),
+            trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -216,7 +217,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            Executable::from(trigger_instructions),
+            trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -257,7 +258,7 @@ fn unregister_trigger() -> Result<()> {
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            Executable::from(trigger_instructions),
+            trigger_instructions,
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -299,32 +300,34 @@ fn unregister_trigger() -> Result<()> {
 /// Despite this simplification this test should really check
 /// if we have the ability to pass a base64-encoded WASM trigger in the genesis.
 #[test]
-// TODO: Same suggestion here as in #2641.
-// Let's use feature instead of ignore.
-// This feature will be activated by the build-script on nightly builds/
-#[ignore = "Only on nightly"]
 fn trigger_in_genesis_using_base64() -> Result<()> {
-    // Reading wasm smartcontract
-    let wasm = std::fs::read(concat!(
-        env!("OUT_DIR"),
-        "/wasm32-unknown-unknown/release/mint_rose.wasm"
-    ))
-    .wrap_err("Can't read smartcontract")?;
-    println!("wasm size is {} bytes", wasm.len());
-    let wasm_base64 = serde_json::json!({
-        "raw_data": base64::encode(&wasm),
-    })
-    .to_string();
+    // Building wasm trigger
 
+    let temp_out_dir =
+        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
+
+    info!("Building trigger");
+    let wasm = iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose")
+        .out_dir(temp_out_dir.path())
+        .build()?
+        .optimize()?
+        .into_bytes();
+
+    temp_out_dir
+        .close()
+        .wrap_err("Failed to remove temporary output directory")?;
+
+    info!("WASM size is {} bytes", wasm.len());
+
+    let wasm_base64 = serde_json::json!(base64::encode(&wasm)).to_string();
     let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let trigger_id = <Trigger<FilterBox> as Identifiable>::Id::from_str("genesis_trigger")?;
+
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            Executable::Wasm(
-                serde_json::from_str(&wasm_base64)
-                    .wrap_err("Can't deserialize wasm using base64")?,
-            ),
+            serde_json::from_str::<WasmSmartContract>(&wasm_base64)
+                .wrap_err("Can't deserialize wasm using base64")?,
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -378,7 +381,7 @@ fn build_register_trigger_isi(
     RegisterBox::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            Executable::from(trigger_instructions),
+            trigger_instructions,
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(

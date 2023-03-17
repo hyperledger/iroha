@@ -13,7 +13,7 @@ use std::{
 
 use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, ValueKind};
 
 /// Outcome shorthand used throughout this crate
 pub(crate) type Outcome = color_eyre::Result<()>;
@@ -184,16 +184,15 @@ mod schema {
 
 mod genesis {
     use clap::{Parser, Subcommand};
-    use iroha_core::{
-        genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
-        tx::{AssetValueType, MintBox, RegisterBox},
+    use iroha_data_model::{
+        asset::AssetValueType,
+        isi::{MintBox, RegisterBox},
+        metadata::Limits,
+        permission::{validator, Validator},
+        prelude::AssetId,
+        IdBox,
     };
-    use iroha_data_model::{metadata::Limits, prelude::AssetId, IdBox};
-    use iroha_permissions_validators::public_blockchain::{
-        self,
-        key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
-        set_parameter::CanChangeConfigParameters,
-    };
+    use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder};
 
     use super::*;
 
@@ -209,6 +208,10 @@ mod genesis {
         #[default]
         Default,
         /// Generate synthetic genesis with specified number of domains, accounts and assets.
+        ///
+        /// Synthetic mode is useful when we need a semi-realistic genesis for stress-testing
+        /// Iroha's startup times as well as being able to just start an Iroha network and have
+        /// instructions that represent a typical blockchain after migration.
         Synthetic {
             /// Number of domains in synthetic genesis.
             #[clap(long, default_value_t)]
@@ -239,6 +242,7 @@ mod genesis {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn generate_default() -> color_eyre::Result<RawGenesisBlock> {
         let mut meta = Metadata::new();
         meta.insert_with_limits(
@@ -247,7 +251,7 @@ mod genesis {
             Limits::new(1024, 1024),
         )?;
 
-        let mut result = RawGenesisBlockBuilder::new()
+        let mut genesis = RawGenesisBlockBuilder::new()
             .domain_with_metadata("wonderland".parse()?, meta.clone())
             .account_with_metadata(
                 "alice".parse()?,
@@ -279,26 +283,39 @@ mod genesis {
         );
         let token = PermissionToken::new("allowed_to_do_stuff".parse()?);
 
-        let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
-            token.definition_id().clone(),
-        ));
+        let register_permission =
+            RegisterBox::new(PermissionTokenDefinition::new(token.definition_id.clone()));
         let role_id: RoleId = "staff_that_does_stuff_in_genesis".parse()?;
         let register_role =
             RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
 
-        let register_user_metadata_access = RegisterBox::new(
-            Role::new("CONFIG_AND_USER_METADATA_ACCESS".parse()?)
-                .add_permission(CanSetKeyValueInUserMetadata::new(
-                    "alice@wonderland".parse()?,
-                ))
-                .add_permission(CanRemoveKeyValueInUserMetadata::new(
-                    "alice@wonderland".parse()?,
-                ))
-                .add_permission(CanChangeConfigParameters::new("alice@wonderland".parse()?)),
-        );
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+        let grant_permission = GrantBox::new(token, alice_id.clone());
+        let grant_permission_to_set_parameters = GrantBox::new(
+            PermissionToken::new("can_set_parameters".parse()?),
+            alice_id.clone(),
+        );
+        let register_user_metadata_access = RegisterBox::new(
+            Role::new("USER_METADATA_ACCESS".parse()?)
+                .add_permission(
+                    PermissionToken::new("can_set_key_value_in_user_account".parse()?).with_params(
+                        [(
+                            "account_id".parse()?,
+                            IdBox::AccountId("alice@wonderland".parse()?).into(),
+                        )],
+                    ),
+                )
+                .add_permission(
+                    PermissionToken::new("can_remove_key_value_in_user_account".parse()?)
+                        .with_params([(
+                            "account_id".parse()?,
+                            IdBox::AccountId("alice@wonderland".parse()?).into(),
+                        )]),
+                ),
+        )
+        .into();
 
-        let parameter_defaults = vec![
+        let parameter_defaults: Vec<_> = [
             Parameter::from_str("?BlockSyncGossipPeriod=10000")?,
             Parameter::from_str("?NetworkActorChannelCapacity=100")?,
             Parameter::from_str("?MaxTransactionsInBlock=512")?,
@@ -323,31 +340,41 @@ mod genesis {
             Parameter::from_str("?WASMMaxMemory=524288000")?,
         ]
         .into_iter()
-        .map(|param| NewParameterBox::new(param, alice_id.clone()))
-        .map(Instruction::NewParameter)
+        .map(NewParameterBox::new)
+        .map(Into::into)
         .collect();
 
         let param_seq = SequenceBox::new(parameter_defaults);
-
-        let grant_permission = GrantBox::new(token, alice_id.clone());
         let grant_role = GrantBox::new(role_id, alice_id);
 
-        result.transactions[0].isi.extend(
-            public_blockchain::default_permission_token_definitions()
-                .into_iter()
-                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
-        );
-        result.transactions[0].isi.push(mint.into());
-        result.transactions[0].isi.push(mint_cabbage.into());
-        result.transactions[0].isi.push(register_permission.into());
-        result.transactions[0]
+        genesis.transactions[0].isi.push(mint.into());
+        genesis.transactions[0].isi.push(mint_cabbage.into());
+        genesis.transactions[0]
             .isi
-            .push(register_user_metadata_access.into());
-        result.transactions[0].isi.push(grant_permission.into());
-        result.transactions[0].isi.push(register_role.into());
-        result.transactions[0].isi.push(grant_role.into());
-        result.transactions[0].isi.push(param_seq.into());
-        Ok(result)
+            .extend(register_permission_token_definitions()?);
+        genesis.transactions[0].isi.push(register_permission.into());
+        genesis.transactions[0].isi.push(grant_permission.into());
+        genesis.transactions[0]
+            .isi
+            .push(grant_permission_to_set_parameters.into());
+        genesis.transactions[0].isi.push(register_role.into());
+        genesis.transactions[0].isi.push(grant_role.into());
+        genesis.transactions[0].isi.push(param_seq.into());
+        genesis.transactions[0]
+            .isi
+            .push(register_user_metadata_access);
+
+        genesis.transactions[0].isi.push(register_validator()?);
+
+        Ok(genesis)
+    }
+
+    fn register_permission_token_definitions() -> color_eyre::Result<Vec<Instruction>> {
+        Ok(super::tokens::permission_token_definitions()?
+            .into_iter()
+            .map(RegisterBox::new)
+            .map(Into::into)
+            .collect())
     }
 
     fn generate_synthetic(
@@ -400,13 +427,32 @@ mod genesis {
         .into_iter()
         .map(Into::into);
 
-        genesis.transactions[0].isi.extend(
-            public_blockchain::default_permission_token_definitions()
-                .into_iter()
-                .map(|token_definition| RegisterBox::new(token_definition.clone()).into()),
-        );
         genesis.transactions[0].isi.extend(mints);
+        genesis.transactions[0]
+            .isi
+            .extend(register_permission_token_definitions()?);
+
         Ok(genesis)
+    }
+
+    fn register_validator() -> color_eyre::Result<Instruction> {
+        const PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators";
+
+        let build_dir = tempfile::tempdir()
+            .wrap_err("Failed to create temp dir for runtime validator output")?;
+
+        let wasm_blob = iroha_wasm_builder::Builder::new(PERMISSION_VALIDATOR_PATH)
+            .out_dir(build_dir.path())
+            .build()?
+            .optimize()?
+            .into_bytes();
+
+        Ok(RegisterBox::new(Validator::new(
+            "permission_validator%genesis@genesis".parse()?,
+            validator::Type::Instruction,
+            WasmSmartContract::new(wasm_blob),
+        ))
+        .into())
     }
 }
 
@@ -635,95 +681,69 @@ mod docs {
 }
 
 mod tokens {
-    use std::collections::HashMap;
-
-    use clap::ArgEnum;
-    use color_eyre::{
-        eyre::{bail, eyre, WrapErr},
-        Result,
-    };
-    use iroha_permissions_validators::{
-        private_blockchain::register::CanRegisterDomains,
-        public_blockchain::PredefinedPermissionToken,
-    };
-    use iroha_schema::{IntoSchema, Metadata};
+    use color_eyre::{eyre::WrapErr, Result};
 
     use super::*;
 
     #[derive(StructOpt, Debug, Clone, Copy)]
-    pub struct Args {
-        #[structopt(arg_enum, default_value = "public")]
-        /// Whether to list private or public blockchain tokens
-        blockchain: Blockchain,
+    pub struct Args;
+
+    pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
+        // TODO: Not hardcode this. Instead get this info from validator it-self
+        Ok(vec![
+            // Account
+            token_with_account_id("can_remove_key_value_in_user_account")?,
+            token_with_account_id("can_set_key_value_in_user_account")?,
+            // Asset
+            token_with_asset_definition_id("can_burn_assets_with_definition")?,
+            token_with_asset_id("can_burn_user_asset")?,
+            token_with_asset_definition_id("can_mint_assets_with_definition")?,
+            token_with_asset_id("can_remove_key_value_in_user_asset")?,
+            token_with_asset_id("can_set_key_value_in_user_asset")?,
+            token_with_asset_definition_id("can_transfer_assets_with_definition")?,
+            token_with_asset_id("can_transfer_user_asset")?,
+            token_with_asset_definition_id("can_unregister_assets_with_definition")?,
+            token_with_asset_id("can_unregister_user_assets")?,
+            // Asset definition
+            token_with_asset_definition_id("can_remove_key_value_in_asset_definition")?,
+            token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
+            token_with_asset_definition_id("can_unregister_asset_definition")?,
+            // Parameter
+            bare_token("can_grant_permission_to_create_parameters")?,
+            bare_token("can_revoke_permission_to_create_parameters")?,
+            bare_token("can_create_parameters")?,
+            bare_token("can_grant_permission_to_set_parameters")?,
+            bare_token("can_revoke_permission_to_set_parameters")?,
+            bare_token("can_set_parameters")?,
+        ])
     }
 
-    #[derive(ArgEnum, Debug, Clone, Copy)]
-    pub enum Blockchain {
-        Private,
-        Public,
+    fn bare_token(token_id: &str) -> Result<PermissionTokenDefinition> {
+        Ok(PermissionTokenDefinition::new(token_id.parse()?))
     }
 
-    fn public_blockchain_tokens() -> Result<HashMap<String, HashMap<String, String>>> {
-        let mut schema = PredefinedPermissionToken::get_schema();
-
-        let enum_variants = match schema
-            .remove("iroha_permissions_validators::public_blockchain::PredefinedPermissionToken")
-            .ok_or_else(|| eyre!("Token enum is not in schema"))?
-        {
-            Metadata::Enum(meta) => meta.variants,
-            _ => bail!("Expected enum"),
-        };
-
-        enum_variants
-            .into_iter()
-            .map(|variant| {
-                let ty = variant.ty.ok_or_else(|| eyre!("Empty enum variant"))?;
-                let fields = match schema
-                    .remove(&ty)
-                    .ok_or_else(|| eyre!("Token is not in schema"))?
-                {
-                    Metadata::Struct(meta) => meta
-                        .declarations
-                        .into_iter()
-                        .map(|decl| (decl.name, decl.ty))
-                        .collect::<HashMap<_, _>>(),
-                    _ => bail!("Token is not a struct"),
-                };
-                Ok((ty, fields))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()
+    fn token_with_asset_definition_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        Ok(PermissionTokenDefinition::new(token_id.parse()?)
+            .with_params([("asset_definition_id".parse()?, ValueKind::Id)]))
     }
 
-    fn private_blockchain_tokens() -> Result<HashMap<String, HashMap<String, String>>> {
-        let schema = CanRegisterDomains::get_schema();
+    fn token_with_asset_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        Ok(PermissionTokenDefinition::new(token_id.parse()?)
+            .with_params([("asset_id".parse()?, ValueKind::Id)]))
+    }
 
-        schema
-            .into_iter()
-            .map(|(ty, meta)| {
-                let fields = match meta {
-                    Metadata::Struct(meta) => meta
-                        .declarations
-                        .into_iter()
-                        .map(|decl| (decl.name, decl.ty))
-                        .collect::<HashMap<_, _>>(),
-                    _ => bail!("Token is not a struct"),
-                };
-                Ok((ty, fields))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()
+    fn token_with_account_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        Ok(PermissionTokenDefinition::new(token_id.parse()?)
+            .with_params([("account_id".parse()?, ValueKind::Id)]))
     }
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            let token_map = match self.blockchain {
-                Blockchain::Private => private_blockchain_tokens()?,
-                Blockchain::Public => public_blockchain_tokens()?,
-            };
-
             write!(
                 writer,
                 "{}",
-                serde_json::to_string_pretty(&token_map).wrap_err("Serialization error")?
+                serde_json::to_string_pretty(&permission_token_definitions()?)
+                    .wrap_err("Serialization error")?
             )
             .wrap_err("Failed to write serialized token map into the buffer.")
         }

@@ -2,7 +2,6 @@
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -21,7 +20,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
-            Executable::from(vec![instruction.clone().into()]),
+            vec![instruction.clone().into()],
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
@@ -34,7 +33,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_2".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
@@ -58,10 +57,7 @@ fn must_execute_both_triggers() -> Result<()> {
 
 #[test]
 fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
-        .with_query_judge(Box::new(AllowAll::new()))
-        .with_port(10_655)
-        .start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_655).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let create_neverland_domain = RegisterBox::new(Domain::new("neverland".parse()?));
@@ -89,7 +85,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_sakura$neverland".parse()?,
         Action::new(
-            Executable::from(vec![MintBox::new(1_u32, asset_id.clone()).into()]),
+            vec![MintBox::new(1_u32, asset_id.clone()).into()],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(

@@ -1,13 +1,17 @@
 [package]
 name = "iroha_wasm_derive"
-version = "0.1.0"
-edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+license.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = {version = "1", default-features = false, features = ["full", "extra-traits"] }
-quote = "1.0"
+iroha_derive_primitives.workspace = true
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true

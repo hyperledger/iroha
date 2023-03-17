@@ -1,0 +1,14 @@
+[package]
+name = "iroha_asset_transfer_validator"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['rlib']
+
+[dependencies]
+iroha_validator.workspace = true

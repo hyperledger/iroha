@@ -1,15 +1,18 @@
 [package]
 name = "iroha_config_derive"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
 syn = { version = "1.0.107", default-features = false, features = ["derive", "parsing", "proc-macro", "clone-impls", "printing"] }
-# This is the maximally compressed set of features. Yes we also need "printing". 
+# This is the maximally compressed set of features. Yes we also need "printing".
 quote = "1.0.23"
 proc-macro2 = "1.0.49"
 proc-macro-error = "1.0.4"

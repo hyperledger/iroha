@@ -1,9 +1,11 @@
 [package]
 name = "iroha_telemetry"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
-build = "build.rs"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 
 [features]
 # Support developer-specific telemetry.
@@ -17,7 +19,6 @@ iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre-rc.13", path = "../futures", features = ["telemetry"] }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
-
 
 async-trait = "0.1.60"
 chrono = "0.4.23"
@@ -34,8 +35,7 @@ prometheus = { version = "0.13.3", default-features = false }
 
 
 [build-dependencies]
-anyhow = "1.0.68"
-vergen = { version = "7.3.2", default-features = false, features = ["cargo", "git"] }
-# DO NOT BUMP THIS VERSION.
-git2 = { version = "=0.14.4", features = ["vendored-libgit2"] }
+eyre = "0.6.8"
+vergen = { version = "7.4.2", default-features = false, features = ["cargo", "git"] }
+libgit2-sys = {version = "=0.13.4"}
 

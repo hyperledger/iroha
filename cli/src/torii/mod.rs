@@ -29,6 +29,7 @@ use warp::{
 
 #[macro_use]
 pub(crate) mod utils;
+mod pagination;
 pub mod routing;
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -36,27 +37,26 @@ pub struct Torii {
     iroha_cfg: super::Configuration,
     queue: Arc<Queue>,
     events: EventsSender,
-    query_judge: QueryJudgeArc,
     notify_shutdown: Arc<Notify>,
     sumeragi: Arc<Sumeragi>,
     kura: Arc<Kura>,
 }
 
 /// Torii errors.
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
     /// Failed to execute or validate query
     #[error("Failed to execute or validate query")]
-    Query(#[from] iroha_core::smartcontracts::query::Error),
+    Query(#[from] iroha_data_model::query::error::QueryExecutionFailure),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
     VersionedSignedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
-    AcceptTransaction(eyre::Report),
+    AcceptTransaction(#[from] iroha_data_model::transaction::error::AcceptTransactionFailure),
     /// Failed to get pending transaction
     #[error("Failed to get pending transactions: {0}")]
-    RequestPendingTransactions(eyre::Report),
+    RequestPendingTransactions(#[source] eyre::Report),
     /// Failed to decode pending transactions from leader
     #[error("Failed to decode pending transactions from leader")]
     DecodeRequestPendingTransactions(#[source] iroha_version::error::Error),
@@ -68,7 +68,7 @@ pub enum Error {
     TxTooBig,
     /// Error while getting or setting configuration
     #[error("Configuration error: {0}")]
-    Config(eyre::Report),
+    Config(#[source] eyre::Report),
     /// Failed to push into queue
     #[error("Failed to push into queue")]
     PushIntoQueue(#[from] Box<queue::Error>),
@@ -82,14 +82,15 @@ pub enum Error {
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     #[error("Failed to produce Prometheus metrics: {0}")]
-    Prometheus(eyre::Report),
+    Prometheus(#[source] eyre::Report),
 }
 
 /// Status code for query error response.
 pub(crate) const fn query_status_code(
-    query_error: &iroha_core::smartcontracts::query::Error,
+    query_error: &iroha_data_model::query::error::QueryExecutionFailure,
 ) -> StatusCode {
-    use iroha_core::smartcontracts::query::Error::*;
+    use iroha_data_model::query::error::QueryExecutionFailure::*;
+
     match query_error {
         Decode(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
         Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,

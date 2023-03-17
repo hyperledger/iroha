@@ -1,9 +1,11 @@
 [package]
 name = "iroha_schema_derive"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
-publish = false
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 
 [lib]
 proc-macro = true
@@ -14,6 +16,6 @@ proc-macro2 = "1.0.49"
 quote = "1.0.23"
 
 [dev-dependencies]
-iroha_schema = { path = "../"}
+iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../"}
 
 trybuild = "1.0.73"

@@ -9,45 +9,42 @@ use iroha_config_base::{
     runtime_upgrades::{handle, ReloadError, ReloadMut},
 };
 use serde::{Deserialize, Serialize};
+use strum::FromRepr;
 use tracing::Subscriber;
 use tracing_subscriber::{filter::LevelFilter, reload::Handle};
 
 const TELEMETRY_CAPACITY: u32 = 1000;
 const DEFAULT_COMPACT_MODE: bool = false;
 const DEFAULT_TERMINAL_COLORS: bool = true;
-const DEFAULT_MAX_LOG_LEVEL: Level = Level::INFO;
 
 /// Log level for reading from environment and (de)serializing
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, FromRepr,
+)]
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
 pub enum Level {
-    /// Error
-    ERROR,
-    /// Warn
-    WARN,
-    /// Info (Default)
-    INFO,
-    /// Debug
-    DEBUG,
     /// Trace
     TRACE,
-}
-
-// TODO: derive when bump version to 1.62
-impl Default for Level {
-    fn default() -> Self {
-        DEFAULT_MAX_LOG_LEVEL
-    }
+    /// Debug
+    DEBUG,
+    /// Info (Default)
+    #[default]
+    INFO,
+    /// Warn
+    WARN,
+    /// Error
+    ERROR,
 }
 
 impl From<Level> for tracing::Level {
     fn from(level: Level) -> Self {
         match level {
-            Level::ERROR => Self::ERROR,
             Level::TRACE => Self::TRACE,
-            Level::INFO => Self::INFO,
             Level::DEBUG => Self::DEBUG,
+            Level::INFO => Self::INFO,
             Level::WARN => Self::WARN,
+            Level::ERROR => Self::ERROR,
         }
     }
 }
@@ -55,6 +52,7 @@ impl From<Level> for tracing::Level {
 impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {
     fn reload(&mut self, level: Level) -> Result<(), ReloadError> {
         let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level.into());
+
         Handle::reload(self, level_filter).map_err(|err| {
             if err.is_dropped() {
                 ReloadError::Dropped
@@ -66,7 +64,7 @@ impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {
 }
 
 /// Wrapper around [`Level`] for runtime upgrades.
-#[derive(Clone, Debug, Serialize, Deserialize, Deref, DerefMut, Default)]
+#[derive(Debug, Clone, Default, Deref, DerefMut, Deserialize, Serialize)]
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct SyncLevel(handle::SyncValue<Level, handle::Singleton<Level>>);
@@ -86,7 +84,7 @@ impl PartialEq for SyncLevel {
 impl Eq for SyncLevel {}
 
 /// 'Logger' configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Proxy, Documented, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {
     /// Maximum log level

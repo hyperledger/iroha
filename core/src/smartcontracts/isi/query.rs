@@ -6,12 +6,9 @@
     clippy::std_instead_of_alloc
 )]
 use eyre::Result;
-use iroha_data_model::{permission::validator::DenialReason, prelude::*};
-use iroha_schema::IntoSchema;
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure as Error};
 use parity_scale_codec::{Decode, Encode};
-use thiserror::Error;
 
-use super::FindError;
 use crate::{prelude::ValidQuery, WorldStateView};
 
 /// Query Request statefully validated on the Iroha node side.
@@ -37,38 +34,6 @@ impl ValidQueryRequest {
     }
 }
 
-/// Query errors.
-#[derive(Error, Debug, Decode, Encode, IntoSchema)]
-pub enum Error {
-    /// Query cannot be decoded.
-    #[error("Query cannot be decoded")]
-    Decode(#[from] Box<iroha_version::error::Error>),
-    /// Query has wrong signature.
-    #[error("Query has the wrong signature: {0}")]
-    Signature(String),
-    /// Query is not allowed.
-    #[error("Query is not allowed: {0}")]
-    Permission(DenialReason),
-    /// Query has wrong expression.
-    #[error("Query has a malformed expression: {0}")]
-    Evaluate(String),
-    /// Query found nothing.
-    #[error("Query found nothing: {0}")]
-    Find(#[from] Box<FindError>),
-    /// Query found wrong type of asset.
-    #[error("Query found wrong type of asset: {0}")]
-    Conversion(String),
-    /// Query without account.
-    #[error("Unauthorized query: account not provided")]
-    Unauthorized,
-}
-
-impl From<FindError> for Error {
-    fn from(err: FindError) -> Self {
-        Box::new(err).into()
-    }
-}
-
 impl ValidQuery for QueryBox {
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
         use QueryBox::*;
@@ -90,6 +55,7 @@ impl ValidQuery for QueryBox {
             FindAssetsByDomainIdAndAssetDefinitionId(query) => query.execute_into_value(wsv),
             FindAssetQuantityById(query) => query.execute_into_value(wsv),
             FindTotalAssetQuantityByAssetDefinitionId(query) => query.execute_into_value(wsv),
+            IsAssetDefinitionOwner(query) => query.execute_into_value(wsv),
             FindAllDomains(query) => query.execute_into_value(wsv),
             FindDomainById(query) => query.execute_into_value(wsv),
             FindDomainKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
@@ -104,6 +70,7 @@ impl ValidQuery for QueryBox {
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAllPermissionTokenDefinitions(query) => query.execute_into_value(wsv),
+            DoesAccountHavePermissionToken(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAllActiveTriggerIds(query) => query.execute_into_value(wsv),
             FindTriggerById(query) => query.execute_into_value(wsv),
@@ -122,21 +89,14 @@ impl ValidQuery for QueryBox {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{str::FromStr, sync::Arc};
+    use std::str::FromStr;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::transaction::TransactionLimits;
+    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{
-        block::{PendingBlock, VersionedCommittedBlock},
-        kura::Kura,
-        prelude::AllowAll,
-        tx::TransactionValidator,
-        wsv::World,
-        PeersIds,
-    };
+    use crate::{block::*, kura::Kura, tx::TransactionValidator, wsv::World, PeersIds};
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
@@ -225,15 +185,14 @@ mod tests {
         };
 
         let valid_tx = {
-            let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000)
-                .sign(ALICE_KEYS.clone())?;
-            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &limits)?
+            let tx = Transaction::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
+            VersionedAcceptedTransaction::from(AcceptedTransaction::accept::<false>(tx, &limits)?)
         };
         let invalid_tx = {
-            let isi = Instruction::Fail(FailBox::new("fail"));
-            let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi].into(), 4000)
+            let isi: Instruction = FailBox::new("fail").into();
+            let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
                 .sign(ALICE_KEYS.clone())?;
-            crate::VersionedAcceptedTransaction::from_transaction::<false>(tx, &huge_limits)?
+            AcceptedTransaction::accept::<false>(tx, &huge_limits)?.into()
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -241,14 +200,7 @@ mod tests {
 
         let first_block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
             .chain_first()
-            .validate(
-                &TransactionValidator::new(
-                    limits,
-                    Arc::new(AllowAll::new()),
-                    Arc::new(AllowAll::new()),
-                ),
-                &wsv,
-            )
+            .validate(&TransactionValidator::new(limits), &wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit_unchecked()
@@ -261,15 +213,13 @@ mod tests {
 
         for height in 1u64..blocks {
             let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
-                .chain(height, Some(curr_hash), 0)
-                .validate(
-                    &TransactionValidator::new(
-                        limits,
-                        Arc::new(AllowAll::new()),
-                        Arc::new(AllowAll::new()),
-                    ),
-                    &wsv,
+                .chain(
+                    height,
+                    Some(curr_hash),
+                    0,
+                    crate::sumeragi::network_topology::Topology::new(vec![]),
                 )
+                .validate(&TransactionValidator::new(limits), &wsv)
                 .sign(ALICE_KEYS.clone())
                 .expect("Failed to sign blocks.")
                 .commit_unchecked()
@@ -318,7 +268,7 @@ mod tests {
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
-        let blocks = FindAllBlocks::new().execute(&wsv)?;
+        let blocks = FindAllBlocks.execute(&wsv)?;
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -332,7 +282,7 @@ mod tests {
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
-        let block_headers = FindAllBlockHeaders::new().execute(&wsv)?;
+        let block_headers = FindAllBlockHeaders.execute(&wsv)?;
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -351,8 +301,8 @@ mod tests {
             .expect("WSV is empty");
 
         assert_eq!(
-            FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
-            block.into_value().header
+            &FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
+            block.header()
         );
 
         assert!(FindBlockHeaderByHash::new(Hash::new([42]))
@@ -368,7 +318,7 @@ mod tests {
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
 
-        let txs = FindAllTransactions::new().execute(&wsv)?;
+        let txs = FindAllTransactions.execute(&wsv)?;
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
@@ -393,7 +343,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
-        let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
+        let tx = Transaction::new(ALICE_ID.clone(), Vec::new(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
 
         let tx_limits = TransactionLimits {
@@ -401,21 +351,14 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx =
-            crate::VersionedAcceptedTransaction::from_transaction::<false>(signed_tx, &tx_limits)?;
+        let va_tx: VersionedAcceptedTransaction =
+            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?.into();
 
         let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
-            .validate(
-                &TransactionValidator::new(
-                    tx_limits,
-                    Arc::new(AllowAll::new()),
-                    Arc::new(AllowAll::new()),
-                ),
-                &wsv,
-            )
+            .validate(&TransactionValidator::new(tx_limits), &wsv)
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit_unchecked()

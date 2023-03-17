@@ -1,0 +1,13 @@
+[package]
+name = "iroha_wasm_builder"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+categories = ["development-tools::build-utils"]
+
+[dependencies]
+eyre = "0.6.8"
+tempfile = "3.3.0"

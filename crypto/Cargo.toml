@@ -1,10 +1,11 @@
 [package]
 name = "iroha_crypto"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
 
 [features]
 default = ["std"]
@@ -14,10 +15,10 @@ std = ["ursa"]
 # Force static linking
 vendored = ["openssl-sys"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-#ffi_import = []
+#ffi_import = ["iroha_primitives/ffi_import"]
 
 # Expose FFI API for dynamic linking (Internal use only)
-ffi_export = ["std"]
+ffi_export = ["std", "iroha_primitives/ffi_export"]
 
 [dependencies]
 iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.13", default-features = false }
@@ -27,6 +28,7 @@ iroha_schema = { path = "../schema" }
 derive_more = { version = "0.99.17", default-features = false, features = ["deref", "deref_mut", "display"] }
 parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive", "full"] }
 serde = { version = "1.0.151", default-features = false, features = ["derive"] }
+serde_with = { version = "2.1.0", default-features = false, features = ["macros"] }
 hex = { version = "0.4.3", default-features = false, features = ["alloc", "serde"] }
 openssl-sys = { version = "0.9.80", features = ["vendored"], optional = true }
 ursa = { version = "0.3.7", optional = true }

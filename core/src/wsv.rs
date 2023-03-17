@@ -14,29 +14,30 @@ use dashmap::{
     DashSet,
 };
 use eyre::Result;
-use getset::Getters;
 use iroha_config::{
     base::proxy::Builder,
     wsv::{Configuration, ConfigurationProxy},
 };
 use iroha_crypto::HashOf;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    block::{CommittedBlock, VersionedCommittedBlock},
+    isi::error::{InstructionExecutionFailure as Error, MathError},
+    prelude::*,
+    query::error::{FindError, QueryExecutionFailure},
+};
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
 
 use crate::{
     kura::Kura,
     prelude::*,
-    smartcontracts::{
-        isi::{query::Error as QueryError, Error},
-        wasm, Execute, FindError,
-    },
+    smartcontracts::{triggers::set::Set as TriggerSet, wasm, Execute},
     DomainsMap, Parameters, PeersIds,
 };
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Default, Clone, Getters)]
+#[derive(Debug, Default, Clone)]
 pub struct World {
     /// Iroha config parameters.
     pub(crate) parameters: Parameters,
@@ -134,17 +135,17 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryError> {
-        self.map_account(id, |account| account.assets().cloned().collect())
+    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryExecutionFailure> {
+        self.map_account(id, |account| account.assets.values().cloned().collect())
     }
 
     /// Return a set of all permission tokens granted to this account.
     pub fn account_permission_tokens(&self, account: &Account) -> Vec<PermissionToken> {
         let mut tokens: Vec<PermissionToken> =
             self.account_inherent_permission_tokens(account).collect();
-        for role_id in account.roles() {
+        for role_id in &account.roles {
             if let Some(role) = self.world.roles.get(role_id) {
-                tokens.append(&mut role.permissions().cloned().collect());
+                tokens.append(&mut role.permissions.iter().cloned().collect());
             }
         }
         tokens
@@ -157,7 +158,7 @@ impl WorldStateView {
     ) -> impl ExactSizeIterator<Item = PermissionToken> {
         self.world
             .account_permission_tokens
-            .get(account.id())
+            .get(&account.id)
             .map_or_else(Default::default, |permissions_ref| {
                 permissions_ref.value().clone()
             })
@@ -212,7 +213,12 @@ impl WorldStateView {
             .map_or(false, |mut permissions| permissions.remove(token))
     }
 
-    fn process_trigger(&self, action: &dyn ActionTrait, event: Event) -> Result<()> {
+    fn process_trigger(
+        &self,
+        id: &TriggerId,
+        action: &dyn ActionTrait,
+        event: Event,
+    ) -> Result<()> {
         let authority = action.technical_account();
 
         match action.executable() {
@@ -220,10 +226,11 @@ impl WorldStateView {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime =
-                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
+                let mut wasm_runtime = wasm::RuntimeBuilder::new()
+                    .with_configuration(self.config.wasm_runtime_config)
+                    .build()?;
                 wasm_runtime
-                    .execute_trigger(self, authority.clone(), bytes, event)
+                    .execute_trigger(self, id, authority.clone(), bytes, event)
                     .map_err(Into::into)
             }
         }
@@ -235,8 +242,9 @@ impl WorldStateView {
                 self.process_instructions(instructions.iter().cloned(), &authority)
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime =
-                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
+                let mut wasm_runtime = wasm::RuntimeBuilder::new()
+                    .with_configuration(self.config.wasm_runtime_config)
+                    .build()?;
                 wasm_runtime
                     .execute(self, authority, bytes)
                     .map_err(Into::into)
@@ -271,19 +279,23 @@ impl WorldStateView {
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
     pub fn apply(&self, block: &VersionedCommittedBlock) -> Result<()> {
+        debug!(?block, "Applying block to wsv");
         let time_event = self.create_time_event(block.as_v1())?;
         self.events_buffer
             .borrow_mut()
             .push(Event::Time(time_event));
 
         self.execute_transactions(block.as_v1())?;
+        debug!("All block transactions successfully executed");
 
         self.world.triggers.handle_time_event(time_event);
 
         let res = self
             .world
             .triggers
-            .inspect_matched(|action, event| -> Result<()> { self.process_trigger(action, event) });
+            .inspect_matched(|id, action, event| -> Result<()> {
+                self.process_trigger(id, action, event)
+            });
 
         if let Err(errors) = res {
             warn!(
@@ -310,21 +322,22 @@ impl WorldStateView {
             .latest_block_ref()
             .map(|latest_block| {
                 let header = latest_block.header();
-                header.timestamp.try_into().map(|since| {
-                    TimeInterval::new(
-                        Duration::from_millis(since),
-                        Duration::from_millis(header.consensus_estimation),
-                    )
+                header.timestamp.try_into().map(|since| TimeInterval {
+                    since: Duration::from_millis(since),
+                    length: Duration::from_millis(header.consensus_estimation),
                 })
             })
             .transpose()?;
 
-        let interval = TimeInterval::new(
-            Duration::from_millis(block.header.timestamp.try_into()?),
-            Duration::from_millis(block.header.consensus_estimation),
-        );
+        let interval = TimeInterval {
+            since: Duration::from_millis(block.header.timestamp.try_into()?),
+            length: Duration::from_millis(block.header.consensus_estimation),
+        };
 
-        Ok(TimeEvent::new(prev_interval, interval))
+        Ok(TimeEvent {
+            prev_interval,
+            interval,
+        })
     }
 
     /// Execute `block` transactions and store their hashes as well as
@@ -354,13 +367,19 @@ impl WorldStateView {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryError> {
-        self.map_account(&id.account_id, |account| -> Result<Asset, QueryError> {
-            account
-                .asset(id)
-                .ok_or_else(|| QueryError::Find(Box::new(FindError::Asset(id.clone()))))
-                .map(Clone::clone)
-        })?
+    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryExecutionFailure> {
+        self.map_account(
+            &id.account_id,
+            |account| -> Result<Asset, QueryExecutionFailure> {
+                account
+                    .assets
+                    .get(id)
+                    .ok_or_else(|| {
+                        QueryExecutionFailure::from(Box::new(FindError::Asset(id.clone())))
+                    })
+                    .map(Clone::clone)
+            },
+        )?
     }
 
     /// Get asset or inserts new with `default_asset_value`.
@@ -651,9 +670,12 @@ impl WorldStateView {
         &self,
         id: &AccountId,
         f: impl FnOnce(&Account) -> T,
-    ) -> Result<T, QueryError> {
+    ) -> Result<T, QueryExecutionFailure> {
         let domain = self.domain(&id.domain_id)?;
-        let account = domain.account(id).ok_or(QueryError::Unauthorized)?;
+        let account = domain
+            .accounts
+            .get(id)
+            .ok_or(QueryExecutionFailure::Unauthorized)?;
         Ok(f(account))
     }
 
@@ -681,7 +703,8 @@ impl WorldStateView {
     ) -> Result<(), Error> {
         self.modify_domain_multiple_events(&id.domain_id, |domain| {
             let account = domain
-                .account_mut(id)
+                .accounts
+                .get_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
             f(account).map(|events| events.into_iter().map(DomainEvent::Account))
         })
@@ -715,11 +738,12 @@ impl WorldStateView {
     ) -> Result<(), Error> {
         self.modify_account_multiple_events(&id.account_id, |account| {
             let asset = account
-                .asset_mut(id)
+                .assets
+                .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
 
             let events_result = f(asset);
-            if asset.value().is_zero_value() {
+            if asset.value.is_zero_value() {
                 assert!(account.remove_asset(id).is_some());
             }
 
@@ -755,7 +779,8 @@ impl WorldStateView {
     ) -> Result<(), Error> {
         self.modify_domain_multiple_events(&id.domain_id, |domain| {
             let asset_definition_entry = domain
-                .asset_definition_mut(id)
+                .asset_definitions
+                .get_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
             f(asset_definition_entry)
                 .map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
@@ -792,7 +817,8 @@ impl WorldStateView {
         asset_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Result<AssetDefinitionEntry, FindError> {
         self.domain(&asset_id.domain_id)?
-            .asset_definition(asset_id)
+            .asset_definitions
+            .get(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
             .map(Clone::clone)
     }
@@ -806,7 +832,8 @@ impl WorldStateView {
         definition_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Result<NumericValue, FindError> {
         self.domain(&definition_id.domain_id)?
-            .asset_total_quantity(definition_id)
+            .asset_total_quantities
+            .get(definition_id)
             .ok_or_else(|| FindError::AssetDefinition(definition_id.clone()))
             .copied()
     }
@@ -829,14 +856,14 @@ impl WorldStateView {
         #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
-                .asset_total_quantity_mut(definition_id)
+                .asset_total_quantities.get_mut(definition_id)
                 .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
                 .try_as_mut()
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))?;
             *asset_total_amount = asset_total_amount
                 .checked_add(increment)
-                .ok_or(crate::smartcontracts::MathError::Overflow)?;
+                .ok_or(MathError::Overflow)?;
 
             Ok(
                 DomainEvent::AssetDefinition(
@@ -869,14 +896,14 @@ impl WorldStateView {
         #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
-                .asset_total_quantity_mut(definition_id)
+                .asset_total_quantities.get_mut(definition_id)
                 .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
                 .try_as_mut()
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))?;
             *asset_total_amount = asset_total_amount
                 .checked_sub(decrement)
-                .ok_or(crate::smartcontracts::MathError::NotEnoughQuantity)?;
+                .ok_or(MathError::NotEnoughQuantity)?;
 
             Ok(
                 DomainEvent::AssetDefinition(
@@ -1032,7 +1059,11 @@ impl WorldStateView {
     /// - If this method is called by ISI inside *trigger*,
     /// then *trigger* will be executed on the **next** block
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
-        let event = ExecuteTriggerEvent::new(trigger_id, authority);
+        let event = ExecuteTriggerEvent {
+            trigger_id,
+            authority,
+        };
+
         self.world
             .triggers
             .handle_execute_trigger_event(event.clone());
@@ -1078,6 +1109,7 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
+    use crate::block::SignedBlock;
 
     #[test]
     fn get_block_hashes_after_hash() {

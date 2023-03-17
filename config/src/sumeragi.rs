@@ -16,6 +16,11 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
+/// Default estimation of consensus duration
+#[allow(clippy::integer_division)]
+pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
+    DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
+
 cfg_if::cfg_if! {
     if #[cfg(debug_assertions)] {
 // Generate `ConfigurationView` without keys
@@ -96,10 +101,10 @@ impl Default for ConfigurationProxy {
             trusted_peers: None,
             block_time_ms: Some(DEFAULT_BLOCK_TIME_MS),
             commit_time_limit_ms: Some(DEFAULT_COMMIT_TIME_LIMIT_MS),
-            transaction_limits: Some(TransactionLimits {
-                max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-            }),
+            transaction_limits: Some(TransactionLimits::new(
+                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+            )),
             actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
             gossip_batch_size: Some(DEFAULT_GOSSIP_BATCH_SIZE),
             gossip_period_ms: Some(DEFAULT_GOSSIP_PERIOD_MS),
@@ -227,10 +232,10 @@ pub mod tests {
              block_time_ms in prop::option::of(Just(DEFAULT_BLOCK_TIME_MS)),
              trusted_peers in Just(None),
              commit_time_limit_ms in prop::option::of(Just(DEFAULT_COMMIT_TIME_LIMIT_MS)),
-             transaction_limits in prop::option::of(Just(TransactionLimits {
-                max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-            })),
+             transaction_limits in prop::option::of(Just(TransactionLimits::new(
+                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+            ))),
              actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
              gossip_batch_size in prop::option::of(Just(DEFAULT_GOSSIP_BATCH_SIZE)),
              gossip_period_ms in prop::option::of(Just(DEFAULT_GOSSIP_PERIOD_MS)),

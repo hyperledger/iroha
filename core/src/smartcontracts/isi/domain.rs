@@ -1,7 +1,7 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 
 use eyre::Result;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::super::isi::prelude::*;
@@ -25,7 +25,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let account: Account = self.object.clone().build();
+            let account: Account = self.object.build();
             let account_id = account.id().clone();
 
             account_id
@@ -34,15 +34,15 @@ pub mod isi {
                 .map_err(Error::Validate)?;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
-                if domain.account(&account_id).is_some() {
+                if domain.accounts.get(&account_id).is_some() {
                     return Err(Error::Repetition(
                         InstructionType::Register,
                         IdBox::AccountId(account_id),
                     ));
                 }
 
-                domain.add_account(account);
-                Ok(DomainEvent::Account(AccountEvent::Created(self.object)))
+                domain.add_account(account.clone());
+                Ok(DomainEvent::Account(AccountEvent::Created(account)))
             })
         }
     }
@@ -77,7 +77,7 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let asset_definition = self.object.clone().build();
+            let asset_definition = self.object.build();
             asset_definition
                 .id()
                 .name
@@ -86,7 +86,7 @@ pub mod isi {
 
             let asset_definition_id = asset_definition.id().clone();
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
-                if domain.asset_definition(&asset_definition_id).is_some() {
+                if domain.asset_definitions.get(&asset_definition_id).is_some() {
                     return Err(Error::Repetition(
                         InstructionType::Register,
                         IdBox::AssetDefinitionId(asset_definition_id),
@@ -94,24 +94,24 @@ pub mod isi {
                 }
 
                 #[allow(clippy::match_same_arms)]
-                match asset_definition.value_type() {
+                match asset_definition.value_type {
                     AssetValueType::Fixed => {
-                        domain.add_asset_total_quantity(asset_definition_id.clone(), Fixed::ZERO);
+                        domain.add_asset_total_quantity(asset_definition_id, Fixed::ZERO);
                     }
                     AssetValueType::Quantity => {
-                        domain.add_asset_total_quantity(asset_definition_id.clone(), u32::MIN);
+                        domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
                     }
                     AssetValueType::BigQuantity => {
-                        domain.add_asset_total_quantity(asset_definition_id.clone(), u128::MIN);
+                        domain.add_asset_total_quantity(asset_definition_id, u128::MIN);
                     }
                     AssetValueType::Store => {
-                        domain.add_asset_total_quantity(asset_definition_id.clone(), u32::MIN);
+                        domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
                     }
                 }
 
-                domain.add_asset_definition(asset_definition, authority);
+                domain.add_asset_definition(asset_definition.clone(), authority);
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
-                    self.object,
+                    asset_definition,
                 )))
             })
         }
@@ -128,13 +128,13 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
-            let mut assets_to_remove: Vec<<Asset as Identifiable>::Id> = Vec::new();
-
+            let mut assets_to_remove = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts() {
+                for account in domain.accounts.values() {
                     assets_to_remove.extend(
                         account
-                            .assets()
+                            .assets
+                            .values()
                             .filter_map(|asset| {
                                 if asset.id().definition_id == asset_definition_id {
                                     return Some(asset.id());
@@ -192,9 +192,9 @@ pub mod isi {
             wsv.modify_asset_definition_entry(
                 &asset_definition_id.clone(),
                 |asset_definition_entry| {
-                    let asset_definition = asset_definition_entry.definition_mut();
+                    let asset_definition = &mut asset_definition_entry.definition;
 
-                    asset_definition.metadata_mut().insert_with_limits(
+                    asset_definition.metadata.insert_with_limits(
                         self.key.clone(),
                         self.value.clone(),
                         metadata_limits,
@@ -224,10 +224,10 @@ pub mod isi {
             wsv.modify_asset_definition_entry(
                 &asset_definition_id.clone(),
                 |asset_definition_entry| {
-                    let asset_definition = asset_definition_entry.definition_mut();
+                    let asset_definition = &mut asset_definition_entry.definition;
 
                     let value = asset_definition
-                        .metadata_mut()
+                        .metadata
                         .remove(&self.key)
                         .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
@@ -255,11 +255,9 @@ pub mod isi {
             let limits = wsv.config.domain_metadata_limits;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
-                domain.metadata_mut().insert_with_limits(
-                    self.key.clone(),
-                    self.value.clone(),
-                    limits,
-                )?;
+                domain
+                    .metadata
+                    .insert_with_limits(self.key.clone(), self.value.clone(), limits)?;
 
                 Ok(DomainEvent::MetadataInserted(MetadataChanged {
                     target_id: domain_id,
@@ -283,7 +281,7 @@ pub mod isi {
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
                 let value = domain
-                    .metadata_mut()
+                    .metadata
                     .remove(&self.key)
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
@@ -300,9 +298,9 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::{Result, WrapErr};
+    use iroha_data_model::query::error::QueryExecutionFailure as Error;
 
     use super::*;
-    use crate::smartcontracts::query::Error;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
@@ -343,7 +341,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
             wsv.map_domain(&id, |domain| {
-                Ok(domain.metadata().get(&key).map(Clone::clone))
+                Ok(domain.metadata.get(&key).map(Clone::clone))
             })?
             .ok_or_else(|| FindError::MetadataKey(key).into())
         }
@@ -365,8 +363,8 @@ pub mod query {
             iroha_logger::trace!(%id, %key);
             Ok(wsv
                 .asset_definition_entry(&id)?
-                .definition()
-                .metadata()
+                .definition
+                .metadata
                 .get(&key)
                 .ok_or(FindError::MetadataKey(key))?
                 .clone())

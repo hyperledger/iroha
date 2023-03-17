@@ -97,7 +97,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
         )),
     );
     let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions.into(), metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
@@ -128,7 +128,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
         )),
     );
     let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions.into(), metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
@@ -160,7 +160,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         )),
     );
     let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions.into(), metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {
@@ -230,4 +230,149 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     assert!(!asset_definition_ids.contains(&incorrect_asset_definition_id));
 
     Ok(())
+}
+
+#[allow(unused_must_use)]
+#[test]
+fn find_rate_and_make_exchange_isi_should_succeed() {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_675).start_with_runtime();
+
+    test_client
+        .submit_all_blocking(vec![
+            register::domain("exchange").into(),
+            register::domain("company").into(),
+            register::domain("crypto").into(),
+            register::account("seller", "company").into(),
+            register::account("buyer", "company").into(),
+            register::account("dex", "exchange").into(),
+            register::asset_definition("btc", "crypto").into(),
+            register::asset_definition("eth", "crypto").into(),
+            register::asset_definition("btc2eth_rate", "exchange").into(),
+            MintBox::new(
+                200_u32.to_value(),
+                IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
+            )
+            .into(),
+            MintBox::new(
+                20_u32.to_value(),
+                IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
+            )
+            .into(),
+            MintBox::new(
+                20_u32.to_value(),
+                IdBox::AssetId(asset_id_new("btc2eth_rate", "exchange", "dex", "exchange")),
+            )
+            .into(),
+            Pair::new(
+                TransferBox::new(
+                    IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
+                    EvaluatesTo::new_evaluates_to_value(
+                        Expression::Query(
+                            FindAssetQuantityById::new(asset_id_new(
+                                "btc2eth_rate",
+                                "exchange",
+                                "dex",
+                                "exchange",
+                            ))
+                            .into(),
+                        )
+                        .into(),
+                    ),
+                    IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
+                ),
+                TransferBox::new(
+                    IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
+                    EvaluatesTo::new_evaluates_to_value(
+                        Expression::Query(
+                            FindAssetQuantityById::new(asset_id_new(
+                                "btc2eth_rate",
+                                "exchange",
+                                "dex",
+                                "exchange",
+                            ))
+                            .into(),
+                        )
+                        .into(),
+                    ),
+                    IdBox::AssetId(asset_id_new("eth", "crypto", "seller", "company")),
+                ),
+            )
+            .into(),
+        ])
+        .expect("Failed to execute Iroha Special Instruction.");
+
+    let expected_seller_eth = NumericValue::U32(20);
+    let expected_buyer_eth = NumericValue::U32(180);
+    let expected_buyer_btc = NumericValue::U32(20);
+
+    let eth_quantity = test_client
+        .request(FindAssetQuantityById::new(asset_id_new(
+            "eth", "crypto", "seller", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_seller_eth, eth_quantity);
+
+    // For the btc amount we expect an error, as zero assets are purged from accounts
+    test_client
+        .request(FindAssetQuantityById::new(asset_id_new(
+            "btc", "crypto", "seller", "company",
+        )))
+        .expect_err("Query must fail");
+
+    let buyer_eth_quantity = test_client
+        .request(FindAssetQuantityById::new(asset_id_new(
+            "eth", "crypto", "buyer", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_buyer_eth, buyer_eth_quantity);
+
+    let buyer_btc_quantity = test_client
+        .request(FindAssetQuantityById::new(asset_id_new(
+            "btc", "crypto", "buyer", "company",
+        )))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(expected_buyer_btc, buyer_btc_quantity);
+}
+
+fn asset_id_new(
+    definition_name: &str,
+    definition_domain: &str,
+    account_name: &str,
+    account_domain: &str,
+) -> AssetId {
+    AssetId::new(
+        AssetDefinitionId::new(
+            definition_name.parse().expect("Valid"),
+            definition_domain.parse().expect("Valid"),
+        ),
+        AccountId::new(
+            account_name.parse().expect("Valid"),
+            account_domain.parse().expect("Valid"),
+        ),
+    )
+}
+
+mod register {
+    use super::*;
+
+    pub fn domain(name: &str) -> RegisterBox {
+        RegisterBox::new(Domain::new(DomainId::from_str(name).expect("Valid")))
+    }
+
+    pub fn account(account_name: &str, domain_name: &str) -> RegisterBox {
+        RegisterBox::new(Account::new(
+            AccountId::new(
+                account_name.parse().expect("Valid"),
+                domain_name.parse().expect("Valid"),
+            ),
+            [],
+        ))
+    }
+
+    pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
+        RegisterBox::new(AssetDefinition::quantity(AssetDefinitionId::new(
+            asset_name.parse().expect("Valid"),
+            domain_name.parse().expect("Valid"),
+        )))
+    }
 }

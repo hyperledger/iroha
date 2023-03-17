@@ -7,11 +7,12 @@
 #![no_main]
 #![allow(clippy::all)]
 
-//! Sample smartcontract which mints 1 rose for it's authority
+#[cfg(not(test))]
+extern crate panic_halt;
 
 use core::str::FromStr as _;
 
-use iroha_wasm::{data_model::prelude::*, DebugExpectExt};
+use iroha_wasm::data_model::prelude::*;
 
 /// Mint 1 rose for authority
 #[iroha_wasm::entrypoint(params = "[authority]")]
@@ -20,5 +21,5 @@ fn trigger_entrypoint(authority: <Account as Identifiable>::Id) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, authority);
 
-    Instruction::Mint(MintBox::new(1_u32, rose_id)).execute();
+    Instruction::from(MintBox::new(1_u32, rose_id)).execute();
 }

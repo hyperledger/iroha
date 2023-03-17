@@ -1,11 +1,12 @@
 #![allow(clippy::restriction)]
 
-use std::{fs, str::FromStr as _, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::{Context, Result};
 use iroha_client::client::{self, Client};
-use iroha_core::block::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::sumeragi::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
+use iroha_logger::info;
 use test_network::*;
 
 /// Macro to abort compilation, if `e` isn't `true`
@@ -45,10 +46,10 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -96,10 +97,10 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::from(1_u32),
             account_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -136,10 +137,10 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            vec![instruction.into()],
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -170,7 +171,6 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 }
 
 #[test]
-#[ignore = "Only on nightly"]
 fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD_MS: u64 = 1000;
     const EXPECTED_COUNT: u64 = 4;
@@ -199,13 +199,24 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
-    // Reading wasm smartcontract
-    let wasm = fs::read(concat!(
-        env!("OUT_DIR"),
-        "/wasm32-unknown-unknown/release/create_nft_for_every_user_smartcontract.wasm"
-    ))
-    .wrap_err("Can't read smartcontract")?;
-    println!("wasm size is {} bytes", wasm.len());
+    // Building trigger
+    info!("Building trigger");
+    let temp_out_dir =
+        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
+
+    let wasm = iroha_wasm_builder::Builder::new(
+        "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
+    )
+    .out_dir(temp_out_dir.path())
+    .build()?
+    .optimize()?
+    .into_bytes();
+
+    temp_out_dir
+        .close()
+        .wrap_err("Failed to remove temporary output directory")?;
+
+    info!("WASM size is {} bytes", wasm.len());
 
     // Registering trigger
     let start_time = current_time();
@@ -214,10 +225,10 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
-            Executable::Wasm(WasmSmartContract { raw_data: wasm }),
+            WasmSmartContract::new(wasm),
             Repeats::Indefinitely,
             alice_id.clone(),
-            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;

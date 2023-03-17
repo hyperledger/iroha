@@ -12,10 +12,9 @@ fn can_change_parameter_value() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_800).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let parameter = Parameter::from_str("?BlockSyncGossipPeriod=20000")?;
     let parameter_id = ParameterId::from_str("BlockSyncGossipPeriod")?;
-    let param_box = SetParameterBox::new(parameter, account_id);
+    let param_box = SetParameterBox::new(parameter);
 
     let old_params = test_client.request(client::parameter::all())?;
     let param_val_old = old_params

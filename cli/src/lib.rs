@@ -22,17 +22,16 @@ use iroha_config::{
 };
 use iroha_core::{
     block_sync::BlockSynchronizer,
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
-    smartcontracts::permissions::judge::{InstructionJudgeBoxed, QueryJudgeBoxed},
     sumeragi::Sumeragi,
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
+use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
 use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
 use tokio::{
     signal,
@@ -59,19 +58,20 @@ pub struct Arguments {
     pub config_path: ConfigPath,
 }
 
-lazy_static::lazy_static! {
-    /// Default configuration path
-    pub static ref CONFIGURATION_PATH: &'static std::path::Path = std::path::Path::new("config");
-    /// Default genesis path
-    pub static ref GENESIS_PATH : &'static std::path::Path = std::path::Path::new("genesis");
-}
+/// Default configuration path
+static CONFIGURATION_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
+    once_cell::sync::Lazy::new(|| std::path::Path::new("config"));
+
+/// Default genesis path
+static GENESIS_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
+    once_cell::sync::Lazy::new(|| std::path::Path::new("genesis"));
 
 impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: false,
-            genesis_path: Some(ConfigPath::default(*GENESIS_PATH)),
-            config_path: ConfigPath::default(*CONFIGURATION_PATH),
+            genesis_path: Some(ConfigPath::default(&GENESIS_PATH)),
+            config_path: ConfigPath::default(&CONFIGURATION_PATH),
         }
     }
 }
@@ -166,11 +166,7 @@ impl Iroha {
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
     #[allow(clippy::non_ascii_literal)]
-    pub async fn new(
-        args: &Arguments,
-        instruction_judge: InstructionJudgeBoxed,
-        query_judge: QueryJudgeBoxed,
-    ) -> Result<Self> {
+    pub async fn new(args: &Arguments) -> Result<Self> {
         let mut config = args
             .config_path
             .first_existing_path()
@@ -221,15 +217,7 @@ impl Iroha {
             None
         };
 
-        Self::with_genesis(
-            genesis,
-            config,
-            instruction_judge,
-            query_judge,
-            Broker::new(),
-            telemetry,
-        )
-        .await
+        Self::with_genesis(genesis, config, Broker::new(), telemetry).await
     }
 
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
@@ -289,8 +277,6 @@ impl Iroha {
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
-        instruction_judge: InstructionJudgeBoxed,
-        query_judge: QueryJudgeBoxed,
         broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
@@ -314,7 +300,7 @@ impl Iroha {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            domains(&config),
+            [genesis_domain(&config)],
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
@@ -325,13 +311,7 @@ impl Iroha {
         )?;
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
-        let query_judge = Arc::from(query_judge);
-
-        let transaction_validator = TransactionValidator::new(
-            config.sumeragi.transaction_limits,
-            Arc::from(instruction_judge),
-            Arc::clone(&query_judge),
-        );
+        let transaction_validator = TransactionValidator::new(config.sumeragi.transaction_limits);
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
@@ -398,7 +378,6 @@ impl Iroha {
         let torii = Torii::from_configuration(
             config.clone(),
             Arc::clone(&queue),
-            query_judge,
             events_sender,
             Arc::clone(&notify_shutdown),
             Arc::clone(&sumeragi),
@@ -518,13 +497,20 @@ impl Iroha {
     }
 }
 
-/// Return the `domain_name: domain` mapping, for initial domains.
-///
-/// # Errors
-/// - Genesis account public key not specified.
-fn domains(configuration: &Configuration) -> [Domain; 1] {
-    let key = configuration.genesis.account_public_key.clone();
-    [Domain::from(GenesisDomain::new(key))]
+fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
+    Account::new(AccountId::genesis(), [public_key]).build()
+}
+
+fn genesis_domain(configuration: &Configuration) -> Domain {
+    let account_public_key = &configuration.genesis.account_public_key;
+    let mut domain = Domain::new(DomainId::genesis()).build();
+
+    domain.accounts.insert(
+        <Account as Identifiable>::Id::genesis(),
+        genesis_account(account_public_key.clone()),
+    );
+
+    domain
 }
 
 pub mod style {

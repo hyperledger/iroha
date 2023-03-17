@@ -1,10 +1,12 @@
 [package]
 name = "test_network"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
 [features]
 # Create a mock query for testing
 query = []
@@ -18,7 +20,7 @@ iroha_config = { version = "=2.0.0-pre-rc.13", path = "../../config" }
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../../data_model" }
 iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../../primitives" }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../../logger" }
-iroha_permissions_validators = { version = "=2.0.0-pre-rc.13", path = "../../permissions_validators" }
+iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../../genesis" }
 
 
 eyre = "0.6.8"
@@ -27,3 +29,4 @@ rand = "0.8.5"
 tempfile = "3.3.0"
 tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread", "macros"] }
 unique_port = "0.2.1"
+json5 = "0.4.1"

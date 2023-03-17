@@ -1,5 +1,4 @@
-//! Metadata: key-value pairs that can be attached to accounts,
-//! transactions and assets.
+//! Metadata: key-value pairs that can be attached to accounts, transactions and assets.
 
 #[cfg(not(feature = "std"))]
 use alloc::{collections::btree_map, format, string::String, vec::Vec};
@@ -8,40 +7,26 @@ use core::borrow::Borrow;
 use std::collections::btree_map;
 
 use derive_more::Display;
-use iroha_ffi::FfiType;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Name, Value};
+use crate::{model, Name, Value};
 
 /// Collection of parameters by their names.
 pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
 
-/// Limits for [`Metadata`].
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Copy,
-    Hash,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    FfiType,
-)]
-#[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
-pub struct Limits {
-    /// Maximum number of entries
-    pub max_len: u32,
-    /// Maximum length of entry
-    pub max_entry_byte_size: u32,
+model! {
+    /// Limits for [`Metadata`].
+    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
+    #[ffi_type]
+    pub struct Limits {
+        /// Maximum number of entries
+        pub max_len: u32,
+        /// Maximum length of entry
+        pub max_entry_byte_size: u32,
+    }
 }
 
 /// Metadata related errors.
@@ -87,32 +72,17 @@ impl Limits {
     }
 }
 
-/// Collection of parameters by their names with checked insertion.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-    Hash,
-)]
-#[repr(transparent)]
-#[serde(transparent)]
-// SAFETY: Metadata has no trap representations in BTreeMap
-#[ffi_type(unsafe {robust})]
-#[display(fmt = "Metadata")]
-#[allow(clippy::multiple_inherent_impl)]
-pub struct Metadata {
-    map: btree_map::BTreeMap<Name, Value>,
+model! {
+    /// Collection of parameters by their names with checked insertion.
+    #[derive(Debug, Display, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "Metadata")]
+    #[ffi_type(opaque)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct Metadata {
+        map: btree_map::BTreeMap<Name, Value>,
+    }
 }
 
 /// A path slice, composed of [`Name`]s.
@@ -225,7 +195,7 @@ impl Metadata {
     }
 }
 
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 impl Metadata {
     /// Removes a key from the map, returning the owned
     /// `Some(value)` at the key if the key was previously in the
@@ -293,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "mutable_api")]
+    #[cfg(feature = "transparent_api")]
     fn nested_fns_ignore_empty_path() {
         let mut metadata = Metadata::new();
         let empty_path = vec![];
@@ -306,7 +276,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    #[cfg(feature = "mutable_api")]
+    #[cfg(feature = "transparent_api")]
     fn nesting_inserts_removes() -> Result<(), TestError> {
         let mut metadata = Metadata::new();
         let limits = Limits::new(1024, 1024);
@@ -340,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "mutable_api")]
+    #[cfg(feature = "transparent_api")]
     fn non_existent_path_segment_fails() -> Result<(), TestError> {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 15);

@@ -1,14 +1,17 @@
 [package]
 name = "iroha_client_cli"
-version = "2.0.0-pre-rc.13"
-authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2021"
-description = "Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage. It's a `light` client which only converts Command Line Interface commands into Iroha Web API Network Requests."
-readme = "README.md"
-homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
-repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
-license = "Apache-2.0"
-keywords = ["crypto", "blockchain", "ledger", "iroha", "client"]
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+license.workspace = true
+keywords.workspace = true
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
 [badges]
@@ -26,8 +29,11 @@ color-eyre = "0.6.2"
 clap = { version = "3.2.23", features = ["derive"] }
 dialoguer = { version = "0.10.2", default-features = false }
 json5 = "0.4.1"
-lazy_static = "1.4.0"
+once_cell = "1.16.0"
+serde_json = "1.0.93"
+erased-serde = "0.3.24"
 
 [build-dependencies]
-anyhow = "1.0.68"
-vergen = { version = "7.3.2", default-features = false }
+eyre = "0.6.8"
+vergen = { version = "7.4.2", default-features = false }
+

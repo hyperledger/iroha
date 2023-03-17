@@ -1,17 +1,43 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
+use core::fmt::{self, Debug, Formatter};
+
 use dashmap::DashMap;
 use iroha_data_model::{
     permission::validator::{
         DenialReason, Id, NeedsPermission as _, NeedsPermissionBox, Type, Validator,
     },
-    Identifiable as _,
+    prelude::Account,
+    Identifiable,
 };
+use iroha_logger::trace;
+use iroha_primitives::must_use::MustUse;
 
 use super::wsv::WorldStateView;
 use crate::smartcontracts::wasm;
 
-/// Chain of *runtime* validators. Used to validate operations that require permissions.
+/// [`Chain`] error type.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// [`wasm`] module error.
+    #[error("WASM error: {0}")]
+    Wasm(#[from] wasm::Error),
+    /// Validator denied the operation.
+    #[error("Validator `{validator_id}` denied the operation `{operation}`: `{reason}`")]
+    ValidatorDeny {
+        /// Validator ID.
+        validator_id: <Validator as Identifiable>::Id,
+        /// Denial reason.
+        reason: DenialReason,
+        /// Denied operation.
+        operation: NeedsPermissionBox,
+    },
+}
+
+/// Result type for [`Chain`] operations.
+pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+/// Chain of *runtime* permission validators. Used to validate operations that require permissions.
 ///
 /// Works similarly to the
 /// [`Chain of responsibility`](https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern).
@@ -19,10 +45,53 @@ use crate::smartcontracts::wasm;
 /// validators in the chain which have the required type.
 /// The validation stops at the first
 /// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) verdict.
-#[derive(Debug, Default, Clone)]
+#[derive(Clone)]
 pub struct Chain {
-    all_validators: DashMap<Id, Validator>,
+    all_validators: DashMap<Id, LoadedValidator>,
     concrete_type_validators: DashMap<Type, Vec<Id>>,
+    /// Engine for WASM [`Runtime`](wasm::Runtime) to execute validators.
+    engine: wasmtime::Engine,
+}
+
+impl Debug for Chain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Chain")
+            .field("all_validators", &self.all_validators)
+            .field("concrete_type_validators", &self.concrete_type_validators)
+            .field("engine", &"<Engine is truncated>")
+            .finish()
+    }
+}
+
+impl Default for Chain {
+    fn default() -> Self {
+        Self {
+            all_validators: DashMap::default(),
+            concrete_type_validators: DashMap::default(),
+            engine: wasm::create_engine(),
+        }
+    }
+}
+
+/// [`Validator`] with [`Module`](wasmtime::Module) for execution.
+///
+/// Creating [`Module`] is expensive, so we do it once on [`add_validator()`](Chain::add_validator) step and reuse it on
+/// [`validate()`](Chain::validate) step.
+#[derive(Clone)]
+struct LoadedValidator {
+    id: Id,
+    validator_type: Type,
+    module: wasmtime::Module,
+}
+
+impl Debug for LoadedValidator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LoadedValidator")
+            .field("id", &self.id)
+            .field("validator_type", &self.validator_type)
+            .field("module", &"<Module is truncated>")
+            .finish()
+    }
 }
 
 impl Chain {
@@ -33,30 +102,40 @@ impl Chain {
 
     /// Add new [`Validator`] to the [`Chain`].
     ///
-    /// Return `true` if the validator was added
+    /// Returns `true` if the validator was added
     /// and `false` if a validator with the same id already exists.
-    pub fn add_validator(&self, validator: Validator) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// Fails if WASM module loading fails.
+    pub fn add_validator(&self, validator: Validator) -> Result<MustUse<bool>> {
         use dashmap::mapref::entry::Entry::*;
 
-        let id = validator.id().clone();
-        match self.all_validators.entry(id.clone()) {
-            Occupied(_) => false,
-            Vacant(vacant) => {
-                match self
-                    .concrete_type_validators
-                    .entry(*validator.validator_type())
-                {
-                    Occupied(mut occupied) => {
-                        occupied.get_mut().push(id);
-                    }
-                    Vacant(concrete_type_vacant) => {
-                        concrete_type_vacant.insert(vec![id]);
-                    }
-                }
-                vacant.insert(validator);
-                true
+        let id = validator.id.clone();
+        let Vacant(vacant) = self.all_validators.entry(id.clone()) else {
+            return Ok(MustUse(false));
+        };
+
+        match self
+            .concrete_type_validators
+            .entry(*validator.validator_type())
+        {
+            Occupied(mut occupied) => {
+                occupied.get_mut().push(id);
+            }
+            Vacant(concrete_type_vacant) => {
+                concrete_type_vacant.insert(vec![id]);
             }
         }
+
+        let loaded_validator = LoadedValidator {
+            id: validator.id,
+            validator_type: validator.validator_type,
+            module: wasm::load_module(&self.engine, validator.wasm)?,
+        };
+
+        vacant.insert(loaded_validator);
+        Ok(MustUse(true))
     }
 
     /// Remove [`Validator`] from the [`Chain`].
@@ -66,7 +145,8 @@ impl Chain {
     #[allow(clippy::expect_used)]
     pub fn remove_validator(&self, id: &Id) -> bool {
         self.all_validators.get(id).map_or(false, |entry| {
-            let type_ = entry.validator_type();
+            let type_ = &entry.validator_type;
+
             self.all_validators
                 .remove(id)
                 .and_then(|_| self.concrete_type_validators.get_mut(type_))
@@ -94,8 +174,9 @@ impl Chain {
     pub fn validate(
         &self,
         wsv: &WorldStateView,
+        authority: &<Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
-    ) -> Result<(), DenialReason> {
+    ) -> Result<()> {
         let operation = operation.into();
         let Some(validators) = self
             .concrete_type_validators
@@ -104,14 +185,13 @@ impl Chain {
             return Ok(())
         };
 
+        let runtime = wasm::RuntimeBuilder::new()
+            .with_engine(self.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+            .with_configuration(wsv.config.wasm_runtime_config)
+            .build()?;
+
         for validator_id in validators.value() {
-            let validator = self.all_validators.get(validator_id).expect(
-                "Validator chain internal collections inconsistency error \
-                 when validating an operation. This is a bug",
-            );
-            Self::execute_validator(validator.value(), wsv, operation.clone()).map_err(|err| {
-                format!("Validator `{validator_id}` denied the operation `{operation}`: `{err}`",)
-            })?
+            self.execute_validator(&runtime, wsv, authority, validator_id, &operation)?
         }
 
         Ok(())
@@ -123,21 +203,32 @@ impl Chain {
     }
 
     fn execute_validator(
-        validator: &Validator,
+        &self,
+        runtime: &wasm::Runtime,
         wsv: &WorldStateView,
-        operation: NeedsPermissionBox,
-    ) -> Result<(), DenialReason> {
-        let mut runtime = wasm::Runtime::from_configuration(wsv.config.wasm_runtime_config)
-            .map_err(|err| format!("Can't create WASM runtime: {err}"))?;
-        runtime
-            .execute_permission_validator(
-                wsv,
-                validator.id().account_id.clone(),
-                validator.wasm(),
-                operation,
-            )
-            .map_err(|err| format!("Failure during validator execution: {err}"))?
-            .into()
+        authority: &<Account as Identifiable>::Id,
+        validator_id: &iroha_data_model::permission::validator::Id,
+        operation: &NeedsPermissionBox,
+    ) -> Result<()> {
+        let validator = self.all_validators.get(validator_id).expect(
+            "Validator chain internal collections inconsistency error \
+             when validating an operation. This is a bug",
+        );
+
+        trace!(%validator_id, "Running validator");
+        let verdict = runtime.execute_permission_validator_module(
+            wsv,
+            authority,
+            validator_id,
+            &validator.module,
+            operation,
+        )?;
+
+        Result::<(), DenialReason>::from(verdict).map_err(|reason| Error::ValidatorDeny {
+            validator_id: validator_id.clone(),
+            operation: operation.clone(),
+            reason,
+        })
     }
 }
 
@@ -157,8 +248,9 @@ impl ChainView<'_> {
     pub fn validate(
         self,
         wsv: &WorldStateView,
+        authority: &<Account as Identifiable>::Id,
         operation: impl Into<NeedsPermissionBox>,
-    ) -> Result<(), DenialReason> {
-        self.chain.validate(wsv, operation)
+    ) -> Result<()> {
+        self.chain.validate(wsv, authority, operation)
     }
 }

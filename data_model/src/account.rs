@@ -12,16 +12,15 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
-use derive_more::Display;
-use getset::{Getters, MutGetters, Setters};
-use iroha_data_model_derive::IdOrdEqHash;
-use iroha_ffi::FfiType;
+use derive_more::{Constructor, Display};
+use getset::Getters;
+use iroha_data_model_derive::IdEqOrdHash;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 use crate::Registrable;
 use crate::{
     asset::{
@@ -30,8 +29,8 @@ use crate::{
     },
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
-    ffi::declare_item,
     metadata::Metadata,
+    model,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
 };
@@ -47,70 +46,211 @@ pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Accoun
 // of space, over `Vec`.
 type Signatories = btree_set::BTreeSet<PublicKey>;
 
-/// Genesis account name.
-pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
-
 /// The context value name for transaction signatories.
 pub const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
 
 /// The context value name for account signatories.
 pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
-/// Genesis account. Used to mainly be converted to ordinary `Account` struct.
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct GenesisAccount {
-    public_key: PublicKey,
-}
-
-impl GenesisAccount {
-    /// Returns `GenesisAccount` instance.
-    #[must_use]
-    pub const fn new(public_key: PublicKey) -> Self {
-        GenesisAccount { public_key }
+model! {
+    /// Identification of an [`Account`]. Consists of Account name and Domain name.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use iroha_data_model::account::Id;
+    ///
+    /// let id = "user@company".parse::<Id>().expect("Valid");
+    /// ```
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[display(fmt = "{name}@{domain_id}")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Id {
+        /// [`Account`]'s name.
+        pub name: Name,
+        /// [`Account`]'s [`Domain`](`crate::domain::Domain`) id.
+        pub domain_id: <Domain as Identifiable>::Id,
     }
+
+    /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "({id})")] // TODO: Add more?
+    #[ffi_type]
+    pub struct Account {
+        /// An Identification of the [`Account`].
+        pub id: Id,
+        /// Assets in this [`Account`].
+        pub assets: AssetsMap,
+        /// [`Account`]'s signatories.
+        pub signatories: Signatories,
+        /// Condition which checks if the account has the right signatures.
+        #[getset(get = "pub")]
+        pub signature_check_condition: SignatureCheckCondition,
+        /// Metadata of this account as a key-value store.
+        pub metadata: Metadata,
+        /// Roles of this account, they are tags for sets of permissions stored in `World`.
+        pub roles: RoleIds,
+    }
+
+    /// Builder which should be submitted in a transaction to create a new [`Account`]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "[{id}]")]
+    #[ffi_type]
+    pub struct NewAccount {
+        /// Identification
+        id: <Account as Identifiable>::Id,
+        /// Signatories, i.e. signatures attached to this message.
+        signatories: Signatories,
+        /// Metadata that should be submitted with the builder
+        metadata: Metadata,
+    }
+
+    /// Condition which checks if the account has the right signatures.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `SignatureCheckCondition` has no trap representation in `EvalueatesTo<bool>`
+    #[ffi_type(unsafe {robust})]
+    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 }
 
-#[cfg(feature = "mutable_api")]
-impl From<GenesisAccount> for Account {
+impl Id {
+    #[cfg(feature = "transparent_api")]
+    const GENESIS_ACCOUNT_NAME: &str = "genesis";
+
+    /// Construct [`Id`] of the genesis account.
     #[inline]
-    fn from(account: GenesisAccount) -> Self {
-        Account::new(Id::genesis(), [account.public_key]).build()
+    #[must_use]
+    #[cfg(feature = "transparent_api")]
+    pub fn genesis() -> Self {
+        Self {
+            name: Self::GENESIS_ACCOUNT_NAME.parse().expect("Valid"),
+            domain_id: DomainId::genesis(),
+        }
     }
 }
 
-/// Condition which checks if the account has the right signatures.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FfiType,
-    IntoSchema,
-)]
-pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+impl Account {
+    /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
+    #[inline]
+    #[must_use]
+    pub fn new(
+        id: <Self as Identifiable>::Id,
+        signatories: impl IntoIterator<Item = PublicKey>,
+    ) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, signatories)
+    }
+
+    /// Get an iterator over [`signatories`](PublicKey) of the `Account`
+    #[inline]
+    pub fn signatories(&self) -> impl ExactSizeIterator<Item = &PublicKey> {
+        self.signatories.iter()
+    }
+
+    /// Return a reference to the [`Asset`] corresponding to the asset id.
+    #[inline]
+    pub fn asset(&self, asset_id: &AssetId) -> Option<&Asset> {
+        self.assets.get(asset_id)
+    }
+
+    /// Get an iterator over [`Asset`]s of the `Account`
+    #[inline]
+    pub fn assets(&self) -> impl ExactSizeIterator<Item = &Asset> {
+        self.assets.values()
+    }
+
+    /// Get an iterator over [`role ids`](RoleId) of the `Account`
+    #[inline]
+    pub fn roles(&self) -> impl ExactSizeIterator<Item = &RoleId> {
+        self.roles.iter()
+    }
+
+    /// Return `true` if the `Account` contains the given signatory
+    #[inline]
+    pub fn contains_signatory(&self, signatory: &PublicKey) -> bool {
+        self.signatories.contains(signatory)
+    }
+
+    /// Return `true` if `Account` contains the given role
+    #[inline]
+    pub fn contains_role(&self, role_id: &RoleId) -> bool {
+        self.roles.contains(role_id)
+    }
+}
+
+#[cfg(feature = "transparent_api")]
+impl Account {
+    /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
+    #[inline]
+    pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
+        self.assets.insert(asset.id().clone(), asset)
+    }
+
+    /// Remove asset from the [`Account`] and return it
+    #[inline]
+    pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
+        self.assets.remove(asset_id)
+    }
+
+    /// Add [`Role`](crate::role::Role) into the [`Account`].
+    ///
+    /// If `Account` did not have this role present, `true` is returned.
+    /// If `Account` did have this role present, `false` is returned.
+    #[inline]
+    pub fn add_role(&mut self, role_id: RoleId) -> bool {
+        self.roles.insert(role_id)
+    }
+
+    /// Remove a role from the `Account` and return whether the role was present in the `Account`
+    #[inline]
+    pub fn remove_role(&mut self, role_id: &RoleId) -> bool {
+        self.roles.remove(role_id)
+    }
+
+    /// Add [`signatory`](PublicKey) into the [`Account`].
+    ///
+    /// If `Account` did not have this signatory present, `true` is returned.
+    /// If `Account` did have this signatory present, `false` is returned.
+    #[inline]
+    pub fn add_signatory(&mut self, signatory: PublicKey) -> bool {
+        self.signatories.insert(signatory)
+    }
+
+    /// Remove a signatory from the `Account` and return whether the signatory was present in the `Account`
+    #[inline]
+    pub fn remove_signatory(&mut self, signatory: &PublicKey) -> bool {
+        self.signatories.remove(signatory)
+    }
+}
+
+impl NewAccount {
+    fn new(
+        id: <Account as Identifiable>::Id,
+        signatories: impl IntoIterator<Item = PublicKey>,
+    ) -> Self {
+        Self {
+            id,
+            signatories: signatories.into_iter().collect(),
+            metadata: Metadata::default(),
+        }
+    }
+
+    /// Add [`Metadata`] to the account replacing any previously defined metadata
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
 
 impl SignatureCheckCondition {
-    /// Gets reference to the raw `ExpressionBox`.
+    /// Get a reference to the raw `ExpressionBox`.
     #[inline]
-    pub const fn as_expression(&self) -> &crate::expression::ExpressionBox {
+    pub const fn as_expression(&self) -> &crate::expression::Expression {
         let Self(condition) = self;
         &condition.expression
-    }
-}
-
-// TODO: derive
-impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
-    #[inline]
-    fn from(condition: EvaluatesTo<bool>) -> Self {
-        SignatureCheckCondition(condition)
     }
 }
 
@@ -142,32 +282,7 @@ impl Default for SignatureCheckCondition {
     }
 }
 
-declare_item! {
-    /// Builder which should be submitted in a transaction to create a new [`Account`]
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[display(fmt = "[{id}]")]
-    pub struct NewAccount {
-        /// Identification
-        pub id: <Account as Identifiable>::Id,
-        /// Signatories, i.e. signatures attached to this message.
-        pub signatories: Signatories,
-        /// Metadata that should be submitted with the builder
-        pub metadata: Metadata,
-    }
-}
-
-#[cfg(feature = "mutable_api")]
+#[cfg(feature = "transparent_api")]
 impl Registrable for NewAccount {
     type Target = Account;
 
@@ -191,69 +306,6 @@ impl HasMetadata for NewAccount {
     }
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl NewAccount {
-    fn new(
-        id: <Account as Identifiable>::Id,
-        signatories: impl IntoIterator<Item = PublicKey>,
-    ) -> Self {
-        Self {
-            id,
-            signatories: signatories.into_iter().collect(),
-            metadata: Metadata::default(),
-        }
-    }
-
-    /// Add [`Metadata`] to the account replacing previously defined
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-        self.metadata = metadata;
-        self
-    }
-}
-
-declare_item! {
-    /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdOrdEqHash,
-        Getters,
-        MutGetters,
-        Setters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        FfiType,
-        IntoSchema,
-    )]
-    #[allow(clippy::multiple_inherent_impl)]
-    #[display(fmt = "({id})")] // TODO: Add more?
-    pub struct Account {
-        /// An Identification of the [`Account`].
-        id: Id,
-        /// Assets in this [`Account`].
-        assets: AssetsMap,
-        /// [`Account`]'s signatories.
-        signatories: Signatories,
-        /// Condition which checks if the account has the right signatures.
-        #[getset(get = "pub")]
-        #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
-        signature_check_condition: SignatureCheckCondition,
-        /// Metadata of this account as a key-value store.
-        #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-        metadata: Metadata,
-        /// Roles of this account, they are tags for sets of permissions stored in `World`.
-        roles: RoleIds,
-    }
-}
-
 impl HasMetadata for Account {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -264,168 +316,12 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
-impl Account {
-    /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
-    #[must_use]
-    pub fn new(
-        id: <Self as Identifiable>::Id,
-        signatories: impl IntoIterator<Item = PublicKey>,
-    ) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, signatories)
-    }
-
-    /// Return `true` if the `Account` contains signatory
-    #[inline]
-    pub fn contains_signatory(&self, signatory: &PublicKey) -> bool {
-        self.signatories.contains(signatory)
-    }
-
-    /// Return a reference to the [`Asset`] corresponding to the asset id.
-    #[inline]
-    pub fn asset(&self, asset_id: &AssetId) -> Option<&Asset> {
-        self.assets.get(asset_id)
-    }
-
-    /// Get an iterator over [`Asset`]s of the `Account`
-    #[inline]
-    pub fn assets(&self) -> impl ExactSizeIterator<Item = &Asset> {
-        self.assets.values()
-    }
-
-    /// Get an iterator over [`signatories`](PublicKey) of the `Account`
-    #[inline]
-    pub fn signatories(&self) -> impl ExactSizeIterator<Item = &PublicKey> {
-        self.signatories.iter()
-    }
-
-    /// Return `true` if `Account` contains role
-    #[inline]
-    pub fn contains_role(&self, role_id: &RoleId) -> bool {
-        self.roles.contains(role_id)
-    }
-
-    /// Get an iterator over [`role ids`](RoleId) of the `Account`
-    #[inline]
-    pub fn roles(&self) -> impl ExactSizeIterator<Item = &RoleId> {
-        self.roles.iter()
-    }
-}
-
-#[cfg(feature = "mutable_api")]
-impl Account {
-    /// Add [`signatory`](PublicKey) into the [`Account`].
-    ///
-    /// If `Account` did not have this signatory present, `true` is returned.
-    /// If `Account` did have this signatory present, `false` is returned.
-    #[inline]
-    pub fn add_signatory(&mut self, signatory: PublicKey) -> bool {
-        self.signatories.insert(signatory)
-    }
-
-    /// Remove a signatory from the `Account` and return whether the signatory was present in the `Account`
-    #[inline]
-    pub fn remove_signatory(&mut self, signatory: &PublicKey) -> bool {
-        self.signatories.remove(signatory)
-    }
-
-    /// Return a mutable reference to the [`Asset`] corresponding to the asset id
-    #[inline]
-    pub fn asset_mut(&mut self, asset_id: &AssetId) -> Option<&mut Asset> {
-        self.assets.get_mut(asset_id)
-    }
-
-    /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
-    #[inline]
-    pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
-        self.assets.insert(asset.id().clone(), asset)
-    }
-
-    /// Remove asset from the [`Account`] and return it
-    #[inline]
-    pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
-        self.assets.remove(asset_id)
-    }
-
-    /// Add [`Role`](crate::role::Role) into the [`Account`].
-    ///
-    /// If `Account` did not have this role present, `true` is returned.
-    /// If `Account` did have this role present, `false` is returned.
-    #[inline]
-    pub fn add_role(&mut self, role_id: RoleId) -> bool {
-        self.roles.insert(role_id)
-    }
-
-    /// Remove a role from the `Account` and return whether the role was present in the `Account`
-    #[inline]
-    pub fn remove_role(&mut self, role_id: &RoleId) -> bool {
-        self.roles.remove(role_id)
-    }
-}
-
 impl FromIterator<Account> for crate::Value {
     fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
             .collect::<Vec<Self>>()
             .into()
-    }
-}
-
-/// Identification of an [`Account`]. Consists of Account's name and Domain's name.
-///
-/// # Examples
-///
-/// ```rust
-/// use iroha_data_model::account::Id;
-///
-/// let id = "user@company".parse::<Id>().expect("Valid");
-/// ```
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    DeserializeFromStr,
-    SerializeDisplay,
-    FfiType,
-    IntoSchema,
-)]
-#[display(fmt = "{name}@{domain_id}")]
-pub struct Id {
-    /// [`Account`]'s name.
-    pub name: Name,
-    /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
-    pub domain_id: <Domain as Identifiable>::Id,
-}
-
-impl Id {
-    /// Construct [`Id`] from an account `name` and a `domain_name` if
-    /// these names are valid.
-    #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
-        Self { name, domain_id }
-    }
-
-    /// Construct [`Id`] of the genesis account.
-    #[inline]
-    #[must_use]
-    pub fn genesis() -> Self {
-        #[allow(clippy::expect_used)]
-        Self {
-            name: Name::from_str(GENESIS_ACCOUNT_NAME).expect("Valid"),
-            domain_id: DomainId::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
-        }
     }
 }
 

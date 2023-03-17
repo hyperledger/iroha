@@ -4,8 +4,7 @@ use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
-    prelude::*,
-    tx::{AcceptedTransaction, TransactionValidator},
+    block::*, prelude::*, sumeragi::network_topology::Topology, tx::TransactionValidator,
     wsv::World,
 };
 use iroha_data_model::prelude::*;
@@ -50,7 +49,7 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
             START_ACCOUNT.parse().expect("Valid"),
             START_DOMAIN.parse().expect("Valid"),
         ),
-        instructions.into(),
+        instructions,
         TRANSACTION_TIME_TO_LIVE_MS,
     )
     .sign(keys)
@@ -84,10 +83,7 @@ fn accept_transaction(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
         b.iter(|| {
-            match AcceptedTransaction::from_transaction::<false>(
-                transaction.clone(),
-                &TRANSACTION_LIMITS,
-            ) {
+            match AcceptedTransaction::accept::<false>(transaction.clone(), &TRANSACTION_LIMITS) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
             }
@@ -113,7 +109,7 @@ fn sign_transaction(criterion: &mut Criterion) {
 
 fn validate_transaction(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::from_transaction::<false>(
+    let transaction = AcceptedTransaction::accept::<false>(
         build_test_transaction(keys.clone()),
         &TRANSACTION_LIMITS,
     )
@@ -121,11 +117,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failure_count = 0;
     let _ = criterion.bench_function("validate", move |b| {
-        let transaction_validator = TransactionValidator::new(
-            TRANSACTION_LIMITS,
-            Arc::new(AllowAll::new()),
-            Arc::new(AllowAll::new()),
-        );
+        let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
         b.iter(|| {
             match transaction_validator.validate(
                 transaction.clone(),
@@ -142,21 +134,21 @@ fn validate_transaction(criterion: &mut Criterion) {
 
 fn chain_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::from_transaction::<false>(
-        build_test_transaction(keys),
-        &TRANSACTION_LIMITS,
-    )
-    .expect("Failed to accept transaction.");
+    let transaction =
+        AcceptedTransaction::accept::<false>(build_test_transaction(keys), &TRANSACTION_LIMITS)
+            .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()], Vec::new());
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
     let _ = criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block =
-                block
-                    .clone()
-                    .chain(success_count, Some(previous_block_hash.transmute()), 0);
+            let new_block = block.clone().chain(
+                success_count,
+                Some(previous_block_hash.transmute()),
+                0,
+                Topology::new(Vec::new()),
+            );
             previous_block_hash = new_block.hash();
         });
     });
@@ -165,16 +157,12 @@ fn chain_blocks(criterion: &mut Criterion) {
 
 fn sign_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::from_transaction::<false>(
+    let transaction = AcceptedTransaction::accept::<false>(
         build_test_transaction(keys.clone()),
         &TRANSACTION_LIMITS,
     )
     .expect("Failed to accept transaction.");
-    let transaction_validator = TransactionValidator::new(
-        TRANSACTION_LIMITS,
-        Arc::new(AllowAll::new()),
-        Arc::new(AllowAll::new()),
-    );
+    let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
     let block = PendingBlock::new(vec![transaction.into()], Vec::new())
         .chain_first()
         .validate(
@@ -208,17 +196,11 @@ fn validate_blocks(criterion: &mut Criterion) {
     assert!(domain.add_account(account).is_none());
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::from_transaction::<false>(
-        build_test_transaction(keys),
-        &TRANSACTION_LIMITS,
-    )
-    .expect("Failed to accept transaction.");
+    let transaction =
+        AcceptedTransaction::accept::<false>(build_test_transaction(keys), &TRANSACTION_LIMITS)
+            .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
-    let transaction_validator = TransactionValidator::new(
-        TRANSACTION_LIMITS,
-        Arc::new(AllowAll::new()),
-        Arc::new(AllowAll::new()),
-    );
+    let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let _ = criterion.bench_function("validate_block", |b| {
         b.iter(|| {

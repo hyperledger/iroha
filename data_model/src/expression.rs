@@ -15,7 +15,8 @@ use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
-use derive_more::Display;
+use derive_more::{Constructor, Display};
+use getset::Getters;
 use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
@@ -24,7 +25,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::{query::QueryBox, Name, Value, ValueBox};
-use crate::NumericValue;
+use crate::{model, NumericValue};
 
 /// Generate expression structure and basic impls for it.
 ///
@@ -117,12 +118,15 @@ macro_rules! gen_expr_and_impls {
     };
     // Internal usage: generate basic code for the expression
     (impl_basic $(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?)) => {
-        $(#[$me])*
-        $v struct $i {
-            $(
+        crate::model! {
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[getset(get = "pub")]
+            $(#[$me])*
+            $v struct $i { $(
+                ///
                 #[allow(missing_docs)]
-                pub $param_name: EvaluatesTo<$param_type>,
-            )*
+                pub $param_name: EvaluatesTo<$param_type>, )*
+            }
         }
 
         impl $i {
@@ -167,32 +171,23 @@ pub type Context = btree_map::BTreeMap<Name, Value>;
 /// Boxed expression.
 pub type ExpressionBox = Box<Expression>;
 
-/// Struct for type checking and converting expression results.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    PartialOrd,
-    Ord,
-    Hash,
-)]
-#[repr(transparent)]
-#[serde(transparent)]
-// As this structure exists only for type checking
-// it makes sense to display `expression` directly
-#[display(fmt = "{expression}")]
-pub struct EvaluatesTo<V: TryFrom<Value>> {
-    /// Expression.
-    #[serde(flatten)]
-    pub expression: ExpressionBox,
-    #[codec(skip)]
-    _value_type: PhantomData<V>,
+model! {
+    /// Struct for type checking and converting expression results.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize)]
+    // As this structure exists only for type checking
+    // it makes sense to display `expression` directly
+    #[display(fmt = "{expression}")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `EvaluatesTo` has no trap representation in `ExpressionBox`
+    #[ffi_type(unsafe {robust})]
+    pub struct EvaluatesTo<V: TryFrom<Value>> {
+        /// Expression.
+        #[serde(flatten)]
+        pub expression: ExpressionBox,
+        #[codec(skip)]
+        _value_type: PhantomData<V>,
+    }
 }
 
 impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesTo<V> {
@@ -202,6 +197,13 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesT
 }
 
 impl<V: TryFrom<Value>> EvaluatesTo<V> {
+    /// Expression
+    #[inline]
+    // TODO: getset would return &Box<Expression>
+    pub fn expression(&self) -> &Expression {
+        &self.expression
+    }
+
     /// Number of underneath expressions.
     #[inline]
     pub fn len(&self) -> usize {
@@ -243,9 +245,6 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     }
 
     /// Wrap expression into parentheses depending on `operation` and get the resulting string.
-    ///
-    /// # Panics
-    /// - If `operation` has [`Other`](Operation::Other) value.
     fn parenthesise(&self, operation: Operation) -> String {
         if self.operation().priority() < operation.priority()
             && !matches!(self.expression.as_ref(), Expression::Raw(_))
@@ -291,7 +290,7 @@ mod operation {
     //! Module containing operations and their priorities.
 
     /// Type of expression operation.
-    #[derive(Copy, Clone, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
     pub enum Operation {
         MethodCall,
         RaiseTo,
@@ -313,7 +312,7 @@ mod operation {
     ///
     /// [`First`](Operation::First) is the highest priority
     /// and [`Ninth`](Operation::Ninth) is the lowest.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Priority {
         First = 1,
         Second = 2,
@@ -372,65 +371,53 @@ mod operation {
     }
 }
 
-/// Represents all possible expressions.
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    FromVariant,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-    PartiallyTaggedSerialize,
-    PartiallyTaggedDeserialize,
-)]
-pub enum Expression {
-    /// Add expression.
-    Add(Add),
-    /// Subtract expression.
-    Subtract(Subtract),
-    /// Multiply expression.
-    Multiply(Multiply),
-    /// Divide expression.
-    Divide(Divide),
-    /// Module expression.
-    Mod(Mod),
-    /// Raise to power expression.
-    RaiseTo(RaiseTo),
-    /// Greater expression.
-    Greater(Greater),
-    /// Less expression.
-    Less(Less),
-    /// Equal expression.
-    Equal(Equal),
-    /// Not expression.
-    Not(Not),
-    /// And expression.
-    And(And),
-    /// Or expression.
-    Or(Or),
-    /// If expression.
-    If(If),
-    /// Raw value.
-    #[serde_partially_tagged(untagged)]
-    Raw(ValueBox),
-    /// Query to Iroha state.
-    Query(QueryBox),
-    /// Contains expression for vectors.
-    Contains(Contains),
-    /// Contains all expression for vectors.
-    ContainsAll(ContainsAll),
-    /// Contains any expression for vectors.
-    ContainsAny(ContainsAny),
-    /// Where expression to supply temporary values to local context.
-    Where(Where),
-    /// Get a temporary value by name
-    ContextValue(ContextValue),
+model! {
+    /// Represents all possible expressions.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
+    #[ffi_type(opaque)]
+    pub enum Expression {
+        /// Add expression.
+        Add(Add),
+        /// Subtract expression.
+        Subtract(Subtract),
+        /// Multiply expression.
+        Multiply(Multiply),
+        /// Divide expression.
+        Divide(Divide),
+        /// Module expression.
+        Mod(Mod),
+        /// Raise to power expression.
+        RaiseTo(RaiseTo),
+        /// Greater expression.
+        Greater(Greater),
+        /// Less expression.
+        Less(Less),
+        /// Equal expression.
+        Equal(Equal),
+        /// Not expression.
+        Not(Not),
+        /// And expression.
+        And(And),
+        /// Or expression.
+        Or(Or),
+        /// If expression.
+        If(If),
+        /// Raw value.
+        #[serde_partially_tagged(untagged)]
+        Raw(ValueBox),
+        /// Query to Iroha state.
+        Query(QueryBox),
+        /// Contains expression for vectors.
+        Contains(Contains),
+        /// Contains all expression for vectors.
+        ContainsAll(ContainsAll),
+        /// Contains any expression for vectors.
+        ContainsAny(ContainsAny),
+        /// Where expression to supply temporary values to local context.
+        Where(Where),
+        /// Get a temporary value by name
+        ContextValue(ContextValue),
+    }
 }
 
 impl Expression {
@@ -470,31 +457,20 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
     }
 }
 
-/// Get a temporary value by name.
-/// The values are brought into [`Context`] by [`Where`] expression.
-//
-// Can't use `gen_expr_and_impls!` here because we need special type for `value_name`
-#[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-    Hash,
-)]
-#[display(fmt = "CONTEXT `{value_name}`")]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct ContextValue {
-    /// Name bound to the value.
-    pub value_name: Name,
+model! {
+    /// Get a temporary value by name. The values are brought into [`Context`] by [`Where`] expression.
+    // NOTE: Can't use `gen_expr_and_impls!` here because we need special type for `value_name`
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[display(fmt = "CONTEXT `{value_name}`")]
+    #[getset(get = "pub")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    // SAFETY: `ContextValue` has no trap representation in `Name`
+    #[ffi_type(unsafe {robust})]
+    pub struct ContextValue {
+        /// Name bound to the value.
+        pub value_name: Name,
+    }
 }
 
 impl ContextValue {
@@ -502,12 +478,6 @@ impl ContextValue {
     #[inline]
     pub const fn len(&self) -> usize {
         1
-    }
-
-    /// Constructs `ContextValue`.
-    #[inline]
-    pub fn new(value_name: Name) -> Self {
-        Self { value_name }
     }
 }
 
@@ -520,297 +490,148 @@ impl From<ContextValue> for ExpressionBox {
 
 gen_expr_and_impls! {
     /// Evaluates to the multiplication of left and right expressions.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-    fmt = "{}*{}", // Keep without spaces
+    #[derive(Display)]
+    #[display(fmt = "{}*{}", // Keep without spaces
         "self.left.parenthesise(Operation::Multiply)",
         "self.right.parenthesise(Operation::Multiply)"
     )]
+    #[ffi_type]
     pub Multiply(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression divided by the right expression.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}/{}", // Keep without spaces
+    #[derive(Display)]
+    #[display(fmt = "{}/{}", // Keep without spaces
         "self.left.parenthesise(Operation::Divide)",
         "self.right.parenthesise(Operation::Divide)"
     )]
+    #[ffi_type]
     pub Divide(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression modulo the right expression.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{} % {}",
+    #[derive(Display)]
+    #[display(fmt = "{} % {}",
         "self.left.parenthesise(Operation::Mod)",
         "self.right.parenthesise(Operation::Mod)"
     )]
+    #[ffi_type]
     pub Mod(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression in the power of right expression.
     /// Currently does not support [`NumericValue::Fixed`].
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}**{}",
+    #[derive(Display)]
+    #[display(fmt = "{}**{}",
         "self.left.parenthesise(Operation::RaiseTo)",
         "self.right.parenthesise(Operation::RaiseTo)"
     )]
+    #[ffi_type]
     pub RaiseTo(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the sum of left and right expressions.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}+{}",
+    #[derive(Display)]
+    #[display(fmt = "{}+{}",
         "self.left.parenthesise(Operation::Add)",
         "self.right.parenthesise(Operation::Add)"
     )]
+    #[ffi_type]
     pub Add(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Evaluates to the left expression minus the right expression.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}-{}",
+    #[derive(Display)]
+    #[display(fmt = "{}-{}",
         "self.left.parenthesise(Operation::Subtract)",
         "self.right.parenthesise(Operation::Subtract)"
     )]
+    #[ffi_type]
     pub Subtract(NumericValue, NumericValue) -> NumericValue
 }
 
 gen_expr_and_impls! {
     /// Returns whether the `left` expression is greater than the `right`.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{} > {}",
+    #[derive(Display)]
+    #[display(fmt = "{} > {}",
         "self.left.parenthesise(Operation::Greater)",
         "self.right.parenthesise(Operation::Greater)"
     )]
+    #[ffi_type]
     pub Greater(NumericValue, NumericValue) -> bool
 }
 
 gen_expr_and_impls! {
     /// Returns whether the `left` expression is less than the `right`.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{} < {}",
+    #[derive(Display)]
+    #[display(fmt = "{} < {}",
         "self.left.parenthesise(Operation::Less)",
         "self.right.parenthesise(Operation::Less)"
     )]
+    #[ffi_type]
     pub Less(NumericValue, NumericValue) -> bool
 }
 
 gen_expr_and_impls! {
     /// Negates the result of the `expression`.
     /// Works only for `Value::Bool`.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
+    #[derive(Display)]
     #[display(fmt = "!{}", "self.expression.parenthesise(Operation::Not)")]
     #[serde(transparent)]
     #[repr(transparent)]
+    // SAFETY: `Not` has no trap representation in `bool`
+    #[ffi_type(unsafe {robust})]
     pub Not(bool) -> bool
 }
 
 gen_expr_and_impls! {
     /// Applies the logical `and` to two `Value::Bool` operands.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{} && {}",
+    #[derive(Display)]
+    #[display(fmt = "{} && {}",
         "self.left.parenthesise(Operation::And)",
         "self.right.parenthesise(Operation::And)"
     )]
+    #[ffi_type]
     pub And(bool, bool) -> bool
 }
 
 gen_expr_and_impls! {
     /// Applies the logical `or` to two `Value::Bool` operands.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{} || {}",
+    #[derive(Display)]
+    #[display(fmt = "{} || {}",
         "self.left.parenthesise(Operation::Or)",
         "self.right.parenthesise(Operation::Or)"
     )]
+    #[ffi_type]
     pub Or(bool, bool) -> bool
 }
 
-/// Builder for [`If`] expression.
-#[derive(Debug)]
-#[must_use = ".build() not used"]
-pub struct IfBuilder {
-    /// Condition expression, which should evaluate to `Value::Bool`.
-    /// If it is `true`, then the evaluated `then_expression` is returned.
-    /// Otherwise, the evaluated `else_expression` is returned.
-    pub condition: EvaluatesTo<bool>,
-    /// Expression evaluated and returned if the condition is `true`.
-    pub then_expression: Option<EvaluatesTo<Value>>,
-    /// Expression evaluated and returned if the condition is `false`.
-    pub else_expression: Option<EvaluatesTo<Value>>,
+model! {
+    /// Builder for [`If`] expression.
+    #[derive(Debug)]
+    #[must_use = ".build() not used"]
+    #[ffi_type]
+    pub struct IfBuilder {
+        /// Condition expression, which should evaluate to `Value::Bool`.
+        /// If it is `true`, then the evaluated `then_expression` is returned.
+        /// Otherwise, the evaluated `else_expression` is returned.
+        condition: EvaluatesTo<bool>,
+        /// Expression evaluated and returned if the condition is `true`.
+        then_expression: Option<EvaluatesTo<Value>>,
+        /// Expression evaluated and returned if the condition is `false`.
+        else_expression: Option<EvaluatesTo<Value>>,
+    }
 }
 
 impl IfBuilder {
     /// Sets the `condition`.
     pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
-        IfBuilder {
+        Self {
             condition: condition.into(),
             then_expression: None,
             else_expression: None,
@@ -819,7 +640,7 @@ impl IfBuilder {
 
     /// Sets `then_expression`.
     pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        IfBuilder {
+        Self {
             then_expression: Some(expression.into()),
             ..self
         }
@@ -827,7 +648,7 @@ impl IfBuilder {
 
     /// Sets `else_expression`.
     pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        IfBuilder {
+        Self {
             else_expression: Some(expression.into()),
             ..self
         }
@@ -852,138 +673,60 @@ impl IfBuilder {
 gen_expr_and_impls! {
     /// If expression. Based on the `condition`, returns the result of
     /// either `then_expression`  or `else_expression`.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "if {condition} {{ {then_expression} }} else {{ {else_expression} }}"
-    )]
+    #[derive(Display)]
+    #[display(fmt = "if {condition} {{ {then_expression} }} else {{ {else_expression} }}")]
+    #[ffi_type]
     pub If(condition: bool, then_expression: Value, else_expression: Value) -> ?
 }
 
 gen_expr_and_impls! {
     /// `Contains` expression.
     /// Returns `true` if `collection` contains an `element`, `false` otherwise.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}.contains({})",
-        "collection.parenthesise(Operation::MethodCall)",
-        "element"
-    )]
+    #[derive(Display)]
+    #[display(fmt = "{}.contains({})", "collection.parenthesise(Operation::MethodCall)", "element")]
+    #[ffi_type]
     pub Contains(collection: Vec<Value>, element: Value) -> bool
 }
 
 gen_expr_and_impls! {
     /// `ContainsAll` expression.
     /// Returns `true` if `collection` contains all `elements`, `false` otherwise.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}.contains_all({})",
-        "collection.parenthesise(Operation::MethodCall)",
-        "elements"
-    )]
-
+    #[derive(Display)]
+    #[display(fmt = "{}.contains_all({})", "collection.parenthesise(Operation::MethodCall)", "elements")]
+    #[ffi_type]
     pub ContainsAll(collection: Vec<Value>, elements: Vec<Value>) -> bool
 }
 
 gen_expr_and_impls! {
     /// `ContainsAny` expression.
     /// Returns `true` if `collection` contains any element out of the `elements`, `false` otherwise.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{}.contains_any({})",
-        "collection.parenthesise(Operation::MethodCall)",
-        "elements"
-    )]
+    #[derive(Display)]
+    #[display(fmt = "{}.contains_any({})", "collection.parenthesise(Operation::MethodCall)", "elements")]
+    #[ffi_type]
     pub ContainsAny(collection: Vec<Value>, elements: Vec<Value>) -> bool
 }
 
 gen_expr_and_impls! {
     /// Returns `true` if `left` operand is equal to the `right` operand.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        PartialOrd,
-        Ord,
-        Hash,
-    )]
-    #[display(
-        fmt = "{} == {}",
+    #[derive(Display)]
+    #[display(fmt = "{} == {}",
         "self.left.parenthesise(Operation::Equal)",
         "self.right.parenthesise(Operation::Equal)"
     )]
+    #[ffi_type]
     pub Equal(Value, Value) -> bool
 }
 
-/// [`Where`] builder.
-#[derive(Debug)]
-pub struct WhereBuilder {
-    /// Expression to be evaluated.
-    expression: EvaluatesTo<Value>,
-    /// Context values for the context binded to their `String` names.
-    values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
+model! {
+    /// [`Where`] builder.
+    #[derive(Debug)]
+    #[ffi_type]
+    pub struct WhereBuilder {
+        /// Expression to be evaluated.
+        expression: EvaluatesTo<Value>,
+        /// Context values for the context binded to their `String` names.
+        values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
+    }
 }
 
 impl WhereBuilder {
@@ -1015,29 +758,19 @@ impl WhereBuilder {
     }
 }
 
-/// Adds a local context of `values` for the `expression`.
-/// It is similar to **where** syntax in *Haskell* although evaluated eagerly.
-//
-// Can't use `gen_expr_and_impls!` here because we need special type for `values`
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    PartialOrd,
-    Ord,
-    Hash,
-)]
-pub struct Where {
-    /// Expression to be evaluated.
-    pub expression: EvaluatesTo<Value>,
-    /// Context values for the context bonded to their `String` names.
-    pub values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
+model! {
+    /// Adds a local context of `values` for the `expression`.
+    /// It is similar to **where** syntax in *Haskell* although evaluated eagerly.
+    // NOTE: Can't use `gen_expr_and_impls!` here because we need special type for `values`
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct Where {
+        /// Expression to be evaluated.
+        pub expression: EvaluatesTo<Value>,
+        /// Context values for the context bonded to their `String` names.
+        pub values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
+    }
 }
 
 impl core::fmt::Display for Where {
@@ -1067,8 +800,8 @@ impl Where {
 
     /// Construct [`Where`] expression
     #[must_use]
-    pub fn new<E: Into<EvaluatesTo<Value>>>(
-        expression: E,
+    pub fn new(
+        expression: impl Into<EvaluatesTo<Value>>,
         values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
     ) -> Self {
         Self {

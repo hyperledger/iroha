@@ -82,10 +82,7 @@ The following is the default configuration used by Iroha.
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
-    "ACCOUNT_PRIVATE_KEY": null,
-    "WAIT_FOR_PEERS_RETRY_COUNT_LIMIT": 100,
-    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500,
-    "GENESIS_SUBMISSION_DELAY_MS": 1000
+    "ACCOUNT_PRIVATE_KEY": null
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {
@@ -109,7 +106,7 @@ The following is the default configuration used by Iroha.
       "max": 128
     },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 1000000,
+      "FUEL_LIMIT": 20000000,
       "MAX_MEMORY": 524288000
     }
   },
@@ -189,10 +186,7 @@ Has type `Option<genesis::ConfigurationProxy>`[^1]. Can be configured via enviro
 ```json
 {
   "ACCOUNT_PRIVATE_KEY": null,
-  "ACCOUNT_PUBLIC_KEY": null,
-  "GENESIS_SUBMISSION_DELAY_MS": 1000,
-  "WAIT_FOR_PEERS_RETRY_COUNT_LIMIT": 100,
-  "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500
+  "ACCOUNT_PUBLIC_KEY": null
 }
 ```
 
@@ -214,36 +208,6 @@ Has type `Option<PublicKey>`[^1]. Can be configured via environment variable `IR
 
 ```json
 null
-```
-
-### `genesis.genesis_submission_delay_ms`
-
-The delay before genesis block submission after minimum number of peers were discovered to be online.
-
-Has type `Option<u64>`[^1]. Can be configured via environment variable `IROHA_GENESIS_GENESIS_SUBMISSION_DELAY_MS`
-
-```json
-1000
-```
-
-### `genesis.wait_for_peers_retry_count_limit`
-
-The number of attempts to connect to peers while waiting for them to submit genesis.
-
-Has type `Option<u64>`[^1]. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT`
-
-```json
-100
-```
-
-### `genesis.wait_for_peers_retry_period_ms`
-
-The period in milliseconds in which to retry connecting to peers while waiting for them to submit genesis.
-
-Has type `Option<u64>`[^1]. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_PERIOD_MS`
-
-```json
-500
 ```
 
 ## `kura`
@@ -763,7 +727,7 @@ Has type `Option<wsv::ConfigurationProxy>`[^1]. Can be configured via environmen
     "min": 1
   },
   "WASM_RUNTIME_CONFIG": {
-    "FUEL_LIMIT": 1000000,
+    "FUEL_LIMIT": 20000000,
     "MAX_MEMORY": 524288000
   }
 }
@@ -842,7 +806,7 @@ Has type `Option<wasm::ConfigurationProxy>`[^1]. Can be configured via environme
 
 ```json
 {
-  "FUEL_LIMIT": 1000000,
+  "FUEL_LIMIT": 20000000,
   "MAX_MEMORY": 524288000
 }
 ```
@@ -854,7 +818,7 @@ The fuel limit determines the maximum number of instructions that can be execute
 Has type `Option<u64>`[^1]. Can be configured via environment variable `WASM_FUEL_LIMIT`
 
 ```json
-1000000
+20000000
 ```
 
 #### `wsv.wasm_runtime_config.max_memory`

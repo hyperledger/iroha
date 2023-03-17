@@ -7,7 +7,7 @@
 pub mod isi;
 pub mod wasm;
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
 pub use isi::*;
 
 use crate::wsv::WorldStateView;
@@ -48,13 +48,16 @@ pub trait ValidQuery: Query {
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, query::Error>;
+    fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, QueryExecutionFailure>;
 
     /// Executes query and maps it into value
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute_into_value(&self, wsv: &WorldStateView) -> eyre::Result<Value, query::Error> {
+    fn execute_into_value(
+        &self,
+        wsv: &WorldStateView,
+    ) -> eyre::Result<Value, QueryExecutionFailure> {
         self.execute(wsv).map(Into::into)
     }
 }

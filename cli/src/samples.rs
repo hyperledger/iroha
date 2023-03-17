@@ -82,14 +82,6 @@ pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Co
         genesis: Some(iroha_config::genesis::ConfigurationProxy {
             account_private_key: Some(Some(private_key)),
             account_public_key: Some(public_key),
-            ..iroha_config::genesis::ConfigurationProxy::default()
-        }),
-        wsv: Some(iroha_config::wsv::ConfigurationProxy {
-            wasm_runtime_config: Some(iroha_config::wasm::ConfigurationProxy {
-                fuel_limit: Some(10_000_000),
-                ..iroha_config::wasm::ConfigurationProxy::default()
-            }),
-            ..iroha_config::wsv::ConfigurationProxy::default()
         }),
         ..ConfigurationProxy::default()
     }

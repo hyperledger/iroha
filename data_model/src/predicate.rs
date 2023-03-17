@@ -1004,7 +1004,7 @@ pub mod value {
         Display(string::Predicate),
         /// Apply predicate to the numerical value.
         Numerical(numerical::SemiRange),
-        /// Timestamp (currently for `BlockValue` only).
+        /// Timestamp (currently for [`VersionedCommittedBlock`] only).
         TimeStamp(numerical::SemiInterval<u128>),
         /// IpAddress enumerable by `u32`
         Ipv4Addr(ip_addr::Ipv4Predicate),
@@ -1070,7 +1070,7 @@ pub mod value {
                 Predicate::Numerical(pred) => pred.applies(input),
                 Predicate::Display(pred) => pred.applies(&input.to_string()),
                 Predicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => pred.applies(block.header.timestamp),
+                    Value::Block(block) => pred.applies(block.header().timestamp),
                     _ => false,
                 },
                 Predicate::Ipv4Addr(pred) => match input {
@@ -1205,12 +1205,7 @@ pub mod value {
 
                 assert!(
                     !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Box::new(
-                        Peer {
-                            id: peer::Id {
-                                address: "123".to_owned(),
-                                public_key
-                            }
-                        }
+                        Peer::new(peer::Id::new("123", &public_key))
                     ))))
                 );
             }
@@ -1300,7 +1295,7 @@ pub mod ip_addr {
             self.0
                 .iter()
                 .copied()
-                .zip(input.0.iter().copied())
+                .zip(input.into_iter())
                 .all(|(myself, other)| myself.applies(other))
         }
     }
@@ -1335,7 +1330,7 @@ pub mod ip_addr {
             self.0
                 .iter()
                 .copied()
-                .zip(input.0.iter().copied())
+                .zip(input.into_iter())
                 .all(|(myself, other)| myself.applies(other))
         }
     }
@@ -1379,31 +1374,31 @@ pub mod ip_addr {
             {
                 let pred = Ipv4Predicate::new(127, 0, 0, (0, 10));
                 println!("{pred:?}");
-                assert!(pred.applies(Ipv4Addr([127, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr([127, 0, 0, 3])));
-                assert!(pred.applies(Ipv4Addr([127, 0, 0, 4])));
-                assert!(pred.applies(Ipv4Addr([127, 0, 0, 10])));
-                assert!(!pred.applies(Ipv4Addr([127, 0, 0, 11])));
-                assert!(!pred.applies(Ipv4Addr([125, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr([128, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr([127, 1, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr([127, 0, 1, 1])));
+                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 3])));
+                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 4])));
+                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 10])));
+                assert!(!pred.applies(Ipv4Addr::from([127, 0, 0, 11])));
+                assert!(!pred.applies(Ipv4Addr::from([125, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr::from([127, 1, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr::from([127, 0, 1, 1])));
             }
 
             {
                 let pred = Ipv4Predicate::new(Mask::starting(0), 0, 0, (0, 10));
                 println!("{pred:?}");
-                assert!(pred.applies(Ipv4Addr([0, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr([255, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr([127, 0, 0, 4])));
-                assert!(pred.applies(Ipv4Addr([127, 0, 0, 10])));
-                assert!(pred.applies(Ipv4Addr([128, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr([128, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr([127, 0, 0, 11])));
-                assert!(pred.applies(Ipv4Addr([126, 0, 0, 1])));
-                assert!(pred.applies(Ipv4Addr([128, 0, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr([127, 1, 0, 1])));
-                assert!(!pred.applies(Ipv4Addr([127, 0, 1, 1])));
+                assert!(pred.applies(Ipv4Addr::from([0, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr::from([255, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 4])));
+                assert!(pred.applies(Ipv4Addr::from([127, 0, 0, 10])));
+                assert!(pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr::from([127, 0, 0, 11])));
+                assert!(pred.applies(Ipv4Addr::from([126, 0, 0, 1])));
+                assert!(pred.applies(Ipv4Addr::from([128, 0, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr::from([127, 1, 0, 1])));
+                assert!(!pred.applies(Ipv4Addr::from([127, 0, 1, 1])));
             }
         }
 
@@ -1411,15 +1406,15 @@ pub mod ip_addr {
         fn ipv6_filter_example() {
             let pred = Ipv6Predicate::new(12700, 0, 0, (0, 10), 0, 0, 0, 0);
             println!("{pred:?}");
-            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 1, 0, 0, 0, 0])));
-            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 3, 0, 0, 0, 0])));
-            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 4, 0, 0, 0, 0])));
-            assert!(pred.applies(Ipv6Addr([12700, 0, 0, 10, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr([12700, 0, 0, 11, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr([12500, 0, 0, 1, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr([12800, 0, 0, 1, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr([12700, 1, 0, 1, 0, 0, 0, 0])));
-            assert!(!pred.applies(Ipv6Addr([12700, 0, 1, 1, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 1, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 3, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 4, 0, 0, 0, 0])));
+            assert!(pred.applies(Ipv6Addr::from([12700, 0, 0, 10, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr::from([12700, 0, 0, 11, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr::from([12500, 0, 0, 1, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr::from([12800, 0, 0, 1, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr::from([12700, 1, 0, 1, 0, 0, 0, 0])));
+            assert!(!pred.applies(Ipv6Addr::from([12700, 0, 1, 1, 0, 0, 0, 0])));
         }
     }
 }

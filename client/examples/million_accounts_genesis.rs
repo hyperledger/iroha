@@ -3,10 +3,8 @@
 use std::{thread, time::Duration};
 
 use iroha::samples::get_config;
-use iroha_core::genesis::{
-    GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder,
-};
 use iroha_data_model::prelude::*;
+use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder};
 use test_network::{
     get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder, TestRuntime,
 };

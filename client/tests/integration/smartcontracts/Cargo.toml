@@ -1,0 +1,30 @@
+[workspace.package]
+edition = "2021"
+version = "2.0.0-pre-rc.13"
+# TODO: teams are being deprecated update the authors URL
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+
+license = "Apache-2.0"
+
+[workspace]
+resolver = "2"
+members = [
+    "create_nft_for_every_user_trigger",
+    "deny_new_validators_validator",
+    "mint_rose",
+]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+strip = "debuginfo" # Remove debugging info from the binary
+panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
+lto = true          # Link-time-optimization produces notable decrease in binary size
+opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
+codegen-units = 1   # Further reduces binary size but increases compilation time
+
+[workspace.dependencies]
+iroha_wasm = { version = "=2.0.0-pre-rc.13", path = "../../../../wasm", features = ["debug"]}
+iroha_validator = { version = "=2.0.0-pre-rc.13", path = "../../../../wasm/validator" }
+panic-halt = "0.2.0"

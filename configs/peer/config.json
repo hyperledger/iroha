@@ -51,10 +51,7 @@
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
-    "ACCOUNT_PRIVATE_KEY": null,
-    "WAIT_FOR_PEERS_RETRY_COUNT_LIMIT": 100,
-    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500,
-    "GENESIS_SUBMISSION_DELAY_MS": 1000
+    "ACCOUNT_PRIVATE_KEY": null
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {
@@ -78,7 +75,7 @@
       "max": 128
     },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 1000000,
+      "FUEL_LIMIT": 20000000,
       "MAX_MEMORY": 524288000
     }
   },

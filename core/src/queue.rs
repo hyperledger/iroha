@@ -19,7 +19,7 @@ use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
-use crate::prelude::*;
+use crate::{prelude::*, tx::CheckSignatureCondition as _};
 
 /// Lockfree queue for transactions
 ///
@@ -47,6 +47,7 @@ pub struct Queue {
 
 /// Queue push error
 #[derive(Error, Debug)]
+#[allow(variant_size_differences)]
 pub enum Error {
     /// Queue is full
     #[error("Queue is full")]
@@ -55,8 +56,13 @@ pub enum Error {
     #[error("Transaction is regarded to have been tampered to have a future timestamp")]
     InFuture,
     /// Transaction expired
-    #[error("Transaction is expired")]
-    Expired,
+    #[error(
+        "Transaction is expired. Consider increase transaction ttl (current {time_to_live_ms}ms)"
+    )]
+    Expired {
+        /// Transaction time to live
+        time_to_live_ms: u64,
+    },
     /// Transaction is already in blockchain
     #[error("Transaction is already applied")]
     InBlockchain,
@@ -133,7 +139,9 @@ impl Queue {
         if tx.is_in_future(self.future_threshold) {
             Err(Error::InFuture)
         } else if tx.is_expired(self.tx_time_to_live) {
-            Err(Error::Expired)
+            Err(Error::Expired {
+                time_to_live_ms: tx.payload().time_to_live_ms,
+            })
         } else if tx.is_in_blockchain(wsv) {
             Err(Error::InBlockchain)
         } else {
@@ -205,28 +213,10 @@ impl Queue {
         &self,
         seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
         wsv: &WorldStateView,
+        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
     ) -> Option<VersionedAcceptedTransaction> {
-        loop {
-            let hash = self.signature_buffer.pop()?;
-            let entry = match self.txs.entry(hash) {
-                Entry::Occupied(entry) => entry,
-                // FIXME: Reachable under high load. Investigate, see if it's a problem.
-                Entry::Vacant(_) => continue,
-            };
-
-            match self.check_tx(entry.get(), wsv) {
-                Ok(MustUse(signature_check)) => {
-                    // Transactions are not removed from the queue until expired or committed
-                    seen.push(hash);
-                    if signature_check {
-                        return Some(entry.get().clone());
-                    }
-                }
-                Err(_) => {
-                    entry.remove_entry();
-                }
-            }
-        }
+        // NOTE: `SKIP_SIGNATURE_CHECK=false` because `signature_buffer` contains transaction which signature check can be either `true` or `false`.
+        self.pop_from::<false>(&self.signature_buffer, seen, wsv, expired_transactions)
     }
 
     /// Pop single transaction from the queue. Record all visited and not removed transactions in `seen`.
@@ -234,24 +224,47 @@ impl Queue {
         &self,
         seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
         wsv: &WorldStateView,
+        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
+    ) -> Option<VersionedAcceptedTransaction> {
+        // NOTE: `SKIP_SIGNATURE_CHECK=true` because `queue` contains only transactions for which signature check is `true`.
+        self.pop_from::<true>(&self.queue, seen, wsv, expired_transactions)
+    }
+
+    /// Pop single transaction either from the queue or waiting buffer
+    #[inline]
+    fn pop_from<const SKIP_SIGNATURE_CHECK: bool>(
+        &self,
+        queue: &ArrayQueue<HashOf<VersionedSignedTransaction>>,
+        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
+        wsv: &WorldStateView,
+        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
-            let hash = self.queue.pop()?;
+            let hash = queue.pop()?;
             let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
+                // FIXME: Reachable under high load. Investigate, see if it's a problem.
                 // As practice shows this code is not `unreachable!()`.
                 // When transactions are submitted quickly it can be reached.
                 Entry::Vacant(_) => continue,
             };
 
-            if !self.is_pending(entry.get(), wsv) {
+            let tx = entry.get();
+            if tx.is_in_blockchain(wsv) {
                 entry.remove_entry();
                 continue;
             }
-
-            // Transactions are not removed from the queue until expired or committed
+            if tx.is_expired(self.tx_time_to_live) {
+                let (_, tx) = entry.remove_entry();
+                expired_transactions.push(tx);
+                continue;
+            }
             seen.push(hash);
-            return Some(entry.get().clone());
+            if SKIP_SIGNATURE_CHECK || *tx.check_signature_condition(wsv).unwrap_or(MustUse(false))
+            {
+                // Transactions are not removed from the queue until expired or committed
+                return Some(entry.get().clone());
+            }
         }
     }
 
@@ -269,7 +282,7 @@ impl Queue {
         wsv: &WorldStateView,
     ) -> Vec<VersionedAcceptedTransaction> {
         let mut transactions = Vec::with_capacity(self.txs_in_block);
-        self.get_transactions_for_block(wsv, &mut transactions);
+        self.get_transactions_for_block(wsv, &mut transactions, &mut Vec::new());
         transactions
     }
 
@@ -280,6 +293,7 @@ impl Queue {
         &self,
         wsv: &WorldStateView,
         transactions: &mut Vec<VersionedAcceptedTransaction>,
+        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
     ) {
         if transactions.len() >= self.txs_in_block {
             return;
@@ -287,10 +301,19 @@ impl Queue {
 
         let mut seen_queue = Vec::new();
         let mut seen_waiting_buffer = Vec::new();
+        let mut expired_transactions_queue = Vec::new();
+        let mut expired_transactions_waiting_buffer = Vec::new();
 
-        let txs_from_queue = core::iter::from_fn(|| self.pop_from_queue(&mut seen_queue, wsv));
-        let txs_from_waiting_buffer =
-            core::iter::from_fn(|| self.pop_from_signature_buffer(&mut seen_waiting_buffer, wsv));
+        let txs_from_queue = core::iter::from_fn(|| {
+            self.pop_from_queue(&mut seen_queue, wsv, &mut expired_transactions_queue)
+        });
+        let txs_from_waiting_buffer = core::iter::from_fn(|| {
+            self.pop_from_signature_buffer(
+                &mut seen_waiting_buffer,
+                wsv,
+                &mut expired_transactions_waiting_buffer,
+            )
+        });
 
         let transactions_hashes: HashSet<HashOf<VersionedSignedTransaction>> = transactions
             .iter()
@@ -303,14 +326,19 @@ impl Queue {
         transactions.extend(txs);
 
         [
-            (seen_queue, &self.queue),
-            (seen_waiting_buffer, &self.signature_buffer),
+            (seen_queue, &self.queue, expired_transactions_queue),
+            (
+                seen_waiting_buffer,
+                &self.signature_buffer,
+                expired_transactions_waiting_buffer,
+            ),
         ]
         .into_iter()
-        .for_each(|(seen, queue)| {
+        .for_each(|(seen, queue, expired_txs)| {
             seen.into_iter()
                 .try_for_each(|hash| queue.push(hash))
-                .expect("Exceeded the number of transactions pending")
+                .expect("Exceeded the number of transactions pending");
+            expired_transactions.extend(expired_txs);
         })
     }
 }
@@ -343,7 +371,7 @@ mod tests {
         let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
         let tx = Transaction::new(
             AccountId::from_str(account_id).expect("Valid"),
-            instructions.into(),
+            instructions,
             proposed_ttl_ms,
         )
         .sign(key)
@@ -352,8 +380,9 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        VersionedAcceptedTransaction::from_transaction::<false>(tx, &limits)
+        AcceptedTransaction::accept::<false>(tx, &limits)
             .expect("Failed to accept Transaction.")
+            .into()
     }
 
     pub fn world_with_test_domains(
@@ -446,7 +475,7 @@ mod tests {
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build();
-            alice.set_signature_check_condition(SignatureCheckCondition(
+            alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
                         ContextValue::new(
@@ -464,7 +493,7 @@ mod tests {
                     ),
                 )
                 .into(),
-            ));
+            );
             let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
@@ -532,7 +561,7 @@ mod tests {
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build();
-            alice.set_signature_check_condition(SignatureCheckCondition(
+            alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
                         ContextValue::new(
@@ -550,7 +579,7 @@ mod tests {
                     ),
                 )
                 .into(),
-            ));
+            );
             let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
@@ -612,9 +641,8 @@ mod tests {
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
             let mut account = Account::new(account_id, [key_pair.public_key().clone()]).build();
             // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
-            account.set_signature_check_condition(SignatureCheckCondition(
-                EvaluatesTo::new_unchecked(0u32.into()),
-            ));
+            account.signature_check_condition =
+                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32.into()));
             assert!(domain.add_account(account).is_none());
 
             let kura = Kura::blank_kura_for_testing();
@@ -655,7 +683,7 @@ mod tests {
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build();
-            account.set_signature_check_condition(SignatureCheckCondition(
+            account.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
                         ContextValue::new(
@@ -673,7 +701,7 @@ mod tests {
                     ),
                 )
                 .into(),
-            ));
+            );
             assert!(domain.add_account(account).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
@@ -691,14 +719,14 @@ mod tests {
         });
         let tx = Transaction::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
-            Vec::<Instruction>::new().into(),
+            Vec::new(),
             100_000,
         );
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let fully_signed_tx = {
+        let fully_signed_tx: VersionedAcceptedTransaction = {
             let mut signed_tx = tx
                 .clone()
                 .sign((&key_pairs[0]).clone())
@@ -706,8 +734,9 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            VersionedAcceptedTransaction::from_transaction::<false>(signed_tx, &tx_limits)
+            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)
                 .expect("Failed to accept Transaction.")
+                .into()
         };
         // Check that fully signed transaction pass signature check
         assert!(matches!(
@@ -716,14 +745,15 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            VersionedAcceptedTransaction::from_transaction::<false>(
+            AcceptedTransaction::accept::<false>(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
                 &tx_limits,
             )
             .expect("Failed to accept Transaction.")
+            .into()
         };
         for key_pair in key_pairs {
-            let partially_signed_tx = get_tx(key_pair);
+            let partially_signed_tx: VersionedAcceptedTransaction = get_tx(key_pair);
             // Check that non of partially signed pass signature check
             assert!(matches!(
                 partially_signed_tx.check_signature_condition(&wsv),

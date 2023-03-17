@@ -17,13 +17,14 @@ use eyre::{Result, WrapErr as _};
 use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair, SignatureOf};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{block::*, prelude::*};
+use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
-use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
+use crate::handler::ThreadHandler;
 
 pub mod main_loop;
 pub mod message;
@@ -39,8 +40,8 @@ use self::{
     view_change::{Proof, ProofChain},
 };
 use crate::{
-    block::VersionedPendingBlock, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator,
-    EventsSender, IrohaNetwork, NetworkMessage,
+    block::*, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator, EventsSender,
+    IrohaNetwork, NetworkMessage,
 };
 
 trait Consensus {
@@ -194,7 +195,7 @@ impl Sumeragi {
                 .accounts
                 .get_metric_with_label_values(&[domain.id().name.as_ref()])
                 .wrap_err("Failed to compose domains")?
-                .set(domain.accounts().len() as u64);
+                .set(domain.accounts.len() as u64);
         }
 
         self.metrics
@@ -280,22 +281,17 @@ impl Sumeragi {
         let latest_block_hash = wsv.latest_block_hash();
         let previous_block_hash = wsv.previous_block_hash();
 
-        let current_topology = latest_block_hash.map_or_else(
-            || {
-                assert!(!sumeragi.config.trusted_peers.peers.is_empty());
-                Topology::builder()
-                    .with_peers(sumeragi.config.trusted_peers.peers.clone())
-                    .build(0)
-                    .expect("This builder must have been valid. This is a programmer error.")
-            },
-            |block_hash| {
-                Topology::builder()
-                    .with_peers(wsv.peers().iter().map(|peer| peer.id().clone()))
-                    .at_block(block_hash)
-                    .build(0)
-                    .expect("Should be able to reconstruct topology from `wsv`")
-            },
-        );
+        let current_topology = if latest_block_height == 0 {
+            assert!(!sumeragi.config.trusted_peers.peers.is_empty());
+            Topology::new(sumeragi.config.trusted_peers.peers.clone())
+        } else {
+            let block_ref = sumeragi.internal.kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+            let mut topology = Topology {
+                sorted_peers: block_ref.header().committed_with_topology.clone(),
+            };
+            topology.rotate_set_a();
+            topology
+        };
 
         let sumeragi_state_machine_data = State {
             previous_block_hash,
@@ -341,7 +337,7 @@ impl Sumeragi {
     pub fn incoming_message(&self, msg: MessagePacket) {
         if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
-            error!(%error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+            error!(?error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
     }
 }

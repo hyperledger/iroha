@@ -1,0 +1,15 @@
+[package]
+name = "create_nft_for_every_user_trigger"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_wasm.workspace = true
+panic-halt.workspace = true
