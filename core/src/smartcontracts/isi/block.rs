@@ -2,15 +2,16 @@
 use eyre::{Result, WrapErr};
 use iroha_data_model::query::{
     block::FindBlockHeaderByHash,
-    error::{FindError, QueryExecutionFailure},
+    error::{FindError, QueryExecutionFailure as Error},
 };
 use iroha_telemetry::metrics;
 
 use super::*;
+use crate::evaluate_with_error_msg;
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
         let blocks = wsv.all_blocks_by_value().rev().collect();
         Ok(blocks)
     }
@@ -18,7 +19,7 @@ impl ValidQuery for FindAllBlocks {
 
 impl ValidQuery for FindAllBlockHeaders {
     #[metrics(+"find_all_block_headers")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
         let block_headers = wsv
             .all_blocks_by_value()
             .rev()
@@ -30,18 +31,13 @@ impl ValidQuery for FindAllBlockHeaders {
 
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
-        let hash = self
-            .hash
-            .evaluate(wsv, &Context::default())
-            .wrap_err("Failed to evaluate hash")
-            .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?
-            .typed();
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        let hash = evaluate_with_error_msg!(self.hash, wsv, "Failed to evaluate hash").typed();
 
         let block = wsv
             .all_blocks_by_value()
             .find(|block| block.hash() == hash)
-            .ok_or_else(|| QueryExecutionFailure::Find(Box::new(FindError::Block(hash))))?;
+            .ok_or_else(|| Error::Find(Box::new(FindError::Block(hash))))?;
 
         Ok(block.into_v1().header)
     }

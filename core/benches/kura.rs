@@ -4,7 +4,9 @@ use std::{str::FromStr as _, sync::Arc};
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_core::{block::*, kura::BlockStore, prelude::*, tx::TransactionValidator, wsv::World};
+use iroha_core::{
+    block::*, kura::BlockStore, prelude::*, queue::Queue, tx::TransactionValidator, wsv::World,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
 use iroha_version::scale::EncodeVersioned;
@@ -46,7 +48,11 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         .chain_first()
         .validate(
             &TransactionValidator::new(transaction_limits),
-            &Arc::new(WorldStateView::new(World::new(), kura)),
+            &Arc::new(WorldStateView::new(
+                World::new(),
+                &Queue::default_queue_for_testing(),
+                kura,
+            )),
         );
     let mut block = block
         .sign(KeyPair::generate().expect("Failed to generate KeyPair"))

@@ -1489,6 +1489,13 @@ pub mod asset {
     pub fn by_id(asset_id: impl Into<EvaluatesTo<<Asset as Identifiable>::Id>>) -> FindAssetById {
         FindAssetById::new(asset_id)
     }
+
+    /// Construct a query to get an asset definition registering transaction by its id
+    pub fn register_tx_by_definition_id(
+        asset_definition_id: impl Into<EvaluatesTo<<AssetDefinition as Identifiable>::Id>>,
+    ) -> FindAssetRegisteringTransaction {
+        FindAssetRegisteringTransaction::new(asset_definition_id)
+    }
 }
 
 pub mod block {

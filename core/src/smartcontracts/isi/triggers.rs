@@ -696,10 +696,11 @@ pub mod isi {
 
 pub mod query {
     //! Queries associated to triggers.
+    use eyre::WrapErr;
     use iroha_data_model::query::error::QueryExecutionFailure as Error;
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::Evaluate as _};
+    use crate::{evaluate_with_error_msg, prelude::*, smartcontracts::Evaluate as _};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -711,10 +712,7 @@ pub mod query {
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
+            let id = evaluate_with_error_msg!(self.id, wsv, "Failed to evaluate trigger id");
             iroha_logger::trace!(%id);
             // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
@@ -731,14 +729,8 @@ pub mod query {
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
-            let key = self
-                .key
-                .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {e}")))?;
+            let id = evaluate_with_error_msg!(self.id, wsv, "Failed to evaluate trigger id");
+            let key = evaluate_with_error_msg!(self.key, wsv, "Failed to evaluate key");
             iroha_logger::trace!(%id, %key);
             wsv.triggers()
                 .inspect_by_id(&id, |action| {
@@ -755,10 +747,8 @@ pub mod query {
     impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
-            let domain_id = &self
-                .domain_id
-                .evaluate(wsv, &Context::new())
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
+            let domain_id =
+                &evaluate_with_error_msg!(self.domain_id, wsv, "Failed to evaluate domain id");
 
             let triggers = wsv
                 .triggers()

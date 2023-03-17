@@ -919,7 +919,7 @@ mod tests {
     use iroha_data_model::prelude::*;
 
     use super::*;
-    use crate::kura::Kura;
+    use crate::{kura::Kura, queue::Queue};
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -940,7 +940,8 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world, kura);
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(world, &queue, kura);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");

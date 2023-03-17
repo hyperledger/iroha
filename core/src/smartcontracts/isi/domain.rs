@@ -85,6 +85,14 @@ pub mod isi {
                 .map_err(Error::Validate)?;
 
             let asset_definition_id = asset_definition.id().clone();
+            if let Some(latest_tx_hash) = wsv.queue_latest_asset_reg_tx_hash(&asset_definition_id) {
+                if wsv.add_asset_register_tx(asset_definition_id.clone(), latest_tx_hash) {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::AssetDefinitionId(asset_definition_id),
+                    ));
+                };
+            }
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
                 if domain.asset_definitions.get(&asset_definition_id).is_some() {
                     return Err(Error::Repetition(
@@ -157,6 +165,10 @@ pub mod isi {
                     Ok(AccountEvent::Asset(AssetEvent::Deleted(asset_id)))
                 })?;
             }
+
+            if !wsv.remove_asset_register_tx(&asset_definition_id) {
+                return Err(FindError::AssetDefinition(asset_definition_id).into());
+            };
 
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
                 if domain
@@ -301,6 +313,7 @@ pub mod query {
     use iroha_data_model::query::error::QueryExecutionFailure as Error;
 
     use super::*;
+    use crate::evaluate_with_error_msg;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
@@ -316,11 +329,7 @@ pub mod query {
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = evaluate_with_error_msg!(self.id, wsv, "Failed to get domain id");
             iroha_logger::trace!(%id);
             Ok(wsv.domain(&id)?.clone())
         }
@@ -329,16 +338,8 @@ pub mod query {
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = self
-                .key
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = evaluate_with_error_msg!(self.id, wsv, "Failed to get domain id");
+            let key = evaluate_with_error_msg!(self.key, wsv, "Failed to get key");
             iroha_logger::trace!(%id, %key);
             wsv.map_domain(&id, |domain| {
                 Ok(domain.metadata.get(&key).map(Clone::clone))
@@ -350,16 +351,8 @@ pub mod query {
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = self
-                .key
-                .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = evaluate_with_error_msg!(self.id, wsv, "Failed to get asset definition id");
+            let key = evaluate_with_error_msg!(self.key, wsv, "Failed to get key");
             iroha_logger::trace!(%id, %key);
             Ok(wsv
                 .asset_definition_entry(&id)?

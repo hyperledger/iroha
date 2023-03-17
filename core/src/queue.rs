@@ -14,12 +14,15 @@ use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::transaction::prelude::*;
+use iroha_data_model::{
+    expression::Context, isi::Instruction, prelude::AssetDefinition, transaction::prelude::*,
+    Identifiable, RegistrableBox,
+};
 use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
-use crate::{prelude::*, tx::CheckSignatureCondition as _};
+use crate::{prelude::*, smartcontracts::Evaluate, tx::CheckSignatureCondition as _};
 
 /// Lockfree queue for transactions
 ///
@@ -113,6 +116,39 @@ impl Queue {
             .filter(|e| self.is_pending(e.value(), wsv))
             .map(|e| e.value().clone())
             .collect()
+    }
+
+    /// Returns latest asset registering transaction hash.
+    pub fn latest_asset_reg_tx_hash(
+        &self,
+        wsv: &WorldStateView,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<HashOf<VersionedSignedTransaction>> {
+        self.txs
+            .iter()
+            .filter(|e| -> bool {
+                self.is_pending(e.value(), wsv)
+                    && match e.value().payload().instructions {
+                        Executable::Instructions(ref instructions) => {
+                            instructions.iter().any(|i| match i {
+                                Instruction::Register(reg_box) => {
+                                    let context = Context::new();
+                                    reg_box.object.evaluate(wsv, &context).map_or(
+                                        false,
+                                        |reg_box| {
+                                            matches!(reg_box, RegistrableBox::AssetDefinition(inner) if inner.id() == asset_definition_id)
+                                        },
+                                    )
+                                }
+                                _ => false,
+                            })
+                        }
+                        // TODO: actually track asset registering via WASM smartcontracts as well
+                        Executable::Wasm(_) => false,
+                    }
+            })
+            .max_by_key(|e| e.value().payload().creation_time)
+            .map(|e| *e.key())
     }
 
     /// Returns `n` randomly selected transaction from the queue.
@@ -341,6 +377,16 @@ impl Queue {
             expired_transactions.extend(expired_txs);
         })
     }
+
+    /// Create a queue to be used in test WSV only.
+    pub fn default_queue_for_testing() -> std::sync::Arc<Self> {
+        use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
+        std::sync::Arc::new(Queue::from_configuration(
+            &ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build"),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -400,19 +446,20 @@ mod tests {
     fn push_tx() {
         let key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([key_pair.public_key().clone()]),
-            kura.clone(),
-        ));
-
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([key_pair.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
 
         queue
             .push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv)
@@ -425,19 +472,21 @@ mod tests {
 
         let key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([key_pair.public_key().clone()]),
-            kura.clone(),
-        ));
 
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: max_txs_in_queue,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([key_pair.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
 
         for _ in 0..max_txs_in_queue {
             queue
@@ -465,6 +514,15 @@ mod tests {
         let alice_key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let bob_key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_signature_buffer: max_txs_in_waiting_buffer,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        }));
+
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id.clone()).build();
@@ -499,18 +557,10 @@ mod tests {
             assert!(domain.add_account(bob).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
+                &Arc::clone(&queue),
                 kura.clone(),
             ))
         };
-
-        let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_signature_buffer: max_txs_in_waiting_buffer,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
 
         // Fill waiting buffer with multisig transactions
         for _ in 0..max_txs_in_waiting_buffer {
@@ -551,6 +601,15 @@ mod tests {
         let alice_key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let bob_key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        }));
+
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id.clone()).build();
@@ -585,18 +644,10 @@ mod tests {
             assert!(domain.add_account(bob).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
+                &Arc::clone(&queue),
                 kura.clone(),
             ))
         };
-
-        let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: max_txs_in_queue,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
 
         // Fill queue with ordinary transactions
         for _ in 0..max_txs_in_queue {
@@ -634,6 +685,14 @@ mod tests {
     fn push_tx_signature_condition_failure() {
         let max_txs_in_queue = 10;
         let key_pair = KeyPair::generate().unwrap();
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        }));
 
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -648,18 +707,10 @@ mod tests {
             let kura = Kura::blank_kura_for_testing();
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
+                &Arc::clone(&queue),
                 kura.clone(),
             ))
         };
-
-        let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: max_txs_in_queue,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
 
         assert!(matches!(
             queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
@@ -674,6 +725,14 @@ mod tests {
     fn push_multisignature_tx() {
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        }));
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id.clone()).build();
@@ -705,18 +764,11 @@ mod tests {
             assert!(domain.add_account(account).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
+                &Arc::clone(&queue),
                 kura.clone(),
             ))
         };
 
-        let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
         let tx = Transaction::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
             Vec::new(),
@@ -782,18 +834,19 @@ mod tests {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        ));
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
         for _ in 0..5 {
             queue
                 .push(
@@ -813,20 +866,21 @@ mod tests {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        ));
-        let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
-        wsv.transactions.insert(tx.hash());
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
+        let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
+        wsv.transactions.insert(tx.hash());
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
@@ -842,19 +896,20 @@ mod tests {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        ));
-        let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
+        let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
         assert_eq!(queue.collect_transactions_for_block(&wsv).len(), 0);
@@ -866,18 +921,19 @@ mod tests {
         let max_block_tx = 6;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        ));
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 200,
             maximum_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
         for _ in 0..(max_block_tx - 1) {
             queue
                 .push(
@@ -910,18 +966,19 @@ mod tests {
     fn transactions_available_after_pop() {
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        ));
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
         queue
             .push(accepted_tx("alice@wonderland", 100_000, alice_key), &wsv)
             .expect("Failed to push tx into queue");
@@ -945,11 +1002,6 @@ mod tests {
         let max_block_tx = 10;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        );
-
         let queue = Arc::new(Queue::from_configuration(&Configuration {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
@@ -958,6 +1010,12 @@ mod tests {
                 .build()
                 .expect("Default queue config should always build")
         }));
+
+        let wsv = WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &queue,
+            kura.clone(),
+        );
 
         let start_time = std::time::Instant::now();
         let run_for = Duration::from_secs(5);
@@ -1015,17 +1073,18 @@ mod tests {
 
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
-            world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
-        ));
-
-        let queue = Queue::from_configuration(&Configuration {
+        let queue = Arc::new(Queue::from_configuration(&Configuration {
             future_threshold_ms,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
-        });
+        }));
+
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            &Arc::clone(&queue),
+            kura.clone(),
+        ));
 
         let mut tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());

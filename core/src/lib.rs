@@ -14,6 +14,7 @@ pub mod wsv;
 use core::time::Duration;
 
 use dashmap::{DashMap, DashSet};
+use iroha_crypto::HashOf;
 use iroha_data_model::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
@@ -47,6 +48,11 @@ pub type PermissionTokensMap = DashMap<<Account as Identifiable>::Id, Permission
 /// API to work with a collections of [`PermissionTokenDefinitionId`] : [`PermissionTokenDefinition`] mappings.
 pub type PermissionTokenDefinitionsMap =
     DashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
+
+/// API to work with collection of key([`AssetDefinitionId`])-value([`HashOf<VersionedSignedTransaction>`])
+/// pairs.
+pub type AssetRegisterTxsMap =
+    DashMap<<AssetDefinition as Identifiable>::Id, HashOf<VersionedSignedTransaction>>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;

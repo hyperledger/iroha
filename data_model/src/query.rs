@@ -84,6 +84,8 @@ model! {
         FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
         /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
+        /// [`FindAssetRegisteringTransaction`] variant.
+        FindAssetRegisteringTransaction(FindAssetRegisteringTransaction),
         /// [`FindAllDomains`] variant.
         FindAllDomains(FindAllDomains),
         /// [`FindDomainById`] variant.
@@ -732,6 +734,24 @@ pub mod asset {
         type Output = bool;
     }
 
+    query! {
+        /// [`FindAssetRegisteringTransaction`] Iroha Query gets [`AssetDefinitionId`] as input and finds
+        /// [`Hash`] of the transaction that registered this asset.
+        #[derive(Display)]
+        #[display(fmt = "Find asset registering transaction of `{id}` asset")]
+        // SAFETY: `FindAssetRegisteringTransaction` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
+        #[ffi_type(unsafe {robust})]
+        #[repr(transparent)]
+        pub struct FindAssetRegisteringTransaction {
+            /// `Id` of an [`AssetDefinition`] .
+            pub id: EvaluatesTo<AssetDefinitionId>,
+        }
+    }
+
+    impl Query for FindAssetRegisteringTransaction {
+        type Output = iroha_crypto::Hash;
+    }
+
     impl FindAssetById {
         /// Construct [`FindAssetById`].
         pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
@@ -843,13 +863,23 @@ pub mod asset {
         }
     }
 
+    impl FindAssetRegisteringTransaction {
+        /// Construct [`FindAssetRegisteringTransaction`].
+        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            Self {
+                id: asset_definition_id.into(),
+            }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
             FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetDefinitionById,
             FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
-            FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
-            FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
+            FindAssetQuantityById, FindAssetRegisteringTransaction, FindAssetsByAccountId,
+            FindAssetsByAssetDefinitionId, FindAssetsByDomainId,
+            FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
             FindTotalAssetQuantityByAssetDefinitionId, IsAssetDefinitionOwner,
         };
     }

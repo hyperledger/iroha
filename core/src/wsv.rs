@@ -31,6 +31,7 @@ use iroha_primitives::small::SmallVec;
 use crate::{
     kura::Kura,
     prelude::*,
+    queue::Queue,
     smartcontracts::{triggers::set::Set as TriggerSet, wasm, Execute},
     DomainsMap, Parameters, PeersIds,
 };
@@ -51,6 +52,8 @@ pub struct World {
     pub(crate) account_permission_tokens: crate::PermissionTokensMap,
     /// Registered permission token ids.
     pub(crate) permission_token_definitions: crate::PermissionTokenDefinitionsMap,
+    /// Asset definition registering transactions.
+    pub(crate) asset_register_txs: crate::AssetRegisterTxsMap,
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Chain of *runtime* validators
@@ -98,7 +101,8 @@ pub struct WorldStateView {
     pub metric_tx_amounts: std::cell::Cell<f64>,
     /// Count of how many mints, transfers and burns have happened.
     pub metric_tx_amounts_counter: std::cell::Cell<u64>,
-
+    /// Reference to the pending tx queue from sumeragi.
+    queue: Arc<Queue>,
     /// Reference to Kura subsystem.
     kura: Arc<Kura>,
 }
@@ -113,6 +117,7 @@ impl Clone for WorldStateView {
             events_buffer: std::cell::RefCell::new(Vec::new()),
             metric_tx_amounts: std::cell::Cell::new(0.0_f64),
             metric_tx_amounts_counter: std::cell::Cell::new(0),
+            queue: Arc::clone(&self.queue),
             kura: Arc::clone(&self.kura),
         }
     }
@@ -123,12 +128,12 @@ impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
-    pub fn new(world: World, kura: Arc<Kura>) -> Self {
+    pub fn new(world: World, queue: &Arc<Queue>, kura: Arc<Kura>) -> Self {
         // Added to remain backward compatible with other code primary in tests
         let config = ConfigurationProxy::default()
             .build()
             .expect("Wsv proxy always builds");
-        Self::from_configuration(config, world, kura)
+        Self::from_configuration(config, world, Arc::clone(queue), kura)
     }
 
     /// Get `Account`'s `Asset`s
@@ -601,7 +606,12 @@ impl WorldStateView {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(config: Configuration, world: World, kura: Arc<Kura>) -> Self {
+    pub fn from_configuration(
+        config: Configuration,
+        world: World,
+        queue: Arc<Queue>,
+        kura: Arc<Kura>,
+    ) -> Self {
         Self {
             world,
             config,
@@ -610,6 +620,7 @@ impl WorldStateView {
             events_buffer: std::cell::RefCell::new(Vec::new()),
             metric_tx_amounts: std::cell::Cell::new(0.0_f64),
             metric_tx_amounts_counter: std::cell::Cell::new(0),
+            queue,
             kura,
         }
     }
@@ -952,6 +963,16 @@ impl WorldStateView {
         txs
     }
 
+    /// Get hash of the latest asset registering transaction in the queue.
+    #[inline]
+    pub fn queue_latest_asset_reg_tx_hash(
+        &self,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<HashOf<VersionedSignedTransaction>> {
+        self.queue
+            .latest_asset_reg_tx_hash(self, asset_definition_id)
+    }
+
     /// Find a [`VersionedSignedTransaction`] by hash.
     pub fn transaction_value_by_hash(
         &self,
@@ -1022,6 +1043,43 @@ impl WorldStateView {
     #[inline]
     pub fn triggers(&self) -> &TriggerSet {
         &self.world.triggers
+    }
+
+    /// Return a [`struct@Hash`] of the [`VersionedSignedTransaction`] that registered the asset.
+    #[inline]
+    pub fn asset_register_tx(
+        &self,
+        asset_definition_id: &AssetDefinitionId,
+    ) -> Option<iroha_crypto::Hash> {
+        self.world
+            .asset_register_txs
+            .get(asset_definition_id)
+            .map(|tx| (*tx).into())
+    }
+
+    /// Add a [`AssetDefinitionId`]-[`HashOf<VersionedSignedTransaction>`] pair to [`World`]'s corresponding [`map`](crate::AssetRegisterTxsMap) if the account does not have it yet.
+    /// Return a Boolean value indicating whether or not the [`AssetRegisterTxsMap`](crate::AssetRegisterTxsMap) already had this key.
+    pub fn add_asset_register_tx(
+        &self,
+        asset_definition_id: <AssetDefinition as Identifiable>::Id,
+        tx_hash: HashOf<VersionedSignedTransaction>,
+    ) -> bool {
+        self.world
+            .asset_register_txs
+            .insert(asset_definition_id, tx_hash)
+            .map_or(false, |_| true)
+    }
+
+    /// Remove an [`AssetDefinitionId`] registration record from the [`World`]'s [`AssetRegisterTxsMap`](crate::AssetRegisterTxsMap) if it's present.
+    /// Return a Boolean value indicating whether the [`AssetRegisterTxsMap`](crate::AssetRegisterTxsMap) had this [`AssetDefinitionId`].
+    pub fn remove_asset_register_tx(
+        &self,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> bool {
+        self.world
+            .asset_register_txs
+            .remove(asset_definition_id)
+            .map_or(false, |_| true)
     }
 
     /// The same as [`Self::modify_triggers_multiple_events`] except closure `f` returns a single `TriggerEvent`.
@@ -1117,7 +1175,8 @@ mod tests {
 
         let mut block = SignedBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(World::default(), kura);
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(World::default(), &queue, kura);
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -1140,7 +1199,8 @@ mod tests {
 
         let mut block = SignedBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(World::default(), kura.clone());
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(World::default(), &queue, kura.clone());
 
         for i in 1..=BLOCK_CNT {
             block.header.height = i as u64;

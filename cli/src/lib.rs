@@ -309,7 +309,13 @@ impl Iroha {
             std::path::Path::new(&config.kura.block_store_path),
             config.kura.debug_output_new_blocks,
         )?;
-        let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
+        let queue = Arc::new(Queue::from_configuration(&config.queue));
+        let wsv = WorldStateView::from_configuration(
+            config.wsv,
+            world,
+            Arc::clone(&queue),
+            Arc::clone(&kura),
+        );
 
         let transaction_validator = TransactionValidator::new(config.sumeragi.transaction_limits);
 
@@ -326,7 +332,6 @@ impl Iroha {
 
         let notify_shutdown = Arc::new(Notify::new());
 
-        let queue = Arc::new(Queue::from_configuration(&config.queue));
         if Self::start_telemetry(telemetry, &config).await? {
             iroha_logger::info!("Telemetry started")
         } else {

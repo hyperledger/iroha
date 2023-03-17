@@ -3,15 +3,16 @@
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
     prelude::*,
-    query::error::{FindError, QueryExecutionFailure},
+    query::error::{FindError, QueryExecutionFailure as Error},
 };
 use iroha_telemetry::metrics;
 
 use super::*;
+use crate::evaluate_with_error_msg;
 
 impl ValidQuery for FindAllTransactions {
     #[metrics(+"find_all_transactions")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
         let mut txs = wsv.transaction_values();
         txs.reverse();
         Ok(txs)
@@ -20,12 +21,8 @@ impl ValidQuery for FindAllTransactions {
 
 impl ValidQuery for FindTransactionsByAccountId {
     #[metrics(+"find_transactions_by_account_id")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
-        let id = self
-            .account_id
-            .evaluate(wsv, &Context::default())
-            .wrap_err("Failed to get account id")
-            .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        let id = evaluate_with_error_msg!(self.account_id, wsv, "Failed to get account id");
         iroha_logger::trace!(%id);
         Ok(wsv.transactions_values_by_account_id(&id))
     }
@@ -33,12 +30,8 @@ impl ValidQuery for FindTransactionsByAccountId {
 
 impl ValidQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
-        let hash = self
-            .hash
-            .evaluate(wsv, &Context::default())
-            .wrap_err("Failed to get hash")
-            .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        let hash = evaluate_with_error_msg!(self.hash, wsv, "Failed to get hash");
         iroha_logger::trace!(%hash);
         let hash = hash.typed();
         if !wsv.has_transaction(&hash) {

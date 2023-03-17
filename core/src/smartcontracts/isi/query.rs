@@ -54,6 +54,7 @@ impl ValidQuery for QueryBox {
             FindAssetsByDomainId(query) => query.execute_into_value(wsv),
             FindAssetsByDomainIdAndAssetDefinitionId(query) => query.execute_into_value(wsv),
             FindAssetQuantityById(query) => query.execute_into_value(wsv),
+            FindAssetRegisteringTransaction(query) => query.execute_into_value(wsv),
             FindTotalAssetQuantityByAssetDefinitionId(query) => query.execute_into_value(wsv),
             IsAssetDefinitionOwner(query) => query.execute_into_value(wsv),
             FindAllDomains(query) => query.execute_into_value(wsv),
@@ -96,7 +97,9 @@ mod tests {
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{block::*, kura::Kura, tx::TransactionValidator, wsv::World, PeersIds};
+    use crate::{
+        block::*, kura::Kura, queue::Queue, tx::TransactionValidator, wsv::World, PeersIds,
+    };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
@@ -173,7 +176,8 @@ mod tests {
         invalid_tx_per_block: usize,
     ) -> Result<WorldStateView> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains(), &queue, kura.clone());
 
         let limits = TransactionLimits {
             max_instruction_number: 1,
@@ -235,7 +239,8 @@ mod tests {
     #[test]
     fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_asset_with_metadata(), kura);
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(world_with_test_asset_with_metadata(), &queue, kura);
 
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
@@ -251,7 +256,8 @@ mod tests {
     #[test]
     fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?, kura);
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?, &queue, kura);
 
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&wsv)?;
@@ -341,7 +347,8 @@ mod tests {
     #[test]
     fn find_transaction() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(world_with_test_domains(), &queue, kura.clone());
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::new(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
@@ -383,6 +390,7 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
+        let queue = Queue::default_queue_for_testing();
         let wsv = {
             let mut metadata = Metadata::new();
             metadata.insert_with_limits(
@@ -402,7 +410,7 @@ mod tests {
                     ALICE_ID.clone(),
                 )
                 .is_none());
-            WorldStateView::new(World::with([domain], PeersIds::new()), kura)
+            WorldStateView::new(World::with([domain], PeersIds::new()), &queue, kura)
         };
 
         let domain_id = DomainId::from_str("wonderland")?;

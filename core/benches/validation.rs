@@ -4,8 +4,8 @@ use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
-    block::*, prelude::*, sumeragi::network_topology::Topology, tx::TransactionValidator,
-    wsv::World,
+    block::*, prelude::*, queue::Queue, sumeragi::network_topology::Topology,
+    tx::TransactionValidator, wsv::World,
 };
 use iroha_data_model::prelude::*;
 
@@ -72,6 +72,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
             assert!(domain.add_account(account).is_none());
             World::with([domain], BTreeSet::new())
         },
+        &Queue::default_queue_for_testing(),
         kura,
     )
 }
@@ -208,6 +209,7 @@ fn validate_blocks(criterion: &mut Criterion) {
                 &transaction_validator,
                 &Arc::new(WorldStateView::new(
                     World::with([domain.clone()], BTreeSet::new()),
+                    &Queue::default_queue_for_testing(),
                     kura.clone(),
                 )),
             )

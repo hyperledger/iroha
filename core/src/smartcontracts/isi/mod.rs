@@ -29,6 +29,19 @@ use iroha_primitives::fixed::Fixed;
 use super::{Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldStateView};
 
+/// Evaluates a query with a wrapper error message.
+/// Only to be used in query [`Execute`] impls and requires
+/// [`eyre::WrapErr`] trait to be in scope for expansion.
+#[macro_export]
+macro_rules! evaluate_with_error_msg {
+    ( $object: expr, $wsv: expr, $error_msg: literal ) => {
+        $object
+            .evaluate($wsv, &Context::default())
+            .wrap_err($error_msg)
+            .map_err(|e| Error::Evaluate(e.to_string()))?
+    };
+}
+
 impl Execute for Instruction {
     type Error = Error;
 
@@ -450,11 +463,12 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{kura::Kura, wsv::World, PeersIds};
+    use crate::{kura::Kura, queue::Queue, wsv::World, PeersIds};
 
     fn wsv_with_test_domains(kura: &Arc<Kura>) -> Result<WorldStateView> {
         let world = World::with([], PeersIds::new());
-        let wsv = WorldStateView::new(world, kura.clone());
+        let queue = Queue::default_queue_for_testing();
+        let wsv = WorldStateView::new(world, &queue, kura.clone());
         let genesis_account_id = AccountId::from_str("genesis@genesis")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let (public_key, _) = KeyPair::generate()?.into();
