@@ -30,15 +30,17 @@ iroha::protocol::Transaction generateTransactionWhichAddsAssetQuantiti(
 void printAccountAssets(const std::string& account_name, const std::string& key_path, const std::string& peer_ip, uint16_t torii_port);
 void printAccount(const std::string& account_name, const std::string& key_path, const std::string& peer_ip, uint16_t torii_port);
 
+void printErrorResponse(const QueryResponse& response);
+
 void run(const std::string& key_path);
 
 
-int main(int argc, char** argv)
+int main(int argc, char* argv[])
 {
-    if (argc > 1 && argc < 3) {
+    if (2 == argc) {
         run(argv[1]);
     } else {
-        std::cout << "Usage: " << argv[0] << " key_path" << std::endl;
+        fmt::print("Usage: {} <key_path>\n", argv[0]);
     }
 }
 
@@ -47,7 +49,7 @@ void run(const std::string& key_path)
 {
     const auto adminAccountName = "admin@test";
     const auto peer_ip = "127.0.0.1";
-    uint16_t torii_port = 50051;
+    const uint16_t torii_port = 50051;
     const auto user_default_role = "user";
 
     const std::string assetName = "assetnamesamplev4";
@@ -143,7 +145,7 @@ void sendTransaction(
 
 void printAccountAssets(const std::string& account_name, const std::string& key_path, const std::string& peer_ip, uint16_t torii_port)
 {
-    std::cout << LINE << ">" << __FUNCTION__ << LINE << std::endl;
+    fmt::print("----------->{}-----------\n", __FUNCTION__);
 
     const auto query_proto = generateGetAccountAssetsQuery(
                 account_name,
@@ -152,29 +154,26 @@ void printAccountAssets(const std::string& account_name, const std::string& key_
                 peer_ip,
                 torii_port)
             .send(query_proto);
-    auto payload = query_proto.payload();
+    const auto payload = query_proto.payload();
     assert(payload.get_account_assets().account_id() == account_name);
     assert(payload.has_get_account_assets());
 
     if (response.has_error_response())
     {
-        const auto errorResponse = response.error_response();
-        std::cerr << errorResponse.error_code() << ": " << errorResponse.message() << std::endl;
-        return;
+        printErrorResponse(response);
     }
 
     assert(response.has_account_assets_response());
-    auto accountAssetsResponce = response.account_assets_response();
+    const auto accountAssetsResponce = response.account_assets_response();
     for (const auto& r : response.account_assets_response().account_assets())
     {
-        std::cout << "\tasset:" << r.asset_id() << " " << r.balance() << std::endl;
+        fmt::print("\tasset: {} {}\n", r.asset_id(), r.balance());
     }
 
-    std::cout << LINE << "<" << __FUNCTION__ << LINE << std::endl;
+    fmt::print("-----------<{}-----------\n",  __FUNCTION__);
 }
 
-iroha::protocol::Query generateGetAccountAssetsQuery(
-        const std::string& account_name,
+iroha::protocol::Query generateGetAccountAssetsQuery(const std::string& account_name,
         const std::string& key_path)
 {
     return generateQueryBase(account_name, key_path)
@@ -215,9 +214,15 @@ iroha::protocol::Query generateGetAccountQuery(
             .signAndAddSignature();
 }
 
+void printErrorResponse(const QueryResponse& response)
+{
+    const auto errorResponse = response.error_response();
+    std::cerr << fmt::format("{}: {}", errorResponse.error_code(), errorResponse.message()) << std::endl;
+}
+
 void printAccount(const std::string& account_name, const std::string& key_path, const std::string& peer_ip, uint16_t torii_port)
 {
-    std::cout << LINE << ">" << __FUNCTION__ << LINE << std::endl;
+    fmt::print("----------->{}-----------\n", __FUNCTION__);
 
     const auto query_proto = generateGetAccountQuery(
                 account_name,
@@ -226,23 +231,23 @@ void printAccount(const std::string& account_name, const std::string& key_path, 
                 peer_ip,
                 torii_port)
             .send(query_proto);
-    auto payload = query_proto.payload();
+    const auto payload = query_proto.payload();
     assert(payload.get_account().account_id() == account_name);
     assert(payload.has_get_account());
 
     if (response.has_error_response())
     {
-        const auto errorResponse = response.error_response();
-        std::cerr << errorResponse.error_code() << ": " << errorResponse.message() << std::endl;
+        printErrorResponse(response);
         return;
     }
 
     assert(response.has_account_response());
-    auto account = response.account_response().account();
-    std::cout << "account_id=" << account.account_id() << '\n'
-              << "domain_id=" << account.domain_id() << '\n'
-              << "quorum=" << account.quorum() << '\n'
-              << "json_data=" << account.json_data() << std::endl;
+    const auto account = response.account_response().account();
+    fmt::print("account_id={},\n"
+               "domain_id={}\n"
+               "quorum={}\n"
+               "json_data={}\n",
+               account.account_id(), account.domain_id(), account.quorum(), account.json_data());
 
-    std::cout << LINE << "<" << __FUNCTION__ << LINE << std::endl;
+    fmt::print("-----------<{}-----------\n", __FUNCTION__);
 }
