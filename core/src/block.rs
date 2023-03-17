@@ -433,7 +433,7 @@ impl From<&SignedBlock> for Vec<Event> {
 declare_versioned_with_scale!(VersionedCandidateBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedCandidateBlock {
-    /// Convert to V1 reference
+    #[allow(missing_docs)]
     #[inline]
     pub const fn as_v1(&self) -> &CandidateBlock {
         match self {
@@ -441,7 +441,7 @@ impl VersionedCandidateBlock {
         }
     }
 
-    /// Convert to V1 mutable reference
+    #[allow(missing_docs)]
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CandidateBlock {
         match self {
@@ -449,7 +449,7 @@ impl VersionedCandidateBlock {
         }
     }
 
-    /// Convert into V1
+    #[allow(missing_docs)]
     #[inline]
     pub fn into_v1(self) -> CandidateBlock {
         match self {
@@ -711,7 +711,7 @@ impl From<SignedBlock> for VersionedCandidateBlock {
 declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCommittedBlock {
-    /// Convert to V1 reference
+    #[allow(missing_docs)]
     #[inline]
     pub const fn as_v1(&self) -> &CommittedBlock {
         match self {
@@ -719,7 +719,7 @@ impl VersionedCommittedBlock {
         }
     }
 
-    /// Convert to V1 mutable reference
+    #[allow(missing_docs)]
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CommittedBlock {
         match self {
@@ -727,7 +727,7 @@ impl VersionedCommittedBlock {
         }
     }
 
-    /// Convert into V1
+    #[allow(missing_docs)]
     #[inline]
     pub fn into_v1(self) -> CommittedBlock {
         match self {
@@ -893,7 +893,7 @@ impl From<&CommittedBlock> for Vec<Event> {
 declare_versioned_with_scale!(VersionedCandidateCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema, Serialize);
 
 impl VersionedCandidateCommittedBlock {
-    /// Convert to V1 reference
+    #[allow(missing_docs)]
     #[inline]
     pub const fn as_v1(&self) -> &CandidateCommittedBlock {
         match self {
@@ -901,7 +901,7 @@ impl VersionedCandidateCommittedBlock {
         }
     }
 
-    /// Convert to V1 mutable reference
+    #[allow(missing_docs)]
     #[inline]
     pub fn as_mut_v1(&mut self) -> &mut CandidateCommittedBlock {
         match self {
@@ -909,7 +909,7 @@ impl VersionedCandidateCommittedBlock {
         }
     }
 
-    /// Convert into V1
+    #[allow(missing_docs)]
     #[inline]
     pub fn into_v1(self) -> CandidateCommittedBlock {
         match self {
@@ -1074,21 +1074,21 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockMessage {
-        /// Convert to V1 reference
+        #[allow(missing_docs)]
         pub const fn as_v1(&self) -> &BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Convert to V1 mutable reference
+        #[allow(missing_docs)]
         pub fn as_mut_v1(&mut self) -> &mut BlockMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Convert into V1
+        #[allow(missing_docs)]
         pub fn into_v1(self) -> BlockMessage {
             match self {
                 Self::V1(v1) => v1,
@@ -1105,21 +1105,21 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockSubscriptionRequest {
-        /// Convert to V1 reference
+        #[allow(missing_docs)]
         pub const fn as_v1(&self) -> &BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Convert to V1 mutable reference
+        #[allow(missing_docs)]
         pub fn as_mut_v1(&mut self) -> &mut BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Convert into V1
+        #[allow(missing_docs)]
         pub fn into_v1(self) -> BlockSubscriptionRequest {
             match self {
                 Self::V1(v1) => v1,

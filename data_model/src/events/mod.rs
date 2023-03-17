@@ -17,21 +17,21 @@ pub mod time;
 declare_versioned_with_scale!(VersionedEventMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
 impl VersionedEventMessage {
-    /// Convert to V1 reference
+    #[allow(missing_docs)]
     pub const fn as_v1(&self) -> &EventMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Convert to V1 mutable reference
+    #[allow(missing_docs)]
     pub fn as_mut_v1(&mut self) -> &mut EventMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Convert into V1
+    #[allow(missing_docs)]
     pub fn into_v1(self) -> EventMessage {
         match self {
             Self::V1(v1) => v1,
@@ -48,21 +48,21 @@ pub struct EventMessage(pub Event);
 declare_versioned_with_scale!(VersionedEventSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
 impl VersionedEventSubscriptionRequest {
-    /// Convert to V1 reference
+    #[allow(missing_docs)]
     pub const fn as_v1(&self) -> &EventSubscriptionRequest {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Convert to V1 mutable reference
+    #[allow(missing_docs)]
     pub fn as_mut_v1(&mut self) -> &mut EventSubscriptionRequest {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Convert into V1
+    #[allow(missing_docs)]
     pub fn into_v1(self) -> EventSubscriptionRequest {
         match self {
             Self::V1(v1) => v1,
