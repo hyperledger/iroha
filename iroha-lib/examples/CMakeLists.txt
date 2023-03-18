@@ -45,6 +45,7 @@ add_executable(irohalib_domainassetcreation_example
 target_link_libraries(irohalib_domainassetcreation_example
     iroha_lib_model
     logger_manager
+    gflags
 )
 
 add_install_step_for_bin(irohalib_domainassetcreation_example)

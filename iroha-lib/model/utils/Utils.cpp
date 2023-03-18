@@ -124,3 +124,12 @@ std::string string_to_hex(const std::string& in)
     }
     return ss.str();
 }
+
+std::pair<std::string,std::string> splitAssetFullName(const std::string& assetFullName)
+{
+    constexpr const char nameDomainSeparator = '#';
+    const auto separatorPosition = assetFullName.find(nameDomainSeparator);
+    const std::string assetName = assetFullName.substr(0, separatorPosition);
+    const std::string assetDomain = assetFullName.substr(separatorPosition+1);
+    return {assetName, assetDomain};
+}

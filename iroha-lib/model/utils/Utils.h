@@ -39,3 +39,5 @@ void printTransactionStatuses(
         const std::vector<Transaction>& transactions);
 
 std::string string_to_hex(const std::string& in);
+
+std::pair<std::string,std::string> splitAssetFullName(const std::string& assetFullName);
