@@ -1,4 +1,3 @@
-#include "grpc_client/GrpcClient.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "Query.hpp"
 #include "model/converters/pb_common.hpp"
@@ -9,7 +8,7 @@ namespace iroha_lib {
 Query::Query(
         const iroha::keypair_t& keypair,
         uint64_t counter,
-        uint64_t created_time)
+        uint64_t created_time) noexcept
     : counter_(counter),
       created_time_(created_time),
       keypair_(keypair)

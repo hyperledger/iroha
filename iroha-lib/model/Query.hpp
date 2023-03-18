@@ -21,7 +21,7 @@ private:
 public:
     Query(const iroha::keypair_t& keypair,
           uint64_t counter = 1u,
-          uint64_t created_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+          uint64_t created_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) noexcept;
 
     Query& getAccount(const std::string& account_id);
     Query& getAccountAssets(const std::string& account_id);
