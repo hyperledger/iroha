@@ -18,15 +18,15 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
     let mut trusted_peers: HashSet<PeerId> = [
         (
             "localhost:1338",
-            "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c1",
+            "ed01 20 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C1",
         ),
         (
             "195.162.0.1:23",
-            "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c2",
+            "ed01 20 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C2",
         ),
         (
             "195.162.0.1:24",
-            "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c3",
+            "ed01 20 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C3",
         ),
     ]
     .iter()

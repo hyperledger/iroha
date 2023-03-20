@@ -10,7 +10,7 @@ use alloc::{
 
 use derive_more::Display;
 
-use crate::{varint, NoSuchAlgorithm};
+use crate::{varint, Algorithm, NoSuchAlgorithm, PublicKey};
 
 /// ed25519 public string
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";
@@ -181,24 +181,57 @@ impl TryFrom<&Multihash> for Vec<u8> {
     }
 }
 
+impl From<Multihash> for PublicKey {
+    #[inline]
+    fn from(multihash: Multihash) -> Self {
+        let digest_function = match multihash.digest_function {
+            DigestFunction::Ed25519Pub => Algorithm::Ed25519,
+            DigestFunction::Secp256k1Pub => Algorithm::Secp256k1,
+            DigestFunction::Bls12381G1Pub => Algorithm::BlsNormal,
+            DigestFunction::Bls12381G2Pub => Algorithm::BlsSmall,
+        };
+
+        Self {
+            digest_function,
+            payload: multihash.payload,
+        }
+    }
+}
+
+impl From<PublicKey> for Multihash {
+    #[inline]
+    fn from(public_key: PublicKey) -> Self {
+        let digest_function = match public_key.digest_function() {
+            Algorithm::Ed25519 => DigestFunction::Ed25519Pub,
+            Algorithm::Secp256k1 => DigestFunction::Secp256k1Pub,
+            Algorithm::BlsNormal => DigestFunction::Bls12381G1Pub,
+            Algorithm::BlsSmall => DigestFunction::Bls12381G2Pub,
+        };
+
+        Self {
+            digest_function,
+            payload: public_key.payload,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
+    use crate::hex_decode;
 
     #[test]
     fn multihash_to_bytes() {
         let multihash = &Multihash {
             digest_function: DigestFunction::Ed25519Pub,
-            payload: hex::decode(
-                "1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4",
-            )
-            .expect("Failed to decode hex."),
+            payload: hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                .expect("Failed to decode hex."),
         };
         let bytes: Vec<u8> = multihash.try_into().expect("Failed to serialize multihash");
         assert_eq!(
-            hex::decode("ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
+            hex_decode("ed01 20 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                 .expect("Failed to decode"),
             bytes
         )
@@ -208,13 +241,11 @@ mod tests {
     fn multihash_from_bytes() {
         let multihash = Multihash {
             digest_function: DigestFunction::Ed25519Pub,
-            payload: hex::decode(
-                "1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4",
-            )
-            .expect("Failed to decode hex."),
+            payload: hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                .expect("Failed to decode hex."),
         };
         let bytes =
-            hex::decode("ed01201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
+            hex_decode("ed01 20 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                 .expect("Failed to decode");
         let multihash_decoded: Multihash = bytes.try_into().expect("Failed to decode.");
         assert_eq!(multihash, multihash_decoded)

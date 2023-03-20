@@ -336,7 +336,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     #[test]
     fn genesis_block_builder_example() {
-        let public_key = "ed0120204e9593c3ffaf4464a6189233811c297dd4ce73aba167867e4fbd4f8c450acb";
+        let public_key = "ed01 20 204E9593C3FFAF4464A6189233811C297DD4CE73ABA167867E4FBD4F8C450ACB";
         let mut genesis_builder = RawGenesisBlockBuilder::new();
 
         genesis_builder = genesis_builder
