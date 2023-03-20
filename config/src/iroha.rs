@@ -174,11 +174,11 @@ mod tests {
     pub fn placeholder_keypair() -> KeyPair {
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            "282ED9F3CF92811C3818DBC4AE594ED59DC1A2F78E4241E31924E101D6B1FB83 1C61FAF8FE94E253B93114240394F79A607B7FA55F9E5A41EBEC74B88055768B"
         ).expect("Private key not hex encoded");
 
         KeyPair::new(
-            "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            "ed01 20 1C61FAF8FE94E253B93114240394F79A607B7FA55F9E5A41EBEC74B88055768B"
                 .parse()
                 .expect("Public key not in mulithash format"),
             private_key,
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn parse_trusted_peers_fail_duplicate_peer_id() {
-        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address":"127.0.0.1:1337", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address":"localhost:1338", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address": "195.162.0.1:23", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}]"#;
+        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed01 20 954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"127.0.0.1:1337", "public_key": "ed01 20 954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"localhost:1338", "public_key": "ed01 20 954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address": "195.162.0.1:23", "public_key": "ed01 20 954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}]"#;
         let _result: TrustedPeers =
             serde_json::from_str(trusted_peers_string).expect("Failed to parse Trusted Peers");
     }

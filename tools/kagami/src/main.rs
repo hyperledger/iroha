@@ -117,12 +117,16 @@ mod crypto {
                 writeln!(writer, "{}", &key_pair.public_key().digest_function())?;
             } else {
                 let key_pair = self.key_pair()?;
-                writeln!(writer, "Public key (multihash): {}", &key_pair.public_key())?;
-                writeln!(writer, "Private key: {}", &key_pair.private_key())?;
                 writeln!(
                     writer,
-                    "Digest function: {}",
-                    &key_pair.public_key().digest_function()
+                    "Private key ({}): \"{}\"",
+                    &key_pair.public_key().digest_function(),
+                    &key_pair.private_key()
+                )?;
+                writeln!(
+                    writer,
+                    "Public key (multihash): \"{}\"",
+                    &key_pair.public_key()
                 )?;
             }
             Ok(())
@@ -508,11 +512,11 @@ mod config {
                         password: SmallStr::from_str("ilovetea"),
                     })),
                     public_key: Some(PublicKey::from_str(
-                        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+                        "ed01 20 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
                     )?),
                     private_key: Some(PrivateKey::from_hex(
                         Algorithm::Ed25519,
-                        "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                        "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     )?),
                     ..ConfigurationProxy::default()
                 }

@@ -4,7 +4,7 @@ TEST=${TEST:-"./test"}
 CMD="$TEST/iroha_client_cli --config $TEST/config.json"
 $CMD domain register --id="Soramitsu" --metadata="$TEST/metadata.json"
 sleep 2
-$CMD account register --id="Alice@Soramitsu" --key="ed0120a753146e75b910ae5e2994dc8adea9e7d87e5d53024cfa310ce992f17106f92c"
+$CMD account register --id="Alice@Soramitsu" --key="ed01 20 A753146E75B910AE5E2994DC8ADEA9E7D87E5D53024CFA310CE992F17106F92C"
 sleep 2
 $CMD asset register --id="XOR#Soramitsu" --value-type=Quantity
 sleep 2
