@@ -1,6 +1,3 @@
-//! Fault injection for tests. Almost all structs from this module
-//! should be reserved for testing, and only [`NoFault`], should be
-//! used in code.
 #![allow(clippy::cognitive_complexity)]
 use iroha_crypto::HashOf;
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
@@ -11,17 +8,7 @@ use tracing::{span, Level};
 use super::*;
 use crate::{block::*, sumeragi::tracing::instrument};
 
-/// Fault injection for consensus tests
-pub trait FaultInjection: Send + Sync + Sized + 'static {}
-
-/// Correct Sumeragi behavior without fault injection
-#[derive(Copy, Clone, Debug)]
-pub struct NoFault;
-
-impl FaultInjection for NoFault {}
-
-/// `Sumeragi` is the implementation of the consensus. This struct
-/// allows also to add fault injection for tests.
+/// `Sumeragi` is the implementation of the consensus.
 ///
 /// TODO: paraphrase
 ///
@@ -33,7 +20,7 @@ impl FaultInjection for NoFault {}
 /// hold a read lock because they think they are being smart, whilst a
 /// [`Mutex`] screams *DO NOT HOLD ME*. That is why the [`State`] is
 /// wrapped in a mutex, it's more self-documenting.
-pub struct SumeragiWithFault<F: FaultInjection> {
+pub struct Sumeragi {
     /// The pair of keys used for communication given this Sumeragi instance.
     pub key_pair: KeyPair,
     /// Address of queue
@@ -59,8 +46,6 @@ pub struct SumeragiWithFault<F: FaultInjection> {
     pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
     pub network: IrohaNetwork,
-    /// [`PhantomData`] used to generify over [`FaultInjection`] implementations
-    pub fault_injection: PhantomData<F>, // TODO: remove
     /// The size of batch that is being gossiped. Smaller size leads
     /// to longer time to synchronise, useful if you have high packet loss.
     pub gossip_batch_size: u32,
@@ -77,7 +62,7 @@ pub struct SumeragiWithFault<F: FaultInjection> {
     pub debug_force_soft_fork: bool,
 }
 
-impl<F: FaultInjection> Debug for SumeragiWithFault<F> {
+impl Debug for Sumeragi {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
             .field("public_key", &self.key_pair.public_key())
@@ -117,7 +102,7 @@ pub struct State {
     pub transaction_cache: Vec<VersionedAcceptedTransaction>,
 }
 
-impl<F: FaultInjection> SumeragiWithFault<F> {
+impl Sumeragi {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         configuration: &Configuration,
@@ -146,7 +131,6 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             transaction_validator,
             kura,
             network,
-            fault_injection: PhantomData,
             gossip_batch_size: configuration.gossip_batch_size,
             gossip_period: Duration::from_millis(configuration.gossip_period_ms),
             current_online_peers: Mutex::new(HashSet::new()),
@@ -379,11 +363,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     }
 }
 
-fn commit_block<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
-    state: &mut State,
-    block: impl Into<VersionedCommittedBlock>,
-) {
+fn commit_block(sumeragi: &Sumeragi, state: &mut State, block: impl Into<VersionedCommittedBlock>) {
     let committed_block = block.into();
 
     state.finalized_wsv = state.wsv.clone();
@@ -405,8 +385,8 @@ fn commit_block<F: FaultInjection>(
     cache_transaction(state, sumeragi);
 }
 
-fn replace_top_block<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
+fn replace_top_block(
+    sumeragi: &Sumeragi,
     state: &mut State,
     block: impl Into<VersionedCommittedBlock>,
 ) {
@@ -454,9 +434,9 @@ fn update_topology(state: &mut State, committed_block: &VersionedCommittedBlock)
     state.current_topology = topology;
 }
 
-fn update_state<F: FaultInjection>(
+fn update_state(
     state: &mut State,
-    sumeragi: &SumeragiWithFault<F>,
+    sumeragi: &Sumeragi,
     committed_block: &VersionedCommittedBlock,
 ) {
     state
@@ -478,15 +458,15 @@ fn update_state<F: FaultInjection>(
     state.latest_block_view_change_index = committed_block.header().view_change_index;
 }
 
-fn cache_transaction<F: FaultInjection>(state: &mut State, sumeragi: &SumeragiWithFault<F>) {
+fn cache_transaction(state: &mut State, sumeragi: &Sumeragi) {
     let transaction_cache = &mut state.transaction_cache;
     transaction_cache.retain(|tx| {
         !tx.is_in_blockchain(&state.wsv) && !tx.is_expired(sumeragi.queue.tx_time_to_live)
     });
 }
 
-fn suggest_view_change<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
+fn suggest_view_change(
+    sumeragi: &Sumeragi,
     state: &State,
     view_change_proof_chain: &mut ProofChain,
     current_view_change_index: u64,
@@ -531,11 +511,7 @@ fn prune_view_change_proofs_and_calculate_current_index(
     ) as u64
 }
 
-fn enqueue_transaction<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
-    wsv: &WorldStateView,
-    tx: VersionedSignedTransaction,
-) {
+fn enqueue_transaction(sumeragi: &Sumeragi, wsv: &WorldStateView, tx: VersionedSignedTransaction) {
     let tx = tx.into_v1();
 
     let addr = &sumeragi.peer_id.address;
@@ -557,9 +533,9 @@ fn enqueue_transaction<F: FaultInjection>(
 }
 
 #[allow(clippy::too_many_lines)]
-fn handle_message<F: FaultInjection>(
+fn handle_message(
     message: Message,
-    sumeragi: &SumeragiWithFault<F>,
+    sumeragi: &Sumeragi,
     state: &mut State,
     voting_block: &mut Option<VotingBlock>,
     current_view_change_index: u64,
@@ -729,8 +705,8 @@ fn handle_message<F: FaultInjection>(
     }
 }
 
-fn process_message_independent<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
+fn process_message_independent(
+    sumeragi: &Sumeragi,
     state: &mut State,
     voting_block: &mut Option<VotingBlock>,
     current_view_change_index: u64,
@@ -888,10 +864,10 @@ fn should_terminate(shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>) 
 }
 
 #[instrument(skip_all)]
-/// Execute the main loop of [`SumeragiWithFault`]
-pub(crate) fn run<F: FaultInjection>(
+/// Execute the main loop of [`Sumeragi`]
+pub(crate) fn run(
     genesis_network: Option<GenesisNetwork>,
-    sumeragi: &SumeragiWithFault<F>,
+    sumeragi: &Sumeragi,
     mut state: State,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
@@ -1079,8 +1055,8 @@ fn expired_event(txn: &impl Transaction) -> Event {
     .into()
 }
 
-fn vote_for_block<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
+fn vote_for_block(
+    sumeragi: &Sumeragi,
     state: &State,
     mut block: VersionedCandidateBlock,
 ) -> Option<VotingBlock> {
@@ -1136,8 +1112,8 @@ fn vote_for_block<F: FaultInjection>(
     Some(VotingBlock::new(signed_block))
 }
 
-fn sumeragi_init_commit_genesis<F: FaultInjection>(
-    sumeragi: &SumeragiWithFault<F>,
+fn sumeragi_init_commit_genesis(
+    sumeragi: &Sumeragi,
     state: &mut State,
     genesis_network: GenesisNetwork,
 ) {
