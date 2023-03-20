@@ -9,7 +9,6 @@
 use std::{
     collections::HashSet,
     fmt::{self, Debug, Formatter},
-    marker::PhantomData,
     sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
@@ -35,7 +34,6 @@ use main_loop::State;
 use parking_lot::{Mutex, MutexGuard};
 
 use self::{
-    main_loop::{NoFault, SumeragiWithFault},
     message::{Message, *},
     view_change::{Proof, ProofChain},
 };
@@ -66,7 +64,7 @@ struct LastUpdateMetricsData {
 /// `Sumeragi` is the implementation of the consensus.
 #[derive(Debug)]
 pub struct Sumeragi {
-    internal: SumeragiWithFault<NoFault>,
+    internal: main_loop::Sumeragi,
     config: Configuration,
     metrics: Metrics,
     last_update_metrics_mutex: Mutex<LastUpdateMetricsData>,
@@ -88,7 +86,7 @@ impl Sumeragi {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         Self {
-            internal: SumeragiWithFault::new(
+            internal: main_loop::Sumeragi::new(
                 configuration,
                 queue,
                 events_sender,
