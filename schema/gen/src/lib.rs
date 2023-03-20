@@ -606,4 +606,13 @@ mod tests {
             "Missing schemas: \n{missing_schemas:#?}"
         );
     }
+
+    #[test]
+    // NOTE: This test guards from incorrect implementation where
+    // `SortedVec<T>` and `Vec<T>` start stepping over each other
+    fn no_schema_type_overlap() {
+        let mut schemas = super::build_schemas();
+        <Vec<PublicKey>>::update_schema_map(&mut schemas);
+        <BTreeSet<SignedTransaction>>::update_schema_map(&mut schemas);
+    }
 }

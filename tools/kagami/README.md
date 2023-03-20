@@ -62,8 +62,8 @@ You can also choose output format:
     ```bash
     Kagami. To see help run with `--help`.
     No flags specified, generating key-pair.
-    Public key (multihash): ed0120232adec551bfa1856279ebccc3c3a09783c516478f4cbb2f42f342614bec7601
-    Private key: a1e2c094496dd53ea103f1423b90ccb7d65ff25ab46f5fa1643c14e6010f7f75232adec551bfa1856279ebccc3c3a09783c516478f4cbb2f42f342614bec7601
+    Public key (multihash): ed01 20 232ADEC551BFA1856279EBCCC3C3A09783C516478F4CBB2F42F342614BEC7601
+    Private key: A1E2C094496DD53EA103F1423B90CCB7D65FF25AB46F5FA1643C14E6010F7F75 232ADEC551BFA1856279EBCCC3C3A09783C516478F4CBB2F42F342614BEC7601
     Digest function: ed25519
     ```
   </details>
@@ -74,17 +74,17 @@ You can also choose output format:
     ./kagami crypto --seed <seed>
     ```
 
-- Generate a key with the `secp256k1` algorithm and a given private key (`b32129af69b829a88ab9bac60b2a33cc57f8843e93aae0478e93f2285059c236`):
+- Generate a key with the `secp256k1` algorithm and a given private key (`B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236`):
 
     ```bash
-    ./kagami crypto --algorithm secp256k1 --private-key "b32129af69b829a88ab9bac60b2a33cc57f8843e93aae0478e93f2285059c236"
+    ./kagami crypto --algorithm secp256k1 --private-key "B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236"
     ```
 
   <details> <summary>Expand to see the output</summary>
 
     ```bash
-    Public key (multihash): e70121031c59a9cabaf58f3b8a6157362b9f6feac3dd47ee947fbf2f335805e1a7f96bde
-    Private key: b32129af69b829a88ab9bac60b2a33cc57f8843e93aae0478e93f2285059c236
+    Public key (multihash): e701 21 031C59A9CABAF58F3B8A6157362B9F6FEAC3DD47EE947FBF2F335805E1A7F96BDE
+    Private key: B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236
     Digest function: secp256k1
     ```
   </details>
@@ -99,10 +99,10 @@ You can also choose output format:
 
     ```json
     {
-        "public_key": "ed01203189e4982f98dc293ab9e32cf2b2d75fba49adbc345318a576377b75cc9e15c1",
+        "public_key": "ed01 20 3189E4982F98DC293AB9E32CF2B2D75FBA49ADBC345318A576377B75CC9E15C1",
         "private_key": {
             "digest_function": "ed25519",
-            "payload": "d2162546e2025d28b680d062b91043a1e990de7da7861ee5e8039a6b39c9551f3189e4982f98dc293ab9e32cf2b2d75fba49adbc345318a576377b75cc9e15c1"
+            "payload": "D2162546E2025D28B680D062B91043A1E990DE7DA7861EE5E8039A6B39C9551F 3189E4982F98DC293AB9E32CF2B2D75FBA49ADBC345318A576377B75CC9E15C1"
         }
     }
     ```
@@ -117,8 +117,8 @@ You can also choose output format:
   <details> <summary>Expand to see the output</summary>
 
     ```bash
-    ed01208c8a612f0d20f339a0ea8df21fea777cbbe3604281e5f52311e5c5602cd38d8e
-    878f0fc05183857871a17605fe8f63b4aaf72ac9af4a5d8dd22536f6d016dff18c8a612f0d20f339a0ea8df21fea777cbbe3604281e5f52311e5c5602cd38d8e
+    ed01 20 8C8A612F0D20F339A0EA8DF21FEA777CBBE3604281E5F52311E5C5602CD38D8E
+    878F0FC05183857871A17605FE8F63B4AAF72AC9AF4A5D8DD22536F6D016DFF1 8C8A612F0D20F339A0EA8DF21FEA777CBBE3604281E5F52311E5C5602CD38D8E
     ed25519
     ```
   </details>

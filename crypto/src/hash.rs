@@ -310,7 +310,7 @@ mod tests {
         hasher.finalize_variable(|res| {
             assert_eq!(
                 res[..],
-                hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
+                hex!("BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2")[..]
             );
         })
     }
