@@ -135,7 +135,7 @@ mod gen {
             const _: () = {
                 use iroha_config_base::view::NoView;
                 #(
-                    const _: () = assert!(!iroha_config_base::view::IsHasView::<#field_types>::IS_HAS_VIEW, #messages);
+                    const _: () = assert!(!iroha_config_base::view::IsInstanceHasView::<#field_types>::IS_HAS_VIEW, #messages);
                 )*
             };
         }

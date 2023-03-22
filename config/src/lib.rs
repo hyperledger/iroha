@@ -1,5 +1,4 @@
 //! Aggregate configuration for different Iroha modules.
-
 pub use iroha_config_base as base;
 use serde::{Deserialize, Serialize};
 
