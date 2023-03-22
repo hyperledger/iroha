@@ -2125,6 +2125,7 @@ dependencies = [
 name = "iroha_config"
 version = "2.0.0-pre-rc.13"
 dependencies = [
+ "cfg-if",
  "derive_more",
  "eyre",
  "iroha_config_base",
@@ -2132,6 +2133,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_primitives",
  "json5",
+ "path-absolutize",
  "proptest",
  "serde",
  "serde_json",
@@ -2148,6 +2150,7 @@ version = "2.0.0-pre-rc.13"
 dependencies = [
  "crossbeam",
  "iroha_config_derive",
+ "iroha_crypto",
  "json5",
  "serde",
  "serde_json",
@@ -3139,6 +3142,24 @@ name = "paste"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f746c4065a8fa3fe23974dd82f15431cc8d40779821001404d10d2e79ca7d79"
+
+[[package]]
+name = "path-absolutize"
+version = "3.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f1d4993b16f7325d90c18c3c6a3327db7808752db8d208cea0acee0abd52c52"
+dependencies = [
+ "path-dedot",
+]
+
+[[package]]
+name = "path-dedot"
+version = "3.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a81540d94551664b72b72829b12bd167c73c9d25fbac0e04fafa8023f7e4901"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "percent-encoding"

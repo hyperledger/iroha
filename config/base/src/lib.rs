@@ -1,5 +1,4 @@
 //! Package for managing iroha configuration
-#![allow(clippy::std_instead_of_core)]
 use std::{fmt::Debug, path::Path};
 
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
@@ -300,16 +299,10 @@ pub mod derive {
     use serde::Deserialize;
     use thiserror::Error;
 
-    /// Error related to deserializing specific field
-    #[derive(Debug, Error)]
-    #[error("Name of the field: {}", .field)]
-    pub struct FieldError {
-        /// Field name (known at compile time)
-        pub field: &'static str,
-        /// Serde json error
-        #[source]
-        pub error: serde_json::Error,
-    }
+    // TODO: use VERGEN to point to LTS reference on LTS branch
+    /// Reference to the current Dev branch configuration
+    pub static CONFIG_REFERENCE: &str =
+        "https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md";
 
     // TODO: deal with `#[serde(skip)]`
     /// Derive `Configurable` and `Proxy` error
@@ -317,37 +310,68 @@ pub mod derive {
     #[allow(clippy::enum_variant_names)]
     pub enum Error {
         /// Used in [`Documented`] trait for wrong query errors
-        #[error("Got unknown field: `{}`", Self::concat_error_string(.0))]
+        #[error("Got unknown field: `{}`", .0.join("."))]
         UnknownField(Vec<String>),
+
         /// Used in [`Documented`] trait for deserialization errors
         /// while retaining field info
-        #[error("Failed to (de)serialize the field: {}", .0.field)]
+        #[error("Failed to (de)serialize the field: {}", .field)]
         #[serde(skip)]
-        FieldError(#[from] FieldError),
-        /// Used in [`Builder`] trait for build errors
-        #[error("Proxy failed at build stage due to: {0}")]
-        ProxyBuildError(String),
+        FieldDeserialization {
+            /// Field name (known at compile time)
+            field: &'static str,
+            /// Serde json error
+            #[source]
+            error: serde_json::Error,
+        },
+
+        /// When a field is missing.
+        #[error("Please add `{}` to the configuration.", .field)]
+        #[serde(skip)]
+        MissingField {
+            /// Field name
+            field: &'static str,
+            /// Additional message to be added as `color_eyre::suggestion`
+            message: &'static str,
+        },
+
+        /// Key pair creation failed, most likely because the keys don't form a pair
+        #[error("Key pair creation failed")]
+        Crypto(#[from] iroha_crypto::Error),
+
+        // IMO this variant should not exist. If the value is inferred, we should only warn people if the inferred value is different from the provided one.
+        /// Inferred field was provided by accident and we don't want it to be provided, because the value is inferred from other fields
+        #[error("You should remove the field `{}` as its value is determined by other configuration parameters.", .field)]
+        #[serde(skip)]
+        ProvidedInferredField {
+            /// Field name
+            field: &'static str,
+            /// Additional message to be added as `color_eyre::suggestion`
+            message: &'static str,
+        },
+
+        /// Value that is unacceptable to Iroha was encountered when deserializing the config
+        #[error("The value {} of {} is wrong. \nPlease change the value.", .value, .field)]
+        #[serde(skip)]
+        InsaneValue {
+            /// The value of the field that's incorrect
+            value: String,
+            /// Field name that contains invalid value
+            field: &'static str,
+            /// Additional message to be added as `color_eyre::suggestion`
+            message: String,
+            // docstring: &'static str,  // TODO: Inline the docstring for easy access
+        },
+
         /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
-        #[error("Reading file from disk failed: {0}")]
+        #[error("Reading file from disk failed.")]
         #[serde(skip)]
-        DiskError(#[from] std::io::Error),
+        Disk(#[from] std::io::Error),
+
         /// Used in [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for deserialization errors
-        #[error("Deserializing JSON failed: {0}")]
+        #[error("Deserializing JSON failed")]
         #[serde(skip)]
-        SerdeError(#[from] json5::Error),
-    }
-
-    impl Error {
-        /// Construct a field error
-        pub const fn field_error(field: &'static str, error: serde_json::Error) -> Self {
-            Self::FieldError(FieldError { field, error })
-        }
-
-        /// To be used for [`Self::UnknownField`] variant construction.
-        #[inline]
-        pub fn concat_error_string(field: &[String]) -> String {
-            field.join(".")
-        }
+        Json5(#[from] json5::Error),
     }
 }
 
@@ -356,24 +380,27 @@ pub mod runtime_upgrades;
 pub mod view {
     //! Module for view related traits and structs
 
-    /// Marker trait to set default value `IS_HAS_VIEW` to `false`
+    /// Marker trait to set default value [`IsInstanceHasView::IS_INSTANCE_HAS_VIEW`] to `false`
     pub trait NoView {
         /// [`Self`] doesn't implement [`HasView`]
         const IS_HAS_VIEW: bool = false;
     }
+
     impl<T> NoView for T {}
 
     /// Marker traits for types for which views are implemented
     pub trait HasView {}
 
     /// Wrapper structure used to check if type implements `[HasView]`
-    /// If `T` doesn't implement [`HasView`] then `NoView::IS_HAS_VIEW` (`false`) will be used
-    /// Otherwise `IsHasView::IS_HAS_VIEW` (`true`) from `impl` block will shadow `NoView::IS_HAS_VIEW`
-    pub struct IsHasView<T>(core::marker::PhantomData<T>);
+    /// If `T` doesn't implement [`HasView`] then
+    /// [`NoView::IS_INSTANCE_HAS_VIEW`] (`false`) will be used.
+    /// Otherwise [`IsInstanceHasView::IS_INSTANCE_HAS_VIEW`] (`true`)
+    /// from `impl` block will shadow `NoView::IS_INSTANCE_HAS_VIEW`
+    pub struct IsInstanceHasView<T>(core::marker::PhantomData<T>);
 
-    impl<T: HasView> IsHasView<T> {
+    impl<T: HasView> IsInstanceHasView<T> {
         /// `T` implements trait [`HasView`]
-        pub const IS_HAS_VIEW: bool = true;
+        pub const IS_INSTANCE_HAS_VIEW: bool = true;
     }
 }
 
@@ -382,7 +409,8 @@ pub mod proxy {
 
     use super::*;
 
-    /// Trait for dynamic and asynchronous configuration via maintenance endpoint for Rust structures
+    /// Trait for dynamic and asynchronous configuration via
+    /// maintenance endpoint for Rust structures
     pub trait Documented: Serialize + DeserializeOwned {
         /// Error type returned by methods of this trait
         type Error;
@@ -394,6 +422,7 @@ pub mod proxy {
         fn get_inner_docs() -> String;
 
         /// Return the JSON value of a given field
+        ///
         /// # Errors
         /// Fails if field was unknown
         #[inline]
@@ -402,6 +431,7 @@ pub mod proxy {
         }
 
         /// Get documentation of a given field
+        ///
         /// # Errors
         /// Fails if field was unknown
         #[inline]
@@ -409,7 +439,9 @@ pub mod proxy {
             Self::get_doc_recursive([field])
         }
 
-        /// Return the JSON value of a given inner field of arbitrary inner depth
+        /// Return the JSON value of a given inner field of arbitrary
+        /// inner depth
+        ///
         /// # Errors
         /// Fails if field was unknown
         fn get_recursive<'tl, T>(&self, inner_field: T) -> Result<Value, Self::Error>

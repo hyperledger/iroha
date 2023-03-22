@@ -178,6 +178,46 @@ ffi::ffi_item! {
     }
 }
 
+/// Error when dealing with cryptographic functions
+#[derive(Debug, Display, Deserialize)]
+pub enum Error {
+    /// Returned when trying to create an algorithm which does not exist
+    #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
+    NoSuchAlgorithm,
+    /// Occurs during deserialization of a private or public key
+    #[display(fmt = "Key could not be parsed. {_0}")]
+    Parse(String),
+    /// Returned when an error occurs during the signing process
+    #[display(fmt = "Signing failed. {_0}")]
+    Signing(String),
+    /// Returned when an error occurs during key generation
+    #[display(fmt = "Key generation failed. {_0}")]
+    KeyGen(String),
+    /// Returned when an error occurs during digest generation
+    #[display(fmt = "Digest generation failed. {_0}")]
+    DigestGen(String),
+    /// Returned when an error occurs during creation of [`SignaturesOf`]
+    #[display(fmt = "`SignaturesOf` must contain at least one signature")]
+    EmptySignatureIter,
+    /// A General purpose error message that doesn't fit in any category
+    #[display(fmt = "General error. {_0}")] // This is going to cause a headache
+    Other(String),
+}
+
+#[cfg(feature = "std")]
+impl From<ursa::CryptoError> for Error {
+    fn from(source: ursa::CryptoError) -> Self {
+        match source {
+            ursa::CryptoError::NoSuchAlgorithm(_) => Self::NoSuchAlgorithm,
+            ursa::CryptoError::ParseError(source) => Self::Parse(source),
+            ursa::CryptoError::SigningError(source) => Self::Signing(source),
+            ursa::CryptoError::KeyGenError(source) => Self::KeyGen(source),
+            ursa::CryptoError::DigestGenError(source) => Self::DigestGen(source),
+            ursa::CryptoError::GeneralError(source) => Self::Other(source),
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 impl From<NoSuchAlgorithm> for Error {
     fn from(_: NoSuchAlgorithm) -> Self {
@@ -486,46 +526,6 @@ pub(crate) fn hex_decode<T: AsRef<[u8]> + ?Sized>(payload: &T) -> Result<Vec<u8>
         .collect();
 
     hex::decode(payload).map_err(|err| Error::Parse(err.to_string()))
-}
-
-/// Error when dealing with cryptographic functions
-#[derive(Debug, Display)]
-pub enum Error {
-    /// Returned when trying to create an algorithm which does not exist
-    #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
-    NoSuchAlgorithm,
-    /// Occurs during deserialization of a private or public key
-    #[display(fmt = "Key could not be parsed. {_0}")]
-    Parse(String),
-    /// Returned when an error occurs during the signing process
-    #[display(fmt = "Signing failed. {_0}")]
-    Signing(String),
-    /// Returned when an error occurs during key generation
-    #[display(fmt = "Key generation failed. {_0}")]
-    KeyGen(String),
-    /// Returned when an error occurs during digest generation
-    #[display(fmt = "Digest generation failed. {_0}")]
-    DigestGen(String),
-    /// Returned when an error occurs during creation of [`SignaturesOf`]
-    #[display(fmt = "`SignaturesOf` must contain at least one signature")]
-    EmptySignatureIter,
-    /// A General purpose error message that doesn't fit in any category
-    #[display(fmt = "General error. {_0}")] // This is going to cause a headache
-    Other(String),
-}
-
-#[cfg(feature = "std")]
-impl From<ursa::CryptoError> for Error {
-    fn from(source: ursa::CryptoError) -> Self {
-        match source {
-            ursa::CryptoError::NoSuchAlgorithm(_) => Self::NoSuchAlgorithm,
-            ursa::CryptoError::ParseError(source) => Self::Parse(source),
-            ursa::CryptoError::SigningError(source) => Self::Signing(source),
-            ursa::CryptoError::KeyGenError(source) => Self::KeyGen(source),
-            ursa::CryptoError::DigestGenError(source) => Self::DigestGen(source),
-            ursa::CryptoError::GeneralError(source) => Self::Other(source),
-        }
-    }
 }
 
 pub mod ffi {
