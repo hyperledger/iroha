@@ -92,7 +92,7 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
                 false
             };
             let err_ty = quote! { ::iroha_config_base::derive::Error };
-            let err_variant = quote! { ::iroha_config_base::derive::Error::SerdeError };
+            let err_variant = quote! { ::iroha_config_base::derive::Error::Json5 };
             let inner = if is_string {
                 quote! { Ok(var) }
             } else if as_str_attr {
@@ -152,8 +152,8 @@ pub fn impl_load_from_disk(ast: &StructWithFields) -> TokenStream {
     let proxy_name = &ast.ident;
     let disk_trait = quote! { ::iroha_config_base::proxy::LoadFromDisk };
     let error_ty = quote! { ::iroha_config_base::derive::Error };
-    let disk_err_variant = quote! { ::iroha_config_base::derive::Error::DiskError };
-    let serde_err_variant = quote! { ::iroha_config_base::derive::Error::SerdeError };
+    let disk_err_variant = quote! { ::iroha_config_base::derive::Error::Disk };
+    let serde_err_variant = quote! { ::iroha_config_base::derive::Error::Json5 };
     let none_proxy = gen_none_fields_proxy(ast);
     quote! {
         impl #disk_trait for #proxy_name {
@@ -244,21 +244,22 @@ pub fn impl_build(ast: &StructWithFields) -> TokenStream {
 fn gen_none_fields_check(ast: &StructWithFields) -> proc_macro2::TokenStream {
     let checked_fields = ast.fields.iter().map(|field| {
         let ident = &field.ident;
-        let err_variant = quote! { ::iroha_config_base::derive::Error::ProxyBuildError };
+        let missing_field = quote! { ::iroha_config_base::derive::Error::MissingField };
         if field.has_inner {
             let inner_ty = get_inner_type("Option", &field.ty);
             let builder_trait = quote! { ::iroha_config_base::proxy::Builder };
             quote! {
                 #ident: <#inner_ty as #builder_trait>::build(
                     self.#ident.ok_or(
-                        #err_variant(stringify!(#ident).to_owned())
+                        #missing_field{field: stringify!(#ident), message: ""}
                     )?
                 )?
             }
         } else {
             quote! {
                 #ident: self.#ident.ok_or(
-                    #err_variant(stringify!(#ident).to_owned()))?
+                    #missing_field{field: stringify!(#ident), message: ""}
+                )?
             }
         }
     });

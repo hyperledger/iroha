@@ -5,6 +5,8 @@ extern crate alloc;
 use alloc::borrow::Cow;
 use std::path::PathBuf;
 
+// TODO: replace with `std::fs::absolute` when it's stable.
+use path_absolutize::Absolutize as _;
 use InnerPath::*;
 
 /// Allowed configuration file extension that user can provide.
@@ -15,13 +17,13 @@ pub const ALLOWED_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 pub enum ExtensionError {
     /// User provided config file without extension.
     #[error(
-        "Provided config file has no extension, allowed extensions are: {:?}.",
+        "No valid file extension found. Allowed file extensions are: {:?}.",
         ALLOWED_CONFIG_EXTENSIONS
     )]
     Missing,
     /// User provided config file with unsupported extension.
     #[error(
-        "Provided config file has invalid extension `{0}`, \
+        "Provided config file has an unsupported file extension `{0}`, \
         allowed extensions are: {:?}.",
         ALLOWED_CONFIG_EXTENSIONS
     )]
@@ -40,7 +42,7 @@ enum InnerPath {
     UserProvided(PathBuf),
 }
 
-/// Wrapper around path to config file (i.e. config.json, genesis.json).
+/// Wrapper around path to config file (e.g. `config.json`).
 ///
 /// Provides abstraction above user-provided config and default ones.
 #[derive(Debug, Clone)]
@@ -49,8 +51,20 @@ pub struct Path(InnerPath);
 impl core::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            Default(pth) => write!(f, "{pth:?} (default)"),
-            UserProvided(pth) => write!(f, "{pth:?}"),
+            Default(pth) => write!(
+                f,
+                "{:?} (default)",
+                pth.with_extension("json")
+                    .absolutize()
+                    .expect("Malformed default path")
+            ),
+            UserProvided(pth) => write!(
+                f,
+                "{:?} (user-provided)",
+                pth.with_extension("json")
+                    .absolutize()
+                    .expect("Malformed user-provided path")
+            ),
         }
     }
 }

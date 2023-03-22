@@ -407,7 +407,7 @@ impl<'wrld> Runtime<'wrld> {
     ) -> Result<(), Trap> {
         const TARGET: &str = "WASM";
 
-        let error_msg = || Trap::new(format!("{}: not a valid log level", log_level));
+        let error_msg = || Trap::new(format!("{log_level}: not a valid log level"));
         let Ok(log_level) = log_level.try_into() else {
           return Err(error_msg());
         };
