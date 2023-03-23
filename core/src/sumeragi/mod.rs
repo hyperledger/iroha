@@ -42,13 +42,6 @@ use crate::{
     IrohaNetwork, NetworkMessage,
 };
 
-trait Consensus {
-    fn round(
-        &mut self,
-        transactions: Vec<VersionedAcceptedTransaction>,
-    ) -> Option<VersionedPendingBlock>;
-}
-
 /*
 The values in the following struct are not atomics because the code that
 operates on them assumes their values does not change during the course of
@@ -354,13 +347,13 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// Valid Block
-    pub block: SignedBlock,
+    pub block: PendingBlock,
 }
 
 impl VotingBlock {
     /// Construct new `VotingBlock` with current time.
     #[allow(clippy::expect_used)]
-    pub fn new(block: SignedBlock) -> VotingBlock {
+    pub fn new(block: PendingBlock) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
@@ -368,7 +361,7 @@ impl VotingBlock {
     }
     /// Construct new `VotingBlock` with the given time.
     #[allow(clippy::expect_used)]
-    pub(crate) fn voted_at(block: SignedBlock, voted_at: Instant) -> VotingBlock {
+    pub(crate) fn voted_at(block: PendingBlock, voted_at: Instant) -> VotingBlock {
         VotingBlock { block, voted_at }
     }
 }
