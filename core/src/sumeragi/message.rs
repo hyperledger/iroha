@@ -7,18 +7,16 @@
 )]
 
 use iroha_crypto::{HashOf, SignaturesOf};
-use iroha_data_model::{
-    block::{CommittedBlock, VersionedCommittedBlock},
-    prelude::*,
-};
+use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
 use iroha_macro::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
 use crate::{
-    block::{SignedBlock, VersionedCandidateBlock, VersionedCandidateCommittedBlock},
-    VersionedAcceptedTransaction,
+    block::{PendingBlock, Revalidate},
+    tx::TransactionValidator,
+    VersionedAcceptedTransaction, WorldStateView,
 };
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant);
@@ -89,14 +87,38 @@ pub enum Message {
 #[non_exhaustive]
 pub struct BlockCreated {
     /// The corresponding block.
-    pub block: VersionedCandidateBlock,
+    pub block: PendingBlock,
 }
 
-impl From<SignedBlock> for BlockCreated {
-    fn from(block: SignedBlock) -> Self {
-        Self {
-            block: block.into(),
-        }
+impl From<PendingBlock> for BlockCreated {
+    fn from(block: PendingBlock) -> Self {
+        Self { block }
+    }
+}
+
+impl BlockCreated {
+    /// Extract block from block created message.
+    ///
+    /// # Errors
+    /// - When the block is invalid.
+    pub fn validate_and_extract_block<const IS_GENESIS: bool>(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: WorldStateView,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        block_height: u64,
+    ) -> Result<PendingBlock, eyre::Report> {
+        self.block.revalidate::<IS_GENESIS>(
+            transaction_validator,
+            wsv,
+            latest_block,
+            block_height,
+        )?;
+        Ok(self.block)
+    }
+    /// Get hash of block.
+    pub fn hash(&self) -> HashOf<PendingBlock> {
+        self.block.hash()
     }
 }
 
@@ -105,13 +127,13 @@ impl From<SignedBlock> for BlockCreated {
 #[non_exhaustive]
 pub struct BlockSigned {
     /// Hash of the block being signed.
-    pub hash: HashOf<SignedBlock>,
+    pub hash: HashOf<PendingBlock>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<SignedBlock>,
+    pub signatures: SignaturesOf<PendingBlock>,
 }
 
-impl From<SignedBlock> for BlockSigned {
-    fn from(block: SignedBlock) -> Self {
+impl From<PendingBlock> for BlockSigned {
+    fn from(block: PendingBlock) -> Self {
         Self {
             hash: block.hash(),
             signatures: block.signatures,
@@ -124,16 +146,16 @@ impl From<SignedBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<VersionedCandidateCommittedBlock>,
+    pub hash: HashOf<VersionedCommittedBlock>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<VersionedCandidateCommittedBlock>,
+    pub signatures: SignaturesOf<VersionedCommittedBlock>,
 }
 
-impl From<CommittedBlock> for BlockCommitted {
-    fn from(block: CommittedBlock) -> Self {
+impl From<VersionedCommittedBlock> for BlockCommitted {
+    fn from(block: VersionedCommittedBlock) -> Self {
         Self {
             hash: block.hash().transmute(),
-            signatures: block.signatures.transmute(),
+            signatures: block.as_v1().signatures.clone().transmute(),
         }
     }
 }
@@ -143,14 +165,38 @@ impl From<CommittedBlock> for BlockCommitted {
 #[non_exhaustive]
 pub struct BlockSyncUpdate {
     /// The corresponding block.
-    pub block: VersionedCandidateCommittedBlock,
+    block: VersionedCommittedBlock,
 }
 
 impl From<VersionedCommittedBlock> for BlockSyncUpdate {
     fn from(block: VersionedCommittedBlock) -> Self {
-        Self {
-            block: block.into(),
-        }
+        Self { block }
+    }
+}
+
+impl BlockSyncUpdate {
+    /// Extract block from block sync update message.
+    ///
+    /// # Errors
+    /// - When the block is invalid.
+    pub fn validate_and_extract_block<const IS_GENESIS: bool>(
+        self,
+        transaction_validator: &TransactionValidator,
+        wsv: WorldStateView,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        block_height: u64,
+    ) -> Result<VersionedCommittedBlock, eyre::Report> {
+        self.block.revalidate::<IS_GENESIS>(
+            transaction_validator,
+            wsv,
+            latest_block,
+            block_height,
+        )?;
+        Ok(self.block)
+    }
+    /// Get hash of block.
+    pub fn hash(&self) -> HashOf<VersionedCommittedBlock> {
+        self.block.hash()
     }
 }
 

@@ -202,13 +202,20 @@ mod tests {
         let mut transactions = vec![valid_tx; valid_tx_per_block];
         transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-        let first_block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
-            .chain_first()
-            .validate(&TransactionValidator::new(limits), &wsv)
-            .sign(ALICE_KEYS.clone())
-            .expect("Failed to sign blocks.")
-            .commit_unchecked()
-            .into();
+        let first_block: VersionedCommittedBlock = BlockBuilder {
+            transactions: transactions.clone(),
+            event_recommendations: Vec::new(),
+            height: 1,
+            previous_block_hash: None,
+            view_change_index: 0,
+            committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
+            key_pair: ALICE_KEYS.clone(),
+            transaction_validator: &TransactionValidator::new(limits),
+            wsv: wsv.clone(),
+        }
+        .build()
+        .commit_unchecked()
+        .into();
 
         let mut curr_hash = first_block.hash();
 
@@ -216,18 +223,21 @@ mod tests {
         kura.store_block(first_block);
 
         for height in 1u64..blocks {
-            let block: VersionedCommittedBlock = PendingBlock::new(transactions.clone(), vec![])
-                .chain(
-                    height,
-                    Some(curr_hash),
-                    0,
-                    crate::sumeragi::network_topology::Topology::new(vec![]),
-                )
-                .validate(&TransactionValidator::new(limits), &wsv)
-                .sign(ALICE_KEYS.clone())
-                .expect("Failed to sign blocks.")
-                .commit_unchecked()
-                .into();
+            let block: VersionedCommittedBlock = BlockBuilder {
+                transactions: transactions.clone(),
+                event_recommendations: Vec::new(),
+                height,
+                previous_block_hash: Some(curr_hash),
+                view_change_index: 0,
+                committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
+                key_pair: ALICE_KEYS.clone(),
+                transaction_validator: &TransactionValidator::new(limits),
+                wsv: wsv.clone(),
+            }
+            .build()
+            .commit_unchecked()
+            .into();
+
             curr_hash = block.hash();
             wsv.apply(&block)?;
             kura.store_block(block);
@@ -358,15 +368,21 @@ mod tests {
         let va_tx: VersionedAcceptedTransaction =
             AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?.into();
 
-        let mut block = PendingBlock::new(Vec::new(), Vec::new());
-        block.transactions.push(va_tx.clone());
-        let vcb = block
-            .chain_first()
-            .validate(&TransactionValidator::new(tx_limits), &wsv)
-            .sign(ALICE_KEYS.clone())
-            .expect("Failed to sign blocks.")
-            .commit_unchecked()
-            .into();
+        let vcb: VersionedCommittedBlock = BlockBuilder {
+            transactions: vec![va_tx.clone()],
+            event_recommendations: Vec::new(),
+            height: 1,
+            previous_block_hash: None,
+            view_change_index: 0,
+            committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
+            key_pair: ALICE_KEYS.clone(),
+            transaction_validator: &TransactionValidator::new(tx_limits),
+            wsv: wsv.clone(),
+        }
+        .build()
+        .commit_unchecked()
+        .into();
+
         wsv.apply(&vcb)?;
         kura.store_block(vcb);
 

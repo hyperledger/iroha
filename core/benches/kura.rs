@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::{str::FromStr as _, sync::Arc};
+use std::str::FromStr as _;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -42,15 +42,19 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
-    let block = PendingBlock::new(vec![tx], Vec::new())
-        .chain_first()
-        .validate(
-            &TransactionValidator::new(transaction_limits),
-            &Arc::new(WorldStateView::new(World::new(), kura)),
-        );
-    let mut block = block
-        .sign(KeyPair::generate().expect("Failed to generate KeyPair"))
-        .unwrap();
+    let mut block = BlockBuilder {
+        transactions: vec![tx],
+        event_recommendations: Vec::new(),
+        height: 1,
+        previous_block_hash: None,
+        view_change_index: 0,
+        committed_with_topology: iroha_core::sumeragi::network_topology::Topology::new(Vec::new()),
+        key_pair: KeyPair::generate().expect("Failed to generate KeyPair"),
+        transaction_validator: &TransactionValidator::new(transaction_limits),
+        wsv: WorldStateView::new(World::new(), kura),
+    }
+    .build();
+
     for _ in 1..n_validators {
         block = block
             .sign(KeyPair::generate().expect("Failed to generate KeyPair."))

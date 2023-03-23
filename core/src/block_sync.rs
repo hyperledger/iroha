@@ -118,7 +118,7 @@ impl BlockSynchronizer {
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
     use super::*;
-    use crate::{block::VersionedCandidateCommittedBlock, sumeragi::view_change::ProofChain};
+    use crate::sumeragi::view_change::ProofChain;
 
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 
@@ -175,14 +175,14 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
-        pub blocks: Vec<VersionedCandidateCommittedBlock>,
+        pub blocks: Vec<VersionedCommittedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
-        pub const fn new(blocks: Vec<VersionedCandidateCommittedBlock>, peer_id: PeerId) -> Self {
+        pub const fn new(blocks: Vec<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
             Self { blocks, peer_id }
         }
     }
@@ -234,7 +234,7 @@ pub mod message {
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
-                        .map(|block| VersionedCommittedBlock::clone(&block).into())
+                        .map(|block| VersionedCommittedBlock::clone(&block))
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {
@@ -250,11 +250,11 @@ pub mod message {
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
-                    use crate::sumeragi::message::{BlockSyncUpdate, Message, MessagePacket};
+                    use crate::sumeragi::message::{Message, MessagePacket};
                     for block in blocks.clone() {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
                             ProofChain::default(),
-                            Message::BlockSyncUpdate(BlockSyncUpdate { block }),
+                            Message::BlockSyncUpdate(block.into()),
                         ));
                     }
                 }

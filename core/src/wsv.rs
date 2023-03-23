@@ -1109,13 +1109,13 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
-    use crate::block::SignedBlock;
+    use crate::block::PendingBlock;
 
     #[test]
     fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = SignedBlock::new_dummy().commit_unchecked();
+        let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(World::default(), kura);
 
@@ -1138,7 +1138,7 @@ mod tests {
     fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = SignedBlock::new_dummy().commit_unchecked();
+        let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(World::default(), kura.clone());
 
