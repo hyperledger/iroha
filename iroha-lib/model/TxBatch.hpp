@@ -1,8 +1,6 @@
 #ifndef TX_BATCH_HPP
 #define TX_BATCH_HPP
 
-#include "LibsAndClassDeclarations.h"
-
 #include "transaction.pb.h"
 #include <endpoint.pb.h>
 

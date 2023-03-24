@@ -41,34 +41,43 @@ Query& Query::getAccountDetail(const std::string& account_id)
     return *this;
 }
 
-Query& Query::getAccountTransactions(const std::string& account_id)
+Query& Query::getAccountTransactions(const std::string& account_id,
+                                     const std::optional<std::string*>& first_tx_hash,
+                                     const std::optional<google::protobuf::Timestamp*>& first_tx_time,
+                                     const std::optional<google::protobuf::Timestamp*>& last_tx_time,
+                                     const std::optional<uint64_t> first_tx_height,
+                                     const std::optional<uint64_t> last_tx_height)
 {
     protobuf_query_ = *query_generator_.generateGetAccountTransactions(
                 account_id,
                 counter_,
                 created_time_,
-                {},
-                {},
-                {},
-                {},
-                {});
+                first_tx_hash,
+                first_tx_time,
+                last_tx_time,
+                first_tx_height,
+                last_tx_height);
     return *this;
 }
 
-Query& Query::getAccountAssetTransactions(
-        const std::string& account_id,
-        const std::string& asset_id)
+Query& Query::getAccountAssetTransactions(const std::string& account_id,
+                                          const std::string& asset_id,
+                                          const std::optional<std::string*>& first_tx_hash,
+                                          const std::optional<google::protobuf::Timestamp*>& first_tx_time,
+                                          const std::optional<google::protobuf::Timestamp*>& last_tx_time,
+                                          const std::optional<uint64_t> first_tx_height,
+                                          const std::optional<uint64_t> last_tx_height)
 {
     protobuf_query_ = *query_generator_.generateGetAccountAssetTransactions(
                 account_id,
                 counter_,
                 created_time_,
                 asset_id,
-                {},
-                {},
-                {},
-                {},
-                {});
+                first_tx_hash,
+                first_tx_time,
+                last_tx_time,
+                first_tx_height,
+                last_tx_height);
     return *this;
 }
 

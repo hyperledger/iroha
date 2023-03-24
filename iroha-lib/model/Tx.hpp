@@ -1,8 +1,6 @@
 #ifndef TX_HPP
 #define TX_HPP
 
-#include "LibsAndClassDeclarations.h"
-
 #include "transaction.pb.h"
 #include <boost/bimap.hpp>
 #include "crypto/keypair.hpp"

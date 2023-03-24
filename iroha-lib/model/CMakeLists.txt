@@ -10,8 +10,6 @@ add_library(iroha_lib_model
     generators/QueryGenerator.cpp
     utils/Utils.h
     utils/Utils.cpp
-    LibsAndClassDeclarations.h
-    ClassDeclarations.h
 )
 
 target_link_libraries(iroha_lib_model
