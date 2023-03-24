@@ -39,10 +39,10 @@ namespace shared_model {
       const bool txs_duplicates_allowed;
 
       /**
-       * Parameter specifying transaction how many hours in the past
-       * since current peer time transaction's `created_time` can be setted.
-       * The default value is FieldValidator::kDefaultMaxDelay hours.
-       * The value should be the same in a whole iroha network.
+       * A parameter, which specifies how many hours before the current peer's
+       * `created_time` can the transaction be set.
+       * Default is `FieldValidator::KDefaultMaxDelay` (hours).
+       * The value must be synchronised across all peers.
        */
       std::optional<uint32_t> max_past_created_hours;
     };

@@ -1,5 +1,4 @@
-#ifndef QUERY_GENERATOR_HPP
-#define QUERY_GENERATOR_HPP
+#pragma once
 
 #include "queries.pb.h"
 #include <optional>
@@ -10,13 +9,6 @@ namespace iroha_lib {
 using namespace iroha::protocol;
 
 class QueryGenerator {
-
-private:
-    std::shared_ptr<iroha::protocol::Query> generateQuery(
-            const std::string& account_id,
-            uint64_t counter,
-            const uint64_t created_time);
-
 public:
     std::shared_ptr<iroha::protocol::Query> generateGetAccount(
             const std::string& account_id,
@@ -34,21 +26,21 @@ public:
             const std::string& account_id,
             uint64_t counter,
             const uint64_t created_time,
-            const std::optional<std::string*>& first_tx_hash,
-            const std::optional<google::protobuf::Timestamp*>& first_tx_time,
-            const std::optional<google::protobuf::Timestamp*>& last_tx_time,
-            const std::optional<uint64_t> first_tx_height,
-            const std::optional<uint64_t> last_tx_height);
+            const std::optional<std::string*>& first_tx_hash={},
+            const std::optional<google::protobuf::Timestamp*>& first_tx_time={},
+            const std::optional<google::protobuf::Timestamp*>& last_tx_time={},
+            const std::optional<uint64_t> first_tx_height={},
+            const std::optional<uint64_t> last_tx_height={});
     std::shared_ptr<iroha::protocol::Query> generateGetAccountAssetTransactions(
             const std::string& account_id,
             uint64_t counter,
             const uint64_t created_time,
             const std::string& assetId,
-            const std::optional<std::string*>& first_tx_hash,
-            const std::optional<google::protobuf::Timestamp*>& first_tx_time,
-            const std::optional<google::protobuf::Timestamp*>& last_tx_time,
-            const std::optional<uint64_t> first_tx_height,
-            const std::optional<uint64_t> last_tx_height);
+            const std::optional<std::string*>& first_tx_hash={},
+            const std::optional<google::protobuf::Timestamp*>& first_tx_time={},
+            const std::optional<google::protobuf::Timestamp*>& last_tx_time={},
+            const std::optional<uint64_t> first_tx_height={},
+            const std::optional<uint64_t> last_tx_height={});
     std::shared_ptr<iroha::protocol::Query> generateGetTransactions(
             const std::string& account_id,
             uint64_t counter,
@@ -72,8 +64,12 @@ public:
             uint64_t counter,
             const uint64_t created_time,
             const std::string& role_id);
+
+private:
+    std::shared_ptr<iroha::protocol::Query> generateQuery(
+            const std::string& account_id,
+            uint64_t counter,
+            const uint64_t created_time);
 };
 
-}
-
-#endif
+} // namespace iroha_lib

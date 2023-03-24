@@ -1,5 +1,4 @@
-#ifndef GRPC_CLIENT_HPP
-#define GRPC_CLIENT_HPP
+#pragma once
 
 #include <endpoint.grpc.pb.h>
 #include <grpc++/grpc++.h>
@@ -26,5 +25,3 @@ private:
 };
 
 }
-
-#endif
