@@ -24,6 +24,7 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionFailure as Error, MathError},
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
+    trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
@@ -31,7 +32,13 @@ use iroha_primitives::small::SmallVec;
 use crate::{
     kura::Kura,
     prelude::*,
-    smartcontracts::{triggers::set::Set as TriggerSet, wasm, Execute},
+    smartcontracts::{
+        triggers::{
+            self,
+            set::{LoadedExecutable, Set as TriggerSet},
+        },
+        wasm, Execute,
+    },
     DomainsMap, Parameters, PeersIds,
 };
 
@@ -216,21 +223,24 @@ impl WorldStateView {
     fn process_trigger(
         &self,
         id: &TriggerId,
-        action: &dyn ActionTrait,
+        engine: wasmtime::Engine,
+        action: &dyn ActionTrait<Executable = LoadedExecutable>,
         event: Event,
     ) -> Result<()> {
+        use triggers::set::LoadedExecutable::*;
         let authority = action.technical_account();
 
         match action.executable() {
-            Executable::Instructions(instructions) => {
+            Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
-            Executable::Wasm(bytes) => {
+            Wasm(module) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
                     .with_configuration(self.config.wasm_runtime_config)
+                    .with_engine(engine)
                     .build()?;
                 wasm_runtime
-                    .execute_trigger(self, id, authority.clone(), bytes, event)
+                    .execute_trigger_module(self, id, authority.clone(), module, event)
                     .map_err(Into::into)
             }
         }
@@ -293,8 +303,8 @@ impl WorldStateView {
         let res = self
             .world
             .triggers
-            .inspect_matched(|id, action, event| -> Result<()> {
-                self.process_trigger(id, action, event)
+            .inspect_matched(|id, engine, action, event| -> Result<()> {
+                self.process_trigger(id, engine, action, event)
             });
 
         if let Err(errors) = res {
