@@ -161,11 +161,35 @@
       }
     ]
   },
-  "Action<FilterBox>": {
+  "Action<FilterBox, Executable>": {
     "Struct": [
       {
         "name": "executable",
         "type": "Executable"
+      },
+      {
+        "name": "repeats",
+        "type": "Repeats"
+      },
+      {
+        "name": "technical_account",
+        "type": "AccountId"
+      },
+      {
+        "name": "filter",
+        "type": "FilterBox"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
+  },
+  "Action<FilterBox, OptimizedExecutable>": {
+    "Struct": [
+      {
+        "name": "executable",
+        "type": "OptimizedExecutable"
       },
       {
         "name": "repeats",
@@ -1948,7 +1972,7 @@
       },
       {
         "name": "Trigger",
-        "type": "Trigger<FilterBox>"
+        "type": "TriggerBox"
       },
       {
         "name": "Role",
@@ -2365,6 +2389,18 @@
       {
         "name": "Fixed",
         "type": "Fixed"
+      }
+    ]
+  },
+  "OptimizedExecutable": {
+    "Enum": [
+      {
+        "name": "WasmInternalRepr",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "Instructions",
+        "type": "Vec<InstructionBox>"
       }
     ]
   },
@@ -3469,7 +3505,7 @@
       }
     ]
   },
-  "Trigger<FilterBox>": {
+  "Trigger<FilterBox, Executable>": {
     "Struct": [
       {
         "name": "id",
@@ -3477,7 +3513,31 @@
       },
       {
         "name": "action",
-        "type": "Action<FilterBox>"
+        "type": "Action<FilterBox, Executable>"
+      }
+    ]
+  },
+  "Trigger<FilterBox, OptimizedExecutable>": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "action",
+        "type": "Action<FilterBox, OptimizedExecutable>"
+      }
+    ]
+  },
+  "TriggerBox": {
+    "Enum": [
+      {
+        "name": "Raw",
+        "type": "Trigger<FilterBox, Executable>"
+      },
+      {
+        "name": "Optimized",
+        "type": "Trigger<FilterBox, OptimizedExecutable>"
       }
     ]
   },

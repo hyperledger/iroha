@@ -87,7 +87,7 @@ impl Execute for RegisterBox {
             }
             RegistrableBox::Asset(asset) => Register::<Asset>::new(*asset).execute(authority, wsv),
             RegistrableBox::Trigger(trigger) => {
-                Register::<Trigger<FilterBox>>::new(*trigger).execute(authority, wsv)
+                Register::<Trigger<FilterBox, Executable>>::new(*trigger).execute(authority, wsv)
             }
             RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
             RegistrableBox::PermissionTokenDefinition(token_definition) => {
@@ -126,7 +126,8 @@ impl Execute for UnregisterBox {
             }
             IdBox::RoleId(role_id) => Unregister::<Role>::new(role_id).execute(authority, wsv),
             IdBox::TriggerId(trigger_id) => {
-                Unregister::<Trigger<FilterBox>>::new(trigger_id).execute(authority, wsv)
+                Unregister::<Trigger<FilterBox, Executable>>::new(trigger_id)
+                    .execute(authority, wsv)
             }
             IdBox::ValidatorId(validator_id) => {
                 Unregister::<iroha_data_model::permission::Validator>::new(validator_id)
@@ -167,7 +168,8 @@ impl Execute for MintBox {
                     .execute(authority, wsv)
             }
             (IdBox::TriggerId(trigger_id), Value::Numeric(NumericValue::U32(quantity))) => {
-                Mint::<Trigger<FilterBox>, u32>::new(quantity, trigger_id).execute(authority, wsv)
+                Mint::<Trigger<FilterBox, Executable>, u32>::new(quantity, trigger_id)
+                    .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::Mint.into())),
         }
