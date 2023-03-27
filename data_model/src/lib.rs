@@ -49,7 +49,7 @@ use iroha_primitives::{
 };
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
-use prelude::TransactionQueryResult;
+use prelude::{Executable, TransactionQueryResult};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumDiscriminants;
@@ -432,7 +432,7 @@ model! {
         /// [`PeerId`](`peer::PeerId`) variant.
         PeerId(<peer::Peer as Identifiable>::Id),
         /// [`TriggerId`](trigger::TriggerId) variant.
-        TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
+        TriggerId(<trigger::Trigger<FilterBox, Executable> as Identifiable>::Id),
         /// [`RoleId`](`role::RoleId`) variant.
         RoleId(<role::Role as Identifiable>::Id),
         /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
@@ -458,7 +458,7 @@ model! {
         /// [`Asset`](`asset::Asset`) variant.
         Asset(Box<<asset::Asset as Registered>::With>),
         /// [`Trigger`](`trigger::Trigger`) variant.
-        Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
+        Trigger(Box<<trigger::Trigger<FilterBox, Executable> as Registered>::With>),
         /// [`Role`](`role::Role`) variant.
         Role(Box<<role::Role as Registered>::With>),
         /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
@@ -489,8 +489,8 @@ model! {
         AssetDefinition(Box<asset::AssetDefinition>),
         /// [`Asset`](`asset::Asset`) variant.
         Asset(Box<asset::Asset>),
-        /// [`Trigger`](`trigger::Trigger`) variant.
-        Trigger(Box<trigger::Trigger<FilterBox>>),
+        /// [`TriggerBox`] variant.
+        Trigger(TriggerBox),
         /// [`Role`](`role::Role`) variant.
         Role(Box<role::Role>),
         /// [`PermissionTokenDefinition`](`permission::token::PermissionTokenDefinition`) variant.
@@ -499,6 +499,27 @@ model! {
         Validator(Box<permission::Validator>),
         /// [`Parameter`](`parameter::Parameter`) variant.
         Parameter(Box<parameter::Parameter>),
+    }
+
+    /// Sized container for triggers with different executables.
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Hash, Ord, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub enum TriggerBox {
+        /// Un-optimized [`Trigger`](`trigger::Trigger`) submitted from client to Iroha.
+        Raw(Box<trigger::Trigger<FilterBox, Executable>>),
+        /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
+        Optimized(Box<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>>),
+    }
+}
+
+impl Identifiable for TriggerBox {
+    type Id = trigger::TriggerId;
+
+    fn id(&self) -> &Self::Id {
+        match self {
+            TriggerBox::Raw(trigger) => trigger.id(),
+            TriggerBox::Optimized(trigger) => trigger.id(),
+        }
     }
 }
 
@@ -845,7 +866,6 @@ from_and_try_from_value_identifiablebox!(
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
-    Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
     Validator(Box<permission::Validator>),
@@ -861,7 +881,7 @@ from_and_try_from_value_identifiable!(
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
-    Trigger(Box<trigger::Trigger<FilterBox>>),
+    Trigger(TriggerBox),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
     Validator(Box<permission::Validator>),
@@ -907,11 +927,14 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
-            Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
+            Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
             Validator(validator) => Ok(RegistrableBox::Validator(validator)),
-            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) | Parameter(_) => {
-                Err(Self::Error::default())
-            }
+            Domain(_)
+            | Account(_)
+            | AssetDefinition(_)
+            | Role(_)
+            | Parameter(_)
+            | Trigger(TriggerBox::Optimized(_)) => Err(Self::Error::default()),
         }
     }
 }
@@ -929,7 +952,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             }
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
-            Trigger(trigger) => IdentifiableBox::Trigger(trigger),
+            Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(trigger)),
             PermissionTokenDefinition(token_definition) => {
                 IdentifiableBox::PermissionTokenDefinition(token_definition)
             }
@@ -1059,6 +1082,45 @@ impl TryFrom<f64> for Value {
             .try_into()
             .map(NumericValue::Fixed)
             .map(Value::Numeric)
+    }
+}
+
+impl From<trigger::Trigger<FilterBox, Executable>> for Value {
+    fn from(trigger: trigger::Trigger<FilterBox, Executable>) -> Self {
+        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(Box::new(trigger))))
+    }
+}
+
+impl From<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>> for Value {
+    fn from(trigger: trigger::Trigger<FilterBox, trigger::OptimizedExecutable>) -> Self {
+        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(Box::new(
+            trigger,
+        ))))
+    }
+}
+
+impl TryFrom<Value> for trigger::Trigger<FilterBox, Executable> {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(trigger))) = value {
+            return Ok(*trigger);
+        }
+
+        Err(Self::Error::default())
+    }
+}
+
+impl TryFrom<Value> for trigger::Trigger<FilterBox, trigger::OptimizedExecutable> {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger))) = value
+        {
+            return Ok(*trigger);
+        }
+
+        Err(Self::Error::default())
     }
 }
 
