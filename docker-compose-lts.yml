@@ -19,7 +19,7 @@ services:
       - "8080:8080"
       - "8180:8180"
     volumes:
-      - './configs/peer:/config'
+      - './configs/peer/legacy_lts:/config'
     init: true
     command: iroha --submit-genesis
 
@@ -41,7 +41,7 @@ services:
       - "8081:8081"
       - "8181:8181"
     volumes:
-      - './configs/peer:/config'
+      - './configs/peer/legacy_lts:/config'
     init: true
 
   iroha2:
@@ -62,7 +62,7 @@ services:
       - "8082:8082"
       - "8182:8182"
     volumes:
-      - './configs/peer:/config'
+      - './configs/peer/legacy_lts:/config'
     init: true
 
   iroha3:
@@ -83,5 +83,5 @@ services:
       - "8083:8083"
       - "8183:8183"
     volumes:
-      - './configs/peer:/config'
+      - './configs/peer/legacy_lts:/config'
     init: true
