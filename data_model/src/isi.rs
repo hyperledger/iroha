@@ -342,11 +342,11 @@ isi! {
     #[display(fmt = "EXECUTE `{trigger_id}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `ExecuteTriggerBox` has no trap representation in `Trigger<FilterBox> as Identifiable>::Id`
+    // SAFETY: `ExecuteTriggerBox` has no trap representation in `Trigger<FilterBox, Executable> as Identifiable>::Id`
     #[ffi_type(unsafe {robust})]
     pub struct ExecuteTriggerBox {
         /// Id of a trigger to execute
-        pub trigger_id: <Trigger<FilterBox> as Identifiable>::Id,
+        pub trigger_id: <Trigger<FilterBox, Executable> as Identifiable>::Id,
     }
 }
 
@@ -453,7 +453,7 @@ model! {
 
 impl ExecuteTriggerBox {
     /// Construct [`ExecuteTriggerBox`]
-    pub fn new(trigger_id: <Trigger<FilterBox> as Identifiable>::Id) -> Self {
+    pub fn new(trigger_id: <Trigger<FilterBox, Executable> as Identifiable>::Id) -> Self {
         Self { trigger_id }
     }
     /// Length of contained instructions and queries.
@@ -801,6 +801,9 @@ pub mod error {
             /// Failed to validate.
             #[display(fmt = "Failed to validate: {_0}")]
             Validate(#[cfg_attr(feature = "std", source)] ValidationError),
+            /// Invalid instruction parameter
+            #[display(fmt = "Invalid parameter: {_0}")]
+            InvalidParameter(InvalidParameterError)
         }
 
         /// Generic structure used to represent a mismatch
@@ -869,6 +872,16 @@ pub mod error {
             #[display(fmt = "This asset was set as infinitely mintable. You cannot forbid its minting.")]
             ForbidMintOnMintable,
         }
+
+        /// Invalid instruction parameter error
+        #[derive(Debug, Display, Clone, PartialEq, Eq)]
+        #[ffi_type(opaque)]
+        #[repr(u8)]
+        pub enum InvalidParameterError {
+            /// Invalid WASM binary
+            #[display(fmt = "Invalid WASM binary: {_0}")]
+            Wasm(String),
+        }
     }
 
     #[cfg(feature = "std")]
@@ -882,6 +895,9 @@ pub mod error {
 
     #[cfg(feature = "std")]
     impl std::error::Error for MintabilityError {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for InvalidParameterError {}
 
     impl From<FixedPointOperationError> for InstructionExecutionFailure {
         fn from(err: FixedPointOperationError) -> Self {

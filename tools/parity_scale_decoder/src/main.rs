@@ -222,7 +222,7 @@ mod tests {
         );
         let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
-        let action = Action::new(
+        let action = Action::<FilterBox, Executable>::new(
             vec![MintBox::new(1_u32, rose_id).into()],
             Repeats::Indefinitely,
             account_id,
@@ -234,7 +234,7 @@ mod tests {
 
         decode_sample(
             "trigger.bin",
-            String::from("iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox>"),
+            String::from("iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox, iroha_data_model::transaction::Executable>"),
             &trigger,
         );
     }

@@ -49,8 +49,9 @@ use iroha_primitives::{
     small::{Array as SmallArray, SmallVec},
 };
 use iroha_schema::{IntoSchema, MetaMap};
+use isi::Instruction;
 use parity_scale_codec::{Decode, Encode};
-use prelude::TransactionQueryResult;
+use prelude::{Executable, TransactionQueryResult, WasmSmartContract};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumDiscriminants;
@@ -432,7 +433,7 @@ model! {
         /// [`PeerId`](`peer::Id`) variant.
         PeerId(<peer::Peer as Identifiable>::Id),
         /// [`TriggerId`](trigger::Id) variant.
-        TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
+        TriggerId(<trigger::Trigger<FilterBox, Executable> as Identifiable>::Id),
         /// [`RoleId`](`role::Id`) variant.
         RoleId(<role::Role as Identifiable>::Id),
         /// [`PermissionTokenId`](`permission::token::Id`) variant.
@@ -458,7 +459,7 @@ model! {
         /// [`Asset`](`asset::Asset`) variant.
         Asset(Box<<asset::Asset as Registered>::With>),
         /// [`Trigger`](`trigger::Trigger`) variant.
-        Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
+        Trigger(Box<<trigger::Trigger<FilterBox, Executable> as Registered>::With>),
         /// [`Role`](`role::Role`) variant.
         Role(Box<<role::Role as Registered>::With>),
         /// [`PermissionTokenId`](`permission::token::Id`) variant.
@@ -490,7 +491,7 @@ model! {
         /// [`Asset`](`asset::Asset`) variant.
         Asset(Box<asset::Asset>),
         /// [`Trigger`](`trigger::Trigger`) variant.
-        Trigger(Box<trigger::Trigger<FilterBox>>),
+        Trigger(Box<trigger::Trigger<FilterBox, Executable>>),
         /// [`Role`](`role::Role`) variant.
         Role(Box<role::Role>),
         /// [`PermissionTokenDefinition`](`permission::token::Definition`) variant.
@@ -845,7 +846,7 @@ from_and_try_from_value_identifiablebox!(
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
-    Trigger(Box<trigger::Trigger<FilterBox>>),
+    Trigger(Box<trigger::Trigger<FilterBox, Executable>>),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
@@ -861,7 +862,7 @@ from_and_try_from_value_identifiable!(
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
-    Trigger(Box<trigger::Trigger<FilterBox>>),
+    Trigger(Box<trigger::Trigger<FilterBox, Executable>>),
     Role(Box<role::Role>),
     PermissionTokenDefinition(Box<permission::token::Definition>),
     Validator(Box<permission::Validator>),
@@ -879,6 +880,65 @@ impl TryFrom<Value> for RegistrableBox {
         } else {
             Err(Self::Error::default())
         }
+    }
+}
+
+impl TryFrom<Value> for trigger::Trigger<FilterBox, Option<Vec<Instruction>>> {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        let Value::Identifiable(IdentifiableBox::Trigger(trigger)) = value else {
+            return Err(Self::Error::default());
+        };
+
+        let trigger::action::Action {
+            executable,
+            repeats,
+            technical_account,
+            filter,
+            metadata,
+        } = trigger.action;
+        let executable_opt = if let Executable::Instructions(instructions) = executable {
+            Some(instructions)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            id: trigger.id,
+            action: trigger::action::Action::new(
+                executable_opt,
+                repeats,
+                technical_account,
+                filter,
+            )
+            .with_metadata(metadata),
+        })
+    }
+}
+
+impl From<trigger::Trigger<FilterBox, Option<Vec<Instruction>>>> for Value {
+    fn from(trigger: trigger::Trigger<FilterBox, Option<Vec<Instruction>>>) -> Self {
+        let trigger::action::Action {
+            executable: executable_opt,
+            repeats,
+            technical_account,
+            filter,
+            metadata,
+        } = trigger.action;
+
+        let executable = if let Some(instructions) = executable_opt {
+            Executable::Instructions(instructions)
+        } else {
+            // This encoding is probably better than introducing new `Value` variant
+            Executable::Wasm(WasmSmartContract::new(Vec::new()))
+        };
+
+        Self::Identifiable(IdentifiableBox::Trigger(Box::new(trigger::Trigger::new(
+            trigger.id,
+            trigger::action::Action::new(executable, repeats, technical_account, filter)
+                .with_metadata(metadata),
+        ))))
     }
 }
 

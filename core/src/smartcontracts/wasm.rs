@@ -583,34 +583,36 @@ impl<'wrld> Runtime<'wrld> {
         let state =
             State::new(wsv, account_id, self.config, span).with_validator(max_instruction_count);
 
-        self.execute_main_with_state(bytes, state)
+        self.execute_smart_contract_with_state(bytes, state)
     }
 
-    /// Executes the given wasm trigger
+    /// Executes the given wasm trigger module
     ///
     /// # Errors
     ///
-    /// - if unable to construct wasm module or instance of wasm module
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
-    pub fn execute_trigger(
+    pub fn execute_trigger_module(
         &mut self,
         wsv: &WorldStateView,
         id: &TriggerId,
         account_id: AccountId,
-        bytes: impl AsRef<[u8]>,
+        module: &wasmtime::Module,
         event: Event,
     ) -> Result<()> {
         let span = wasm_log_span!("Trigger execution", %id, %account_id);
         let state = State::new(wsv, account_id, self.config, span).with_triggering_event(event);
-        self.execute_main_with_state(bytes, state)
+
+        let mut store = self.create_store(state)?;
+        let instance = self.instantiate_module(module, &mut store)?;
+
+        Self::execute_main_with_store(&instance, &mut store)
     }
 
     /// Execute the given module of runtime permission validator
     ///
     /// # Errors
     ///
-    /// - if module instantiation fails
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
     pub fn execute_permission_validator_module(
@@ -626,10 +628,7 @@ impl<'wrld> Runtime<'wrld> {
             .with_operation_to_validate(operation);
 
         let mut store = self.create_store(state)?;
-        let instance = self
-            .linker
-            .instantiate(&mut store, module)
-            .map_err(|err| Error::Instantiation(eyre!(Box::new(err))))?;
+        let instance = self.instantiate_module(module, &mut store)?;
 
         let validate_fn = instance
             .get_typed_func::<_, WasmUsize, _>(&mut store, export::WASM_MAIN_FN_NAME)
@@ -641,9 +640,7 @@ impl<'wrld> Runtime<'wrld> {
             .map_err(Error::ExportFnCall)?;
 
         let memory = Self::get_memory(&mut (&instance, &mut store))?;
-        let dealloc_fn = instance
-            .get_typed_func(&mut store, export::WASM_DEALLOC_FN)
-            .map_err(|err| Error::ExportNotFound(eyre!(Box::new(err))))?;
+        let dealloc_fn = Self::get_dealloc_fn(&instance, &mut store)?;
         Self::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
     }
 
@@ -663,19 +660,49 @@ impl<'wrld> Runtime<'wrld> {
         let span = wasm_log_span!("Smart contract execution", %account_id);
         let state = State::new(wsv, account_id, self.config, span);
 
-        self.execute_main_with_state(bytes, state)
+        self.execute_smart_contract_with_state(bytes, state)
     }
 
-    fn execute_main_with_state(&mut self, bytes: impl AsRef<[u8]>, state: State) -> Result<()> {
+    fn execute_smart_contract_with_state(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        state: State,
+    ) -> Result<()> {
         let mut store = self.create_store(state)?;
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        let main_fn = smart_contract
+        Self::execute_main_with_store(&smart_contract, &mut store)
+    }
+
+    fn execute_main_with_store(
+        instance: &wasmtime::Instance,
+        mut store: &mut wasmtime::Store<State>,
+    ) -> Result<()> {
+        let main_fn = instance
             .get_typed_func(&mut store, export::WASM_MAIN_FN_NAME)
             .map_err(|err| Error::ExportNotFound(eyre!(Box::new(err))))?;
 
         // NOTE: This function takes ownership of the pointer
-        main_fn.call(&mut store, ()).map_err(Error::ExportFnCall)
+        main_fn.call(store, ()).map_err(Error::ExportFnCall)
+    }
+
+    fn instantiate_module(
+        &self,
+        module: &wasmtime::Module,
+        store: &mut wasmtime::Store<State<'wrld>>,
+    ) -> Result<wasmtime::Instance> {
+        self.linker
+            .instantiate(store, module)
+            .map_err(|err| Error::Instantiation(eyre!(Box::new(err))))
+    }
+
+    fn get_dealloc_fn(
+        instance: &wasmtime::Instance,
+        store: &mut wasmtime::Store<State>,
+    ) -> Result<wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>> {
+        instance
+            .get_typed_func(store, export::WASM_DEALLOC_FN)
+            .map_err(|err| Error::ExportNotFound(eyre!(Box::new(err))))
     }
 
     /// Decode object from the given `memory` at the given `offset` with the given `len`

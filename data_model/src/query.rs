@@ -991,8 +991,8 @@ pub mod trigger {
 
     use super::Query;
     use crate::{
-        domain::prelude::*, events::FilterBox, expression::EvaluatesTo, trigger::Trigger,
-        Identifiable, Name, Value,
+        domain::prelude::*, events::FilterBox, expression::EvaluatesTo, prelude::Instruction,
+        trigger::Trigger, Executable, Identifiable, Name, Value,
     };
 
     query! {
@@ -1005,7 +1005,7 @@ pub mod trigger {
     }
 
     impl Query for FindAllActiveTriggerIds {
-        type Output = Vec<<Trigger<FilterBox> as Identifiable>::Id>;
+        type Output = Vec<<Trigger<FilterBox, Executable> as Identifiable>::Id>;
     }
 
     query! {
@@ -1013,16 +1013,16 @@ pub mod trigger {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` trigger")]
         #[repr(transparent)]
-        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>`
+        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggerById {
             /// The Identification of the trigger to be found.
-            pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+            pub id: EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>,
         }
     }
 
     impl Query for FindTriggerById {
-        type Output = Trigger<FilterBox>;
+        type Output = Trigger<FilterBox, Option<Vec<Instruction>>>;
     }
 
     query! {
@@ -1032,7 +1032,7 @@ pub mod trigger {
         #[ffi_type]
         pub struct FindTriggerKeyValueByIdAndKey {
             /// The Identification of the trigger to be found.
-            pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+            pub id: EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>,
             /// The key inside the metadata dictionary to be returned.
             pub key: EvaluatesTo<Name>,
         }
@@ -1056,12 +1056,14 @@ pub mod trigger {
     }
 
     impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<FilterBox>>;
+        type Output = Vec<Trigger<FilterBox, Option<Vec<Instruction>>>>;
     }
 
     impl FindTriggerById {
         /// Construct [`FindTriggerById`].
-        pub fn new(id: impl Into<EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>>) -> Self {
+        pub fn new(
+            id: impl Into<EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>>,
+        ) -> Self {
             Self { id: id.into() }
         }
     }
@@ -1069,7 +1071,7 @@ pub mod trigger {
     impl FindTriggerKeyValueByIdAndKey {
         /// Construct [`FindTriggerKeyValueByIdAndKey`].
         pub fn new(
-            id: impl Into<EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>>,
+            id: impl Into<EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>>,
             key: impl Into<EvaluatesTo<Name>>,
         ) -> Self {
             Self {
