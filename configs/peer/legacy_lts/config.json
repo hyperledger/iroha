@@ -1,0 +1,95 @@
+{
+  "PUBLIC_KEY": null,
+  "PRIVATE_KEY": null,
+  "DISABLE_PANIC_TERMINAL_COLORS": false,
+  "KURA": {
+    "INIT_MODE": "strict",
+    "BLOCK_STORE_PATH": "./storage",
+    "BLOCKS_PER_STORAGE_FILE": 1000,
+    "ACTOR_CHANNEL_CAPACITY": 100,
+    "DEBUG_OUTPUT_NEW_BLOCKS": false
+  },
+  "SUMERAGI": {
+    "KEY_PAIR": null,
+    "PEER_ID": null,
+    "BLOCK_TIME_MS": 1000,
+    "TRUSTED_PEERS": null,
+    "COMMIT_TIME_LIMIT_MS": 2000,
+    "TX_RECEIPT_TIME_LIMIT_MS": 500,
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 4194304
+    },
+    "ACTOR_CHANNEL_CAPACITY": 100,
+    "GOSSIP_BATCH_SIZE": 500,
+    "GOSSIP_PERIOD_MS": 1000
+  },
+  "TORII": {
+    "P2P_ADDR": null,
+    "API_URL": null,
+    "TELEMETRY_URL": null,
+    "MAX_TRANSACTION_SIZE": 32768,
+    "MAX_CONTENT_LEN": 16384000
+  },
+  "BLOCK_SYNC": {
+    "GOSSIP_PERIOD_MS": 10000,
+    "BLOCK_BATCH_SIZE": 4,
+    "ACTOR_CHANNEL_CAPACITY": 100
+  },
+  "QUEUE": {
+    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
+    "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
+    "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
+    "FUTURE_THRESHOLD_MS": 1000
+  },
+  "LOGGER": {
+    "MAX_LOG_LEVEL": "INFO",
+    "TELEMETRY_CAPACITY": 1000,
+    "COMPACT_MODE": false,
+    "LOG_FILE_PATH": null,
+    "TERMINAL_COLORS": true
+  },
+  "GENESIS": {
+    "ACCOUNT_PUBLIC_KEY": null,
+    "ACCOUNT_PRIVATE_KEY": null,
+    "WAIT_FOR_PEERS_RETRY_COUNT_LIMIT": 100,
+    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500,
+    "GENESIS_SUBMISSION_DELAY_MS": 1000
+  },
+  "WSV": {
+    "ASSET_METADATA_LIMITS": {
+      "max_len": 1048576,
+      "max_entry_byte_size": 4096
+    },
+    "ASSET_DEFINITION_METADATA_LIMITS": {
+      "max_len": 1048576,
+      "max_entry_byte_size": 4096
+    },
+    "ACCOUNT_METADATA_LIMITS": {
+      "max_len": 1048576,
+      "max_entry_byte_size": 4096
+    },
+    "DOMAIN_METADATA_LIMITS": {
+      "max_len": 1048576,
+      "max_entry_byte_size": 4096
+    },
+    "IDENT_LENGTH_LIMITS": {
+      "min": 1,
+      "max": 128
+    },
+    "WASM_RUNTIME_CONFIG": {
+      "FUEL_LIMIT": 1000000,
+      "MAX_MEMORY": 524288000
+    }
+  },
+  "NETWORK": {
+    "ACTOR_CHANNEL_CAPACITY": 100
+  },
+  "TELEMETRY": {
+    "NAME": null,
+    "URL": null,
+    "MIN_RETRY_PERIOD": 1,
+    "MAX_RETRY_DELAY_EXPONENT": 4,
+    "FILE": null
+  }
+}
