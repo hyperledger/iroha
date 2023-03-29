@@ -12,7 +12,6 @@ use std::{
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_actor::{broker::*, prelude::*};
 use iroha_client::client::Client;
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
@@ -122,39 +121,6 @@ impl TestGenesis for GenesisNetwork {
 }
 
 impl Network {
-    /// Send message to an actor instance on peers.
-    ///
-    /// # Panics
-    /// Programmer error. `self.peers()` should already have `iroha`.
-    pub async fn send_to_actor_on_peers<M, A>(
-        &self,
-        select_actor: impl Fn(&Iroha) -> &Addr<A>,
-        msg: M,
-    ) -> Vec<(M::Result, PeerId)>
-    where
-        M: Message + Clone + Send + 'static,
-        M::Result: Send,
-        A: Actor + ContextHandler<M>,
-    {
-        let fut = self
-            .peers()
-            .map(|peer| {
-                (
-                    select_actor(peer.iroha.as_ref().expect("Already initialised")),
-                    peer.id.clone(),
-                )
-            })
-            .map(|(actor, peer_id)| async { (actor.send(msg.clone()).await, peer_id) })
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<_>>();
-        time::timeout(Duration::from_secs(60), fut)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|(result, peer_id)| (result.expect("Always `Ok`"), peer_id))
-            .collect()
-    }
-
     /// Collect the freeze handles from all the peers in the network.
     #[cfg(debug_assertions)]
     pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
@@ -396,8 +362,6 @@ pub struct Peer {
     pub telemetry_address: String,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
-    /// Broker
-    pub broker: Broker,
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
     /// Iroha itself
@@ -470,14 +434,13 @@ impl Peer {
             api_addr = %self.api_address,
             telemetry_addr = %self.telemetry_address
         );
-        let broker = self.broker.clone();
         let telemetry =
             iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, broker, telemetry)
+                let mut iroha = Iroha::with_genesis(genesis, configuration, telemetry)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
@@ -538,7 +501,6 @@ impl Peer {
             telemetry_address,
             shutdown,
             iroha: None,
-            broker: Broker::new(),
             temp_dir: None,
         })
     }

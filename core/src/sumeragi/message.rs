@@ -21,7 +21,7 @@ use crate::{
     VersionedAcceptedTransaction,
 };
 
-declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
+declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant);
 
 impl VersionedPacket {
     /// Convert `&`[`Self`] to V1 reference
@@ -48,7 +48,7 @@ impl VersionedPacket {
 
 /// Helper structure, wrapping messages and view change proofs.
 #[version_with_scale(n = 1, versioned = "VersionedPacket")]
-#[derive(Debug, Clone, Decode, Encode, iroha_actor::Message)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct MessagePacket {
     /// Proof of view change. As part of this message handling, all
     /// peers which agree with view change should sign it.
