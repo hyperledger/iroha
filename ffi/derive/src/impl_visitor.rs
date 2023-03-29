@@ -156,11 +156,11 @@ impl FnDescriptor {
     }
 
     pub fn self_ty_name(&self) -> Option<&Ident> {
-        self.self_ty.as_ref().map(get_ident)
+        self.self_ty.as_ref().map(last_seg_ident)
     }
 
     pub fn trait_name(&self) -> Option<&Ident> {
-        self.trait_name.as_ref().map(get_ident)
+        self.trait_name.as_ref().map(last_seg_ident)
     }
 }
 
@@ -472,7 +472,7 @@ impl VisitMut for TypeImplTraitResolver {
     }
 }
 
-fn get_ident(path: &syn::Path) -> &Ident {
+fn last_seg_ident(path: &syn::Path) -> &Ident {
     &path.segments.last().expect_or_abort("Defined").ident
 }
 

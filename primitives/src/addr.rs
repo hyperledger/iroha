@@ -14,8 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::ffi;
 
 ffi::ffi_item! {
-    /// An Iroha-native version of `std::net::Ipv4Addr`, duplicated here
-    /// to remain `no_std` compatible.
+    /// An Iroha-native version of `std::net::Ipv4Addr`, duplicated here to remain `no_std` compatible.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From, AsRef, IntoIterator, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[serde(transparent)]
     #[repr(transparent)]
@@ -61,8 +60,7 @@ impl Ipv4Addr {
 }
 
 ffi::ffi_item! {
-    /// An Iroha-native version of `std::net::Ipv6Addr`, duplicated here
-    /// to remain `no_std` compatible.
+    /// An Iroha-native version of `std::net::Ipv6Addr`, duplicated here to remain `no_std` compatible.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From, AsRef, IntoIterator, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[serde(transparent)]
     #[repr(transparent)]
