@@ -2,8 +2,6 @@
 //! should be reserved for testing, and only [`NoFault`], should be
 //! used in code.
 #![allow(clippy::cognitive_complexity)]
-use std::sync::mpsc;
-
 use iroha_crypto::HashOf;
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
 use parking_lot::Mutex;
@@ -57,12 +55,10 @@ pub struct SumeragiWithFault<F: FaultInjection> {
     pub transaction_limits: TransactionLimits,
     /// [`TransactionValidator`] instance that we use
     pub transaction_validator: TransactionValidator,
-    /// Broker
-    pub broker: Broker,
     /// Kura instance used for IO
     pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
-    pub network: Addr<IrohaNetwork>,
+    pub network: IrohaNetwork,
     /// [`PhantomData`] used to generify over [`FaultInjection`] implementations
     pub fault_injection: PhantomData<F>, // TODO: remove
     /// The size of batch that is being gossiped. Smaller size leads
@@ -72,7 +68,7 @@ pub struct SumeragiWithFault<F: FaultInjection> {
     /// the time to sync, but can overload the network.
     pub gossip_period: Duration,
     /// [`PeerId`]s of the peers that are currently online.
-    pub current_online_peers: Mutex<Vec<PeerId>>,
+    pub current_online_peers: Mutex<HashSet<PeerId>>,
     /// Receiver channel.
     // TODO: Mutex shouldn't be required and must be removed
     pub message_receiver: Mutex<mpsc::Receiver<MessagePacket>>,
@@ -129,9 +125,8 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
         events_sender: EventsSender,
         wsv: WorldStateView,
         transaction_validator: TransactionValidator,
-        broker: Broker,
         kura: Arc<Kura>,
-        network: Addr<IrohaNetwork>,
+        network: IrohaNetwork,
         message_receiver: mpsc::Receiver<MessagePacket>,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -149,13 +144,12 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             block_time: Duration::from_millis(configuration.block_time_ms),
             transaction_limits: configuration.transaction_limits,
             transaction_validator,
-            broker,
             kura,
             network,
             fault_injection: PhantomData,
             gossip_batch_size: configuration.gossip_batch_size,
             gossip_period: Duration::from_millis(configuration.gossip_period_ms),
-            current_online_peers: Mutex::new(Vec::new()),
+            current_online_peers: Mutex::new(HashSet::new()),
             message_receiver: Mutex::new(message_receiver),
             debug_force_soft_fork: soft_fork,
         }
@@ -179,9 +173,9 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     fn post_packet_to(&self, packet: MessagePacket, peer: &PeerId) {
         let post = iroha_p2p::Post {
             data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
-            peer: peer.clone(),
+            peer_id: peer.clone(),
         };
-        self.broker.issue_send_sync(&post);
+        self.network.post_blocking(post);
     }
 
     #[allow(clippy::needless_pass_by_value, single_use_lifetimes)] // TODO: uncomment when anonymous lifetimes are stable
@@ -224,7 +218,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
     fn connect_peers(&self, topology: &Topology) {
         let peers_expected = {
             let mut res = topology.sorted_peers.clone();
-            res.retain(|id| id.address != self.peer_id.address);
+            res.retain(|id| id != &self.peer_id);
             res.shuffle(&mut rand::thread_rng());
             res
         };
@@ -237,9 +231,9 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
                 .position(|x| x == &peer_to_be_connected.public_key)
                 .map_or_else(
                     || {
-                        self.broker.issue_send_sync(&ConnectPeer {
-                            peer: peer_to_be_connected.clone(),
-                        })
+                        self.network.connect_peer_blocking(ConnectPeer {
+                            peer_id: peer_to_be_connected.clone(),
+                        });
                     },
                     |index| {
                         // By removing the connected to peers that we should be connected to,
@@ -253,7 +247,7 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
 
         for peer in to_disconnect_peers {
             info!(%peer, "Disconnecting peer");
-            self.broker.issue_send_sync(&DisconnectPeer(peer));
+            self.network.disconnect_peer_blocking(DisconnectPeer(peer));
         }
     }
 
@@ -315,8 +309,12 @@ impl<F: FaultInjection> SumeragiWithFault<F> {
             state.current_topology.is_consensus_required(),
             "Only peer in network, yet required to receive genesis topology. This is a configuration error."
         );
+        let mut last_connect_peers_instant = Instant::now();
         loop {
-            self.connect_peers(&state.current_topology);
+            if last_connect_peers_instant.elapsed().as_millis() > 1000 {
+                self.connect_peers(&state.current_topology);
+                last_connect_peers_instant = Instant::now();
+            }
             std::thread::sleep(Duration::from_millis(50));
             early_return(shutdown_receiver)?;
             // we must connect to peers so that our block_sync can find us

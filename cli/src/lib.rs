@@ -14,14 +14,13 @@ use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use eyre::ContextCompat as _;
-use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
     path::Path as ConfigPath,
 };
 use iroha_core::{
-    block_sync::BlockSynchronizer,
+    block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
@@ -33,10 +32,10 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
-use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
+use iroha_p2p::OnlinePeers;
 use tokio::{
     signal,
-    sync::{broadcast, Notify},
+    sync::{broadcast, mpsc, Notify},
     task,
 };
 use torii::Torii;
@@ -86,14 +85,10 @@ pub struct Iroha {
     pub sumeragi: Arc<Sumeragi>,
     /// Kura — block storage
     pub kura: Arc<Kura>,
-    /// Block synchronization actor
-    pub block_sync: AlwaysAddr<BlockSynchronizer>,
     /// Torii web server
     pub torii: Option<Torii>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
-    /// Relay that redirects messages from the network subsystem to core subsystems.
-    _sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>, // TODO: figure out if truly unused.
     /// A boolean value indicating whether or not the peers will recieve data from the network. Used in
     /// sumeragi testing.
     #[cfg(debug_assertions)]
@@ -107,36 +102,41 @@ impl Drop for Iroha {
     }
 }
 
-struct FromNetworkBaseRelay {
+struct NetworkRelay {
     sumeragi: Arc<Sumeragi>,
-    broker: Broker,
+    block_sync: BlockSynchronizerHandle,
+    network: IrohaNetwork,
+    shutdown_notify: Arc<Notify>,
     #[cfg(debug_assertions)]
     freeze_status: Arc<AtomicBool>,
 }
 
-#[async_trait::async_trait]
-impl Actor for FromNetworkBaseRelay {
-    async fn on_start(&mut self, ctx: &mut iroha_actor::prelude::Context<Self>) {
-        // to start connections
-        self.broker.subscribe::<NetworkBaseRelayOnlinePeers, _>(ctx);
-        self.broker.subscribe::<iroha_core::NetworkMessage, _>(ctx);
+impl NetworkRelay {
+    fn start(self) {
+        tokio::task::spawn(self.run());
     }
-}
 
-#[async_trait::async_trait]
-impl Handler<NetworkBaseRelayOnlinePeers> for FromNetworkBaseRelay {
-    type Result = ();
-
-    async fn handle(&mut self, msg: NetworkBaseRelayOnlinePeers) {
-        self.sumeragi.update_online_peers(msg.online_peers);
+    async fn run(mut self) {
+        let (sender, mut receiver) = mpsc::channel(1);
+        self.network.subscribe_to_peers_messages(sender).await;
+        #[allow(clippy::redundant_pub_crate)]
+        loop {
+            tokio::select! {
+                // Receive message from network
+                Some(msg) = receiver.recv() => self.handle_message(msg).await,
+                // Listen for notifications on online peers
+                online_peers = self.network.wait_online_peers_update() => self.update_online_peers(online_peers),
+                _ = self.shutdown_notify.notified() => {
+                    iroha_logger::info!("NetworkRelay is being shut down.");
+                    break;
+                }
+                else => break,
+            }
+            tokio::task::yield_now().await;
+        }
     }
-}
 
-#[async_trait::async_trait]
-impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
-    type Result = ();
-
-    async fn handle(&mut self, msg: iroha_core::NetworkMessage) -> Self::Result {
+    async fn handle_message(&mut self, msg: iroha_core::NetworkMessage) {
         use iroha_core::NetworkMessage::*;
 
         #[cfg(debug_assertions)]
@@ -148,9 +148,17 @@ impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
             SumeragiPacket(data) => {
                 self.sumeragi.incoming_message(data.into_v1());
             }
-            BlockSync(data) => self.broker.issue_send(data.into_v1()).await,
+            BlockSync(data) => self.block_sync.message(data.into_v1()).await,
             Health => {}
         }
+    }
+
+    fn update_online_peers(&mut self, online_peers: OnlinePeers) {
+        iroha_logger::trace!(
+            online_peers = online_peers.online_peers.len(),
+            "Relay received the updated online peers."
+        );
+        self.sumeragi.update_online_peers(online_peers.online_peers);
     }
 }
 
@@ -218,7 +226,7 @@ impl Iroha {
             None
         };
 
-        Self::with_genesis(genesis, config, Broker::new(), telemetry).await
+        Self::with_genesis(genesis, config, telemetry).await
     }
 
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
@@ -278,7 +286,6 @@ impl Iroha {
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
-        broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {
@@ -289,15 +296,9 @@ impl Iroha {
         }
         let listen_addr = config.torii.p2p_addr.clone();
         iroha_logger::info!(%listen_addr, "Starting peer");
-        let network = IrohaNetwork::new(
-            broker.clone(),
-            listen_addr,
-            config.public_key.clone(),
-            config.network.actor_channel_capacity,
-        )
-        .await
-        .wrap_err("Unable to start P2P-network")?;
-        let network_addr = network.start().await;
+        let network = IrohaNetwork::start(listen_addr, config.public_key.clone())
+            .await
+            .wrap_err("Unable to start P2P-network")?;
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
@@ -344,23 +345,10 @@ impl Iroha {
                 wsv,
                 transaction_validator,
                 Arc::clone(&queue),
-                broker.clone(),
                 Arc::clone(&kura),
-                network_addr.clone(),
+                network.clone(),
             ),
         );
-
-        let freeze_status = Arc::new(AtomicBool::new(false));
-
-        let sumeragi_relay = FromNetworkBaseRelay {
-            sumeragi: Arc::clone(&sumeragi),
-            broker: broker.clone(),
-            #[cfg(debug_assertions)]
-            freeze_status: freeze_status.clone(),
-        }
-        .start()
-        .await
-        .expect_running();
 
         let sumeragi_thread_handler =
             Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis, &block_hashes);
@@ -370,11 +358,21 @@ impl Iroha {
             Arc::clone(&sumeragi),
             Arc::clone(&kura),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
-            broker.clone(),
+            network.clone(),
         )
-        .start()
-        .await
-        .expect_running();
+        .start();
+
+        let freeze_status = Arc::new(AtomicBool::new(false));
+
+        NetworkRelay {
+            sumeragi: Arc::clone(&sumeragi),
+            block_sync,
+            network: network.clone(),
+            shutdown_notify: Arc::clone(&notify_shutdown),
+            #[cfg(debug_assertions)]
+            freeze_status: freeze_status.clone(),
+        }
+        .start();
 
         let torii = Torii::from_configuration(
             config.clone(),
@@ -394,10 +392,8 @@ impl Iroha {
             queue,
             sumeragi,
             kura,
-            block_sync,
             torii,
             thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
-            _sumeragi_relay: sumeragi_relay,
             #[cfg(debug_assertions)]
             freeze_status,
         })

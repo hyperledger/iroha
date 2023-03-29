@@ -7,6 +7,7 @@
     clippy::std_instead_of_alloc
 )]
 use std::{
+    collections::HashSet,
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
     sync::{mpsc, Arc},
@@ -14,7 +15,6 @@ use std::{
 };
 
 use eyre::{Result, WrapErr as _};
-use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::{block::*, prelude::*};
@@ -82,9 +82,8 @@ impl Sumeragi {
         wsv: WorldStateView,
         transaction_validator: TransactionValidator,
         queue: Arc<Queue>,
-        broker: Broker,
         kura: Arc<Kura>,
-        network: Addr<IrohaNetwork>,
+        network: IrohaNetwork,
     ) -> Self {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
@@ -95,7 +94,6 @@ impl Sumeragi {
                 events_sender,
                 wsv,
                 transaction_validator,
-                broker,
                 kura,
                 network,
                 message_receiver,
@@ -217,11 +215,11 @@ impl Sumeragi {
     /// Get a random online peer for use in block synchronization.
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
-        use rand::{seq::SliceRandom, SeedableRng};
+        use rand::{seq::IteratorRandom, SeedableRng};
 
         let rng = &mut rand::rngs::StdRng::from_entropy();
         let peers = self.internal.current_online_peers.lock();
-        peers.choose(rng).map(|id| Peer::new(id.clone()))
+        peers.iter().choose(rng).map(|id| Peer::new(id.clone()))
     }
 
     /// Access the world state view object in a locking fashion.
@@ -328,7 +326,7 @@ impl Sumeragi {
 
     /// Update the sumeragi internal online peers list.
     #[allow(clippy::expect_used)]
-    pub fn update_online_peers(&self, online_peers: Vec<PeerId>) {
+    pub fn update_online_peers(&self, online_peers: HashSet<PeerId>) {
         *self.internal.current_online_peers.lock() = online_peers;
     }
 
