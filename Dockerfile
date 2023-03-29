@@ -1,7 +1,16 @@
 #base stage
 FROM archlinux:base-devel AS builder
 
-RUN pacman -Syu rustup mold musl rust-musl --noconfirm
+# Force-sync packages, install archlinux-keyring, repopulate keys
+RUN pacman -Syy
+RUN pacman -S archlinux-keyring --noconfirm --disable-download-timeout
+RUN rm -rf /etc/pacman.d/gnupg/* && pacman-key --init && pacman-key --populate archlinux
+
+# Install updates
+RUN pacman -Syu --noconfirm --disable-download-timeout
+
+# Set up Rust toolchain
+RUN pacman -S rustup mold musl rust-musl --noconfirm --disable-download-timeout
 RUN rustup toolchain install nightly-2022-12-22
 RUN rustup default nightly-2022-12-22
 RUN rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
