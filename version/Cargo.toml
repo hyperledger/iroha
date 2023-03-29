@@ -24,8 +24,8 @@ iroha_macro = { version = "=2.0.0-pre-rc.9", path = "../macro", default-features
 iroha_schema = { version = "=2.0.0-pre-rc.9", path = "../schema", default-features = false }
 
 parity-scale-codec = { version = "3.1.5", default-features = false, optional = true, features = ["derive"] }
-serde_json = { version = "1.0.83", default-features = false, optional = true, features = ["alloc"] }
-serde = { version = "1.0.142", default-features = false, optional = true, features = ["derive"] }
+serde_json = { version = "1.0.95", default-features = false, optional = true, features = ["alloc", "arbitrary_precision"] }
+serde = { version = "1.0.159", default-features = false, optional = true, features = ["derive"] }
 thiserror = { version = "1.0.32", default-features = false, optional = true }
 warp = { version = "0.3.2", default-features = false, optional = true }
 

@@ -17,8 +17,8 @@ iroha_futures_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 iroha_logger = { version = "=2.0.0-pre-rc.9", path = "../logger" }
 
 rand = "0.8.5"
-serde_json = "1.0.83"
-serde = { version = "1.0.142", features = ["derive"] }
+serde_json = { version = "1.0.95", features = ["arbitrary_precision"] }
+serde = { version = "1.0.159", features = ["derive"] }
 tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread", "macros"] }
 
 [dev-dependencies]
