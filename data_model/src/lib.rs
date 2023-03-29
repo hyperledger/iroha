@@ -519,6 +519,35 @@ pub enum Value {
     Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
 }
 
+#[cfg(test)]
+mod test {
+    use isi::RegisterBox;
+
+    use super::*;
+    use crate::domain::NewDomain;
+
+    #[test]
+    fn deserialize_u128() {
+        serde_json::from_str::<RegisterBox>(
+            "
+           {
+            \"Identifiable\": {
+              \"NewDomain\": {
+                \"id\": \"wonderland\",
+                \"logo\": null,
+                \"metadata\": {
+                  \"key\": {
+                     \"U128\": 1
+                  }
+                }
+              }
+            }
+          }",
+        )
+        .expect("Valid");
+    }
+}
+
 #[cfg(not(target_arch = "aarch64"))]
 ffi::declare_item! {
     /// Cross-platform wrapper for `BlockValue`.
