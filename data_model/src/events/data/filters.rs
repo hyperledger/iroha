@@ -13,18 +13,7 @@ pub type EventFilter = FilterOpt<EntityFilter>;
 /// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
 /// Also `FilterOpt` variant names look better for filter needs
 #[derive(
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-    Hash,
+    Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Decode, Encode, Serialize, IntoSchema, Hash,
 )]
 #[serde(untagged)]
 pub enum FilterOpt<F: Filter> {
@@ -33,6 +22,28 @@ pub enum FilterOpt<F: Filter> {
     AcceptAll,
     /// Use filter `F` to choose acceptable items passed to `filter()` method
     BySome(F),
+}
+
+impl<'de, F: Filter + Deserialize<'de>> serde::Deserialize<'de> for FilterOpt<F> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+        let buffer = serde_json::value::Value::deserialize(deserializer)?;
+        let e1 = match accept_all_as_string::deserialize(buffer.clone()) {
+            Ok(()) => return Ok(Self::AcceptAll),
+            Err(e) => D::Error::custom(e.to_string()),
+        };
+        let e2 = match F::deserialize(buffer) {
+            Ok(filter) => return Ok(Self::BySome(filter)),
+            Err(e) => D::Error::custom(e.to_string()),
+        };
+        Err(D::Error::custom(format!(
+            "Found neither `AcceptAll`: {e1};\nnor `BySome<{}>`: {e2}",
+            core::any::type_name::<F>()
+        )))
+    }
 }
 
 mod accept_all_as_string {
@@ -55,14 +66,14 @@ mod accept_all_as_string {
             type Value = ();
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-                formatter.write_str("an AcceptAll string")
+                formatter.write_str("an `AcceptAll` string")
             }
 
             fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
                 if s == "AcceptAll" {
                     Ok(())
                 } else {
-                    Err(E::custom(format!("expected AcceptAll, got {}", s)))
+                    Err(E::custom(format!("expected `AcceptAll`, got {}", s)))
                 }
             }
         }

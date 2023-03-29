@@ -8,7 +8,7 @@ edition = "2021"
 iroha_config = { version = "=2.0.0-pre-rc.9", path = "../config" }
 
 color-eyre = "0.6.2"
-serde_json = "1.0.83"
+serde_json = { version = "1.0.95", features = ["arbitrary_precision"] }
 tracing = "0.1.36"
 tracing-core = "0.1.29"
 tracing-futures = { version = "0.2.5", default-features = false, features = ["std-future", "std"] }
