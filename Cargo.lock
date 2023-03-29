@@ -1919,7 +1919,6 @@ dependencies = [
  "color-eyre",
  "eyre",
  "futures",
- "iroha_actor",
  "iroha_cli_derive",
  "iroha_config",
  "iroha_core",
@@ -1946,35 +1945,6 @@ dependencies = [
  "tokio",
  "vergen",
  "warp",
-]
-
-[[package]]
-name = "iroha_actor"
-version = "2.0.0-pre-rc.13"
-dependencies = [
- "async-trait",
- "dashmap",
- "derive_more",
- "futures",
- "iroha_actor_derive",
- "iroha_logger",
- "iroha_primitives",
- "once_cell",
- "petgraph",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "iroha_actor_derive"
-version = "2.0.0-pre-rc.13"
-dependencies = [
- "iroha_actor",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
- "trybuild",
 ]
 
 [[package]]
@@ -2102,7 +2072,6 @@ dependencies = [
  "eyre",
  "futures",
  "hex",
- "iroha_actor",
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
@@ -2315,9 +2284,9 @@ dependencies = [
  "aead",
  "async-stream",
  "async-trait",
+ "bytes",
  "derive_more",
  "futures",
- "iroha_actor",
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
@@ -4160,7 +4129,6 @@ dependencies = [
  "eyre",
  "futures",
  "iroha",
- "iroha_actor",
  "iroha_client",
  "iroha_config",
  "iroha_core",
