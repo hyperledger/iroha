@@ -29,5 +29,5 @@ iroha_schema_gen = { version = "=2.0.0-pre-rc.9", path = "../../schema/gen"}
 [build-dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.9", path = "../../data_model", features = ["warp", "mutable_api"]}
 parity-scale-codec = { version = "3.1.5", default-features = false }
-serde_json = "1.0.83"
-serde = "1.0.142"
+serde_json = { version = "1.0.95", features = ["arbitrary_precision"] }
+serde = "1.0.159"

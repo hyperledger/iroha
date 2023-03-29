@@ -35,12 +35,12 @@ iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.9" }
 parity-scale-codec = { version = "3.1.5", default-features = false, features = ["derive"] }
 fixnum = { version = "0.8.0", default-features = false, features = ["serde", "parity", "i64"] }
 derive_more = { version = "0.99.17", default-features = false, features = ["display", "as_ref", "as_mut", "deref", "constructor"] }
-serde = { version = "1.0.142", default-features = false, features = ["derive"] }
+serde = { version = "1.0.159", default-features = false, features = ["derive"] }
 smallvec = { version = "1.9.0", default-features = false, features = ["serde", "union"] }
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { version = "1.0.32", optional = true }
 
 
 [dev-dependencies]
-serde_json = { version = "1.0.83", default-features = false, features = ["alloc"] }
+serde_json = { version = "1.0.95", default-features = false, features = ["alloc", "arbitrary_precision"] }
 trybuild = "1.0.64"
