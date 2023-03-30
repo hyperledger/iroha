@@ -23,9 +23,9 @@ async-trait = "0.1.57"
 chrono = "0.4.22"
 eyre = "0.6.8"
 futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
-serde_json = { version = "1.0.95", features = ["arbitrary_precision"] }
+serde_json = "1.0.83"
 streaming-stats = "0.2.3"
-serde = { version = "1.0.159", features = ["derive"] }
+serde = { version = "1.0.142", features = ["derive"] }
 tokio = { version = "1.20.1", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1.9", features = ["fs"] }
 tokio-tungstenite = "0.17.2"
