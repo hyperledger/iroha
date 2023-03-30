@@ -20,7 +20,7 @@ use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use operation::*;
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize, de::Error};
+use serde::{Deserialize, Serialize};
 
 use super::{query::QueryBox, Value, ValueBox};
 
@@ -490,61 +490,30 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
     }
 }
 
-/// Allow deserializing expression by first assuming it's an
-/// [`Expression::Raw`], and only then checking for an explicit tag.
-
+/// Deserialize [`Expression`] with possibility to omit [`Raw`](Expression::Raw) tag
+/// as it is the most popular variant.
+///
+/// First will try to deserialize as `Raw` and if it fails will try to deserialize as `Expression`.
 impl<'de> Deserialize<'de> for Expression {
     fn deserialize<D>(deserializer: D) -> Result<Expression, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            // DO NOT DERIVE DESERIALIZE.  Because some formats have
-            // an opt-in support for `u128`, only a manual
-            // implementation of re-entrant deserialization does what
-            // you expect it to do. Specifically
-            // `serde::de::_private::ContentRefDeserializer` which is
-            // not private contrary to all other indications, does not
-            // have the `u128` variant and is being used for un-tagged
-            // `enum` de-serialization.
-
-            // This is a `serde` design oversight, but not a bug. 
-            #[allow(variant_size_differences)]
-            enum ExpressionDeserializeWrapper {
-                Raw(ValueBox),
-                Expression(serde_internal_repr::Expression),
-            }
-
-            impl<'de> serde::Deserialize<'de> for ExpressionDeserializeWrapper {
-                fn deserialize<D>(deserializer: D) -> serde::__private::Result<Self, D::Error>
-                where
-                    D: serde::Deserializer<'de>,
-                {
-                    let buffer = serde_json::value::Value::deserialize(deserializer)?;
-
-                    let e1 = match ValueBox::deserialize(buffer.clone())
-                        .map(ExpressionDeserializeWrapper::Raw)
-                    {
-                        Ok(raw_candidate) => return Ok(raw_candidate),
-                        Err(er) => D::Error::custom(er.to_string()),
-                    };
-                    let e2 = match serde_internal_repr::Expression::deserialize(buffer) {
-                        Ok(wrapper) => return Ok(Self::Expression(wrapper)),
-                        Err(e) => D::Error::custom(e.to_string()),
-                    };
-                    Err(
-                        serde::de::Error::custom(format!("Could not parse input as `Expression`.\nRaw expression failed: {e1}.\nExtended expression failed: {e2}"),
-                        ),
-                    )
-                }
-            }
-            let wrapper = ExpressionDeserializeWrapper::deserialize(deserializer)?;
-            match wrapper {
-                ExpressionDeserializeWrapper::Expression(expression) => Ok(expression.into()),
-                ExpressionDeserializeWrapper::Raw(raw) => Ok(Expression::Raw(raw)),
-            }
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        #[allow(variant_size_differences)]
+        enum ExpressionDeserializeWrapper {
+            Raw(ValueBox),
+            Expression(serde_internal_repr::Expression),
         }
-}
 
+        let wrapper = ExpressionDeserializeWrapper::deserialize(deserializer)?;
+        match wrapper {
+            ExpressionDeserializeWrapper::Expression(expression) => Ok(expression.into()),
+            ExpressionDeserializeWrapper::Raw(raw) => Ok(Expression::Raw(raw)),
+        }
+    }
+}
 
 /// Serialize [`Expression`] omitting tag if `self` is [`Raw`](Expression::Raw) variant
 impl Serialize for Expression {
@@ -558,8 +527,6 @@ impl Serialize for Expression {
             Raw(&'expr ValueBox),
             Expression(&'expr Expression),
         }
-        // This is fine, as evidenced by kagami producing the right
-        // type in the output.
 
         match self {
             Expression::Raw(raw) => ExpressionSerializeWrapper::Raw(raw).serialize(serializer),

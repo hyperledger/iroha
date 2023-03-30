@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 iroha_schema_derive = { version = "=2.0.0-pre-rc.9", path = "derive" }
 
-serde = { version = "1.0.159", default-features = false, features = ["derive", "alloc"] }
+serde = { version = "1.0.142", default-features = false, features = ["derive", "alloc"] }
 fixnum = { version = "0.8.0", default-features = false, features = ["i64"] }
 
 [dev-dependencies]
