@@ -532,9 +532,12 @@ impl Torii {
     pub(crate) fn create_api_router(
         &self,
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
-        let get_router = warp::path(uri::HEALTH)
-            .and_then(|| async { Ok::<_, Infallible>(handle_health()) })
-            .or(endpoint3(
+        let health_route = warp::get()
+            .and(warp::path(uri::HEALTH))
+            .and_then(|| async { Ok::<_, Infallible>(handle_health()) });
+
+        let get_router = warp::get()
+            .and(endpoint3(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
                     .and(add_state!(self.queue, self.sumeragi))
@@ -551,30 +554,31 @@ impl Torii {
         let get_router = get_router.or(warp::path(uri::SCHEMA)
             .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
 
-        let post_router = endpoint4(
-            handle_instructions,
-            warp::path(uri::TRANSACTION)
-                .and(add_state!(self.iroha_cfg, self.queue, self.sumeragi))
-                .and(warp::body::content_length_limit(
-                    self.iroha_cfg.torii.max_content_len.into(),
-                ))
-                .and(body::versioned()),
-        )
-        .or(endpoint4(
-            handle_queries,
-            warp::path(uri::QUERY)
-                .and(add_state!(self.sumeragi))
-                .and(paginate())
-                .and(sorting())
-                .and(body::versioned()),
-        ))
-        .or(endpoint2(
-            handle_post_configuration,
-            warp::path(uri::CONFIGURATION)
-                .and(add_state!(self.iroha_cfg))
-                .and(warp::body::json()),
-        ))
-        .recover(|rejection| async move { body::recover_versioned(rejection) });
+        let post_router = warp::post()
+            .and(endpoint4(
+                handle_instructions,
+                warp::path(uri::TRANSACTION)
+                    .and(add_state!(self.iroha_cfg, self.queue, self.sumeragi))
+                    .and(warp::body::content_length_limit(
+                        self.iroha_cfg.torii.max_content_len.into(),
+                    ))
+                    .and(body::versioned()),
+            ))
+            .or(endpoint4(
+                handle_queries,
+                warp::path(uri::QUERY)
+                    .and(add_state!(self.sumeragi))
+                    .and(paginate())
+                    .and(sorting())
+                    .and(body::versioned()),
+            ))
+            .or(endpoint2(
+                handle_post_configuration,
+                warp::path(uri::CONFIGURATION)
+                    .and(add_state!(self.iroha_cfg))
+                    .and(warp::body::json()),
+            ))
+            .recover(|rejection| async move { body::recover_versioned(rejection) });
 
         let events_ws_router = warp::path(uri::SUBSCRIPTION)
             .and(add_state!(self.events))
@@ -607,12 +611,22 @@ impl Torii {
                 })
             });
 
-        let ws_router = events_ws_router.or(blocks_ws_router);
+        let ws_router = events_ws_router
+            .or(blocks_ws_router)
+            .with(warp::trace::request());
 
-        ws_router
-            .or(warp::post().and(post_router))
-            .or(warp::get().and(get_router))
-            .with(warp::trace::request())
+        warp::any()
+            .and(
+                // we want to avoid logging for the "health" endpoint.
+                // we have to place it **first** so that warp's trace will
+                // not log 404 if it doesn't find "/health" which might be placed
+                // **after** `.with(trace)`
+                health_route,
+            )
+            .or(ws_router
+                .or(get_router)
+                .or(post_router)
+                .with(warp::trace::request()))
     }
 
     /// Start status and metrics endpoints.

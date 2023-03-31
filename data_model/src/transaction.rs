@@ -165,7 +165,7 @@ model! {
     ///
     /// Uses **base64** (de-)serialization format.
     #[derive(DebugCustom, Clone, PartialEq, Eq, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[debug(fmt = "WASM binary(len = {})", self.0.len())]
+    #[debug(fmt = "WASM binary(len = {})", "self.0.len()")]
     #[serde(transparent)]
     #[repr(transparent)]
     // SAFETY: `WasmSmartContract` has no trap representation in `Vec<u8>`
@@ -1103,5 +1103,12 @@ mod tests {
         };
 
         assert!(AcceptedTransaction::accept::<true>(tx, &tx_limits).is_ok());
+    }
+
+    #[test]
+    fn wasm_smart_contract_debug_repr_should_contain_just_len() {
+        let contract = WasmSmartContract::new(vec![0, 1, 2, 3, 4]);
+
+        assert_eq!(format!("{contract:?}"), "WASM binary(len = 5)");
     }
 }
