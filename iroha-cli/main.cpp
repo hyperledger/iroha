@@ -8,6 +8,7 @@
 #include <rapidjson/rapidjson.h>
 #include <boost/filesystem.hpp>
 #include <iostream>
+#include <fstream>
 
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
