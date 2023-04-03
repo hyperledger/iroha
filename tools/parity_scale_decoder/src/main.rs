@@ -33,7 +33,7 @@ struct DecodeArgs {
     /// Type that is expected to be encoded in binary.
     /// If not specified then a guess will be attempted
     #[clap(short, long = "type")]
-    type_id: Option<String>,
+    type_name: Option<String>,
 }
 
 /// Function pointer to [`DumpDecoded::dump_decoded()`]
@@ -95,8 +95,8 @@ impl<'map> Decoder<'map> {
     pub fn decode<W: io::Write>(&self, writer: &mut W) -> Result<()> {
         let bytes = fs::read(self.args.binary.clone())?;
 
-        if let Some(type_id) = &self.args.type_id {
-            return self.decode_by_type(type_id, &bytes, writer);
+        if let Some(type_name) = &self.args.type_name {
+            return self.decode_by_type(type_name, &bytes, writer);
         }
         self.decode_by_guess(&bytes, writer)
     }
@@ -104,19 +104,19 @@ impl<'map> Decoder<'map> {
     /// Decode concrete `type` from `bytes` and print to `writer`
     fn decode_by_type<W: io::Write>(
         &self,
-        type_id: &str,
+        type_name: &str,
         bytes: &[u8],
         writer: &mut W,
     ) -> Result<()> {
-        self.map.get(type_id).map_or_else(
-            || Err(eyre!("Unknown type: `{type_id}`")),
+        self.map.get(type_name).map_or_else(
+            || Err(eyre!("Unknown type: `{type_name}`")),
             |dump_decoded| dump_decoded(bytes, writer),
         )
     }
 
     /// Try to decode every type from `bytes` and print to `writer`
     ///
-    /// TODO: Can be parallelized when there will be too many types
+    // TODO: Can be parallelized when there will be too many types
     fn decode_by_guess<W: io::Write>(&self, bytes: &[u8], writer: &mut W) -> Result<()> {
         let count = self
             .map
@@ -156,8 +156,6 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
-
     use std::str::FromStr as _;
 
     use iroha_data_model::{domain::IpfsPath, prelude::*};
@@ -179,11 +177,7 @@ mod tests {
             .with_metadata(metadata)
             .build();
 
-        decode_sample(
-            "account.bin",
-            String::from("iroha_data_model::account::Account"),
-            &account,
-        );
+        decode_sample("account.bin", String::from("Account"), &account);
     }
 
     #[test]
@@ -205,11 +199,7 @@ mod tests {
             .with_metadata(metadata)
             .build();
 
-        decode_sample(
-            "domain.bin",
-            String::from("iroha_data_model::domain::Domain"),
-            &domain,
-        );
+        decode_sample("domain.bin", String::from("Domain"), &domain);
     }
 
     #[test]
@@ -232,11 +222,7 @@ mod tests {
         );
         let trigger = Trigger::new(trigger_id, action);
 
-        decode_sample(
-            "trigger.bin",
-            String::from("iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox>"),
-            &trigger,
-        );
+        decode_sample("trigger.bin", String::from("Trigger<FilterBox>"), &trigger);
     }
 
     fn decode_sample<T: Debug>(sample_path: &str, type_id: String, expected: &T) {
@@ -245,7 +231,7 @@ mod tests {
         binary.push(sample_path);
         let args = DecodeArgs {
             binary,
-            type_id: Some(type_id),
+            type_name: Some(type_id),
         };
 
         let map = generate_map();

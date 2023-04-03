@@ -1269,7 +1269,7 @@ pub mod http {
     model! {
         /// Payload of a query.
         #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        pub(crate) struct Payload {
+        pub(crate) struct QueryPayload {
             /// Timestamp of the query creation.
             #[codec(compact)]
             pub timestamp_ms: u128,
@@ -1289,7 +1289,7 @@ pub mod http {
         #[repr(transparent)]
         pub struct QueryRequest {
             /// Payload
-            pub payload: Payload,
+            pub payload: QueryPayload,
         }
     }
 
@@ -1301,9 +1301,9 @@ pub mod http {
         #[version_with_scale(n = 1, versioned = "VersionedSignedQueryRequest")]
         pub struct SignedQueryRequest {
             /// Payload
-            pub payload: Payload,
+            pub payload: QueryPayload,
             /// Signature of the client who sends this query.
-            pub signature: SignatureOf<Payload>,
+            pub signature: SignatureOf<QueryPayload>,
         }
     }
 
@@ -1353,7 +1353,7 @@ pub mod http {
             let timestamp_ms = crate::current_time().as_millis();
 
             Self {
-                payload: Payload {
+                payload: QueryPayload {
                     timestamp_ms,
                     query,
                     account_id,
@@ -1466,7 +1466,7 @@ pub mod error {
             PermissionTokenDefinition(PermissionTokenId),
             /// Failed to find [`Validator`](permission::Validator) by id.
             #[display(fmt = "Failed to find permission validator by id: `{_0}`")]
-            Validator(permission::validator::Id),
+            Validator(permission::validator::ValidatorId),
             /// Failed to find specified [`Parameter`] variant.
             #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
             Parameter(ParameterId),

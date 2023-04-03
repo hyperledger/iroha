@@ -66,7 +66,7 @@ model! {
     #[display(fmt = "{name}@{domain_id}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct AccountId {
         /// [`Account`]'s name.
         pub name: Name,
         /// [`Account`]'s [`Domain`](`crate::domain::Domain`) id.
@@ -80,7 +80,7 @@ model! {
     #[ffi_type]
     pub struct Account {
         /// An Identification of the [`Account`].
-        pub id: Id,
+        pub id: AccountId,
         /// Assets in this [`Account`].
         pub assets: AssetsMap,
         /// [`Account`]'s signatories.
@@ -116,7 +116,7 @@ model! {
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 }
 
-impl Id {
+impl AccountId {
     #[cfg(feature = "transparent_api")]
     const GENESIS_ACCOUNT_NAME: &str = "genesis";
 
@@ -326,7 +326,7 @@ impl FromIterator<Account> for crate::Value {
 }
 
 /// Account Identification is represented by `name@domain_name` string.
-impl FromStr for Id {
+impl FromStr for AccountId {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
@@ -335,7 +335,7 @@ impl FromStr for Id {
             Some(("", _)) => Err(ParseError {
                 reason: "`AccountId` cannot be empty",
             }),
-            Some((name, domain_id)) if !name.is_empty() && !domain_id.is_empty() => Ok(Id {
+            Some((name, domain_id)) if !name.is_empty() && !domain_id.is_empty() => Ok(AccountId {
                 name: name.parse()?,
                 domain_id: domain_id.parse()?,
             }),
@@ -348,5 +348,5 @@ impl FromStr for Id {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Account, Id as AccountId, SignatureCheckCondition};
+    pub use super::{Account, AccountId, SignatureCheckCondition};
 }

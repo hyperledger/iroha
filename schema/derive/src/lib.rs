@@ -17,8 +17,59 @@ use syn::{
     Generics, Lit, LitStr, Meta, NestedMeta, Type, Variant,
 };
 
-/// Check out docs in `iroha_schema` crate
-#[proc_macro_derive(IntoSchema)]
+/// Derive [`iroha_schema::TypeId`]
+///
+/// Check out [`iroha_schema`] documentation
+#[proc_macro_derive(TypeId, attributes(type_id))]
+pub fn type_id_derive(input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as DeriveInput);
+    impl_type_id(&mut input).into()
+}
+
+fn impl_type_id(input: &mut DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+
+    if let Some(bound) = input.attrs.iter().find_map(|attr| {
+        if let Ok(Meta::List(list)) = attr.parse_meta() {
+            if list.path.is_ident("type_id") {
+                let type_id = list.nested.first().expect("Missing type_id");
+
+                if let NestedMeta::Meta(Meta::NameValue(name_value)) = type_id {
+                    if name_value.path.is_ident("bound") {
+                        if let syn::Lit::Str(bound) = &name_value.lit {
+                            return Some(bound.parse().expect("Invalid bound"));
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }) {
+        input.generics.make_where_clause().predicates.push(bound);
+    } else {
+        input
+            .generics
+            .type_params_mut()
+            .for_each(|ty_param| ty_param.bounds.push(parse_quote! {iroha_schema::TypeId}));
+    }
+
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let type_id_body = trait_body(name, &input.generics, true);
+
+    quote! {
+        impl #impl_generics iroha_schema::TypeId for #name #ty_generics #where_clause {
+            fn id() -> String {
+                #type_id_body
+            }
+        }
+    }
+}
+
+/// Derive [`iroha_schema::IntoSchema`] and [`iroha_schema::TypeId`]
+///
+/// Check out [`iroha_schema`] documentation
+#[proc_macro_derive(IntoSchema, attributes(schema))]
 pub fn schema_derive(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
 
@@ -28,32 +79,85 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
             .push(parse_quote! {iroha_schema::IntoSchema})
     });
 
-    impl_schema(&input).into()
+    let impl_type_id = impl_type_id(&mut input.clone());
+
+    let impl_schema = input
+        .attrs
+        .iter()
+        .find_map(|attr| {
+            if let Ok(Meta::List(list)) = attr.parse_meta() {
+                if list.path.is_ident("schema") {
+                    let type_id = list.nested.first().expect("Missing type_id");
+
+                    if let NestedMeta::Meta(Meta::NameValue(name_value)) = type_id {
+                        if name_value.path.is_ident("transparent") {
+                            if let syn::Lit::Str(transparent_type) = &name_value.lit {
+                                return Some(transparent_type.parse().expect("Invalid bound"));
+                            }
+                        }
+                    }
+                }
+            }
+
+            None
+        })
+        .map_or_else(
+            || impl_into_schema(&input),
+            |transparent_type| impl_transparent_into_schema(&input, &transparent_type),
+        );
+
+    quote! {
+        #impl_type_id
+        #impl_schema
+    }
+    .into()
 }
 
-fn impl_schema(input: &DeriveInput) -> TokenStream2 {
-    let name = &input.ident;
+fn impl_transparent_into_schema(input: &DeriveInput, transparent_type: &syn::Type) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let type_name_body = type_name_body(name, &input.generics);
+    let name = &input.ident;
+
+    quote! {
+        impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
+            fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+                if !map.contains_key::<Self>() {
+                    if !map.contains_key::<#transparent_type>() {
+                        <#transparent_type as iroha_schema::IntoSchema>::update_schema_map(map);
+                    }
+
+                    if let Some(schema) = map.get::<#transparent_type>() {
+                        map.insert::<Self>(schema.clone());
+                    }
+                }
+            }
+
+            fn type_name() -> String {
+               <#transparent_type as iroha_schema::IntoSchema>::type_name()
+            }
+        }
+    }
+}
+fn impl_into_schema(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let type_name_body = trait_body(name, &input.generics, false);
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let metadata = metadata(&input.data);
 
     quote! {
-        impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics
-        #where_clause
-        {
+        impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
             fn type_name() -> String {
                 #type_name_body
             }
 
-            fn schema(map: &mut iroha_schema::MetaMap) {
+            fn update_schema_map(map: &mut iroha_schema::MetaMap) {
                #metadata
             }
         }
     }
 }
 
-/// Body of method `type_name`
-fn type_name_body(name: &Ident, generics: &Generics) -> TokenStream2 {
+/// Body of [`IntoSchema::type_name`] method
+fn trait_body(name: &Ident, generics: &Generics, is_type_id_trait: bool) -> TokenStream2 {
     let generics = &generics
         .params
         .iter()
@@ -65,10 +169,10 @@ fn type_name_body(name: &Ident, generics: &Generics) -> TokenStream2 {
     let name = LitStr::new(&name.to_string(), Span::call_site());
 
     if generics.is_empty() {
-        return quote! { format!("{}::{}", module_path!(), #name) };
+        return quote! { format!("{}", #name) };
     }
 
-    let mut format_str = "{}::{}<".to_owned();
+    let mut format_str = "{}<".to_owned();
     format_str.push_str(
         &generics
             .iter()
@@ -79,12 +183,17 @@ fn type_name_body(name: &Ident, generics: &Generics) -> TokenStream2 {
     format_str.push('>');
     let format_str = LitStr::new(&format_str, Span::mixed_site());
 
+    let generics = if is_type_id_trait {
+        quote!(#(<#generics as iroha_schema::TypeId>::id()),*)
+    } else {
+        quote!(#(<#generics as iroha_schema::IntoSchema>::type_name()),*)
+    };
+
     quote! {
         format!(
             #format_str,
-            module_path!(),
             #name,
-            #(<#generics as iroha_schema::IntoSchema>::type_name()),*
+            #generics
         )
     }
 }
@@ -105,11 +214,13 @@ fn metadata(data: &Data) -> TokenStream2 {
             fields: Fields::Unit,
             ..
         }) => {
-            let expr = syn::parse2(quote! {iroha_schema::Metadata::Tuple(
-                iroha_schema::UnnamedFieldsMeta {
-                    types: Vec::new()
-                }
-            )})
+            let expr = syn::parse2(quote! {
+                iroha_schema::Metadata::Tuple(
+                    iroha_schema::UnnamedFieldsMeta {
+                        types: Vec::new()
+                    }
+                )
+            })
             .expect("Failed to parse metadata tuple");
             (vec![], expr)
         }
@@ -117,14 +228,11 @@ fn metadata(data: &Data) -> TokenStream2 {
     };
 
     quote! {
-        let _ = map
-            .entry(<Self as iroha_schema::IntoSchema>::type_name())
-            .or_insert_with(|| #expr);
-        #(
-            if !map.contains_key(&<#types as iroha_schema::IntoSchema>::type_name()) {
-                <#types as iroha_schema::IntoSchema>::schema(map);
-            }
-        )*
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(#expr); #(
+
+            <#types as iroha_schema::IntoSchema>::update_schema_map(map); )*
+        }
     }
 }
 
@@ -134,7 +242,7 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
     let fields_ty = fields.clone().map(|field| field.ty).collect();
     let types = fields
         .map(|field| field.ty)
-        .map(|ty| quote! { <#ty as iroha_schema::IntoSchema>::type_name()});
+        .map(|ty| quote! { core::any::TypeId::of::<#ty>()});
     let expr = syn::parse2(quote! {
         iroha_schema::Metadata::Tuple(
             iroha_schema::UnnamedFieldsMeta {
@@ -197,11 +305,11 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             let name = &variant.ident;
             let ty = variant_field(&variant.fields).map_or_else(
                 || quote! { None },
-                |ty| quote! { Some(<#ty as iroha_schema::IntoSchema>::type_name()) },
+                |ty| quote! { Some(core::any::TypeId::of::<#ty>()) },
             );
             quote! {
                 iroha_schema::EnumVariant {
-                    name: String::from(stringify!(#name)),
+                    tag: String::from(stringify!(#name)),
                     discriminant: #discriminant,
                     ty: #ty,
                 }
@@ -235,7 +343,7 @@ fn field_to_declaration(field: &Field) -> TokenStream2 {
     quote! {
         iroha_schema::Declaration {
             name: String::from(stringify!(#ident)),
-            ty: <#ty as iroha_schema::IntoSchema>::type_name(),
+            ty: core::any::TypeId::of::<#ty>(),
         }
     }
 }

@@ -477,7 +477,7 @@ pub mod string {
             fn asset_id() {
                 let definition_id = "rose#wonderland".parse().expect("Valid");
                 let account_id = "alice@wonderland".parse().expect("Valid");
-                let id = IdBox::AssetId(crate::asset::Id {
+                let id = IdBox::AssetId(crate::asset::AssetId {
                     definition_id,
                     account_id,
                 });
@@ -510,7 +510,7 @@ pub mod string {
                 let (public_key, _) = iroha_crypto::KeyPair::generate()
                     .expect("Should not panic")
                     .into();
-                let id = IdBox::PeerId(peer::Id {
+                let id = IdBox::PeerId(peer::PeerId {
                     address: "123".to_owned(),
                     public_key,
                 });
@@ -1205,7 +1205,7 @@ pub mod value {
 
                 assert!(
                     !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Box::new(
-                        Peer::new(peer::Id::new("123", &public_key))
+                        Peer::new(peer::PeerId::new("123", &public_key))
                     ))))
                 );
             }

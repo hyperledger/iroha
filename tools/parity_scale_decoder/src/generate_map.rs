@@ -1,61 +1,67 @@
 //! Exports `generate_map()` function and contains implementation details for it
 
-use std::{collections::BTreeSet, num::NonZeroU8};
+use std::{any::TypeId, collections::BTreeSet, time::Duration};
 
 use iroha_crypto::*;
-use iroha_data_model::{prelude::*, *};
-use iroha_primitives::{atomic::*, fixed};
-use iroha_schema::IntoSchema;
-use iroha_version::*;
+use iroha_data_model::{
+    account::NewAccount,
+    asset::NewAssetDefinition,
+    block::{
+        error::BlockRejectionReason,
+        stream::{
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
+        },
+        BlockHeader, CommittedBlock, VersionedCommittedBlock,
+    },
+    domain::{IpfsPath, NewDomain},
+    permission::validator::{Validator, ValidatorId, ValidatorType},
+    predicate::{
+        ip_addr::{Ipv4Predicate, Ipv6Predicate},
+        numerical::{Interval, SemiInterval, SemiRange},
+        string::Predicate as StringPredicate,
+        value::{AtIndex, Container, Predicate as ValuePredicate, ValueOfKey},
+        GenericPredicateBox, NonTrivial, PredicateBox,
+    },
+    prelude::*,
+    query::error::{FindError, QueryExecutionFailure},
+    transaction::error::{TransactionExpired, TransactionLimitError},
+    ValueKind, VersionedCommittedBlockWrapper,
+};
+use iroha_primitives::{
+    addr::{Ipv4Addr, Ipv6Addr},
+    atomic::AtomicU32,
+    conststr::ConstString,
+    fixed::{FixNum, Fixed},
+};
 
 use super::*;
 
-/// Trait to retrieve type name
-///
-/// It is used with abusing [inherit impls](https://doc.rust-lang.org/reference/items/implementations.html#inherent-implementations)
-/// to get `None` variant from types, which doesn't implement [`IntoSchema`] and `Some` which does
-trait TypeName {
-    /// Get name of the type or `None` if type doesn't implement `IntoSchema`
-    fn type_name() -> Option<String>;
-}
-
-impl<T> TypeName for T {
-    fn type_name() -> Option<String> {
-        None
-    }
-}
-
-/// Newtype which has `type_name()` method when `T` implements [`IntoSchema`]
-struct WithTypeName<T>(std::marker::PhantomData<T>);
-
-impl<T: IntoSchema + Decode> WithTypeName<T> {
-    /// Get type name using [`IntoSchema::type_name()`]
-    ///
-    /// Because this is implemented directly on `WithTypeName`, it has priority over
-    /// the [`TypeName`] trait impl.
-    ///
-    /// Note: this is a *totally different* function from that in
-    /// `TypeName`. This does not specialize the `TypeName` trait impl on `WithTypeName`.
-    fn type_name() -> Option<String> {
-        Some(<T as IntoSchema>::type_name())
-    }
-}
-
 macro_rules! generate_map {
-    ($($t:ty),* $(,)?) => {
-        BTreeMap::from([
-            $((
-                WithTypeName::<$t>::type_name().unwrap_or(stringify!($t).to_owned()),
-                <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr
-            )),*
-        ])
-    };
+    ($($t:ty),+ $(,)?) => {{
+        let mut map = BTreeMap::new(); $(
+
+        let type_id = <$t as iroha_schema::TypeId>::id();
+        if let Some((type_id, _)) = map.insert(core::any::TypeId::of::<$t>(), (type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)) {
+            panic!("{}: Duplicate type id. Make sure that type ids are unique", type_id);
+        } )+
+
+        map
+    }};
 }
 
 /// Generate map with types and `dump_decoded()` ptr
 #[allow(clippy::too_many_lines, trivial_casts)]
 pub fn generate_map() -> DumpDecodedMap {
-    // Try to keep this list in alphabetical order
+    generate_test_map()
+        .into_iter()
+        .map(|(_, (type_name, ptr))| (type_name, ptr))
+        .collect()
+}
+
+/// Generate map with types and `dump_decoded()` ptr
+#[allow(clippy::too_many_lines, trivial_casts)]
+fn generate_test_map() -> BTreeMap<TypeId, (String, DumpDecodedPtr)> {
     let mut map = generate_map! {
         Account,
         AccountEvent,
@@ -66,6 +72,7 @@ pub fn generate_map() -> DumpDecodedMap {
         AccountRoleChanged,
         Action<FilterBox>,
         Add,
+        Algorithm,
         And,
         Asset,
         AssetChanged,
@@ -83,23 +90,51 @@ pub fn generate_map() -> DumpDecodedMap {
         AssetId,
         AssetValue,
         AssetValueType,
+        AtIndex,
         AtomicU32,
         BTreeMap<AccountId, Account>,
         BTreeMap<AssetDefinitionId, AssetDefinitionEntry>,
         BTreeMap<AssetDefinitionId, NumericValue>,
         BTreeMap<AssetId, Asset>,
+        BTreeMap<Name, EvaluatesTo<Value>>,
         BTreeMap<Name, Value>,
         BTreeMap<Name, ValueKind>,
-        BTreeMap<Name, expression::EvaluatesTo<Value>>,
-        BTreeMap<PublicKey, SignatureOf<iroha_data_model::block::CommittedBlock>>,
-        BTreeMap<PublicKey, SignatureOf<transaction::Payload>>,
         BTreeSet<PermissionToken>,
         BTreeSet<PublicKey>,
         BTreeSet<RoleId>,
-        BTreeSet<SignatureOf<transaction::Payload>>,
-        block::error::BlockRejectionReason,
+        BTreeSet<SignatureWrapperOf<CommittedBlock>>,
+        BlockHeader,
+        BlockMessage,
+        BlockRejectionReason,
+        BlockSubscriptionRequest,
+        Box<Account>,
+        Box<Asset>,
+        Box<AssetDefinition>,
+        Box<Domain>,
+        Box<Expression>,
+        Box<FindError>,
+        Box<GenericPredicateBox<ValuePredicate>>,
+        Box<NewAccount>,
+        Box<NewAssetDefinition>,
+        Box<NewDomain>,
+        Box<NewRole>,
+        Box<Pair>,
+        Box<Parameter>,
+        Box<Peer>,
+        Box<PermissionTokenDefinition>,
+        Box<Role>,
+        Box<Trigger<FilterBox>>,
+        Box<Validator>,
+        Box<Value>,
+        Box<ValuePredicate>,
+        Box<VersionedRejectedTransaction>,
+        Box<VersionedSignedTransaction>,
         BurnBox,
+        CommittedBlock,
+        Conditional,
         ConfigurationEvent,
+        ConstString,
+        Container,
         Contains,
         ContainsAll,
         ContainsAny,
@@ -114,7 +149,26 @@ pub fn generate_map() -> DumpDecodedMap {
         DomainEventFilter,
         DomainFilter,
         DomainId,
+        Duration,
         Equal,
+        EvaluatesTo<AccountId>,
+        EvaluatesTo<AssetDefinitionId>,
+        EvaluatesTo<AssetId>,
+        EvaluatesTo<DomainId>,
+        EvaluatesTo<Hash>,
+        EvaluatesTo<IdBox>,
+        EvaluatesTo<Name>,
+        EvaluatesTo<NumericValue>,
+        EvaluatesTo<Parameter>,
+        EvaluatesTo<RegistrableBox>,
+        EvaluatesTo<RoleId>,
+        EvaluatesTo<TriggerId>,
+        EvaluatesTo<Value>,
+        EvaluatesTo<Vec<Value>>,
+        EvaluatesTo<bool>,
+        Event,
+        EventMessage,
+        EventSubscriptionRequest,
         Executable,
         ExecuteTriggerBox,
         ExecuteTriggerEvent,
@@ -122,6 +176,7 @@ pub fn generate_map() -> DumpDecodedMap {
         ExecutionTime,
         Expression,
         FailBox,
+        FilterBox,
         FilterOpt<AccountEventFilter>,
         FilterOpt<AccountFilter>,
         FilterOpt<AssetDefinitionEventFilter>,
@@ -174,6 +229,7 @@ pub fn generate_map() -> DumpDecodedMap {
         FindBlockHeaderByHash,
         FindDomainById,
         FindDomainKeyValueByIdAndKey,
+        FindError,
         FindPermissionTokensByAccountId,
         FindRoleByRoleId,
         FindRolesByAccountId,
@@ -183,22 +239,27 @@ pub fn generate_map() -> DumpDecodedMap {
         FindTriggerById,
         FindTriggerKeyValueByIdAndKey,
         FindTriggersByDomainId,
+        FixNum,
+        Fixed,
         GrantBox,
         Greater,
         Hash,
-        Option<HashOf<MerkleTree<transaction::VersionedSignedTransaction>>>,
-        Option<HashOf<iroha_data_model::block::VersionedCommittedBlock>>,
-        HashOf<MerkleTree<transaction::VersionedSignedTransaction>>,
-        HashOf<iroha_data_model::block::VersionedCommittedBlock>,
-        HashOf<transaction::VersionedSignedTransaction>,
+        HashOf<MerkleTree<VersionedSignedTransaction>>,
+        HashOf<VersionedCommittedBlock>,
+        HashOf<VersionedSignedTransaction>,
         IdBox,
         IdentifiableBox,
-        IfExpression,
-        IfInstruction,
+        If,
         Instruction,
         InstructionExecutionFail,
+        Interval<u16>,
+        Interval<u8>,
+        IpfsPath,
+        Ipv4Addr,
+        Ipv4Predicate,
+        Ipv6Addr,
+        Ipv6Predicate,
         IsAssetDefinitionOwner,
-        iroha_crypto::Algorithm,
         LengthLimits,
         Less,
         Metadata,
@@ -208,26 +269,30 @@ pub fn generate_map() -> DumpDecodedMap {
         MetadataChanged<DomainId>,
         MetadataLimits,
         MintBox,
+        Mintable,
         Mod,
         Multiply,
         Name,
+        NewAccount,
+        NewAssetDefinition,
+        NewDomain,
         NewParameterBox,
-        NonZeroU8,
+        NewRole,
+        NonTrivial<PredicateBox>,
         Not,
         NotPermittedFail,
         NumericValue,
+        Option<DomainId>,
+        Option<Duration>,
         Option<Hash>,
-        Option<HashOf<MerkleTree<transaction::VersionedSignedTransaction>>>,
-        Option<HashOf<iroha_data_model::block::VersionedCommittedBlock>>,
+        Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
+        Option<HashOf<VersionedCommittedBlock>>,
+        Option<Instruction>,
+        Option<IpfsPath>,
         Option<Name>,
-        Option<core::time::Duration>,
-        Option<domain::Id>,
-        Option<domain::IpfsPath>,
-        Option<events::pipeline::EntityKind>,
-        Option<events::pipeline::StatusKind>,
-        Option<events::time::Interval>,
-        Option<isi::Instruction>,
-        Option<Vec<peer::Id>>,
+        Option<PipelineEntityKind>,
+        Option<PipelineStatusKind>,
+        Option<TimeInterval>,
         Option<u32>,
         Or,
         OriginFilter<AccountEvent>,
@@ -252,21 +317,23 @@ pub fn generate_map() -> DumpDecodedMap {
         PermissionToken,
         PermissionTokenDefinition,
         PermissionTokenEvent,
+        PermissionTokenId,
         PermissionValidatorEvent,
         PipelineEntityKind,
         PipelineEvent,
         PipelineEventFilter,
+        PipelineRejectionReason,
         PipelineStatus,
+        PipelineStatusKind,
+        PredicateBox,
         PublicKey,
         QueryBox,
-        QueryRequest,
+        QueryExecutionFailure,
+        QueryPayload,
         QueryResult,
         RaiseTo,
-        RawVersioned,
         RegisterBox,
-        RegistrableBox,
         RejectedTransaction,
-        events::pipeline::RejectionReason,
         RemoveKeyValueBox,
         Repeats,
         RevokeBox,
@@ -275,25 +342,37 @@ pub fn generate_map() -> DumpDecodedMap {
         RoleEventFilter,
         RoleFilter,
         RoleId,
+        SemiInterval<Fixed>,
+        SemiInterval<u128>,
+        SemiInterval<u32>,
+        SemiRange,
         SequenceBox,
         SetKeyValueBox,
         SetParameterBox,
         Signature,
         SignatureCheckCondition,
-        SignatureOf<iroha_data_model::block::CommittedBlock>,
-        SignatureOf<query::http::Payload>,
-        SignatureOf<transaction::Payload>,
-        SignaturesOf<iroha_data_model::block::CommittedBlock>,
-        SignaturesOf<transaction::Payload>,
+        SignatureOf<CommittedBlock>,
+        SignatureOf<QueryPayload>,
+        SignatureOf<TransactionPayload>,
+        SignatureWrapperOf<CommittedBlock>,
+        SignatureWrapperOf<TransactionPayload>,
+        SignaturesOf<CommittedBlock>,
+        SignaturesOf<TransactionPayload>,
         SignedQueryRequest,
         SignedTransaction,
         Sorting,
         String,
+        StringPredicate,
         Subtract,
         TimeEvent,
         TimeEventFilter,
         TimeInterval,
         TimeSchedule,
+        TransactionExpired,
+        TransactionLimitError,
+        TransactionLimits,
+        TransactionPayload,
+        TransactionQueryResult,
         TransactionRejectionReason,
         TransactionValue,
         TransferBox,
@@ -305,118 +384,45 @@ pub fn generate_map() -> DumpDecodedMap {
         TriggerNumberOfExecutionsChanged,
         UnregisterBox,
         UnsatisfiedSignatureConditionFail,
-        UnsupportedVersion,
         ValidTransaction,
+        Validator,
+        ValidatorId,
+        ValidatorType,
         Value,
         ValueKind,
-        Vec<Hash>,
+        ValueOfKey,
+        ValuePredicate,
+        Vec<Event>,
+        Vec<Instruction>,
         Vec<PeerId>,
-        Vec<PermissionToken>,
-        Vec<Signature>,
-        Vec<SignatureOf<iroha_data_model::block::CommittedBlock>>,
-        Vec<SignatureOf<transaction::Payload>>,
+        Vec<PredicateBox>,
+        Vec<SignedTransaction>,
         Vec<Value>,
-        Vec<events::Event>,
-        Vec<iroha_data_model::predicate::PredicateBox>,
-        Vec<isi::Instruction>,
-        Vec<transaction::TransactionQueryResult>,
-        Vec<transaction::TransactionValue>,
-        Vec<transaction::TransactionValue>,
-        Vec<transaction::VersionedRejectedTransaction>,
-        Vec<transaction::VersionedSignedTransaction>,
-        Vec<transaction::VersionedValidTransaction>,
+        Vec<VersionedRejectedTransaction>,
+        Vec<VersionedValidTransaction>,
         Vec<u8>,
+        VersionedBlockMessage,
+        VersionedBlockSubscriptionRequest,
+        VersionedCommittedBlock,
+        VersionedCommittedBlockWrapper,
+        VersionedEventMessage,
+        VersionedEventSubscriptionRequest,
         VersionedPaginatedQueryResult,
         VersionedPendingTransactions,
-        VersionedQueryResult,
         VersionedRejectedTransaction,
         VersionedSignedQueryRequest,
         VersionedSignedTransaction,
         VersionedValidTransaction,
         WasmExecutionFail,
+        WasmSmartContract,
         Where,
-        [predicate::ip_addr::Ipv4Predicate; 4],
-        [predicate::numerical::Interval<u16>; 8],
-        [predicate::numerical::Interval<u8>; 4],
+        [Interval<u16>; 8],
+        [Interval<u8>; 4],
         [u16; 8],
         [u8; 32],
         [u8; 4],
-        account::NewAccount,
-        asset::Mintable,
-        asset::NewAssetDefinition,
-        iroha_data_model::block::BlockHeader,
-        iroha_data_model::block::CommittedBlock,
-        iroha_data_model::block::VersionedCommittedBlock,
-        iroha_data_model::block::stream::BlockMessage,
-        iroha_data_model::block::stream::BlockSubscriptionRequest,
-        iroha_data_model::block::stream::VersionedBlockMessage,
-        iroha_data_model::block::stream::VersionedBlockSubscriptionRequest,
         bool,
-        core::time::Duration,
-        domain::IpfsPath,
-        domain::NewDomain,
-        events::Event,
-        events::FilterBox,
-        events::stream::EventMessage,
-        events::stream::EventSubscriptionRequest,
-        events::stream::VersionedEventMessage,
-        events::stream::VersionedEventSubscriptionRequest,
-        events::pipeline::StatusKind,
-        expression::EvaluatesTo<AccountId>,
-        expression::EvaluatesTo<AssetDefinitionId>,
-        expression::EvaluatesTo<AssetId>,
-        expression::EvaluatesTo<DomainId>,
-        expression::EvaluatesTo<Hash>,
-        expression::EvaluatesTo<IdBox>,
-        expression::EvaluatesTo<Name>,
-        expression::EvaluatesTo<NumericValue>,
-        expression::EvaluatesTo<Parameter>,
-        expression::EvaluatesTo<RegistrableBox>,
-        expression::EvaluatesTo<RoleId>,
-        expression::EvaluatesTo<TriggerId>,
-        expression::EvaluatesTo<Value>,
-        expression::EvaluatesTo<Vec<Value>>,
-        expression::EvaluatesTo<bool>,
-        expression::EvaluatesTo<u32>,
-        fixed::FixNum,
-        fixed::Fixed,
         i64,
-        iroha_data_model::permission::validator::Validator,
-        iroha_data_model::query::error::FindError,
-        iroha_data_model::isi::error::Mismatch<permission::validator::Type>,
-        iroha_data_model::query::error::QueryExecutionFailure,
-        iroha_primitives::addr::Ipv4Addr,
-        iroha_primitives::addr::Ipv6Addr,
-        iroha_version::error::Error,
-        permission::token::Id,
-        permission::validator::Id,
-        permission::validator::Type,
-        predicate::NonTrivial<predicate::PredicateBox>,
-        predicate::PredicateBox,
-        predicate::ip_addr::Ipv4Predicate,
-        predicate::ip_addr::Ipv6Predicate,
-        predicate::numerical::Interval<iroha_primitives::fixed::Fixed>,
-        predicate::numerical::Interval<u128>,
-        predicate::numerical::Interval<u16>,
-        predicate::numerical::Interval<u32>,
-        predicate::numerical::Interval<u8>,
-        predicate::numerical::Range,
-        predicate::numerical::SemiInterval<iroha_primitives::fixed::Fixed>,
-        predicate::numerical::SemiInterval<u128>,
-        predicate::numerical::SemiInterval<u32>,
-        predicate::numerical::SemiRange,
-        predicate::string::Predicate,
-        predicate::value::AtIndex,
-        predicate::value::Container,
-        predicate::value::Predicate,
-        predicate::value::ValueOfKey,
-        query::http::Payload,
-        role::NewRole,
-        transaction::Payload,
-        transaction::error::TransactionExpired,
-        transaction::error::TransactionLimitError,
-        transaction::TransactionLimits,
-        transaction::WasmSmartContract,
         u128,
         u16,
         u32,
@@ -424,51 +430,74 @@ pub fn generate_map() -> DumpDecodedMap {
         u8,
     };
 
-    map.insert(
-        <iroha_schema::Compact<u128> as IntoSchema>::type_name(),
-        <parity_scale_codec::Compact<u128> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
-    );
+    #[cfg(target_arch = "aarch64")]
+    if let Some((type_id, _)) = map.insert(
+        core::any::TypeId::of::<Box<VersionedCommittedBlock>>(),
+        (
+            <Box<VersionedCommittedBlock> as iroha_schema::TypeId>::id(),
+            <Box<VersionedCommittedBlock> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
+        ),
+    ) {
+        panic!(
+            "{}: Duplicate type id. Make sure that type ids are unique",
+            type_id
+        );
+    }
+    if let Some((type_id, _)) = map.insert(
+        core::any::TypeId::of::<iroha_schema::Compact<u128>>(),
+        (
+            <iroha_schema::Compact<u128> as iroha_schema::TypeId>::id(),
+            <parity_scale_codec::Compact<u32> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
+        ),
+    ) {
+        panic!(
+            "{}: Duplicate type id. Make sure that type ids are unique",
+            type_id
+        );
+    }
 
     map
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
+    use iroha_genesis::RawGenesisBlock;
+    use iroha_schema::IntoSchema;
     use iroha_schema_gen::build_schemas;
 
     use super::*;
 
-    macro_rules! type_names_arr {
-        ($($ty:ty),+$(,)?) => {
-            [$(
-                <$ty as IntoSchema>::type_name(),
-            )+]
-        }
-    }
-
     #[test]
-    fn schemas_types_is_a_subset_of_map_types() {
-        // These types **shouldn't** implement `Decode`. As such we need to make an exception.
-        let exceptions = HashSet::from(type_names_arr![
-            Vec<iroha_genesis::GenesisTransaction>,
-            iroha_genesis::GenesisTransaction,
-            iroha_genesis::RawGenesisBlock,
-            iroha_crypto::MerkleTree<iroha_data_model::transaction::VersionedSignedTransaction>,
-            TransactionQueryResult,
-        ]);
+    fn all_schema_types_are_decodable() {
+        // TODO: Should genesis belong to schema? #3284
+        let exceptions: HashSet<_> = RawGenesisBlock::schema()
+            .into_iter()
+            .map(|(type_id, _)| type_id)
+            .collect();
 
-        let schemas_types = build_schemas()
-            .into_keys()
-            .filter(|type_name| !exceptions.contains(type_name.as_str()))
-            .collect::<HashSet<_>>();
-        let map_types = generate_map().into_keys().collect::<HashSet<_>>();
+        let schemas_types = build_schemas().into_iter().collect::<HashMap<_, _>>();
+        let map_types = generate_test_map();
 
+        let mut extra_types = HashSet::new();
+        for (type_id, schema) in &map_types {
+            if !schemas_types.contains_key(type_id) {
+                extra_types.insert(&schema.0);
+            }
+        }
+        assert!(extra_types.is_empty(), "Extra types: {:#?}", extra_types);
+
+        let mut missing_types = HashSet::new();
+        for (type_id, schema) in &schemas_types {
+            if !map_types.contains_key(type_id) && !exceptions.contains(type_id) {
+                missing_types.insert(&schema.0);
+            }
+        }
         assert!(
-            schemas_types.is_subset(&map_types),
-            "Difference: {:#?}",
-            schemas_types.difference(&map_types)
+            missing_types.is_empty(),
+            "Missing types: {:#?}",
+            missing_types
         );
     }
 }

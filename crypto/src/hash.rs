@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
 use iroha_ffi::FfiType;
-use iroha_schema::prelude::*;
+use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
@@ -19,15 +19,16 @@ ffi::ffi_item! {
     /// Hash of Iroha entities. Currently supports only blake2b-32.
     /// The least significant bit of hash is set to 1.
     #[derive(
+        DebugCustom,
+        Display,
         Clone,
         Copy,
-        Display,
-        DebugCustom,
-        Hash,
-        Eq,
         PartialEq,
-        Ord,
+        Eq,
         PartialOrd,
+        Ord,
+        Hash,
+        TypeId
     )]
     #[display(fmt = "{}", "hex::encode(self.as_ref())")]
     #[debug(fmt = "{}", "hex::encode(self.as_ref())")]
@@ -178,19 +179,17 @@ impl Decode for Hash {
 
 impl IntoSchema for Hash {
     fn type_name() -> String {
-        format!("{}::{}", module_path!(), "Hash")
+        "Hash".to_owned()
     }
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            <[u8; Self::LENGTH]>::update_schema_map(map);
 
-    fn schema(map: &mut iroha_schema::MetaMap) {
-        let _ = map
-            .entry(<Self as iroha_schema::IntoSchema>::type_name())
-            .or_insert_with(|| {
-                iroha_schema::Metadata::Tuple(iroha_schema::UnnamedFieldsMeta {
-                    types: vec![<[u8; Self::LENGTH] as iroha_schema::IntoSchema>::type_name()],
-                })
-            });
-        if !map.contains_key(&<[u8; Self::LENGTH] as iroha_schema::IntoSchema>::type_name()) {
-            <[u8; Self::LENGTH] as iroha_schema::IntoSchema>::schema(map);
+            map.insert::<Self>(iroha_schema::Metadata::Tuple(
+                iroha_schema::UnnamedFieldsMeta {
+                    types: vec![core::any::TypeId::of::<[u8; Self::LENGTH]>()],
+                },
+            ));
         }
     }
 }
@@ -205,7 +204,7 @@ impl<T> From<HashOf<T>> for Hash {
 // Lint triggers when expanding #[codec(skip)]
 #[allow(clippy::default_trait_access)]
 #[derive(
-    DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize, FfiType,
+    DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize, FfiType, TypeId,
 )]
 #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
 #[display(fmt = "{_0}")]
@@ -278,16 +277,18 @@ impl<T: Encode> HashOf<T> {
 
 impl<T: IntoSchema> IntoSchema for HashOf<T> {
     fn type_name() -> String {
-        format!("{}::HashOf<{}>", module_path!(), T::type_name())
+        format!("HashOf<{}>", T::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Tuple(UnnamedFieldsMeta {
-                types: vec![Hash::type_name()],
-            })
-        });
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            Hash::update_schema_map(map);
 
-        Hash::schema(map);
+            map.insert::<Self>(iroha_schema::Metadata::Tuple(
+                iroha_schema::UnnamedFieldsMeta {
+                    types: vec![core::any::TypeId::of::<Hash>()],
+                },
+            ));
+        }
     }
 }
 

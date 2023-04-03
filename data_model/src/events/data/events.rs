@@ -163,7 +163,7 @@ mod permission {
     //! This module contains [`PermissionTokenEvent`], [`PermissionValidatorEvent`] and their impls
 
     use super::*;
-    use crate::permission::validator::{Id as ValidatorId, Validator};
+    use crate::permission::validator::{Validator, ValidatorId};
 
     data_event! {
         #[has_origin(origin = PermissionTokenDefinition)]

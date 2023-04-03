@@ -22,7 +22,7 @@ model! {
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct TriggerId {
         /// Name given to trigger by its creator.
         pub name: Name,
         /// DomainId of domain of the trigger.
@@ -36,7 +36,7 @@ model! {
     #[ffi_type]
     pub struct Trigger<F: Filter> {
         /// [`Id`] of the [`Trigger`].
-        pub id: Id,
+        pub id: TriggerId,
         /// Action to be performed when the trigger matches.
         pub action: action::Action<F>,
     }
@@ -130,7 +130,7 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
     }
 }
 
-impl core::fmt::Display for Id {
+impl core::fmt::Display for TriggerId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if let Some(ref domain_id) = self.domain_id {
             write!(f, "{}${}", self.name, domain_id)
@@ -140,7 +140,7 @@ impl core::fmt::Display for Id {
     }
 }
 
-impl FromStr for Id {
+impl FromStr for TriggerId {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -184,7 +184,7 @@ pub mod action {
         fn set_repeats(&mut self, repeats: Repeats);
 
         /// Get action technical account
-        fn technical_account(&self) -> &crate::account::Id;
+        fn technical_account(&self) -> &crate::account::AccountId;
 
         /// Get action metadata
         fn metadata(&self) -> &Metadata;
@@ -224,7 +224,7 @@ pub mod action {
             /// Technical account linked to this trigger. The technical
             /// account must already exist in order for `Register<Trigger>` to
             /// work.
-            pub technical_account: crate::account::Id,
+            pub technical_account: crate::account::AccountId,
             /// Defines events which trigger the `Action`
             pub filter: F,
             /// Metadata used as persistent storage for trigger data.
@@ -243,7 +243,7 @@ pub mod action {
         pub fn new(
             executable: impl Into<Executable>,
             repeats: impl Into<Repeats>,
-            technical_account: crate::account::Id,
+            technical_account: crate::account::AccountId,
             filter: F,
         ) -> Self {
             Self {
@@ -277,7 +277,7 @@ pub mod action {
             self.repeats = repeats;
         }
 
-        fn technical_account(&self) -> &crate::account::Id {
+        fn technical_account(&self) -> &crate::account::AccountId {
             &self.technical_account
         }
 
@@ -372,7 +372,7 @@ pub mod action {
 pub mod prelude {
     //! Re-exports of commonly used types.
 
-    pub use super::{action::prelude::*, Id as TriggerId, Trigger};
+    pub use super::{action::prelude::*, Trigger, TriggerId};
 }
 
 #[cfg(test)]

@@ -49,7 +49,7 @@ mod header {
             /// Hash of merkle tree root of the tree of rejected transactions' hashes.
             pub rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
             /// Network topology when the block was committed.
-            pub committed_with_topology: Vec<peer::Id>,
+            pub committed_with_topology: Vec<peer::PeerId>,
         }
     }
 

@@ -28,6 +28,15 @@ use iroha_primitives::fixed::Fixed;
 use super::{Context, Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldStateView};
 
+/// Trait for proxy objects used for registration.
+pub trait Registrable {
+    /// Constructed type
+    type Target;
+
+    /// Construct [`Self::Target`]
+    fn build(self) -> Self::Target;
+}
+
 impl Execute for Instruction {
     type Error = Error;
 
@@ -298,7 +307,7 @@ impl Execute for RemoveKeyValueBox {
     }
 }
 
-impl Execute for If {
+impl Execute for Conditional {
     type Error = Error;
 
     fn execute(

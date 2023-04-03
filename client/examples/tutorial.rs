@@ -93,7 +93,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
 fn account_definition_test() -> Result<(), Error> {
     // #region account_definition_comparison
-    use iroha_data_model::{account::Id as AccountIdStruct, prelude::AccountId};
+    use iroha_data_model::{account::AccountId as AccountIdStruct, prelude::AccountId};
 
     // Create an `iroha_data_model::account::Id` instance
     // with a DomainId instance and a Domain ID for an account
@@ -119,7 +119,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     use iroha_client::client::Client;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
-        account::Id as AccountIdStruct,
+        account::AccountId as AccountIdStruct,
         metadata::UnlimitedMetadata,
         prelude::{Account, AccountId, Instruction, RegisterBox},
     };
@@ -170,7 +170,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
 
     use iroha_client::client::Client;
     use iroha_data_model::{
-        account::Id as AccountIdStruct,
+        account::AccountId as AccountIdStruct,
         prelude::{
             AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintBox, RegisterBox,
         },

@@ -4,10 +4,10 @@
 //! `SmallVec` should be determined based on the average case size of
 //! the collection.
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::fmt;
 
-use iroha_schema::{IntoSchema, MetaMap};
+use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
 use serde::{Deserialize, Serialize};
 pub use small_string::SmallStr;
@@ -21,9 +21,12 @@ pub const SMALL_SIZE: usize = 8_usize;
 mod small_string {
     use super::*;
 
-    #[derive(Debug, Clone, derive_more::Display, Deserialize, Serialize, PartialEq, Eq)]
+    #[derive(
+        Debug, derive_more::Display, Clone, PartialEq, Eq, Deserialize, Serialize, IntoSchema,
+    )]
     /// Wrapper around the [`smallstr::SmallString`] type, enforcing a
     /// specific size of stack-based strings.
+    #[schema(transparent = "String")]
     #[serde(transparent)]
     #[repr(transparent)]
     pub struct SmallStr(SmallString<[u8; 32]>);
@@ -57,15 +60,6 @@ mod small_string {
     impl<A: Array<Item = u8>> From<SmallString<A>> for SmallStr {
         fn from(string: SmallString<A>) -> Self {
             Self(SmallString::from_str(SmallString::as_str(&string)))
-        }
-    }
-
-    impl IntoSchema for SmallStr {
-        fn type_name() -> String {
-            String::type_name()
-        }
-        fn schema(map: &mut MetaMap) {
-            String::schema(map);
         }
     }
 }
@@ -215,13 +209,36 @@ mod small_vector {
         }
     }
 
-    impl<T: IntoSchema, A: smallvec::Array<Item = T>> IntoSchema for SmallVec<A> {
+    #[allow(unsafe_code)]
+    impl<A: smallvec::Array + 'static> TypeId for SmallVec<A>
+    where
+        A::Item: TypeId,
+    {
+        #[inline]
+        fn id() -> String {
+            Vec::<A::Item>::id()
+        }
+    }
+    impl<A: smallvec::Array + 'static> IntoSchema for SmallVec<A>
+    where
+        A::Item: IntoSchema,
+    {
+        #[inline]
         fn type_name() -> String {
-            Vec::<T>::type_name()
+            Vec::<A::Item>::type_name()
         }
 
-        fn schema(map: &mut MetaMap) {
-            Vec::<T>::schema(map)
+        #[inline]
+        fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+            if !map.contains_key::<Self>() {
+                if !map.contains_key::<Vec<A::Item>>() {
+                    Vec::<A::Item>::update_schema_map(map);
+                }
+
+                if let Some(schema) = map.get::<Vec<A::Item>>() {
+                    map.insert::<Self>(schema.clone());
+                }
+            }
         }
     }
 

@@ -31,7 +31,7 @@ fn produce_instructions() -> Vec<Instruction> {
         registers[0].clone(),
         Pair::new::<Instruction, _>(
             registers[1].clone(),
-            IfInstruction::with_otherwise(
+            Conditional::with_otherwise(
                 false,
                 FailBox::new("unreachable"),
                 SequenceBox::new(vec![registers[2].clone(), registers[3].clone()]),

@@ -15,7 +15,7 @@ use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConf
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
-    query::error::QueryExecutionFailure, transaction::Payload,
+    query::error::QueryExecutionFailure, transaction::TransactionPayload,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallStr;
@@ -939,7 +939,10 @@ impl Client {
     }
 
     /// Check if two transactions are the same. Compare their contents excluding the creation time.
-    fn equals_excluding_creation_time(first: &Payload, second: &Payload) -> bool {
+    fn equals_excluding_creation_time(
+        first: &TransactionPayload,
+        second: &TransactionPayload,
+    ) -> bool {
         first.account_id() == second.account_id()
             && first.instructions() == second.instructions()
             && first.time_to_live_ms() == second.time_to_live_ms()

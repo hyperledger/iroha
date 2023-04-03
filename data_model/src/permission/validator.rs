@@ -29,7 +29,7 @@ model! {
     #[display(fmt = "{name}%{owned_by}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct ValidatorId {
         /// Name given to validator by its creator.
         pub name: Name,
         /// Account that owns the validator.
@@ -46,10 +46,10 @@ model! {
     #[ffi_type]
     pub struct Validator {
         /// Identification of this [`Validator`].
-        pub id: Id,
+        pub id: ValidatorId,
         /// Type of the validator
         #[getset(get = "pub")]
-        pub validator_type: Type,
+        pub validator_type: ValidatorType,
         /// WASM code of the validator
         // TODO: use another type like `WasmValidator`?
         #[getset(get = "pub")]
@@ -61,7 +61,7 @@ impl Registered for Validator {
     type With = Self;
 }
 
-impl core::str::FromStr for Id {
+impl core::str::FromStr for ValidatorId {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -89,7 +89,7 @@ model! {
     #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash, Encode, Decode, Deserialize, Serialize, IntoSchema)]
     #[repr(u8)]
     #[ffi_type]
-    pub enum Type {
+    pub enum ValidatorType {
         /// Validator checking [`Transaction`]
         Transaction,
         /// Validator checking [`Instruction`]
@@ -106,25 +106,25 @@ pub trait NeedsPermission {
     /// Get the type of validator required to check the operation
     ///
     /// Accepts `self` because of the [`NeedsPermissionBox`]
-    fn required_validator_type(&self) -> Type;
+    fn required_validator_type(&self) -> ValidatorType;
 }
 
 impl NeedsPermission for Instruction {
-    fn required_validator_type(&self) -> Type {
-        Type::Instruction
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Instruction
     }
 }
 
 impl NeedsPermission for QueryBox {
-    fn required_validator_type(&self) -> Type {
-        Type::Query
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Query
     }
 }
 
 // Expression might contain a query, therefore needs to be checked.
 impl NeedsPermission for Expression {
-    fn required_validator_type(&self) -> Type {
-        Type::Expression
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Expression
     }
 }
 
@@ -171,12 +171,12 @@ model! {
 }
 
 impl NeedsPermission for NeedsPermissionBox {
-    fn required_validator_type(&self) -> Type {
+    fn required_validator_type(&self) -> ValidatorType {
         match self {
-            NeedsPermissionBox::Transaction(_) => Type::Transaction,
-            NeedsPermissionBox::Instruction(_) => Type::Instruction,
-            NeedsPermissionBox::Query(_) => Type::Query,
-            NeedsPermissionBox::Expression(_) => Type::Expression,
+            NeedsPermissionBox::Transaction(_) => ValidatorType::Transaction,
+            NeedsPermissionBox::Instruction(_) => ValidatorType::Instruction,
+            NeedsPermissionBox::Query(_) => ValidatorType::Query,
+            NeedsPermissionBox::Expression(_) => ValidatorType::Expression,
         }
     }
 }

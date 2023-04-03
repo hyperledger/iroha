@@ -614,7 +614,7 @@ impl<'wrld> Runtime<'wrld> {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        id: &validator::Id,
+        id: &validator::ValidatorId,
         module: &wasmtime::Module,
         operation: &permission::validator::NeedsPermissionBox,
     ) -> Result<permission::validator::Verdict> {

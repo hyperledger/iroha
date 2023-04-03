@@ -1,100 +1,63 @@
 //! Iroha schema generation support library. Contains the
 //! `build_schemas` `fn`, which is the function which decides which
 //! types are included in the schema.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFailure};
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 
-macro_rules! schemas {
-    ($($t:ty),* $(,)?) => {{
-        let mut out = MetaMap::new();
-        $(<$t as IntoSchema>::schema(&mut out);)*
-        out
-    }};
-}
-
 /// Builds the schema for the current state of Iroha.
 ///
 /// You should only include the top-level types, because other types
-/// shall be included automatically.
+/// shall be included recursively.
 pub fn build_schemas() -> MetaMap {
-    use iroha_crypto::MerkleTree;
     use iroha_data_model::prelude::*;
 
+    macro_rules! schemas {
+        ($($t:ty),* $(,)?) => {{
+            let mut out = MetaMap::new(); $(
+            <$t as IntoSchema>::update_schema_map(&mut out); )*
+            out
+        }};
+    }
+
     schemas! {
+        // TODO: Should genesis belong to schema? #3284
         RawGenesisBlock,
 
+        QueryExecutionFailure,
         VersionedBlockMessage,
         VersionedBlockSubscriptionRequest,
         VersionedEventMessage,
         VersionedEventSubscriptionRequest,
         VersionedPaginatedQueryResult,
         VersionedSignedQueryRequest,
-        VersionedSignedTransaction,
-        QueryExecutionFailure,
-
-        RegistrableBox,
-
-        // Even though these schemas are not exchanged between server and client,
-        // they can be useful to the client to generate and validate their hashes
-        MerkleTree<VersionedSignedTransaction>,
+        VersionedPendingTransactions,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use super::*;
 
     // NOTE: These type parameters should not be have their schema exposed
     // By default `PhantomData` wrapped types schema will not be included
-    const SCHEMALESS_TYPES: Vec<&str> = vec![];
+    const SCHEMALESS_TYPES: [&str; 2] =
+        ["MerkleTree<VersionedSignedTransaction>", "RegistrableBox"];
 
     fn is_const_generic(generic: &str) -> bool {
         generic.parse::<usize>().is_ok()
     }
 
-    fn get_subtypes(schema: &Metadata) -> Vec<&str> {
-        match schema {
-            Metadata::Enum(EnumMeta { variants }) => variants
-                .iter()
-                .map(|v| &v.ty)
-                .filter_map(Option::as_ref)
-                .map(String::as_str)
-                .collect(),
-            Metadata::Struct(NamedFieldsMeta { declarations }) => {
-                declarations.iter().map(|d| d.ty.as_str()).collect()
-            }
-            Metadata::Tuple(UnnamedFieldsMeta { types }) => {
-                types.iter().map(String::as_str).collect()
-            }
-            Metadata::Result(ResultMeta { ok, err }) => vec![ok, err],
-            Metadata::Map(MapMeta { key, value, .. }) => vec![key, value],
-            Metadata::Option(ty)
-            | Metadata::Array(ArrayMeta { ty, .. })
-            | Metadata::Vec(VecMeta { ty, .. }) => {
-                vec![ty]
-            }
-            Metadata::String | Metadata::Bool | Metadata::FixedPoint(_) | Metadata::Int(_) => {
-                vec![]
-            }
-        }
-    }
-
     // For `PhantomData` wrapped types schemas aren't expanded recursively.
     // This test ensures that schemas for those types are present as well.
-    #[allow(clippy::string_slice)] // NOTE: There are no non-ascii characters in source code.
-    fn find_missing_type_params(schemas: &MetaMap) -> HashMap<&str, Vec<&str>> {
-        let mut missing_schemas = HashMap::new();
+    fn find_missing_type_params(type_names: &HashSet<String>) -> HashMap<&str, Vec<&str>> {
+        let mut missing_schemas = HashMap::<&str, _>::new();
 
-        for type_name in schemas.keys() {
+        for type_name in type_names {
             if let (Some(mut start), Some(end)) = (type_name.find('<'), type_name.rfind('>')) {
                 start += 1;
 
@@ -115,9 +78,9 @@ mod tests {
                             continue;
                         }
 
-                        if !SCHEMALESS_TYPES.contains(&generic) && !schemas.contains_key(generic) {
+                        if !SCHEMALESS_TYPES.contains(&generic) && !type_names.contains(generic) {
                             missing_schemas
-                                .entry(type_name.as_str())
+                                .entry(type_name)
                                 .or_insert_with(Vec::new)
                                 .push(generic);
                         }
@@ -128,10 +91,10 @@ mod tests {
                 if !generic.is_empty()
                     && !is_const_generic(generic)
                     && !SCHEMALESS_TYPES.contains(&generic)
-                    && !schemas.contains_key(generic)
+                    && !type_names.contains(generic)
                 {
                     missing_schemas
-                        .entry(type_name.as_str())
+                        .entry(type_name)
                         .or_insert_with(Vec::new)
                         .push(generic);
                 }
@@ -141,36 +104,17 @@ mod tests {
         missing_schemas
     }
 
-    fn find_missing_schemas(schemas: &MetaMap) -> HashMap<&str, Vec<&str>> {
-        let mut missing_schemas = HashMap::new();
-
-        for (type_name, schema) in schemas {
-            let subtypes = get_subtypes(schema);
-
-            for ty in subtypes {
-                if !schemas.contains_key(ty) {
-                    missing_schemas
-                        .entry(type_name.as_str())
-                        .or_insert_with(Vec::new)
-                        .push(ty);
-                }
-            }
-        }
-
-        missing_schemas.extend(find_missing_type_params(schemas));
-
-        missing_schemas
-    }
-
     #[test]
-    #[allow(clippy::use_debug)]
-    #[allow(clippy::print_stdout)]
     fn no_missing_schemas() {
-        let schemas = build_schemas();
+        let type_names = build_schemas()
+            .into_iter()
+            .map(|(_, (name, _))| name)
+            .collect();
+        let missing_schemas = find_missing_type_params(&type_names);
 
-        let missing_schemas = find_missing_schemas(&schemas);
-        println!("Missing schemas: \n{missing_schemas:#?}");
-
-        assert!(missing_schemas.is_empty());
+        assert!(
+            missing_schemas.is_empty(),
+            "Missing schemas: \n{missing_schemas:#?}"
+        );
     }
 }

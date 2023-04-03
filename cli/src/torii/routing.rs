@@ -50,9 +50,9 @@ pub fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Reject
 pub struct VerifiedQueryRequest {
     /// Payload, containing the time, the query, the authenticating
     /// user account and a filter
-    payload: query::http::Payload,
+    payload: query::http::QueryPayload,
     /// Signature of the authenticating user
-    signature: SignatureOf<query::http::Payload>,
+    signature: SignatureOf<query::http::QueryPayload>,
 }
 
 impl VerifiedQueryRequest {

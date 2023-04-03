@@ -5,7 +5,7 @@ use core::fmt::{self, Debug, Formatter};
 use dashmap::DashMap;
 use iroha_data_model::{
     permission::validator::{
-        DenialReason, Id, NeedsPermission as _, NeedsPermissionBox, Type, Validator,
+        DenialReason, NeedsPermission as _, NeedsPermissionBox, Validator, ValidatorType,
     },
     prelude::Account,
     Identifiable,
@@ -47,8 +47,8 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) verdict.
 #[derive(Clone)]
 pub struct Chain {
-    all_validators: DashMap<Id, LoadedValidator>,
-    concrete_type_validators: DashMap<Type, Vec<Id>>,
+    all_validators: DashMap<<Validator as Identifiable>::Id, LoadedValidator>,
+    concrete_type_validators: DashMap<ValidatorType, Vec<<Validator as Identifiable>::Id>>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute validators.
     engine: wasmtime::Engine,
 }
@@ -79,8 +79,8 @@ impl Default for Chain {
 /// [`validate()`](Chain::validate) step.
 #[derive(Clone)]
 struct LoadedValidator {
-    id: Id,
-    validator_type: Type,
+    id: <Validator as Identifiable>::Id,
+    validator_type: ValidatorType,
     module: wasmtime::Module,
 }
 
@@ -143,7 +143,7 @@ impl Chain {
     /// Return `true` if the validator was removed
     /// and `false` if no validator with the given id was found.
     #[allow(clippy::expect_used)]
-    pub fn remove_validator(&self, id: &Id) -> bool {
+    pub fn remove_validator(&self, id: &<Validator as Identifiable>::Id) -> bool {
         self.all_validators.get(id).map_or(false, |entry| {
             let type_ = &entry.validator_type;
 
@@ -207,7 +207,7 @@ impl Chain {
         runtime: &wasm::Runtime,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        validator_id: &iroha_data_model::permission::validator::Id,
+        validator_id: &<Validator as Identifiable>::Id,
         operation: &NeedsPermissionBox,
     ) -> Result<()> {
         let validator = self.all_validators.get(validator_id).expect(

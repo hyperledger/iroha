@@ -28,7 +28,7 @@ model! {
     #[serde(transparent)]
     #[repr(transparent)]
     #[ffi_type(opaque)]
-    pub struct Id {
+    pub struct RoleId {
         /// Role name, should be unique .
         pub name: Name,
     }
@@ -39,7 +39,7 @@ model! {
     #[ffi_type]
     pub struct Role {
         /// Unique name of the role.
-        pub id: Id,
+        pub id: RoleId,
         /// Permission tokens.
         pub permissions: Permissions,
     }
@@ -115,5 +115,5 @@ impl crate::Registrable for NewRole {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::{Id as RoleId, NewRole, Role};
+    pub use super::{NewRole, Role, RoleId};
 }

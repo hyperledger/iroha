@@ -449,7 +449,7 @@ mod genesis {
 
         Ok(RegisterBox::new(Validator::new(
             "permission_validator%genesis@genesis".parse()?,
-            validator::Type::Instruction,
+            validator::ValidatorType::Instruction,
             WasmSmartContract::new(wasm_blob),
         ))
         .into())

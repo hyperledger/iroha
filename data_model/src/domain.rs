@@ -33,7 +33,7 @@ model! {
     #[getset(get = "pub")]
     #[repr(transparent)]
     #[ffi_type(opaque)]
-    pub struct Id {
+    pub struct DomainId {
         /// [`Name`] unique to a [`Domain`] e.g. company name
         pub name: Name,
     }
@@ -45,7 +45,7 @@ model! {
     #[ffi_type]
     pub struct Domain {
         /// Identification of this [`Domain`].
-        pub id: Id,
+        pub id: DomainId,
         /// [`Account`]s of the domain.
         pub accounts: AccountsMap,
         /// [`Asset`](AssetDefinition)s defined of the `Domain`.
@@ -332,7 +332,7 @@ impl Decode for IpfsPath {
     }
 }
 
-impl Id {
+impl DomainId {
     #[cfg(feature = "transparent_api")]
     const GENESIS_DOMAIN_NAME: &str = "genesis";
 
@@ -349,7 +349,7 @@ impl Id {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Domain, Id as DomainId};
+    pub use super::{Domain, DomainId};
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
 )]
 
 #[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned as _, boxed::Box, string::String};
+use alloc::{borrow::ToOwned as _, boxed::Box, format, string::String};
 use core::{
     borrow::Borrow,
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
@@ -21,7 +21,7 @@ use core::{
 };
 
 use derive_more::{DebugCustom, Display};
-use iroha_schema::{IntoSchema, MetaMap};
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
 use serde::{
     de::{Deserialize, Deserializer, Error, Visitor},
@@ -51,9 +51,10 @@ ffi::ffi_item! {
     /// | Box     | ptr   | len                | tag (always 0) |
     /// +---------+-------+--------------------+----------------+
     /// ```
-    #[derive(DebugCustom, Display)]
+    #[derive(DebugCustom, Display, IntoSchema)]
     #[display(fmt = "{}", "&**self")]
     #[debug(fmt = "{:?}", "&**self")]
+    #[schema(transparent = "String")]
     #[repr(C)]
     pub union ConstString {
         inlined: InlinedString,
@@ -275,15 +276,6 @@ impl WrapperTypeEncode for ConstString {}
 
 impl WrapperTypeDecode for ConstString {
     type Wrapped = String;
-}
-
-impl IntoSchema for ConstString {
-    fn type_name() -> String {
-        String::type_name()
-    }
-    fn schema(map: &mut MetaMap) {
-        String::schema(map);
-    }
 }
 
 #[derive(DebugCustom)]

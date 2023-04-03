@@ -35,7 +35,7 @@ pub trait Txn {
     type HashOf: Txn;
 
     /// Returns payload of a transaction
-    fn payload(&self) -> &Payload;
+    fn payload(&self) -> &TransactionPayload;
 
     /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
     #[inline]
@@ -188,7 +188,7 @@ model! {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Payload {
+    pub struct TransactionPayload {
         /// Account ID of transaction creator.
         pub account_id: <Account as Identifiable>::Id,
         /// Instructions or WebAssembly smartcontract
@@ -250,7 +250,7 @@ impl Txn for VersionedSignedTransaction {
     type HashOf = Self;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         match self {
             Self::V1(v1) => &v1.payload,
         }
@@ -283,7 +283,7 @@ model! {
     #[ffi_type(unsafe {robust})]
     pub struct Transaction {
         /// [`Transaction`] payload.
-        pub payload: Payload,
+        pub payload: TransactionPayload,
     }
 }
 
@@ -301,7 +301,7 @@ impl Transaction {
         let creation_time = crate::current_time().as_millis() as u64;
 
         Self {
-            payload: Payload {
+            payload: TransactionPayload {
                 account_id,
                 instructions: instructions.into(),
                 creation_time,
@@ -333,7 +333,7 @@ impl Txn for Transaction {
     type HashOf = SignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.payload
     }
 }
@@ -367,15 +367,15 @@ model! {
     #[ffi_type]
     pub struct SignedTransaction {
         /// [`Transaction`] payload.
-        pub payload: Payload,
+        pub payload: TransactionPayload,
         /// [`SignatureOf`] [`Payload`].
-        pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
+        pub signatures: btree_set::BTreeSet<SignatureOf<TransactionPayload>>,
     }
 }
 
 impl SignedTransaction {
     /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Payload>> {
+    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
         self.signatures.iter()
     }
 }
@@ -384,7 +384,7 @@ impl Txn for SignedTransaction {
     type HashOf = Self;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.payload
     }
 }
@@ -405,7 +405,7 @@ impl Sign for SignedTransaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant);
+declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant, IntoSchema);
 
 impl VersionedPendingTransactions {
     /// Convert from `&VersionedPendingTransactions` to V1 reference
@@ -476,7 +476,7 @@ model! {
 impl TransactionValue {
     /// Used to return payload of the transaction
     #[inline]
-    pub fn payload(&self) -> &Payload {
+    pub fn payload(&self) -> &TransactionPayload {
         match self {
             TransactionValue::Transaction(tx) => tx.payload(),
             TransactionValue::RejectedTransaction(tx) => tx.payload(),
@@ -516,7 +516,7 @@ model! {
 impl TransactionQueryResult {
     #[inline]
     /// Return payload of the transaction
-    pub fn payload(&self) -> &Payload {
+    pub fn payload(&self) -> &TransactionPayload {
         self.tx_value.payload()
     }
 }
@@ -572,7 +572,7 @@ impl Txn for VersionedValidTransaction {
     type HashOf = VersionedSignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.as_v1().payload
     }
 }
@@ -584,15 +584,15 @@ model! {
     #[ffi_type]
     pub struct ValidTransaction {
         /// The [`Transaction`]'s payload.
-        pub payload: Payload,
+        pub payload: TransactionPayload,
         /// [`SignatureOf`] [`Payload`].
-        pub signatures: SignaturesOf<Payload>,
+        pub signatures: SignaturesOf<TransactionPayload>,
     }
 }
 
 impl ValidTransaction {
     /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Payload>> {
+    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
         self.signatures.iter()
     }
 }
@@ -601,7 +601,7 @@ impl Txn for ValidTransaction {
     type HashOf = SignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.payload
     }
 }
@@ -641,7 +641,7 @@ impl Txn for VersionedRejectedTransaction {
     type HashOf = VersionedSignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         match self {
             Self::V1(v1) => &v1.payload,
         }
@@ -655,9 +655,9 @@ model! {
     #[ffi_type]
     pub struct RejectedTransaction {
         /// The [`Transaction`]'s payload.
-        pub payload: Payload,
+        pub payload: TransactionPayload,
         /// [`SignatureOf`] [`Transaction`].
-        pub signatures: SignaturesOf<Payload>,
+        pub signatures: SignaturesOf<TransactionPayload>,
         /// The reason for rejecting this transaction during the validation pipeline.
         #[getset(get = "pub")]
         pub rejection_reason: error::TransactionRejectionReason,
@@ -666,7 +666,7 @@ model! {
 
 impl RejectedTransaction {
     /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Payload>> {
+    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
         self.signatures.iter()
     }
 }
@@ -675,7 +675,7 @@ impl Txn for RejectedTransaction {
     type HashOf = SignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.payload
     }
 }
@@ -728,7 +728,7 @@ impl Txn for VersionedAcceptedTransaction {
     type HashOf = VersionedSignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.as_v1().payload
     }
 }
@@ -739,9 +739,9 @@ model! {
     #[derive(Debug, Clone, Decode, Encode, Serialize)]
     pub(crate) struct AcceptedTransaction {
         /// Payload of this transaction.
-        pub payload: Payload,
+        pub payload: TransactionPayload,
         /// Signatures for this transaction.
-        pub signatures: SignaturesOf<Payload>,
+        pub signatures: SignaturesOf<TransactionPayload>,
     }
 }
 
@@ -750,7 +750,7 @@ impl Txn for AcceptedTransaction {
     type HashOf = SignedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &TransactionPayload {
         &self.payload
     }
 }
@@ -853,7 +853,7 @@ pub mod error {
             /// Failure during limits check
             TransactionLimit(#[cfg_attr(feature = "std", source)] TransactionLimitError),
             /// Failure during signature verification
-            SignatureVerification(#[cfg_attr(feature = "std", source)] SignatureVerificationFail<Payload>),
+            SignatureVerification(#[cfg_attr(feature = "std", source)] SignatureVerificationFail<TransactionPayload>),
         }
 
         /// Error which indicates max instruction count was reached
@@ -1030,8 +1030,8 @@ pub mod prelude {
     #[cfg(feature = "std")]
     pub use super::Sign;
     pub use super::{
-        error::prelude::*, Executable, Payload, PendingTransactions, RejectedTransaction,
-        SignedTransaction, Transaction, TransactionLimits, TransactionQueryResult,
+        error::prelude::*, Executable, PendingTransactions, RejectedTransaction, SignedTransaction,
+        Transaction, TransactionLimits, TransactionPayload, TransactionQueryResult,
         TransactionValue, Txn, ValidTransaction, VersionedPendingTransactions,
         VersionedRejectedTransaction, VersionedSignedTransaction, VersionedValidTransaction,
         WasmSmartContract,

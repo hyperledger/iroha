@@ -48,7 +48,7 @@ use iroha_primitives::{
     fixed::{self, FixedPointOperationError},
     small::{Array as SmallArray, SmallVec},
 };
-use iroha_schema::{IntoSchema, MetaMap};
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
@@ -223,7 +223,7 @@ pub mod parameter {
         #[serde(transparent)]
         #[repr(transparent)]
         #[ffi_type(opaque)]
-        pub struct Id {
+        pub struct ParameterId {
             /// [`Name`] unique to a [`Parameter`].
             pub name: Name,
         }
@@ -236,7 +236,7 @@ pub mod parameter {
         #[ffi_type]
         pub struct Parameter {
             /// Unique [`Id`] of the [`Parameter`].
-            pub id: Id,
+            pub id: ParameterId,
             /// Current value of the [`Parameter`].
             #[getset(get = "pub")]
             pub val: Value,
@@ -336,7 +336,7 @@ pub mod parameter {
 
     #[cfg(test)]
     mod tests {
-        use super::{prelude::*, *};
+        use super::*;
         use crate::prelude::{MetadataLimits, TransactionLimits};
 
         const INVALID_PARAM: [&str; 4] = [
@@ -412,7 +412,7 @@ pub mod parameter {
     pub mod prelude {
         //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
 
-        pub use super::{Id as ParameterId, Parameter};
+        pub use super::{Parameter, ParameterId};
     }
 }
 
@@ -631,8 +631,9 @@ impl TryFrom<f64> for NumericValue {
 model! {
     /// Cross-platform wrapper for [`VersionedCommittedBlock`].
     #[cfg(not(target_arch = "aarch64"))]
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Into, Decode, Encode, Deserialize, Serialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Into, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
+    #[schema(transparent = "VersionedCommittedBlock")]
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
@@ -640,7 +641,8 @@ model! {
 
     /// Cross-platform wrapper for `BlockValue`.
     #[cfg(target_arch = "aarch64")]
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Decode, Encode, Deserialize, Serialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[schema(transparent = "Box<VersionedCommittedBlock>")]
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]
@@ -655,16 +657,6 @@ model! {
 impl From<VersionedCommittedBlockWrapper> for VersionedCommittedBlock {
     fn from(block_value: VersionedCommittedBlockWrapper) -> Self {
         *block_value.0
-    }
-}
-
-impl IntoSchema for VersionedCommittedBlockWrapper {
-    fn type_name() -> String {
-        VersionedCommittedBlock::type_name()
-    }
-
-    fn schema(map: &mut MetaMap) {
-        VersionedCommittedBlock::schema(map);
     }
 }
 
@@ -784,14 +776,14 @@ macro_rules! from_and_try_from_value_idbox {
 }
 
 from_and_try_from_value_idbox!(
-    PeerId(peer::Id),
-    DomainId(domain::Id),
-    AccountId(account::Id),
-    AssetId(asset::Id),
-    AssetDefinitionId(asset::DefinitionId),
-    TriggerId(trigger::Id),
-    RoleId(role::Id),
-    ParameterId(parameter::Id),
+    PeerId(peer::PeerId),
+    DomainId(domain::DomainId),
+    AccountId(account::AccountId),
+    AssetId(asset::AssetId),
+    AssetDefinitionId(asset::AssetDefinitionId),
+    TriggerId(trigger::TriggerId),
+    RoleId(role::RoleId),
+    ParameterId(parameter::ParameterId),
 );
 
 // TODO: Should we wrap String with new type in order to convert like here?

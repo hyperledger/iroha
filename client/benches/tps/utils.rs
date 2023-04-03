@@ -270,7 +270,7 @@ impl MeasurerUnit {
         let supply_roses = MintBox::new(100_u32.to_value(), asset_id(self.name));
         let burn_a_rose = BurnBox::new(1_u32.to_value(), asset_id(self.name));
 
-        IfInstruction::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
+        Conditional::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
     }
 
     fn relay_a_rose(&self) -> Instruction {
@@ -289,7 +289,7 @@ impl MeasurerUnit {
             asset_id(self.next_name),
         );
 
-        IfInstruction::new(enough_to_transfer, transfer_rose).into()
+        Conditional::new(enough_to_transfer, transfer_rose).into()
     }
 }
 

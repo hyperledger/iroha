@@ -146,12 +146,12 @@ pub fn check_query_in_expression(
             check_query_in_expression(authority, &expression.condition.expression, wsv)
                 .and(check_query_in_expression(
                     authority,
-                    &expression.then_expression.expression,
+                    &expression.then.expression,
                     wsv,
                 ))
                 .and(check_query_in_expression(
                     authority,
-                    &expression.else_expression.expression,
+                    &expression.otherwise.expression,
                     wsv,
                 ))
         }

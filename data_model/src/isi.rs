@@ -33,7 +33,7 @@ model! {
         /// `Transfer` variant.
         Transfer(TransferBox),
         /// `If` variant.
-        If(Box<If>),
+        If(Box<Conditional>),
         /// `Pair` variant.
         Pair(Box<Pair>),
         /// `Sequence` variant.
@@ -273,7 +273,7 @@ impl core::fmt::Display for SequenceBox {
 isi! {
     /// Composite instruction for a conditional execution of other instructions.
     #[ffi_type]
-    pub struct If {
+    pub struct Conditional {
         /// Condition to be checked.
         pub condition: EvaluatesTo<bool>,
         /// Instruction to be executed if condition pass.
@@ -283,7 +283,7 @@ isi! {
     }
 }
 
-impl core::fmt::Display for If {
+impl core::fmt::Display for Conditional {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "IF `{}` THEN `{}`", self.condition, self.then)?;
         if let Some(otherwise) = &self.otherwise {
@@ -674,7 +674,7 @@ impl SequenceBox {
     }
 }
 
-impl If {
+impl Conditional {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -684,7 +684,7 @@ impl If {
 
     /// Construct [`If`].
     pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<Instruction>>(condition: C, then: T) -> Self {
-        If {
+        Conditional {
             condition: condition.into(),
             then: then.into(),
             otherwise: None,
@@ -700,7 +700,7 @@ impl If {
         then: T,
         otherwise: O,
     ) -> Self {
-        If {
+        Conditional {
             condition: condition.into(),
             then: then.into(),
             otherwise: Some(otherwise.into()),
@@ -958,7 +958,7 @@ pub mod prelude {
         SetParameter, Transfer, Unregister,
     };
     pub use super::{
-        BurnBox, ExecuteTriggerBox, FailBox, GrantBox, If as IfInstruction, Instruction, MintBox,
+        BurnBox, Conditional, ExecuteTriggerBox, FailBox, GrantBox, Instruction, MintBox,
         NewParameterBox, Pair, RegisterBox, RemoveKeyValueBox, RevokeBox, SequenceBox,
         SetKeyValueBox, SetParameterBox, TransferBox, UnregisterBox,
     };
@@ -979,7 +979,7 @@ mod tests {
     ) -> Instruction {
         let condition: ExpressionBox = c.into();
         let condition = EvaluatesTo::new_unchecked(condition);
-        If {
+        Conditional {
             condition,
             then,
             otherwise,
