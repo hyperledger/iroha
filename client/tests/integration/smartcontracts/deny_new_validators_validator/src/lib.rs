@@ -17,7 +17,7 @@ fn validate(instruction: Instruction) -> Verdict {
     if let Instruction::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register
             .object()
-            .evaluate()
+            .evaluate(&Context::new())
             .dbg_expect("Failed to evaluate `Register` expression as `RegistrableBox` value")
         {
             return Verdict::Deny("New validators are not allowed".to_owned());

@@ -31,7 +31,7 @@ pub mod isi {
             account_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
-                .map_err(Error::Validate)?;
+                .map_err(Error::from)?;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
                 if domain.accounts.get(&account_id).is_some() {
@@ -82,7 +82,7 @@ pub mod isi {
                 .id()
                 .name
                 .validate_len(wsv.config.ident_length_limits)
-                .map_err(Error::Validate)?;
+                .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
             wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
@@ -318,7 +318,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -331,12 +331,12 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
@@ -352,12 +352,12 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);

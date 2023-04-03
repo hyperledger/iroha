@@ -12,10 +12,12 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 
 extern crate alloc;
 
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use data_model::{permission::validator::NeedsPermissionBox, prelude::*};
+use data_model::{
+    permission::validator::NeedsPermissionBox, prelude::*, query::error::QueryExecutionFailure,
+};
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
@@ -85,40 +87,33 @@ impl ExecuteOnHost for data_model::query::QueryBox {
     }
 }
 
-/// Calculate the result of the expression on the host side without mutating the state.
-pub trait EvaluateOnHost {
-    /// The resulting type of the expression.
-    type Value;
-    /// Type of error
-    type Error;
-
-    /// Calculate the result on the host side.
-    ///
-    /// # Errors
-    ///
-    /// Depends on the implementation.
-    fn evaluate(&self) -> Result<Self::Value, Self::Error>;
+/// Context of expression evaluation
+#[derive(Clone, Default)]
+#[repr(transparent)]
+pub struct Context {
+    values: BTreeMap<Name, Value>,
 }
 
-impl<V: TryFrom<Value> + DecodeAll> EvaluateOnHost for EvaluatesTo<V> {
-    type Value = V;
-    type Error = <V as TryFrom<Value>>::Error;
+impl Context {
+    /// Create new [`Self`]
+    pub fn new() -> Self {
+        Self {
+            values: BTreeMap::new(),
+        }
+    }
+}
 
-    fn evaluate(&self) -> Result<Self::Value, Self::Error> {
-        #[cfg(not(test))]
-        use host::evaluate_on_host as host_evaluate_on_host;
-        #[cfg(test)]
-        use tests::_iroha_wasm_evaluate_on_host_mock as host_evaluate_on_host;
+impl iroha_data_model::evaluate::Context for Context {
+    fn query(&self, query: &QueryBox) -> Result<Value, QueryExecutionFailure> {
+        Ok(query.execute())
+    }
 
-        // Safety: - `host_evaluate_on_host` doesn't take ownership of it's pointer parameter
-        //         - ownership of the returned result is transferred into `_decode_from_raw`
-        let value: data_model::prelude::Value = unsafe {
-            decode_with_length_prefix_from_raw(encode_and_execute(
-                self.expression(),
-                host_evaluate_on_host,
-            ))
-        };
-        value.try_into()
+    fn get(&self, name: &Name) -> Option<&Value> {
+        self.values.get(name)
+    }
+
+    fn update(&mut self, other: impl IntoIterator<Item = (Name, Value)>) {
+        self.values.extend(other)
     }
 }
 
@@ -205,21 +200,6 @@ mod host {
         ///
         /// This function does transfer ownership of the result to the caller
         pub(super) fn query_operation_to_validate() -> *const u8;
-
-        /// Evaluate an expression on the host side without mutating the state.
-        ///
-        /// # Input
-        ///
-        /// Expects a pointer to a valid [`ExpressionBox`] and its length.
-        ///
-        /// # Output
-        ///
-        /// Returns a pointer to a valid [`Value`] encoded with its length at the beginning.
-        ///
-        /// # Warning
-        ///
-        /// This function does transfer ownership of the result to the caller
-        pub(super) fn evaluate_on_host(ptr: *const u8, len: usize) -> *const u8;
     }
 }
 
@@ -438,7 +418,10 @@ mod tests {
 
     #[webassembly_test]
     fn evaluate_expression() {
-        assert_eq!(get_test_expression().evaluate(), Ok(EXPRESSION_RESULT));
+        assert_eq!(
+            get_test_expression().evaluate(&Context::new()),
+            Ok(EXPRESSION_RESULT)
+        );
     }
 
     #[webassembly_test]

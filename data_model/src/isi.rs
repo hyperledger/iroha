@@ -19,7 +19,7 @@ use crate::{model, Registered};
 model! {
     /// Sized structure for all possible Instructions.
     #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, EnumDiscriminants, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[strum_discriminants(name(InstructionType), derive(Display), allow(missing_docs))]
+    #[strum_discriminants(name(InstructionType), derive(Display), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
     #[ffi_type(opaque)]
     pub enum Instruction {
         /// `Register` variant.
@@ -757,50 +757,74 @@ pub mod error {
 
     use super::*;
     use crate::{
-        metadata,
+        evaluate, metadata,
         query::error::{FindError, QueryExecutionFailure},
     };
 
     model! {
         /// Instruction execution error type
-        #[derive(Debug, Display, FromVariant)]
+        #[derive(Debug, Display, PartialEq, Eq, FromVariant)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporarily opaque because of InstructionExecutionFailure::Repetition
         #[ffi_type(opaque)]
         pub enum InstructionExecutionFailure {
-            /// Failed to find some entity
-            #[display(fmt = "Failed to find. {_0}")]
-            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
-            /// Failed to assert type
-            #[display(fmt = "Type assertion failed. {_0}")]
-            Type(#[cfg_attr(feature = "std", source)] TypeError),
-            /// Failed to assert mintability
-            #[display(fmt = "Mintability violation. {_0}")]
-            Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
-            /// Failed due to math exception
-            #[display(fmt = "Math error. {_0}")]
-            Math(#[cfg_attr(feature = "std", source)] MathError),
+            /// Instruction does not adhere to Iroha DSL specification
+            #[display(fmt = "Evaluation failed: {_0}")]
+            Evaluate(#[cfg_attr(feature = "std", source)] EvaluationError),
+            /// Failed to assert a logical invariant in the sytem (e.g. insufficient amount or insuficient permissions)
+            #[display(fmt = "Validation failed: {_0}")]
+            Validate(#[cfg_attr(feature = "std", source)] ValidationError),
             /// Query Error
             #[display(fmt = "Query failed. {_0}")]
             Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
-            /// Metadata Error.
-            #[display(fmt = "Metadata error: {_0}")]
-            Metadata(#[cfg_attr(feature = "std", source)] metadata::Error),
-            /// Unsupported instruction.
-            #[display(fmt = "Unsupported {_0} instruction")]
-            Unsupported(InstructionType),
-            /// [`FailBox`] error
-            #[display(fmt = "Execution failed {_0}")]
-            FailBox(#[skip_from] #[skip_try_from] String),
             /// Conversion Error
             #[display(fmt = "Conversion Error: {_0}")]
             Conversion(#[skip_from] #[skip_try_from] String),
+            /// Failed to find some entity
+            #[display(fmt = "Entity missing: {_0}")]
+            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
             /// Repeated instruction
             #[display(fmt = "Repetition")]
             Repetition(InstructionType, IdBox),
-            /// Failed to validate.
-            #[display(fmt = "Failed to validate: {_0}")]
-            Validate(#[cfg_attr(feature = "std", source)] ValidationError),
+            /// Failed to assert mintability
+            #[display(fmt = "{_0}")]
+            Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
+            /// Failed due to math exception
+            #[display(fmt = "Illegal math operation: {_0}")]
+            Math(#[cfg_attr(feature = "std", source)] MathError),
+            /// Metadata Error.
+            #[display(fmt = "Metadata error: {_0}")]
+            Metadata(#[cfg_attr(feature = "std", source)] metadata::Error),
+            /// [`FailBox`] error
+            #[display(fmt = "Execution failed: {_0}")]
+            FailBox(#[skip_from] #[skip_try_from] String),
+        }
+
+        /// Evaluation error. This error indicates instruction is not a valid Iroha DSL
+        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+        // TODO: Only temporarily opaque because of problems with FFI
+        #[ffi_type(opaque)]
+        pub enum EvaluationError {
+            /// Asset type assertion error
+            #[display(fmt = "Failed to evaluate expression: {_0}")]
+            Expression(evaluate::Error),
+            /// Parameter type assertion error
+            #[display(fmt = "Instruction not supported: {_0}")]
+            Unsupported(InstructionType),
+            /// Failed to find parameter in a permission
+            PermissionParameter(String)
+        }
+
+        /// Instruction cannot be executed against current state of Iroha (missing permissions, failed calculation, etc.)
+        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+        #[ffi_type(opaque)]
+        pub enum ValidationError {
+            /// Insufficiend permissions
+            #[display(fmt = "Insufficient permissions: {_0}")]
+            Permission(crate::ValidationError),
+            /// Failed to assert type (e.g. asset value is not of expected type)
+            #[display(fmt = "Incorrect type: {_0}")]
+            Type(TypeError),
         }
 
         /// Generic structure used to represent a mismatch
@@ -830,7 +854,7 @@ pub mod error {
         }
 
         /// Math error, which occurs during instruction execution
-        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, FromVariant)]
+        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
         // TODO: Only temporarily opaque because of InstructionExecutionFailure::BinaryOpIncompatibleNumericValueTypes
         #[ffi_type(opaque)]
         pub enum MathError {
@@ -855,6 +879,9 @@ pub mod error {
             /// Encountered incompatible type of arguments
             #[display(fmt = "Binary operation does not support provided combination of arguments ({_0}, {_1})")]
             BinaryOpIncompatibleNumericValueTypes(NumericValue, NumericValue),
+            /// Conversion failed.
+            #[display(fmt = "{_0}")]
+            FixedPointConversion(String),
         }
 
         /// Mintability logic error
@@ -872,6 +899,12 @@ pub mod error {
     }
 
     #[cfg(feature = "std")]
+    impl std::error::Error for EvaluationError {}
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for ValidationError {}
+
+    #[cfg(feature = "std")]
     impl<T: Debug> std::error::Error for Mismatch<T> {}
 
     #[cfg(feature = "std")]
@@ -883,17 +916,35 @@ pub mod error {
     #[cfg(feature = "std")]
     impl std::error::Error for MintabilityError {}
 
-    impl From<FixedPointOperationError> for InstructionExecutionFailure {
+    impl From<TypeError> for InstructionExecutionFailure {
+        fn from(err: TypeError) -> Self {
+            Self::Validate(ValidationError::Type(err))
+        }
+    }
+    impl From<crate::ValidationError> for InstructionExecutionFailure {
+        fn from(err: crate::ValidationError) -> Self {
+            Self::Validate(ValidationError::Permission(err))
+        }
+    }
+    impl From<evaluate::Error> for InstructionExecutionFailure {
+        fn from(err: evaluate::Error) -> Self {
+            Self::Evaluate(EvaluationError::Expression(err))
+        }
+    }
+    impl From<FixedPointOperationError> for MathError {
         fn from(err: FixedPointOperationError) -> Self {
             match err {
-                FixedPointOperationError::NegativeValue(_) => Self::Math(MathError::NegativeValue),
+                FixedPointOperationError::NegativeValue(_) => Self::NegativeValue,
                 FixedPointOperationError::Conversion(e) => {
-                    Self::Conversion(format!("Mathematical conversion failed. {e}"))
+                    #[cfg(not(feature = "std"))]
+                    use alloc::string::ToString as _;
+
+                    Self::FixedPointConversion(e.to_string())
                 }
-                FixedPointOperationError::Overflow => MathError::Overflow.into(),
-                FixedPointOperationError::DivideByZero => MathError::DivideByZero.into(),
-                FixedPointOperationError::DomainViolation => MathError::DomainViolation.into(),
-                FixedPointOperationError::Arithmetic => MathError::Unknown.into(),
+                FixedPointOperationError::Overflow => Self::Overflow,
+                FixedPointOperationError::DivideByZero => Self::DivideByZero,
+                FixedPointOperationError::DomainViolation => Self::DomainViolation,
+                FixedPointOperationError::Arithmetic => Self::Unknown,
             }
         }
     }

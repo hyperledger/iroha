@@ -23,7 +23,7 @@ use iroha_primitives::must_use::MustUse;
 
 use crate::{
     prelude::*,
-    smartcontracts::{wasm, Evaluate, Execute as _},
+    smartcontracts::{wasm, Context, Execute as _},
 };
 
 /// Used to validate transaction and thus move transaction lifecycle forward
@@ -257,7 +257,7 @@ impl CheckSignatureCondition for AcceptedTransaction {
 
         wsv.map_account(account_id, |account| {
             check_signature_condition(account, signatories)
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map(MustUse::new)
                 .map_err(Into::into)
         })?

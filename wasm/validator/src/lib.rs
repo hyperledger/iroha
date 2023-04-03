@@ -16,7 +16,7 @@ pub mod prelude {
     pub use iroha_wasm::{
         data_model::{permission::validator::Verdict, prelude::*},
         prelude::*,
-        EvaluateOnHost,
+        Context,
     };
 
     pub use super::traits::{Token, Validate};
@@ -173,8 +173,8 @@ mod macros {
                     let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
                         $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
                         as
-                        $crate::iroha_wasm::EvaluateOnHost
-                    >::evaluate(grant.object()),
+                        $crate::iroha_wasm::data_model::prelude::Evaluate
+                    >::evaluate(grant.object(), &Context::new()),
                         "Failed to evaluate `Grant` object"
                     );
 
@@ -197,8 +197,8 @@ mod macros {
                     let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
                         $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
                         as
-                        $crate::iroha_wasm::EvaluateOnHost
-                    >::evaluate(revoke.object()),
+                        $crate::iroha_wasm::data_model::prelude::Evaluate
+                    >::evaluate(revoke.object(), &Context::new()),
                         "Failed to evaluate `Revoke` object"
                     );
 

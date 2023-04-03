@@ -1052,6 +1052,7 @@ mod tests {
     use crate::prelude::{AccountId, FailBox};
 
     #[test]
+    #[cfg(feature = "transparent_api")]
     fn transaction_not_accepted_max_instruction_number() {
         let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
         let inst: Instruction = FailBox {
@@ -1084,6 +1085,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "transparent_api")]
     fn genesis_transaction_ignore_limits() {
         let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
         let inst: Instruction = FailBox {
@@ -1108,7 +1110,6 @@ mod tests {
     #[test]
     fn wasm_smart_contract_debug_repr_should_contain_just_len() {
         let contract = WasmSmartContract::new(vec![0, 1, 2, 3, 4]);
-
         assert_eq!(format!("{contract:?}"), "WASM binary(len = 5)");
     }
 }

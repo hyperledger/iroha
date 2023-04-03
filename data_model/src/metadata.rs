@@ -30,7 +30,7 @@ model! {
 }
 
 /// Metadata related errors.
-#[derive(Debug, Clone, Display)]
+#[derive(Debug, Display, Clone, PartialEq, Eq)]
 pub enum Error {
     /// Metadata entry too big.
     #[display(fmt = "Metadata entry too big {limits} - {actual}")]

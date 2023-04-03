@@ -23,7 +23,7 @@ impl ValidQuery for FindTransactionsByAccountId {
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
         let id = self
             .account_id
-            .evaluate(wsv, &Context::default())
+            .evaluate(&Context::new(wsv))
             .wrap_err("Failed to get account id")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
         iroha_logger::trace!(%id);
@@ -36,7 +36,7 @@ impl ValidQuery for FindTransactionByHash {
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
         let hash = self
             .hash
-            .evaluate(wsv, &Context::default())
+            .evaluate(&Context::new(wsv))
             .wrap_err("Failed to get hash")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
         iroha_logger::trace!(%hash);

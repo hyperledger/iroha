@@ -699,7 +699,7 @@ pub mod query {
     use iroha_data_model::query::error::QueryExecutionFailure as Error;
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::Evaluate as _};
+    use crate::{prelude::*, smartcontracts::Context};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -713,7 +713,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
             iroha_logger::trace!(%id);
             // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
@@ -733,11 +733,11 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
             let key = self
                 .key
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {e}")))?;
             iroha_logger::trace!(%id, %key);
             wsv.triggers()
@@ -757,7 +757,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
             let domain_id = &self
                 .domain_id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
 
             let triggers = wsv

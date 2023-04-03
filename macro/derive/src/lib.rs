@@ -152,7 +152,7 @@ fn try_into_variant(
         impl TryFrom<#enum_ty> for #variant_ty {
             type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
 
-            fn try_from(origin: #enum_ty) -> core::result::Result<Self, iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>> {
+            fn try_from(origin: #enum_ty) -> core::result::Result<Self, Self::Error> {
                 if let #enum_ty :: #variant(variant) = origin {
                     Ok(variant)
                 } else {
@@ -203,10 +203,7 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
         None
     });
 
-    let gen = quote! {
-        #(#froms)*
-    };
-    gen.into()
+    quote! { #(#froms)* }.into()
 }
 
 /// [`VariantCount`] derives an associated constant `VARIANT_COUNT: usize` for enums

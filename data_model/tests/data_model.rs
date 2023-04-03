@@ -122,8 +122,8 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
 fn account_id_parsing() -> Result<(), ParseError> {
     // `AccountId` should have format `name@domain_name`
     let account_normal: AccountId = "test@hello".parse()?;
-    assert_eq!(account_normal.name.as_ref(), "test");
-    assert_eq!(account_normal.domain_id.name.as_ref(), "hello");
+    assert_eq!(account_normal.name().as_ref(), "test");
+    assert_eq!(account_normal.domain_id().name().as_ref(), "hello");
 
     let account_empty: Result<AccountId, _> = "@hello".parse();
     assert!(account_empty.is_err());
