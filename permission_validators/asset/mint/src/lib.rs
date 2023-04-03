@@ -36,10 +36,10 @@ pub struct CanMintAssetsWithDefinition {
 /// see [`can_mint_assets_with_definition`].
 ///
 /// [`can_mint_assets_with_definition`]: CanMintAssetsWithDefinition
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(<CanMintAssetsWithDefinition>, (authority, instruction));
 
-    let Instruction::Mint(mint) = instruction else {
+    let InstructionBox::Mint(mint) = instruction else {
         pass!();
     };
 

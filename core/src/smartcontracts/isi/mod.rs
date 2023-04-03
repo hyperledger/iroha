@@ -37,7 +37,7 @@ pub trait Registrable {
     fn build(self) -> Self::Target;
 }
 
-impl Execute for Instruction {
+impl Execute for InstructionBox {
     type Error = Error;
 
     fn execute(
@@ -45,7 +45,7 @@ impl Execute for Instruction {
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
-        use Instruction::*;
+        use InstructionBox::*;
         match self {
             Register(register_box) => register_box.execute(authority, wsv),
             Unregister(unregister_box) => unregister_box.execute(authority, wsv),

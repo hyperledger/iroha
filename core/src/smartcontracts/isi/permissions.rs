@@ -16,7 +16,7 @@ use super::*;
 #[allow(clippy::expect_used)]
 pub fn check_instruction_permissions(
     account_id: &AccountId,
-    instruction: &Instruction,
+    instruction: &InstructionBox,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     let granted_instructions = &unpack_if_role_grant(instruction.clone(), wsv)
@@ -40,11 +40,11 @@ pub fn check_instruction_permissions(
 
 fn check_permission_recursively(
     authority: &AccountId,
-    instruction: &Instruction,
+    instruction: &InstructionBox,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     match instruction {
-        Instruction::If(if_box) => check_permission_recursively(authority, &if_box.then, wsv)
+        InstructionBox::If(if_box) => check_permission_recursively(authority, &if_box.then, wsv)
             .and_then(|_| {
                 if_box
                     .otherwise
@@ -53,12 +53,12 @@ fn check_permission_recursively(
                         check_permission_recursively(authority, this_instruction, wsv)
                     })
             }),
-        Instruction::Pair(pair_box) => {
+        InstructionBox::Pair(pair_box) => {
             check_permission_recursively(authority, &pair_box.left_instruction, wsv).and_then(
                 |_| check_permission_recursively(authority, &pair_box.right_instruction, wsv),
             )
         }
-        Instruction::Sequence(sequence_box) => {
+        InstructionBox::Sequence(sequence_box) => {
             sequence_box
                 .instructions
                 .iter()
@@ -90,7 +90,7 @@ pub fn check_query_permissions(
 
 fn check_permissions_directly(
     account_id: &AccountId,
-    instructions: &[Instruction],
+    instructions: &[InstructionBox],
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
@@ -194,27 +194,27 @@ pub fn check_query_in_expression(
 #[allow(clippy::too_many_lines)]
 pub fn check_query_in_instruction(
     authority: &AccountId,
-    instruction: &Instruction,
+    instruction: &InstructionBox,
     wsv: &WorldStateView,
 ) -> Result<()> {
     match instruction {
-        Instruction::Register(instruction) => {
+        InstructionBox::Register(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv)
         }
-        Instruction::Unregister(instruction) => {
+        InstructionBox::Unregister(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv)
         }
-        Instruction::Mint(instruction) => {
+        InstructionBox::Mint(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv).and(
                 check_query_in_expression(authority, &instruction.destination_id.expression, wsv),
             )
         }
-        Instruction::Burn(instruction) => {
+        InstructionBox::Burn(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv).and(
                 check_query_in_expression(authority, &instruction.destination_id.expression, wsv),
             )
         }
-        Instruction::Transfer(instruction) => {
+        InstructionBox::Transfer(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv)
                 .and(check_query_in_expression(
                     authority,
@@ -227,7 +227,7 @@ pub fn check_query_in_instruction(
                     wsv,
                 ))
         }
-        Instruction::SetKeyValue(instruction) => {
+        InstructionBox::SetKeyValue(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv)
                 .and(check_query_in_expression(
                     authority,
@@ -240,22 +240,22 @@ pub fn check_query_in_instruction(
                     wsv,
                 ))
         }
-        Instruction::RemoveKeyValue(instruction) => {
+        InstructionBox::RemoveKeyValue(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv).and(
                 check_query_in_expression(authority, &instruction.key.expression, wsv),
             )
         }
-        Instruction::Grant(instruction) => {
+        InstructionBox::Grant(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv).and(
                 check_query_in_expression(authority, &instruction.destination_id.expression, wsv),
             )
         }
-        Instruction::Revoke(instruction) => {
+        InstructionBox::Revoke(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv).and(
                 check_query_in_expression(authority, &instruction.destination_id.expression, wsv),
             )
         }
-        Instruction::If(if_box) => check_query_in_instruction(authority, &if_box.then, wsv)
+        InstructionBox::If(if_box) => check_query_in_instruction(authority, &if_box.then, wsv)
             .and_then(|_| {
                 if_box
                     .otherwise
@@ -264,12 +264,12 @@ pub fn check_query_in_instruction(
                         check_query_in_instruction(authority, this_instruction, wsv)
                     })
             }),
-        Instruction::Pair(pair_box) => {
+        InstructionBox::Pair(pair_box) => {
             check_query_in_instruction(authority, &pair_box.left_instruction, wsv).and(
                 check_query_in_instruction(authority, &pair_box.right_instruction, wsv),
             )
         }
-        Instruction::Sequence(sequence_box) => {
+        InstructionBox::Sequence(sequence_box) => {
             sequence_box
                 .instructions
                 .iter()
@@ -277,13 +277,13 @@ pub fn check_query_in_instruction(
                     check_query_in_instruction(authority, this_instruction, wsv)
                 })
         }
-        Instruction::SetParameter(parameter_box) => {
+        InstructionBox::SetParameter(parameter_box) => {
             check_query_in_expression(authority, &parameter_box.parameter.expression, wsv)
         }
-        Instruction::NewParameter(parameter_box) => {
+        InstructionBox::NewParameter(parameter_box) => {
             check_query_in_expression(authority, &parameter_box.parameter.expression, wsv)
         }
-        Instruction::Fail(_) | Instruction::ExecuteTrigger(_) => Ok(()),
+        InstructionBox::Fail(_) | InstructionBox::ExecuteTrigger(_) => Ok(()),
     }
 }
 
@@ -349,8 +349,8 @@ fn missing_parameter(key: &Name) -> EvaluationError {
 /// Used in `unpack_` functions for role granting and revoking
 #[rustfmt::skip] // Works weirdly with let-else expressions
 macro_rules! unpack {
-    ($i:ident, $w:ident, Instruction::$v:ident => $t:ty) => {{
-        let Instruction::$v(operation) = &$i else {
+    ($i:ident, $w:ident, InstructionBox::$v:ident => $t:ty) => {{
+        let InstructionBox::$v(operation) = &$i else {
             return Ok(vec![$i]);
         };
         let Value::Id(IdBox::RoleId(id)) = operation.object.evaluate(&Context::new($w))? else {
@@ -381,10 +381,10 @@ macro_rules! unpack {
 /// # Errors
 /// Evaluation failure of instruction fields.
 pub fn unpack_if_role_grant(
-    instruction: Instruction,
+    instruction: InstructionBox,
     wsv: &WorldStateView,
-) -> eyre::Result<Vec<Instruction>> {
-    unpack!(instruction, wsv, Instruction::Grant => GrantBox)
+) -> eyre::Result<Vec<InstructionBox>> {
+    unpack!(instruction, wsv, InstructionBox::Grant => GrantBox)
 }
 
 /// Unpack instruction if it is a Revoke of a Role, into several
@@ -401,8 +401,8 @@ pub fn unpack_if_role_grant(
 /// # Errors
 /// Evaluation failure of each of the instruction fields.
 pub fn unpack_if_role_revoke(
-    instruction: Instruction,
+    instruction: InstructionBox,
     wsv: &WorldStateView,
-) -> eyre::Result<Vec<Instruction>> {
-    unpack!(instruction, wsv, Instruction::Revoke => RevokeBox)
+) -> eyre::Result<Vec<InstructionBox>> {
+    unpack!(instruction, wsv, InstructionBox::Revoke => RevokeBox)
 }

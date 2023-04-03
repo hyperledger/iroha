@@ -34,7 +34,7 @@ model! {
     #[display(fmt = "@@{id}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Trigger<F: Filter> {
+    pub struct Trigger<F> {
         /// [`Id`] of the [`Trigger`].
         pub id: TriggerId,
         /// Action to be performed when the trigger matches.
@@ -170,9 +170,9 @@ pub mod action {
     use iroha_primitives::atomic::AtomicU32;
 
     use super::*;
-    use crate::HasMetadata;
 
     /// Trait for common methods for all [`Action`]'s
+    #[cfg(feature = "transparent_api")]
     pub trait ActionTrait {
         /// Get action executable
         fn executable(&self) -> &Executable;
@@ -214,7 +214,7 @@ pub mod action {
         /// next block.
         #[derive(Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[getset(get = "pub")]
-        pub struct Action<F: Filter> {
+        pub struct Action<F> {
             /// The executable linked to this action
             pub executable: Executable,
             /// The repeating scheme of the action. It's kept as part of the
@@ -232,13 +232,14 @@ pub mod action {
         }
     }
 
-    impl<F: Filter> HasMetadata for Action<F> {
+    #[cfg(feature = "transparent_api")]
+    impl<F: Filter> crate::HasMetadata for Action<F> {
         fn metadata(&self) -> &crate::metadata::Metadata {
             &self.metadata
         }
     }
 
-    impl<F: Filter> Action<F> {
+    impl<F> Action<F> {
         /// Construct an action given `executable`, `repeats`, `technical_account` and `filter`.
         pub fn new(
             executable: impl Into<Executable>,
@@ -264,6 +265,7 @@ pub mod action {
         }
     }
 
+    #[cfg(feature = "transparent_api")]
     impl<F: Filter + Into<FilterBox> + Clone> ActionTrait for Action<F> {
         fn executable(&self) -> &Executable {
             &self.executable
@@ -308,7 +310,7 @@ pub mod action {
         }
     }
 
-    impl<F: Filter + PartialEq> PartialOrd for Action<F> {
+    impl<F: PartialEq> PartialOrd for Action<F> {
         fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
             // Exclude the executable. When debugging and replacing
             // the trigger, its position in Hash and Tree maps should
@@ -321,8 +323,7 @@ pub mod action {
         }
     }
 
-    #[allow(clippy::expect_used)]
-    impl<F: Filter + Eq> Ord for Action<F> {
+    impl<F: Eq> Ord for Action<F> {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
             self.partial_cmp(other)
                 .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
@@ -365,7 +366,10 @@ pub mod action {
 
     pub mod prelude {
         //! Re-exports of commonly used types.
-        pub use super::{Action, ActionTrait, Repeats};
+
+        #[cfg(feature = "transparent_api")]
+        pub use super::action::ActionTrait;
+        pub use super::{Action, Repeats};
     }
 }
 

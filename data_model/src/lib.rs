@@ -16,14 +16,13 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    borrow::{Cow, ToOwned as _},
+    borrow::Cow,
     boxed::Box,
     format,
     string::{String, ToString},
     vec::Vec,
 };
 use core::{
-    any::type_name,
     convert::AsRef,
     fmt,
     fmt::Debug,
@@ -422,25 +421,25 @@ model! {
     #[allow(clippy::enum_variant_names)]
     #[ffi_type]
     pub enum IdBox {
-        /// [`DomainId`](`domain::Id`) variant.
+        /// [`DomainId`](`domain::DomainId`) variant.
         DomainId(<domain::Domain as Identifiable>::Id),
-        /// [`AccountId`](`account::Id`) variant.
+        /// [`AccountId`](`account::AccountId`) variant.
         AccountId(<account::Account as Identifiable>::Id),
-        /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
+        /// [`AssetDefinitionId`](`asset::AssetDefinitionId`) variant.
         AssetDefinitionId(<asset::AssetDefinition as Identifiable>::Id),
-        /// [`AssetId`](`asset::Id`) variant.
+        /// [`AssetId`](`asset::AssetId`) variant.
         AssetId(<asset::Asset as Identifiable>::Id),
-        /// [`PeerId`](`peer::Id`) variant.
+        /// [`PeerId`](`peer::PeerId`) variant.
         PeerId(<peer::Peer as Identifiable>::Id),
-        /// [`TriggerId`](trigger::Id) variant.
+        /// [`TriggerId`](trigger::TriggerId) variant.
         TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
-        /// [`RoleId`](`role::Id`) variant.
+        /// [`RoleId`](`role::RoleId`) variant.
         RoleId(<role::Role as Identifiable>::Id),
-        /// [`PermissionTokenId`](`permission::token::Id`) variant.
-        PermissionTokenDefinitionId(<permission::token::Definition as Identifiable>::Id),
-        /// [`Validator`](`permission::Validator`) variant.
+        /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
+        PermissionTokenDefinitionId(<permission::token::PermissionTokenDefinition as Identifiable>::Id),
+        /// [`ValidatorId`](`permission::ValidatorId`) variant.
         ValidatorId(<permission::Validator as Identifiable>::Id),
-        /// [`Parameter`](`parameter::Parameter`) variant.
+        /// [`ParameterId`](`parameter::ParameterId`) variant.
         ParameterId(<parameter::Parameter as Identifiable>::Id),
     }
 
@@ -462,8 +461,8 @@ model! {
         Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
         /// [`Role`](`role::Role`) variant.
         Role(Box<<role::Role as Registered>::With>),
-        /// [`PermissionTokenId`](`permission::token::Id`) variant.
-        PermissionTokenDefinition(Box<<permission::token::Definition as Registered>::With>),
+        /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
+        PermissionTokenDefinition(Box<<permission::token::PermissionTokenDefinition as Registered>::With>),
         /// [`Validator`](`permission::Validator`) variant.
         Validator(Box<<permission::Validator as Registered>::With>),
     }
@@ -494,8 +493,8 @@ model! {
         Trigger(Box<trigger::Trigger<FilterBox>>),
         /// [`Role`](`role::Role`) variant.
         Role(Box<role::Role>),
-        /// [`PermissionTokenDefinition`](`permission::token::Definition`) variant.
-        PermissionTokenDefinition(Box<permission::token::Definition>),
+        /// [`PermissionTokenDefinition`](`permission::token::PermissionTokenDefinition`) variant.
+        PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
         /// [`Validator`](`permission::Validator`) variant.
         Validator(Box<permission::Validator>),
         /// [`Parameter`](`parameter::Parameter`) variant.
@@ -582,7 +581,7 @@ model! {
         SignatureCheckCondition(SignatureCheckCondition),
         TransactionValue(TransactionValue),
         TransactionQueryResult(TransactionQueryResult),
-        PermissionToken(permission::Token),
+        PermissionToken(permission::PermissionToken),
         Hash(Hash),
         Block(VersionedCommittedBlockWrapper),
         BlockHeader(block::BlockHeader),
@@ -848,7 +847,7 @@ from_and_try_from_value_identifiablebox!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permission::token::Definition>),
+    PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
     Validator(Box<permission::Validator>),
     Parameter(Box<parameter::Parameter>),
 );
@@ -864,7 +863,7 @@ from_and_try_from_value_identifiable!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permission::token::Definition>),
+    PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
     Validator(Box<permission::Validator>),
     Parameter(Box<parameter::Parameter>),
 );
@@ -1126,16 +1125,6 @@ pub trait Registered: Identifiable {
     type With: Into<RegistrableBox>;
 }
 
-/// Trait for proxy objects used for registration.
-#[cfg(feature = "transparent_api")]
-pub trait Registrable {
-    /// Constructed type
-    type Target;
-
-    /// Construct [`Self::Target`]
-    fn build(self) -> Self::Target;
-}
-
 model! {
     /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
     #[derive(Debug, Display, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -1295,7 +1284,7 @@ where
             .map(|val| move || val.clone())
             .collect::<Vec<_>>();
 
-        let typ = type_name::<Self>();
+        let typ = core::any::type_name::<Self>();
 
         for a in &values {
             assert!(
@@ -1427,7 +1416,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permission::Token,
+                permission::PermissionToken,
                 role::Role,
             }
             iroha_ffi::$macro_name! { "iroha_data_model" Eq:
@@ -1435,7 +1424,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permission::Token,
+                permission::PermissionToken,
                 role::Role,
             }
             iroha_ffi::$macro_name! { "iroha_data_model" Ord:
@@ -1443,7 +1432,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permission::Token,
+                permission::PermissionToken,
                 role::Role,
             }
             iroha_ffi::$macro_name! { "iroha_data_model" Drop:
@@ -1451,7 +1440,7 @@ pub mod ffi {
                 asset::Asset,
                 domain::Domain,
                 metadata::Metadata,
-                permission::Token,
+                permission::PermissionToken,
                 role::Role,
             }
         };
@@ -1462,7 +1451,7 @@ pub mod ffi {
         asset::Asset,
         domain::Domain,
         metadata::Metadata,
-        permission::Token,
+        permission::PermissionToken,
         role::Role,
     }
 
@@ -1488,8 +1477,6 @@ pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "std")]
     pub use super::current_time;
-    #[cfg(feature = "transparent_api")]
-    pub use super::Registrable;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, evaluate::prelude::*,
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

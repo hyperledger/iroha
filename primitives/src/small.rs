@@ -209,7 +209,6 @@ mod small_vector {
         }
     }
 
-    #[allow(unsafe_code)]
     impl<A: smallvec::Array + 'static> TypeId for SmallVec<A>
     where
         A::Item: TypeId,

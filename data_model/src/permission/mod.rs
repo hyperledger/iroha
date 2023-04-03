@@ -22,17 +22,17 @@ use crate::{IdBox, Identifiable, Name, Registered, Value, ValueKind};
 pub mod token;
 pub mod validator;
 
-pub use token::Token;
+pub use token::PermissionToken;
 pub use validator::Validator;
 
 /// Collection of [`Token`]s
-pub type Permissions = btree_set::BTreeSet<token::Token>;
+pub type Permissions = btree_set::BTreeSet<token::PermissionToken>;
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
     pub use super::{
-        token::{Definition as PermissionTokenDefinition, Id as PermissionTokenId},
+        token::{PermissionTokenDefinition, PermissionTokenId},
         validator::Verdict,
-        Permissions, Token as PermissionToken,
+        PermissionToken, Permissions,
     };
 }

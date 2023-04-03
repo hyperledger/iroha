@@ -6,11 +6,15 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
-use core::{cmp::Ordering, fmt::Display, iter};
+#[cfg(feature = "std")]
+use core::iter;
+use core::{cmp::Ordering, fmt::Display};
 
 use derive_more::Display;
 use getset::Getters;
-use iroha_crypto::{HashOf, MerkleTree, SignatureOf, SignaturesOf};
+#[cfg(feature = "std")]
+use iroha_crypto::SignatureOf;
+use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -245,7 +249,7 @@ pub mod stream {
 
     use derive_more::Constructor;
     use iroha_macro::FromVariant;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
 

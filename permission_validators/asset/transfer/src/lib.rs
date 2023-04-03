@@ -45,10 +45,10 @@ pub struct CanTransferUserAsset {
 ///
 /// [`can_transfer_assets_with_definition`]: CanTransferAssetsWithDefinition
 /// [`can_transfer_user_asset`]: CanTransferUserAsset
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(<CanTransferAssetsWithDefinition, CanTransferUserAsset>, (authority, instruction));
 
-    let Instruction::Transfer(transfer) = instruction else {
+    let InstructionBox::Transfer(transfer) = instruction else {
         pass!();
     };
 

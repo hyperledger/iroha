@@ -1,10 +1,10 @@
 //! Events for streaming API.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 
 use iroha_macro::FromVariant;
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -21,13 +21,13 @@ model! {
     #[ffi_type]
     pub enum Event {
         /// Pipeline event.
-        Pipeline(pipeline::Event),
+        Pipeline(pipeline::PipelineEvent),
         /// Data event.
-        Data(data::Event),
+        Data(data::DataEvent),
         /// Time event.
-        Time(time::Event),
+        Time(time::TimeEvent),
         /// Trigger execution event.
-        ExecuteTrigger(execute_trigger::Event),
+        ExecuteTrigger(execute_trigger::ExecuteTriggerEvent),
     }
 
     /// Event type. Like [`Event`] but without actual event data
@@ -45,6 +45,7 @@ model! {
 }
 
 /// Trait for filters
+#[cfg(feature = "transparent_api")]
 pub trait Filter {
     /// Type of event that can be filtered
     type Event;
@@ -77,16 +78,17 @@ model! {
     #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum FilterBox {
         /// Listen to pipeline events with filter.
-        Pipeline(pipeline::EventFilter),
+        Pipeline(pipeline::PipelineEventFilter),
         /// Listen to data events with filter.
-        Data(data::EventFilter),
+        Data(data::DataEventFilter),
         /// Listen to time events with filter.
-        Time(time::EventFilter),
+        Time(time::TimeEventFilter),
         /// Listen to trigger execution event with filter.
-        ExecuteTrigger(execute_trigger::EventFilter),
+        ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
     }
 }
 
+#[cfg(feature = "transparent_api")]
 impl Filter for FilterBox {
     type Event = Event;
 
@@ -195,8 +197,10 @@ pub mod prelude {
         EventMessage, EventSubscriptionRequest, VersionedEventMessage,
         VersionedEventSubscriptionRequest,
     };
+    #[cfg(feature = "transparent_api")]
+    pub use super::Filter;
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        Event, EventType, Filter, FilterBox,
+        Event, EventType, FilterBox,
     };
 }

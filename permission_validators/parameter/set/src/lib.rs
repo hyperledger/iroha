@@ -76,13 +76,13 @@ impl Validate for CanSetParameters {
 /// [`can_revoke_permission_to_set_parameters`]: CanRevokePermissionToSetParameters
 /// [`can_set_parameters`]: CanSetParameters
 #[allow(clippy::needless_pass_by_value)]
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(
         <CanGrantPermissionToSetParameters, CanRevokePermissionToSetParameters, CanSetParameters>,
         (authority, instruction)
     );
 
-    let Instruction::SetParameter(_) = instruction else {
+    let InstructionBox::SetParameter(_) = instruction else {
         pass!();
     };
 

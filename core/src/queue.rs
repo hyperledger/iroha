@@ -358,7 +358,7 @@ mod tests {
     use rand::Rng as _;
 
     use super::*;
-    use crate::{kura::Kura, wsv::World, PeersIds};
+    use crate::{kura::Kura, smartcontracts::isi::Registrable as _, wsv::World, PeersIds};
 
     fn accepted_tx(
         account_id: &str,
@@ -368,8 +368,8 @@ mod tests {
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
-        let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
-        let tx = Transaction::new(
+        let instructions: Vec<InstructionBox> = vec![FailBox { message }.into()];
+        let tx = TransactionBuilder::new(
             AccountId::from_str(account_id).expect("Valid"),
             instructions,
             proposed_ttl_ms,
@@ -717,7 +717,7 @@ mod tests {
                 .build()
                 .expect("Default queue config should always build")
         });
-        let tx = Transaction::new(
+        let tx = TransactionBuilder::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
             Vec::new(),
             100_000,

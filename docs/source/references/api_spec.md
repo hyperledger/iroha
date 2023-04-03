@@ -34,7 +34,7 @@
 
 **Expects**:
 
-- Body: [`VersionedSignedQueryRequest`](#iroha-structures)
+- Body: [`VersionedSignedQuery`](#iroha-structures)
 - Query parameters:
     - `start`: Optional parameter in queries where results can be indexed. Use to return results from specified point.
       Results are ordered where can be by id which uses
@@ -45,15 +45,14 @@
 
 **Responses**:
 
-| Response        | Status | [Body](#iroha-structures)                              |
-|-----------------|--------|--------------------------------------------------------|
-| Decode err.     | 400    | `QueryError::Decode(Box<iroha_version::error::Error>)` |
-| Signature err.  | 401    | `QueryError::Signature(String)`                        |
-| Permission err. | 403    | `QueryError::Permission(String)`                       |
-| Evaluate err.   | 400    | `QueryError::Evaluate(String)`                         |
-| Find err.       | 404    | `QueryError::Find(Box<FindError>)`                     |
-| Conversion err. | 400    | `QueryError::Conversion(String)`                       |
-| Success         | 200    | `VersionedPaginatedQueryResult`                        |
+| Response        | Status | [Body](#iroha-structures)                     |
+|-----------------|--------|-----------------------------------------------|
+| Signature err.  | 401    | `QueryExecutionFailure::Signature(String)`    |
+| Permission err. | 403    | `QueryExecutionFailure::Permission(String)`   |
+| Evaluate err.   | 400    | `QueryExecutionFailure::Evaluate(String)`     |
+| Find err.       | 404    | `QueryExecutionFailure::Find(Box<FindError>)` |
+| Conversion err. | 400    | `QueryExecutionFailure::Conversion(String)`   |
+| Success         | 200    | `VersionedPaginatedQueryResult`               |
 
 #### Account Not Found 404
 
@@ -388,9 +387,9 @@ codec's [GitHub repository](https://github.com/paritytech/parity-scale-codec).
 | Object name                         | Fully qualified object name                                    |
 |-------------------------------------|----------------------------------------------------------------|
 | `VersionedSignedTransaction`        | `iroha_data_model::transaction::VersionedSignedTransaction`    |
-| `VersionedSignedQueryRequest`       | `iroha_data_model::query::VersionedSignedQueryRequest`         |
+| `VersionedSignedQuery`              | `iroha_data_model::query::VersionedSignedQuery`                |
 | `VersionedPaginatedQueryResult`     | `iroha_data_model::query::VersionedPaginatedQueryResult`       |
-| `QueryError`                        | `iroha_core::smartcontracts::isi::query::Error`                |
+| `QueryExecutionFailure`             | `iroha_core::smartcontracts::isi::query::Error`                |
 | `FindError`                         | `iroha_core::smartcontracts::isi::error::FindError`            |
 | `VersionedBlockSubscriptionRequest` | `iroha_core::block::stream::VersionedBlockSubscriptionRequest` |
 | `VersionedBlockMessage`             | `iroha_core::block::stream::VersionedBlockMessage`             |

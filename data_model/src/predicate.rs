@@ -8,7 +8,6 @@ use super::*;
 use crate::{IdBox, Name, Value};
 
 mod nontrivial {
-    #![allow(clippy::expect_used)]
     use super::*;
     /// Struct representing a sequence with at least three elements.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
@@ -210,7 +209,7 @@ where
 }
 
 /// Predicate combinator for predicates operating on `Value`
-pub type PredicateBox = GenericPredicateBox<value::Predicate>;
+pub type PredicateBox = GenericPredicateBox<value::ValuePredicate>;
 
 impl PredicateBox {
     #[must_use]
@@ -233,7 +232,7 @@ impl PredicateBox {
 
 impl Default for PredicateBox {
     fn default() -> Self {
-        PredicateBox::Raw(value::Predicate::Pass)
+        PredicateBox::Raw(value::ValuePredicate::Pass)
     }
 }
 
@@ -251,7 +250,7 @@ pub mod test {
 
     #[test]
     fn pass() {
-        let t = PredicateBox::new(value::Predicate::Pass);
+        let t = PredicateBox::new(value::ValuePredicate::Pass);
         let f = t.clone().negate();
         let v_t = true.to_value();
         let v_f = false.to_value();
@@ -265,7 +264,7 @@ pub mod test {
 
     #[test]
     fn truth_table() {
-        let t = PredicateBox::new(value::Predicate::Pass);
+        let t = PredicateBox::new(value::ValuePredicate::Pass);
         let f = t.clone().negate();
         let v = true.to_value();
 
@@ -303,7 +302,7 @@ pub mod string {
 
     /// Predicate useful for processing [`String`]s and [`Name`]s.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
-    pub enum Predicate {
+    pub enum StringPredicate {
         /// Forward to [`str::contains()`]
         Contains(String),
         /// Forward to [`str::starts_with()`]
@@ -314,7 +313,7 @@ pub mod string {
         Is(String),
     }
 
-    impl Predicate {
+    impl StringPredicate {
         /// Construct the [`Self::Contains`] variant
         #[inline]
         pub fn contains(predicate: &str) -> Self {
@@ -342,21 +341,21 @@ pub mod string {
 
     // TODO: Case insensitive variants?
 
-    impl<T: AsRef<str> + ?Sized> PredicateTrait<&T> for Predicate {
+    impl<T: AsRef<str> + ?Sized> PredicateTrait<&T> for StringPredicate {
         type EvaluatesTo = bool;
 
         #[inline] // Jump table. Needs inline.
         fn applies(&self, input: &T) -> Self::EvaluatesTo {
             match self {
-                Predicate::Contains(content) => input.as_ref().contains(content),
-                Predicate::StartsWith(content) => input.as_ref().starts_with(content),
-                Predicate::EndsWith(content) => input.as_ref().ends_with(content),
-                Predicate::Is(content) => *(input.as_ref()) == *content,
+                StringPredicate::Contains(content) => input.as_ref().contains(content),
+                StringPredicate::StartsWith(content) => input.as_ref().starts_with(content),
+                StringPredicate::EndsWith(content) => input.as_ref().ends_with(content),
+                StringPredicate::Is(content) => *(input.as_ref()) == *content,
             }
         }
     }
 
-    impl PredicateTrait<&IdBox> for Predicate {
+    impl PredicateTrait<&IdBox> for StringPredicate {
         type EvaluatesTo = bool;
 
         #[inline] // Jump table. Needs inline.
@@ -378,8 +377,6 @@ pub mod string {
 
     #[cfg(test)]
     mod tests {
-        #![allow(clippy::expect_used)]
-
         use super::*;
 
         mod id_box {
@@ -387,10 +384,10 @@ pub mod string {
 
             #[test]
             fn simple_name_wrappers() {
-                let starts_with = Predicate::starts_with("Curiouser");
-                let contains = Predicate::contains("Curiouser");
-                let ends_with = Predicate::ends_with("Curiouser");
-                let pred_is = Predicate::is("Curiouser");
+                let starts_with = StringPredicate::starts_with("Curiouser");
+                let contains = StringPredicate::contains("Curiouser");
+                let ends_with = StringPredicate::ends_with("Curiouser");
+                let pred_is = StringPredicate::is("Curiouser");
 
                 // What do you think about explicit scoping in tests?
                 {
@@ -432,10 +429,10 @@ pub mod string {
 
             #[test]
             fn trigger() {
-                let starts_with = Predicate::starts_with("Curiouser");
-                let contains = Predicate::contains("Curiouser");
-                let ends_with = Predicate::ends_with("Curiouser");
-                let pred_is = Predicate::is("Curiouser");
+                let starts_with = StringPredicate::starts_with("Curiouser");
+                let contains = StringPredicate::contains("Curiouser");
+                let ends_with = StringPredicate::ends_with("Curiouser");
+                let pred_is = StringPredicate::is("Curiouser");
 
                 let curiouser = IdBox::TriggerId("curiouser".parse().expect("Valid"));
                 // Negatives.
@@ -458,19 +455,19 @@ pub mod string {
             #[test]
             fn account_id() {
                 let id = IdBox::AccountId("alice@wonderland".parse().expect("Valid"));
-                assert!(Predicate::starts_with("alice@").applies(&id));
-                assert!(Predicate::ends_with("@wonderland").applies(&id));
-                assert!(Predicate::is("alice@wonderland").applies(&id));
+                assert!(StringPredicate::starts_with("alice@").applies(&id));
+                assert!(StringPredicate::ends_with("@wonderland").applies(&id));
+                assert!(StringPredicate::is("alice@wonderland").applies(&id));
                 // Should we also include a check into string
                 // predicates? If the internal predicate starts with
                 // whitespace, it can't possibly match any Id, but
                 // there's no way to enforce this at both type level
                 // and run-time.
-                assert!(!Predicate::starts_with(" alice@").applies(&id));
-                assert!(!Predicate::ends_with("@wonderland ").applies(&id));
-                assert!(!Predicate::is("alice@@wonderland ").applies(&id));
-                assert!(!Predicate::contains("#").applies(&id));
-                assert!(!Predicate::is("alice#wonderland").applies(&id));
+                assert!(!StringPredicate::starts_with(" alice@").applies(&id));
+                assert!(!StringPredicate::ends_with("@wonderland ").applies(&id));
+                assert!(!StringPredicate::is("alice@@wonderland ").applies(&id));
+                assert!(!StringPredicate::contains("#").applies(&id));
+                assert!(!StringPredicate::is("alice#wonderland").applies(&id));
             }
 
             #[test]
@@ -481,28 +478,28 @@ pub mod string {
                     definition_id,
                     account_id,
                 });
-                assert!(Predicate::starts_with("rose##").applies(&id));
-                assert!(Predicate::ends_with("#alice@wonderland").applies(&id));
-                assert!(Predicate::is("rose##alice@wonderland").applies(&id));
-                assert!(Predicate::contains("#alice@").applies(&id));
+                assert!(StringPredicate::starts_with("rose##").applies(&id));
+                assert!(StringPredicate::ends_with("#alice@wonderland").applies(&id));
+                assert!(StringPredicate::is("rose##alice@wonderland").applies(&id));
+                assert!(StringPredicate::contains("#alice@").applies(&id));
             }
 
             #[test]
             fn asset_def_id() {
                 let id = IdBox::AssetDefinitionId("rose#wonderland".parse().expect("Valid"));
-                assert!(Predicate::starts_with("rose#").applies(&id));
-                assert!(Predicate::ends_with("#wonderland").applies(&id));
-                assert!(Predicate::is("rose#wonderland").applies(&id));
+                assert!(StringPredicate::starts_with("rose#").applies(&id));
+                assert!(StringPredicate::ends_with("#wonderland").applies(&id));
+                assert!(StringPredicate::is("rose#wonderland").applies(&id));
                 // Should we also include a check into string
                 // predicates? If the internal predicate starts with
                 // whitespace, it can't possibly match any Id, but
                 // there's no way to enforce this at both type level
                 // and run-time.
-                assert!(!Predicate::starts_with(" rose#").applies(&id));
-                assert!(!Predicate::ends_with("#wonderland ").applies(&id));
-                assert!(!Predicate::is("alice##wonderland ").applies(&id));
-                assert!(!Predicate::contains("@").applies(&id));
-                assert!(!Predicate::is("rose@wonderland").applies(&id));
+                assert!(!StringPredicate::starts_with(" rose#").applies(&id));
+                assert!(!StringPredicate::ends_with("#wonderland ").applies(&id));
+                assert!(!StringPredicate::is("alice##wonderland ").applies(&id));
+                assert!(!StringPredicate::contains("@").applies(&id));
+                assert!(!StringPredicate::is("rose@wonderland").applies(&id));
             }
 
             #[test]
@@ -514,7 +511,7 @@ pub mod string {
                     address: "123".to_owned(),
                     public_key,
                 });
-                assert!(Predicate::contains("123").applies(&id));
+                assert!(StringPredicate::contains("123").applies(&id));
             }
         }
 
@@ -523,7 +520,7 @@ pub mod string {
 
             #[test]
             fn contains() {
-                let pred = Predicate::Contains("believed as many".to_owned());
+                let pred = StringPredicate::Contains("believed as many".to_owned());
                 assert!(pred.applies(
                     "sometimes I've believed as many as six impossible things before breakfast!"
                 ));
@@ -536,7 +533,7 @@ pub mod string {
 
             #[test]
             fn starts_with() {
-                let pred = Predicate::StartsWith("Curiouser".to_owned());
+                let pred = StringPredicate::StartsWith("Curiouser".to_owned());
                 assert!(pred.applies("Curiouser and Curiouser"));
                 assert!(!pred.applies(" Curiouser and Curiouser"));
                 assert!(!pred.applies("curiouser and curiouser"));
@@ -546,7 +543,7 @@ pub mod string {
 
             #[test]
             fn ends_with() {
-                let pred = Predicate::EndsWith("How long is forever?".to_owned());
+                let pred = StringPredicate::EndsWith("How long is forever?".to_owned());
                 assert!(pred.applies("How long is forever?"));
                 assert!(!pred.applies("how long is forever?"));
                 assert!(pred.applies(" How long is forever?"));
@@ -556,7 +553,7 @@ pub mod string {
 
             #[test]
             fn is() {
-                let pred = Predicate::Is("writing-desk".to_owned());
+                let pred = StringPredicate::Is("writing-desk".to_owned());
                 assert!(!pred.applies("Why is a raven like a writing-desk"));
                 assert!(pred.applies("writing-desk"));
                 assert!(!pred.applies("Writing-desk"));
@@ -565,7 +562,7 @@ pub mod string {
 
             #[test]
             fn empty_predicate() {
-                let pred = Predicate::contains("");
+                let pred = StringPredicate::contains("");
                 assert!(pred.applies(""));
                 assert!(pred.applies("asd")); // TODO: is this the correct behaviour that we want
             }
@@ -995,13 +992,13 @@ pub mod value {
 
     /// A predicate designed for general processing of `Value`.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
-    pub enum Predicate {
+    pub enum ValuePredicate {
         /// Apply predicate to the [`Identifiable::Id`] and/or [`IdBox`].
-        Identifiable(string::Predicate),
+        Identifiable(string::StringPredicate),
         /// Apply predicate to the container.
         Container(Container),
         /// Apply predicate to the [`<Value as Display>::to_string`](ToString::to_string()) representation.
-        Display(string::Predicate),
+        Display(string::StringPredicate),
         /// Apply predicate to the numerical value.
         Numerical(numerical::SemiRange),
         /// Timestamp (currently for [`VersionedCommittedBlock`] only).
@@ -1014,13 +1011,13 @@ pub mod value {
         Pass,
     }
 
-    impl PredicateTrait<&Value> for Predicate {
+    impl PredicateTrait<&Value> for ValuePredicate {
         type EvaluatesTo = bool;
 
         fn applies(&self, input: &Value) -> Self::EvaluatesTo {
             // Large jump table. Do not inline.
             match self {
-                Predicate::Identifiable(pred) => match input {
+                ValuePredicate::Identifiable(pred) => match input {
                     Value::String(s) => pred.applies(s),
                     Value::Name(n) => pred.applies(n),
                     Value::Id(id_box) => pred.applies(id_box),
@@ -1029,21 +1026,21 @@ pub mod value {
                     }
                     _ => false,
                 },
-                Predicate::Container(Container::Any(pred)) => match input {
+                ValuePredicate::Container(Container::Any(pred)) => match input {
                     Value::Vec(vec) => vec.iter().any(|val| pred.applies(val)),
                     Value::LimitedMetadata(map) => {
                         map.iter().map(|(_, val)| val).any(|val| pred.applies(val))
                     }
                     _ => false,
                 },
-                Predicate::Container(Container::All(pred)) => match input {
+                ValuePredicate::Container(Container::All(pred)) => match input {
                     Value::Vec(vec) => vec.iter().all(|val| pred.applies(val)),
                     Value::LimitedMetadata(map) => {
                         map.iter().map(|(_, val)| val).all(|val| pred.applies(val))
                     }
                     _ => false,
                 },
-                Predicate::Container(Container::AtIndex(AtIndex {
+                ValuePredicate::Container(Container::AtIndex(AtIndex {
                     index: idx,
                     predicate: pred,
                 })) => match input {
@@ -1052,7 +1049,7 @@ pub mod value {
                         .map_or(false, |val| pred.applies(val)),
                     _ => false,
                 },
-                Predicate::Container(Container::ValueOfKey(ValueOfKey {
+                ValuePredicate::Container(Container::ValueOfKey(ValueOfKey {
                     key,
                     predicate: pred,
                 })) => {
@@ -1063,41 +1060,41 @@ pub mod value {
                         _ => false, // TODO: Do we need more?
                     }
                 }
-                Predicate::Container(Container::HasKey(key)) => match input {
+                ValuePredicate::Container(Container::HasKey(key)) => match input {
                     Value::LimitedMetadata(map) => map.contains(key),
                     _ => false,
                 },
-                Predicate::Numerical(pred) => pred.applies(input),
-                Predicate::Display(pred) => pred.applies(&input.to_string()),
-                Predicate::TimeStamp(pred) => match input {
+                ValuePredicate::Numerical(pred) => pred.applies(input),
+                ValuePredicate::Display(pred) => pred.applies(&input.to_string()),
+                ValuePredicate::TimeStamp(pred) => match input {
                     Value::Block(block) => pred.applies(block.header().timestamp),
                     _ => false,
                 },
-                Predicate::Ipv4Addr(pred) => match input {
+                ValuePredicate::Ipv4Addr(pred) => match input {
                     Value::Ipv4Addr(addr) => pred.applies(*addr),
                     _ => false,
                 },
-                Predicate::Ipv6Addr(pred) => match input {
+                ValuePredicate::Ipv6Addr(pred) => match input {
                     Value::Ipv6Addr(addr) => pred.applies(*addr),
                     _ => false,
                 },
-                Predicate::Pass => true,
+                ValuePredicate::Pass => true,
             }
         }
     }
 
-    impl Predicate {
+    impl ValuePredicate {
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn any(pred: impl Into<Predicate>) -> Self {
+        pub fn any(pred: impl Into<ValuePredicate>) -> Self {
             Self::Container(Container::Any(Box::new(pred.into())))
         }
 
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn all(pred: impl Into<Predicate>) -> Self {
+        pub fn all(pred: impl Into<ValuePredicate>) -> Self {
             Self::Container(Container::All(Box::new(pred.into())))
         }
 
@@ -1111,7 +1108,7 @@ pub mod value {
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn value_of(key: Name, pred: impl Into<Predicate>) -> Self {
+        pub fn value_of(key: Name, pred: impl Into<ValuePredicate>) -> Self {
             Self::Container(Container::ValueOfKey(ValueOfKey {
                 key,
                 predicate: Box::new(pred.into()),
@@ -1121,7 +1118,7 @@ pub mod value {
         /// Construct [`Predicate::Container`] variant.
         #[inline]
         #[must_use]
-        pub fn at_index(index: u32, pred: impl Into<Predicate>) -> Self {
+        pub fn at_index(index: u32, pred: impl Into<ValuePredicate>) -> Self {
             Self::Container(Container::AtIndex(AtIndex {
                 index,
                 predicate: Box::new(pred.into()),
@@ -1133,14 +1130,14 @@ pub mod value {
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
     pub struct AtIndex {
         index: u32,
-        predicate: Box<Predicate>,
+        predicate: Box<ValuePredicate>,
     }
 
     /// A predicate that targets the particular `key` of a collection.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
     pub struct ValueOfKey {
         key: Name,
-        predicate: Box<Predicate>,
+        predicate: Box<ValuePredicate>,
     }
 
     /// Predicate that targets specific elements or groups; useful for
@@ -1150,9 +1147,9 @@ pub mod value {
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
     pub enum Container {
         /// Forward to [`Iterator::any`]
-        Any(Box<Predicate>),
+        Any(Box<ValuePredicate>),
         /// Forward to [`Iterator::all`]
-        All(Box<Predicate>),
+        All(Box<ValuePredicate>),
         /// Apply predicate to the [`Value`] element at the index.
         AtIndex(AtIndex),
         /// Apply the predicate to the [`Value`] keyed by the index.
@@ -1162,7 +1159,7 @@ pub mod value {
     }
 
     #[cfg(test)]
-    #[allow(clippy::print_stdout, clippy::use_debug, clippy::expect_used)]
+    #[allow(clippy::print_stdout, clippy::use_debug)]
     mod test {
         use peer::Peer;
         use prelude::Metadata;
@@ -1173,7 +1170,8 @@ pub mod value {
         #[test]
         fn typing() {
             {
-                let pred = Predicate::Identifiable(string::Predicate::is("alice@wonderland"));
+                let pred =
+                    ValuePredicate::Identifiable(string::StringPredicate::is("alice@wonderland"));
                 println!("{pred:?}");
                 assert!(pred.applies(&Value::String("alice@wonderland".to_owned())));
                 assert!(pred.applies(&Value::Id(IdBox::AccountId(
@@ -1188,19 +1186,19 @@ pub mod value {
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
             }
             {
-                let pred = Predicate::Pass;
+                let pred = ValuePredicate::Pass;
                 println!("{pred:?}");
                 assert!(pred.applies(&Value::String("alice@wonderland".to_owned())));
             }
             {
-                let pred = Predicate::TimeStamp(numerical::SemiInterval::starting(0));
+                let pred = ValuePredicate::TimeStamp(numerical::SemiInterval::starting(0));
                 println!("{pred:?}");
                 assert!(!pred.applies(&Value::String("alice@wonderland".to_owned())));
             }
             {
                 let key_pair = iroha_crypto::KeyPair::generate().expect("Should not fail");
                 let (public_key, _) = key_pair.into();
-                let pred = Predicate::Display(string::Predicate::is("alice@wonderland"));
+                let pred = ValuePredicate::Display(string::StringPredicate::is("alice@wonderland"));
                 println!("{pred:?}");
 
                 assert!(
@@ -1209,7 +1207,7 @@ pub mod value {
                     ))))
                 );
             }
-            let pred = Predicate::Numerical(numerical::SemiRange::U32((0_u32, 42_u32).into()));
+            let pred = ValuePredicate::Numerical(numerical::SemiRange::U32((0_u32, 42_u32).into()));
             assert!(!pred.applies(&Value::String("alice".to_owned())));
             assert!(pred.applies(&41_u32.to_value()));
         }
@@ -1224,10 +1222,10 @@ pub mod value {
             let meta = Value::LimitedMetadata(Metadata::default());
             let alice = Value::Name("alice".parse().expect("Valid"));
 
-            let alice_pred = Predicate::Display(string::Predicate::contains("alice"));
+            let alice_pred = ValuePredicate::Display(string::StringPredicate::contains("alice"));
 
             {
-                let pred = Predicate::any(alice_pred.clone());
+                let pred = ValuePredicate::any(alice_pred.clone());
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
@@ -1236,7 +1234,7 @@ pub mod value {
             }
 
             {
-                let pred = Predicate::all(alice_pred.clone());
+                let pred = ValuePredicate::all(alice_pred.clone());
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
                 assert!(pred.applies(&Value::Vec(Vec::new())));
@@ -1245,8 +1243,9 @@ pub mod value {
             }
 
             {
-                let alice_id_pred = Predicate::Identifiable(string::Predicate::contains("alice"));
-                let pred = Predicate::all(alice_id_pred);
+                let alice_id_pred =
+                    ValuePredicate::Identifiable(string::StringPredicate::contains("alice"));
+                let pred = ValuePredicate::all(alice_id_pred);
                 println!("{pred:?}");
                 assert!(pred.applies(&list));
                 assert!(pred.applies(&Value::Vec(Vec::new())));
@@ -1254,21 +1253,21 @@ pub mod value {
                 assert!(!pred.applies(&alice));
             }
 
-            assert!(Predicate::at_index(0, alice_pred.clone()).applies(&list));
+            assert!(ValuePredicate::at_index(0, alice_pred.clone()).applies(&list));
 
-            let idx_pred = Predicate::at_index(3, alice_pred); // Should be out of bounds.
+            let idx_pred = ValuePredicate::at_index(3, alice_pred); // Should be out of bounds.
             println!("{idx_pred:?}");
             assert!(!idx_pred.applies(&list));
             assert!(!idx_pred.applies(&meta));
             assert!(!idx_pred.applies(&alice));
 
-            let has_key = Predicate::has_key("alice".parse().expect("Valid"));
+            let has_key = ValuePredicate::has_key("alice".parse().expect("Valid"));
             println!("{has_key:?}");
             assert!(!has_key.applies(&list));
             assert!(!has_key.applies(&meta));
             // TODO: case with non-empty meta
 
-            let value_key = Predicate::value_of("alice".parse().expect("Valid"), has_key);
+            let value_key = ValuePredicate::value_of("alice".parse().expect("Valid"), has_key);
             println!("{value_key:?}");
             assert!(!value_key.applies(&list));
             assert!(!value_key.applies(&meta));

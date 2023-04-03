@@ -8,14 +8,14 @@ use test_network::*;
 
 use crate::wasm::utils::wasm_template;
 
-fn produce_instructions() -> Vec<Instruction> {
+fn produce_instructions() -> Vec<InstructionBox> {
     let domains = (0..4)
         .map(|domain_index: usize| Domain::new(domain_index.to_string().parse().expect("Valid")));
 
-    let registers: [Instruction; 4] = domains
+    let registers: [InstructionBox; 4] = domains
         .into_iter()
         .map(RegisterBox::new)
-        .map(Instruction::from)
+        .map(InstructionBox::from)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
@@ -29,7 +29,7 @@ fn produce_instructions() -> Vec<Instruction> {
         //          domain "2"
         //          domain "3"
         registers[0].clone(),
-        Pair::new::<Instruction, _>(
+        Pair::new::<InstructionBox, _>(
             registers[1].clone(),
             Conditional::with_otherwise(
                 false,
@@ -118,11 +118,16 @@ fn transaction_execution_should_produce_events(
 
     // assertion
     for i in 0..4_usize {
-        let domain_id = DomainId::new(i.to_string().parse().expect("Valid"));
-        let domain = Domain::new(domain_id).build();
-        let expected_event = DomainEvent::Created(domain).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
-        assert_eq!(event, expected_event);
+        assert!(matches!(event, DataEvent::Domain(_)));
+        if let DataEvent::Domain(domain_event) = event {
+            assert!(matches!(domain_event, DomainEvent::Created(_)));
+
+            if let DomainEvent::Created(created_domain) = domain_event {
+                let domain_id = DomainId::new(i.to_string().parse().expect("Valid"));
+                assert_eq!(domain_id, *created_domain.id());
+            }
+        }
     }
 
     Ok(())
@@ -179,14 +184,37 @@ fn produce_multiple_events() -> Result<()> {
     client.submit_blocking(unregister_role)?;
 
     // Inspect produced events
-    let expected_events: Vec<DataEvent> = [
+    let expected_permission_events: Vec<DataEvent> = [
         WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
             permission_token_definition_1,
         )),
         WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
             permission_token_definition_2,
         )),
-        WorldEvent::Role(RoleEvent::Created(role.build())),
+    ]
+    .into_iter()
+    .flat_map(WorldEvent::flatten)
+    .collect();
+
+    for expected_event in expected_permission_events {
+        let event = event_receiver.recv()??.try_into()?;
+        assert_eq!(expected_event, event);
+    }
+
+    let event: DataEvent = event_receiver.recv()??.try_into()?;
+    assert!(matches!(event, DataEvent::Role(_)));
+    if let DataEvent::Role(role_event) = event {
+        assert!(matches!(role_event, RoleEvent::Created(_)));
+
+        if let RoleEvent::Created(created_role) = role_event {
+            assert_eq!(created_role.id(), role.id());
+            assert!(created_role
+                .permissions()
+                .eq([token_1.clone(), token_2.clone()].iter()));
+        }
+    }
+
+    let expected_domain_events: Vec<DataEvent> = [
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: alice_id.clone(),
@@ -229,7 +257,7 @@ fn produce_multiple_events() -> Result<()> {
     .flat_map(WorldEvent::flatten)
     .collect();
 
-    for expected_event in expected_events {
+    for expected_event in expected_domain_events {
         let event = event_receiver.recv()??.try_into()?;
         assert_eq!(expected_event, event);
     }

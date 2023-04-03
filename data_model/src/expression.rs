@@ -610,8 +610,7 @@ gen_expr_and_impls! {
 }
 
 gen_expr_and_impls! {
-    /// If expression. Based on the `condition`, returns the result of
-    /// either `then`  or `otherwise`.
+    /// If expression. Based on the `condition`, returns the result of either `then` or `otherwise`.
     #[derive(Display)]
     #[display(fmt = "if {condition} {{ {then} }} else {{ {otherwise} }}")]
     #[ffi_type]
@@ -740,8 +739,8 @@ impl From<QueryBox> for ExpressionBox {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Add, And, Contains, ContainsAll, ContainsAny, Context, ContextValue, Divide, Equal,
-        EvaluatesTo, Expression, ExpressionBox, Greater, If, Less, Mod, Multiply, Not, Or, RaiseTo,
-        Subtract, Where,
+        Add, And, Contains, ContainsAll, ContainsAny, ContextValue, Divide, Equal, EvaluatesTo,
+        Expression, ExpressionBox, Greater, If, Less, Mod, Multiply, Not, Or, RaiseTo, Subtract,
+        Where,
     };
 }

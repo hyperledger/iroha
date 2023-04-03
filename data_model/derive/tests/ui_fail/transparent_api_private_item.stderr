@@ -1,11 +1,11 @@
-error[E0603]: struct `Payload` is private
+error[E0603]: struct `QueryPayload` is private
  --> tests/ui_fail/transparent_api_private_item.rs:1:36
   |
-1 | use iroha_data_model::query::http::Payload;
-  |                                    ^^^^^^^ private struct
+1 | use iroha_data_model::query::http::QueryPayload;
+  |                                    ^^^^^^^^^^^^ private struct
   |
-note: the struct `Payload` is defined here
+note: the struct `QueryPayload` is defined here
  --> $WORKSPACE/data_model/src/query.rs
   |
-  |         pub(crate) struct Payload {
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         pub(crate) struct QueryPayload {
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

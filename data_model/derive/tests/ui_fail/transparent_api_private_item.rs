@@ -1,3 +1,3 @@
-use iroha_data_model::query::http::Payload;
+use iroha_data_model::query::http::QueryPayload;
 
 fn main() {}

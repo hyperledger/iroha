@@ -14,7 +14,7 @@ use super::*;
 use crate::{
     account::Account,
     expression::Expression,
-    isi::Instruction,
+    isi::InstructionBox,
     model,
     query::QueryBox,
     transaction::{SignedTransaction, WasmSmartContract},
@@ -39,7 +39,7 @@ model! {
     /// Permission validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
-    /// [`Instruction`]s, etc.
+    /// [`InstructionBox`]s, etc.
     #[derive(Debug, Display, Clone, IdEqOrdHash, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "{id}")]
@@ -90,9 +90,9 @@ model! {
     #[repr(u8)]
     #[ffi_type]
     pub enum ValidatorType {
-        /// Validator checking [`Transaction`]
+        /// Validator checking [`SignedTransaction`]
         Transaction,
-        /// Validator checking [`Instruction`]
+        /// Validator checking [`InstructionBox`]
         Instruction,
         /// Validator checking [`QueryBox`]
         Query,
@@ -109,7 +109,7 @@ pub trait NeedsPermission {
     fn required_validator_type(&self) -> ValidatorType;
 }
 
-impl NeedsPermission for Instruction {
+impl NeedsPermission for InstructionBox {
     fn required_validator_type(&self) -> ValidatorType {
         ValidatorType::Instruction
     }
@@ -136,10 +136,10 @@ model! {
     #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize)]
     #[ffi_type]
     pub enum NeedsPermissionBox {
-        /// [`SignedTransaction`] application operation
+        /// [`Transaction`] application operation
         Transaction(SignedTransaction),
-        /// [`Instruction`] execution operation
-        Instruction(Instruction),
+        /// [`InstructionBox`] execution operation
+        Instruction(InstructionBox),
         /// [`QueryBox`] execution operations
         Query(QueryBox),
         /// [`Expression`] evaluation operation

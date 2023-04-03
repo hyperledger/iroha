@@ -46,10 +46,10 @@ pub struct CanUnregisterUserAsset {
 ///
 /// [`can_unregister_assets_with_definition`]: CanUnregisterAssetsWithDefinition
 /// [`can_unregister_user_asset`]: CanUnregisterUserAsset
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(<CanUnregisterUserAsset>, (authority, instruction));
 
-    let Instruction::Unregister(unregister) = instruction else {
+    let InstructionBox::Unregister(unregister) = instruction else {
         pass!();
     };
 

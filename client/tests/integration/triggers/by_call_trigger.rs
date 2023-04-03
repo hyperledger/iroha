@@ -374,7 +374,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 
 fn build_register_trigger_isi(
     asset_id: AssetId,
-    trigger_instructions: Vec<Instruction>,
+    trigger_instructions: Vec<InstructionBox>,
 ) -> RegisterBox {
     let trigger_id: TriggerId = TRIGGER_NAME.parse().expect("Valid");
 

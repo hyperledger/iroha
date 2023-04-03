@@ -5,6 +5,16 @@ use iroha_telemetry::metrics;
 use super::prelude::*;
 use crate::prelude::*;
 
+impl Registrable for NewRole {
+    type Target = Role;
+
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        self.inner
+    }
+}
+
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use eyre::Result;
@@ -270,7 +280,8 @@ pub mod isi {
         for role_id in roles_containing_token {
             wsv.modify_world(|world| {
                 if let Some(mut role) = world.roles.get_mut(&role_id) {
-                    role.remove_permission(target_definition_id);
+                    role.permissions
+                        .retain(|token| token.definition_id != *target_definition_id);
                     Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
                         role_id,
                         permission_definition_id: target_definition_id.clone(),

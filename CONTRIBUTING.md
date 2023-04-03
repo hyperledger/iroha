@@ -91,13 +91,13 @@ If you intend to implement the suggestion yourself, do the following:
 1. Assign the issue you created to yourself **before** you start working on it.
 2. Work on the feature you suggested and follow our [guidelines for code and documentation](#style-guides).
 3. When you are ready to open a pull request, make sure you follow the [pull request guidelines](#pull-request-etiquette) and mark it as implementing the previously created issue:
-   
+
    ```
    [feature] #<issue number>: Description
    ```
 
 4. If your change requires an API change, use the `api-changes` tag.
-   
+
    **Note:** features that require API changes may take longer to implement and approve as they require Iroha library makers to update their code.
 
 ### Asking Questions
@@ -132,7 +132,7 @@ Committing your work:
 - Follow the [Git Style Guide](#git-workflow).
 - Squash your commits [either before](https://www.git-tower.com/learn/git/faq/git-squash/) or [during the merge](https://rietta.com/blog/github-merge-types/).
 - If during the preparation of your pull request your branch got out of date, rebase it locally with `git pull --rebase upstream iroha2-dev`. Alternatively, you may use the drop-down menu for the `Update branch` button and choose the `Update with rebase` option.
-  
+
   In the interest of making this process easier for everyone, try not to have more than a handful of commits for a pull request, and avoid re-using feature branches.
 
 Creating a pull request:
@@ -164,10 +164,10 @@ To pass the *`check-PR-title`* check, the pull request should have the title tha
     ```
 
 2. Add the issue number the pull request addresses:
-   
+
    - For `feature` and `fix` adding the issue number to the title is mandatory.
    - For all other types it is optional but highly encouraged.
-   
+
    If your pull request solves multiple issues simultaneously, you can chain them with commas:
 
    ```
@@ -196,7 +196,7 @@ To pass the *`check-PR-title`* check, the pull request should have the title tha
 Follow these commit guidelines:
 
 - **Sign-off every commit**. If you don't, [DCO](https://github.com/apps/dco) will not let you merge.
-  
+
   Use `git commit -s` to automatically add `Signed-off-by: $NAME <$EMAIL>` as the final line of your commit message. Your name and email should be the same as specified in your GitHub account.
 
   We also encourage you to sign your commits with GPG key using `git commit -sS` ([learn more](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)).
@@ -257,16 +257,16 @@ Code guidelines:
 
 - Unless otherwise specified, refer to [Rust best practices](https://github.com/mre/idiomatic-rust).
 - Use the `mod.rs` style. [Self-named modules](https://rust-lang.github.io/rust-clippy/master/) will not pass static analysis, except as [`trybuild`](https://crates.io/crates/trybuild) tests.
-- Use a domain-first modules structure. 
-  
+- Use a domain-first modules structure.
+
   Example: don't do `constants::logger`. Instead, invert the hierarchy, putting the object for which it is used first: `iroha_logger::constants`.
 - Use [`expect`](https://learning-rust.github.io/docs/e4.unwrap_and_expect.html) with an explicit error message or proof of infallibility instead of `unwrap`.
 - Never ignore an error. If you can't `panic` and can't recover, it at least needs to be recorded in the log.
 - Prefer to return a `Result` instead of `panic!`.
-  
+
   Exception: when implementing something that uses `issue_send` instead of `send` ([more about actors](docs/source/guides/actor.md)). Actors and parallelism don't mix; you could deadlock the entire peer, so it's better to `panic!` if something goes wrong. This is a necessary concession for asynchronous programming.
 - Group related functionality spatially, preferably inside appropriate modules.
-  
+
   For example, instead of having a block with `struct` definitions and then `impl`s for each individual struct, it is better to have the `impl`s related to that `struct` next to it.
 - Declare before implementation: `use` statements and constants at the top, unit tests at the bottom.
 - Try to avoid `use` statements if the imported name is used only once. This makes moving your code into a different file easier.
@@ -276,7 +276,7 @@ Code guidelines:
 - Avoid `Box<dyn Error>` if possible (we prefer strong typing).
 - If your function is a getter/setter, mark it `#[inline]`.
 - If your function is a constructor (i.e., it's creating a new value from the input parameters and calls `default()`), mark it `#[inline]`.
-- Avoid tying your code to concrete data structures; `rustc` is smart enough to turn a `Vec<Instruction>` into `impl IntoIterator<Item = Instruction>` and vice versa when it needs to.
+- Avoid tying your code to concrete data structures; `rustc` is smart enough to turn a `Vec<InstructionBox>` into `impl IntoIterator<Item = InstructionBox>` and vice versa when it needs to.
 
 Naming guidelines:
 - Use only full words in *public* structure, variable, method, trait, constant, and module names. However, abbreviations are allowed if:
@@ -292,7 +292,7 @@ Comment guidelines:
 - You may leave `TODO` markers in code as long as you reference an issue that you created for it. Not creating an issue means it doesn't get merged.
 
 We use pinned dependencies. Follow these guideline for versioning:
-  
+
 - If your work depends on a particular crate, see if it wasn't already installed using [`cargo tree`](https://doc.rust-lang.org/cargo/commands/cargo-tree.html) (use `bat` or `grep`), and try to use that version, instead of the latest version.
 - Use the full version "X.Y.Z" in `Cargo.toml`.
 - Provide version bumps in a separate PR.

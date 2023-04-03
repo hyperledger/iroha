@@ -46,10 +46,10 @@ pub struct CanBurnUserAsset {
 ///
 /// [`can_burn_assets_with_definition`]: CanBurnAssetsWithDefinition
 /// [`can_burn_user_asset`]: CanBurnUserAsset
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(<CanBurnAssetsWithDefinition, CanBurnUserAsset>, (authority, instruction));
 
-    let Instruction::Burn(burn) = instruction else {
+    let InstructionBox::Burn(burn) = instruction else {
         pass!();
     };
 

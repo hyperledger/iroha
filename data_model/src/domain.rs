@@ -65,11 +65,11 @@ model! {
     #[ffi_type]
     pub struct NewDomain {
         /// The identification associated with the domain builder.
-        id: <Domain as Identifiable>::Id,
+        pub id: <Domain as Identifiable>::Id,
         /// The (IPFS) link to the logo of this domain.
-        logo: Option<IpfsPath>,
+        pub logo: Option<IpfsPath>,
         /// Metadata associated with the domain builder.
-        metadata: Metadata,
+        pub metadata: Metadata,
     }
 
     /// Represents path in IPFS. Performs checks to ensure path validity.
@@ -78,24 +78,6 @@ model! {
     #[repr(transparent)]
     #[ffi_type(opaque)]
     pub struct IpfsPath(ConstString);
-}
-
-#[cfg(feature = "transparent_api")]
-impl crate::Registrable for NewDomain {
-    type Target = Domain;
-
-    #[must_use]
-    #[inline]
-    fn build(self) -> Self::Target {
-        Self::Target {
-            id: self.id,
-            accounts: AccountsMap::default(),
-            asset_definitions: AssetDefinitionsMap::default(),
-            asset_total_quantities: AssetTotalQuantityMap::default(),
-            metadata: self.metadata,
-            logo: self.logo,
-        }
-    }
 }
 
 impl HasMetadata for NewDomain {
@@ -388,7 +370,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn test_valid_ipfs_path() {
         // Valid paths
         IpfsPath::from_str("QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")

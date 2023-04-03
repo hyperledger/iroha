@@ -173,11 +173,10 @@ mod tests {
                 limits,
             )
             .expect("Valid");
-        let account = Account::new("alice@wonderland".parse().expect("Valid"), [])
-            .with_metadata(metadata)
-            .build();
+        let account =
+            Account::new("alice@wonderland".parse().expect("Valid"), []).with_metadata(metadata);
 
-        decode_sample("account.bin", String::from("Account"), &account);
+        decode_sample("account.bin", String::from("NewAccount"), &account);
     }
 
     #[test]
@@ -196,10 +195,9 @@ mod tests {
                 IpfsPath::from_str("/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu")
                     .expect("Valid"),
             )
-            .with_metadata(metadata)
-            .build();
+            .with_metadata(metadata);
 
-        decode_sample("domain.bin", String::from("Domain"), &domain);
+        decode_sample("domain.bin", String::from("NewDomain"), &domain);
     }
 
     #[test]

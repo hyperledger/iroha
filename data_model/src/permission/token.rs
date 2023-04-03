@@ -23,7 +23,7 @@ model! {
     #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, FromStr, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[repr(transparent)]
     #[ffi_type(opaque)]
-    pub struct Id {
+    pub struct PermissionTokenId {
         /// [`PermissionToken`] name
         #[getset(get = "pub")]
         pub name: Name,
@@ -33,9 +33,9 @@ model! {
     #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "{id}")]
     #[ffi_type]
-    pub struct Definition {
+    pub struct PermissionTokenDefinition {
         /// Definition Id
-        pub id: Id,
+        pub id: PermissionTokenId,
         /// Parameters and their types that every [`Token`] with this definition should have
         pub params: btree_map::BTreeMap<Name, crate::ValueKind>,
     }
@@ -43,19 +43,19 @@ model! {
     /// Stored proof of the account having a permission for a certain action.
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type]
-    pub struct Token {
+    pub struct PermissionToken {
         /// Name of the permission rule given to account.
         #[getset(get = "pub")]
-        pub definition_id: <Definition as Identifiable>::Id,
+        pub definition_id: <PermissionTokenDefinition as Identifiable>::Id,
         /// Params identifying how this rule applies.
         pub params: btree_map::BTreeMap<Name, Value>,
     }
 }
 
-impl Definition {
+impl PermissionTokenDefinition {
     /// Construct new [`Definition`]
     #[inline]
-    pub const fn new(id: <Definition as Identifiable>::Id) -> Self {
+    pub const fn new(id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
         Self {
             id,
             params: btree_map::BTreeMap::new(),
@@ -82,10 +82,10 @@ impl Definition {
     }
 }
 
-impl Token {
+impl PermissionToken {
     /// Construct a permission token.
     #[inline]
-    pub fn new(definition_id: <Definition as Identifiable>::Id) -> Self {
+    pub fn new(definition_id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
         Self {
             definition_id,
             params: btree_map::BTreeMap::default(),
@@ -115,7 +115,7 @@ impl Token {
     }
 }
 
-impl core::fmt::Display for Token {
+impl core::fmt::Display for PermissionToken {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}: ", self.definition_id)?;
         format_comma_separated(
@@ -132,7 +132,7 @@ impl<I: Into<IdBox> + Into<Value>> ValueTrait for I {
     const TYPE: ValueKind = ValueKind::Id;
 }
 
-impl Registered for Definition {
+impl Registered for PermissionTokenDefinition {
     type With = Self;
 }
 

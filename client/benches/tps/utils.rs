@@ -173,7 +173,7 @@ impl MeasurerUnit {
             .with_params([("asset_id".parse()?, asset_id.clone().into())]);
         let allow_alice_to_transfer_my_asset =
             GrantBox::new(can_transfer_my_asset, alice_id).into();
-        let grant_tx = Transaction::new(
+        let grant_tx = TransactionBuilder::new(
             account_id,
             vec![
                 allow_alice_to_burn_my_asset,
@@ -222,15 +222,15 @@ impl MeasurerUnit {
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;
         let instructions = self.instructions();
-        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")
-            .expect("Failed to parse account id");
+        let account_id = account_id(self.name);
+
         let mut nonce = 0;
         thread::spawn(move || {
             for instruction in instructions {
                 match shutdown_signal.try_recv() {
                     Err(mpsc::TryRecvError::Empty) => {
                         let transaction =
-                            Transaction::new(alice_id.clone(), [instruction], u64::MAX)
+                            TransactionBuilder::new(account_id.clone(), [instruction], u64::MAX)
                                 .with_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
                         let transaction = submitter
                             .sign_transaction(transaction)
@@ -254,13 +254,13 @@ impl MeasurerUnit {
     }
 
     #[allow(clippy::expect_used)]
-    fn instructions(&self) -> impl Iterator<Item = Instruction> {
+    fn instructions(&self) -> impl Iterator<Item = InstructionBox> {
         [self.mint_or_burn(), self.relay_a_rose()]
             .into_iter()
             .cycle()
     }
 
-    fn mint_or_burn(&self) -> Instruction {
+    fn mint_or_burn(&self) -> InstructionBox {
         let is_running_out = Less::new(
             EvaluatesTo::new_unchecked(
                 Expression::Query(FindAssetQuantityById::new(asset_id(self.name)).into()).into(),
@@ -273,7 +273,7 @@ impl MeasurerUnit {
         Conditional::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
     }
 
-    fn relay_a_rose(&self) -> Instruction {
+    fn relay_a_rose(&self) -> InstructionBox {
         // Save at least one rose
         // because if asset value hits 0 it's automatically deleted from account
         // and query `FindAssetQuantityById` return error

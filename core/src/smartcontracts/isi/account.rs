@@ -1,11 +1,28 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
 //! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
-use iroha_data_model::{prelude::*, query::error::FindError};
+use iroha_data_model::{asset::AssetsMap, prelude::*, query::error::FindError, role::RoleIds};
 use iroha_telemetry::metrics;
 
 use super::{prelude::*, Context};
 use crate::{ValidQuery, WorldStateView};
+
+impl Registrable for iroha_data_model::account::NewAccount {
+    type Target = Account;
+
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        Self::Target {
+            id: self.id,
+            signatories: self.signatories,
+            assets: AssetsMap::default(),
+            signature_check_condition: SignatureCheckCondition::default(),
+            metadata: self.metadata,
+            roles: RoleIds::default(),
+        }
+    }
+}
 
 /// All instructions related to accounts:
 /// - minting/burning public key into account signatories
@@ -438,7 +455,9 @@ pub mod isi {
 
     #[cfg(test)]
     mod test {
-        use iroha_data_model::{prelude::AssetDefinition, ParseError, Registrable};
+        use iroha_data_model::{prelude::AssetDefinition, ParseError};
+
+        use crate::smartcontracts::isi::Registrable as _;
 
         #[test]
         fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {

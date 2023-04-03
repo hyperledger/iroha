@@ -9,7 +9,7 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 use std::collections::btree_map;
 
 use derive_more::{Constructor, Display};
-use getset::Getters;
+use getset::{CopyGetters, Getters};
 use iroha_data_model_derive::IdEqOrdHash;
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
@@ -70,10 +70,10 @@ model! {
     }
 
     /// Asset definition defines the type of that asset.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, CopyGetters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "{id} {value_type}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
-    #[getset(get = "pub")]
+    #[getset(get_copy = "pub")]
     #[ffi_type]
     pub struct AssetDefinition {
         /// An Identification of the [`AssetDefinition`].
@@ -119,13 +119,13 @@ model! {
     #[ffi_type]
     pub struct NewAssetDefinition {
         /// The identification associated with the asset definition builder.
-        id: <AssetDefinition as Identifiable>::Id,
+        pub id: <AssetDefinition as Identifiable>::Id,
         /// The type value associated with the asset definition builder.
-        value_type: AssetValueType,
+        pub value_type: AssetValueType,
         /// The mintablility associated with the asset definition builder.
-        mintable: Mintable,
+        pub mintable: Mintable,
         /// Metadata associated with the asset definition builder.
-        metadata: Metadata,
+        pub metadata: Metadata,
     }
 }
 
@@ -425,22 +425,6 @@ impl FromStr for AssetId {
     }
 }
 
-#[cfg(feature = "transparent_api")]
-impl crate::Registrable for NewAssetDefinition {
-    type Target = AssetDefinition;
-
-    #[must_use]
-    #[inline]
-    fn build(self) -> Self::Target {
-        Self::Target {
-            id: self.id,
-            value_type: self.value_type,
-            mintable: self.mintable,
-            metadata: self.metadata,
-        }
-    }
-}
-
 impl HasMetadata for NewAssetDefinition {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -501,6 +485,6 @@ impl FromIterator<AssetDefinition> for Value {
 pub mod prelude {
     pub use super::{
         Asset, AssetDefinition, AssetDefinitionEntry, AssetDefinitionId, AssetId, AssetValue,
-        AssetValueType, Mintable,
+        AssetValueType, Mintable, NewAssetDefinition,
     };
 }

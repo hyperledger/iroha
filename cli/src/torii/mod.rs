@@ -48,34 +48,15 @@ pub enum Error {
     /// Failed to execute or validate query
     #[error("Failed to execute or validate query")]
     Query(#[from] iroha_data_model::query::error::QueryExecutionFailure),
-    /// Failed to decode transaction
-    #[error("Failed to decode transaction")]
-    VersionedSignedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
     AcceptTransaction(#[from] iroha_data_model::transaction::error::AcceptTransactionFailure),
-    /// Failed to get pending transaction
-    #[error("Failed to get pending transactions: {0}")]
-    RequestPendingTransactions(#[source] eyre::Report),
-    /// Failed to decode pending transactions from leader
-    #[error("Failed to decode pending transactions from leader")]
-    DecodeRequestPendingTransactions(#[source] iroha_version::error::Error),
-    /// Failed to encode pending transactions
-    #[error("Failed to encode pending transactions")]
-    EncodePendingTransactions(#[source] iroha_version::error::Error),
-    /// The block sync message channel is full. Dropping the incoming message
-    #[error("Transaction is too big")]
-    TxTooBig,
     /// Error while getting or setting configuration
     #[error("Configuration error: {0}")]
     Config(#[source] eyre::Report),
     /// Failed to push into queue
     #[error("Failed to push into queue")]
     PushIntoQueue(#[from] Box<queue::Error>),
-    #[cfg(feature = "telemetry")]
-    /// Error while getting status
-    #[error("Failed to get status")]
-    Status(#[from] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed")]
     ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
@@ -106,12 +87,6 @@ impl Reply for Error {
             Query(err) => {
                 reply::with_status(utils::Scale(&err), query_status_code(&err)).into_response()
             }
-            // TODO Have a type-preserved response body instead of a stringified one #2279
-            VersionedSignedTransaction(err)
-            | DecodeRequestPendingTransactions(err)
-            | EncodePendingTransactions(err) => {
-                reply::with_status(err.to_string(), err.status_code()).into_response()
-            }
             _ => reply::with_status(Self::to_string(&self), self.status_code()).into_response(),
         }
     }
@@ -122,13 +97,7 @@ impl Error {
         use Error::*;
         match self {
             Query(e) => query_status_code(e),
-            VersionedSignedTransaction(err)
-            | DecodeRequestPendingTransactions(err)
-            | EncodePendingTransactions(err) => err.status_code(),
-            AcceptTransaction(_)
-            | RequestPendingTransactions(_)
-            | ConfigurationReload(_)
-            | TxTooBig => StatusCode::BAD_REQUEST,
+            AcceptTransaction(_) | ConfigurationReload(_) => StatusCode::BAD_REQUEST,
             Config(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
@@ -136,7 +105,7 @@ impl Error {
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
-            Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Prometheus(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

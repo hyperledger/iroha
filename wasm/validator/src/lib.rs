@@ -160,7 +160,7 @@ mod macros {
     /// }
     ///
     /// #[entrypoint(params = "[authority, instruction]")]
-    /// pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+    /// pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     ///    validate_grant_revoke!(<CanMintAssetsWithDefinition>, (authority, instruction));
     ///    // ...
     /// }
@@ -169,7 +169,7 @@ mod macros {
     macro_rules! validate_grant_revoke {
         (< $($token:ty),+ $(,)?>, ($authority:ident, $instruction:ident $(,)?)) => {
             match &$instruction {
-                $crate::iroha_wasm::data_model::prelude::Instruction::Grant(grant) => {
+                $crate::iroha_wasm::data_model::prelude::InstructionBox::Grant(grant) => {
                     let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
                         $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
                         as
@@ -182,7 +182,7 @@ mod macros {
                         if let Ok(concrete_token) =
                             <$token as ::core::convert::TryFrom<_>>::try_from(
                                 <
-                                    $crate::iroha_wasm::data_model::permission::token::Token as ::core::clone::Clone
+                                    $crate::iroha_wasm::data_model::permission::token::PermissionToken as ::core::clone::Clone
                                 >::clone(&permission_token)
                             )
                         {
@@ -193,7 +193,7 @@ mod macros {
                         }
                     )+}
                 }
-                $crate::iroha_wasm::data_model::prelude::Instruction::Revoke(revoke) => {
+                $crate::iroha_wasm::data_model::prelude::InstructionBox::Revoke(revoke) => {
                     let value = $crate::iroha_wasm::debug::DebugExpectExt::dbg_expect(<
                         $crate::iroha_wasm::data_model::prelude::EvaluatesTo<$crate::iroha_wasm::data_model::prelude::Value>
                         as
@@ -206,7 +206,7 @@ mod macros {
                         if let Ok(concrete_token) =
                             <$token as ::core::convert::TryFrom<_>>::try_from(
                                 <
-                                    $crate::iroha_wasm::data_model::permission::token::Token as ::core::clone::Clone
+                                    $crate::iroha_wasm::data_model::permission::token::PermissionToken as ::core::clone::Clone
                                 >::clone(&permission_token)
                             )
                         {

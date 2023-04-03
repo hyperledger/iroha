@@ -5,7 +5,8 @@ use core::fmt::{self, Debug, Formatter};
 use dashmap::DashMap;
 use iroha_data_model::{
     permission::validator::{
-        DenialReason, NeedsPermission as _, NeedsPermissionBox, Validator, ValidatorType,
+        DenialReason, NeedsPermission as _, NeedsPermissionBox, Validator, ValidatorId,
+        ValidatorType,
     },
     prelude::Account,
     Identifiable,
@@ -47,8 +48,8 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// [`Deny`](iroha_data_model::permission::validator::Verdict::Deny) verdict.
 #[derive(Clone)]
 pub struct Chain {
-    all_validators: DashMap<<Validator as Identifiable>::Id, LoadedValidator>,
-    concrete_type_validators: DashMap<ValidatorType, Vec<<Validator as Identifiable>::Id>>,
+    all_validators: DashMap<ValidatorId, LoadedValidator>,
+    concrete_type_validators: DashMap<ValidatorType, Vec<ValidatorId>>,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute validators.
     engine: wasmtime::Engine,
 }
@@ -79,7 +80,7 @@ impl Default for Chain {
 /// [`validate()`](Chain::validate) step.
 #[derive(Clone)]
 struct LoadedValidator {
-    id: <Validator as Identifiable>::Id,
+    id: ValidatorId,
     validator_type: ValidatorType,
     module: wasmtime::Module,
 }
@@ -143,7 +144,7 @@ impl Chain {
     /// Return `true` if the validator was removed
     /// and `false` if no validator with the given id was found.
     #[allow(clippy::expect_used)]
-    pub fn remove_validator(&self, id: &<Validator as Identifiable>::Id) -> bool {
+    pub fn remove_validator(&self, id: &ValidatorId) -> bool {
         self.all_validators.get(id).map_or(false, |entry| {
             let type_ = &entry.validator_type;
 
@@ -207,7 +208,7 @@ impl Chain {
         runtime: &wasm::Runtime,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        validator_id: &<Validator as Identifiable>::Id,
+        validator_id: &iroha_data_model::permission::validator::ValidatorId,
         operation: &NeedsPermissionBox,
     ) -> Result<()> {
         let validator = self.all_validators.get(validator_id).expect(

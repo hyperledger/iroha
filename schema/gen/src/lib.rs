@@ -32,7 +32,7 @@ pub fn build_schemas() -> MetaMap {
         VersionedEventMessage,
         VersionedEventSubscriptionRequest,
         VersionedPaginatedQueryResult,
-        VersionedSignedQueryRequest,
+        VersionedSignedQuery,
         VersionedPendingTransactions,
     }
 }

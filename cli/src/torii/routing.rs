@@ -1,6 +1,6 @@
 //! Routing functions for Torii. If you want to add an endpoint to
 //! Iroha you should add it here by creating a `handle_*` function,
-//! and add it to impl Torii. This module also defines the `VerifiedQueryRequest`,
+//! and add it to impl Torii. This module also defines the `VerifiedQuery`,
 //! which is the only kind of query that is permitted to execute.
 
 // FIXME: This can't be fixed, because one trait in `warp` is private.
@@ -47,7 +47,7 @@ pub fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Reject
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
-pub struct VerifiedQueryRequest {
+pub struct VerifiedQuery {
     /// Payload, containing the time, the query, the authenticating
     /// user account and a filter
     payload: query::http::QueryPayload,
@@ -55,7 +55,7 @@ pub struct VerifiedQueryRequest {
     signature: SignatureOf<query::http::QueryPayload>,
 }
 
-impl VerifiedQueryRequest {
+impl VerifiedQuery {
     /// Validate query.
     ///
     /// # Errors
@@ -84,10 +84,10 @@ impl VerifiedQueryRequest {
     }
 }
 
-impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
+impl TryFrom<SignedQuery> for VerifiedQuery {
     type Error = QueryExecutionFailure;
 
-    fn try_from(query: SignedQueryRequest) -> Result<Self, Self::Error> {
+    fn try_from(query: SignedQuery) -> Result<Self, Self::Error> {
         query
             .signature
             .verify(&query.payload)
@@ -131,10 +131,10 @@ pub(crate) async fn handle_queries(
     sumeragi: Arc<Sumeragi>,
     pagination: Pagination,
     sorting: Sorting,
-    request: VersionedSignedQueryRequest,
+    request: VersionedSignedQuery,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let VersionedSignedQueryRequest::V1(request) = request;
-    let request: VerifiedQueryRequest = request.try_into()?;
+    let VersionedSignedQuery::V1(request) = request;
+    let request: VerifiedQuery = request.try_into()?;
 
     let (result, filter) = {
         let wsv = sumeragi.wsv_mutex_access().clone();

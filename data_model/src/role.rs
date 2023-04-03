@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     model,
-    permission::{Permissions, Token as PermissionToken},
+    permission::{PermissionToken, Permissions},
     Identifiable, Name, Registered,
 };
 
@@ -50,8 +50,9 @@ model! {
     #[repr(transparent)]
     #[ffi_type(opaque)]
     pub struct NewRole {
+        #[allow(missing_docs)]
         #[id(transparent)]
-        inner: Role,
+        pub inner: Role,
     }
 }
 
@@ -66,13 +67,6 @@ impl Role {
     #[inline]
     pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.permissions.iter()
-    }
-
-    /// Remove permission tokens with specified id from `Role`
-    #[cfg(feature = "transparent_api")]
-    pub fn remove_permission(&mut self, definition_id: &crate::permission::token::Id) {
-        self.permissions
-            .retain(|token| token.definition_id != *definition_id);
     }
 }
 
@@ -100,17 +94,6 @@ impl NewRole {
 
 impl Registered for Role {
     type With = NewRole;
-}
-
-#[cfg(feature = "transparent_api")]
-impl crate::Registrable for NewRole {
-    type Target = Role;
-
-    #[must_use]
-    #[inline]
-    fn build(self) -> Self::Target {
-        self.inner
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

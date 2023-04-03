@@ -1092,7 +1092,7 @@ fn add_signatures<const EXPECT_VALID: bool>(
 }
 
 /// Create expired pipeline event for the given transaction.
-fn expired_event(txn: &impl Txn) -> Event {
+fn expired_event(txn: &impl Transaction) -> Event {
     PipelineEvent {
         entity_kind: PipelineEntityKind::Transaction,
         status: PipelineStatus::Rejected(PipelineRejectionReason::Transaction(

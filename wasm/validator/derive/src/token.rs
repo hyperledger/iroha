@@ -56,10 +56,10 @@ fn impl_token(
         impl #impl_generics ::iroha_validator::traits::Token for #ident #ty_generics
         #where_clause
         {
-            fn definition_id() -> ::iroha_validator::data_model::permission::token::Id {
+            fn definition_id() -> ::iroha_validator::data_model::permission::token::PermissionTokenId {
                 ::iroha_validator::parse!(
                     #definition_id as <
-                        ::iroha_validator::data_model::permission::token::Definition
+                        ::iroha_validator::data_model::permission::token::PermissionTokenDefinition
                         as
                         ::iroha_validator::data_model::prelude::Identifiable
                     >::Id
@@ -129,14 +129,14 @@ fn impl_try_from_permission_token(
     });
 
     quote! {
-        impl #impl_generics ::core::convert::TryFrom<::iroha_validator::data_model::permission::Token> for #ident #ty_generics
+        impl #impl_generics ::core::convert::TryFrom<::iroha_validator::data_model::permission::PermissionToken> for #ident #ty_generics
         #where_clause
         {
             type Error = ::iroha_validator::PermissionTokenConversionError;
 
             #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
-                token: ::iroha_validator::data_model::permission::Token
+                token: ::iroha_validator::data_model::permission::PermissionToken
             ) -> ::core::result::Result<Self, Self::Error> {
                 if token.definition_id() !=
                     &<Self as::iroha_validator::traits::Token>::definition_id()
@@ -169,7 +169,7 @@ fn permission_token_conversion(
     });
 
     quote! {
-        ::iroha_validator::data_model::permission::Token::new(
+        ::iroha_validator::data_model::permission::PermissionToken::new(
             <Self as ::iroha_validator::traits::Token>::definition_id()
         )
         .with_params([

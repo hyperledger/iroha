@@ -21,7 +21,7 @@ model! {
     #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, EnumDiscriminants, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[strum_discriminants(name(InstructionType), derive(Display), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
     #[ffi_type(opaque)]
-    pub enum Instruction {
+    pub enum InstructionBox {
         /// `Register` variant.
         Register(RegisterBox),
         /// `Unregister` variant.
@@ -57,10 +57,10 @@ model! {
     }
 }
 
-impl Instruction {
+impl InstructionBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
-        use Instruction::*;
+        use InstructionBox::*;
 
         match self {
             Register(register_box) => register_box.len(),
@@ -236,9 +236,9 @@ isi! {
     #[ffi_type]
     pub struct Pair {
         /// Left instruction
-        pub left_instruction: Instruction,
+        pub left_instruction: InstructionBox,
         /// Right instruction
-        pub right_instruction: Instruction,
+        pub right_instruction: InstructionBox,
     }
 }
 
@@ -246,11 +246,11 @@ isi! {
     /// Composite instruction for a sequence of instructions.
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `SequenceBox` has no trap representation in `Vec<Instruction>`
+    // SAFETY: `SequenceBox` has no trap representation in `Vec<InstructionBox>`
     #[ffi_type(unsafe {robust})]
     pub struct SequenceBox {
         /// Sequence of Iroha Special Instructions to execute.
-        pub instructions: Vec<Instruction>,
+        pub instructions: Vec<InstructionBox>,
     }
 }
 
@@ -277,9 +277,9 @@ isi! {
         /// Condition to be checked.
         pub condition: EvaluatesTo<bool>,
         /// Instruction to be executed if condition pass.
-        pub then: Instruction,
+        pub then: InstructionBox,
         /// Optional instruction to be executed if condition fail.
-        pub otherwise: Option<Instruction>,
+        pub otherwise: Option<InstructionBox>,
     }
 }
 
@@ -645,7 +645,7 @@ impl Pair {
     }
 
     /// Construct [`Pair`].
-    pub fn new<LI: Into<Instruction>, RI: Into<Instruction>>(
+    pub fn new<LI: Into<InstructionBox>, RI: Into<InstructionBox>>(
         left_instruction: LI,
         right_instruction: RI,
     ) -> Self {
@@ -661,13 +661,13 @@ impl SequenceBox {
     pub fn len(&self) -> usize {
         self.instructions
             .iter()
-            .map(Instruction::len)
+            .map(InstructionBox::len)
             .sum::<usize>()
             + 1
     }
 
     /// Construct [`SequenceBox`].
-    pub fn new(instructions: impl IntoIterator<Item = Instruction>) -> Self {
+    pub fn new(instructions: impl IntoIterator<Item = InstructionBox>) -> Self {
         Self {
             instructions: instructions.into_iter().collect(),
         }
@@ -678,13 +678,13 @@ impl Conditional {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
-        let otherwise = self.otherwise.as_ref().map_or(0, Instruction::len);
+        let otherwise = self.otherwise.as_ref().map_or(0, InstructionBox::len);
         self.condition.len() + self.then.len() + otherwise + 1
     }
 
     /// Construct [`If`].
-    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<Instruction>>(condition: C, then: T) -> Self {
-        Conditional {
+    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<InstructionBox>>(condition: C, then: T) -> Self {
+        Self {
             condition: condition.into(),
             then: then.into(),
             otherwise: None,
@@ -693,14 +693,14 @@ impl Conditional {
     /// [`If`] constructor with `Otherwise` instruction.
     pub fn with_otherwise<
         C: Into<EvaluatesTo<bool>>,
-        T: Into<Instruction>,
-        O: Into<Instruction>,
+        T: Into<InstructionBox>,
+        O: Into<InstructionBox>,
     >(
         condition: C,
         then: T,
         otherwise: O,
     ) -> Self {
-        Conditional {
+        Self {
             condition: condition.into(),
             then: then.into(),
             otherwise: Some(otherwise.into()),
@@ -958,7 +958,7 @@ pub mod prelude {
         SetParameter, Transfer, Unregister,
     };
     pub use super::{
-        BurnBox, Conditional, ExecuteTriggerBox, FailBox, GrantBox, Instruction, MintBox,
+        BurnBox, Conditional, ExecuteTriggerBox, FailBox, GrantBox, InstructionBox, MintBox,
         NewParameterBox, Pair, RegisterBox, RemoveKeyValueBox, RevokeBox, SequenceBox,
         SetKeyValueBox, SetParameterBox, TransferBox, UnregisterBox,
     };
@@ -974,9 +974,9 @@ mod tests {
 
     fn if_instruction(
         c: impl Into<ExpressionBox>,
-        then: Instruction,
-        otherwise: Option<Instruction>,
-    ) -> Instruction {
+        then: InstructionBox,
+        otherwise: Option<InstructionBox>,
+    ) -> InstructionBox {
         let condition: ExpressionBox = c.into();
         let condition = EvaluatesTo::new_unchecked(condition);
         Conditional {
@@ -987,7 +987,7 @@ mod tests {
         .into()
     }
 
-    fn fail() -> Instruction {
+    fn fail() -> InstructionBox {
         FailBox {
             message: String::default(),
         }
@@ -996,11 +996,10 @@ mod tests {
 
     #[test]
     fn len_empty_sequence() {
-        assert_eq!(Instruction::from(SequenceBox::new(vec![])).len(), 1);
+        assert_eq!(InstructionBox::from(SequenceBox::new(vec![])).len(), 1);
     }
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn len_if_one_branch() {
         let instructions = vec![if_instruction(
             ContextValue {
@@ -1010,11 +1009,13 @@ mod tests {
             None,
         )];
 
-        assert_eq!(Instruction::from(SequenceBox::new(instructions)).len(), 4);
+        assert_eq!(
+            InstructionBox::from(SequenceBox::new(instructions)).len(),
+            4
+        );
     }
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn len_sequence_if() {
         let instructions = vec![
             fail(),
@@ -1028,6 +1029,9 @@ mod tests {
             fail(),
         ];
 
-        assert_eq!(Instruction::from(SequenceBox::new(instructions)).len(), 7);
+        assert_eq!(
+            InstructionBox::from(SequenceBox::new(instructions)).len(),
+            7
+        );
     }
 }

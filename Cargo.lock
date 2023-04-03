@@ -2428,7 +2428,6 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_macro",
- "iroha_schema",
  "iroha_version_derive",
  "parity-scale-codec",
  "serde",
