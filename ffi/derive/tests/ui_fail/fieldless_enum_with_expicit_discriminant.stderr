@@ -1,4 +1,4 @@
-error: fieldless enums with explicit discriminants are prohibited
+error: fieldless enums with explicit discriminants are not allowed
  --> tests/ui_fail/fieldless_enum_with_expicit_discriminant.rs:4:6
   |
 4 | enum EnumWithExplicitDiscriminant {

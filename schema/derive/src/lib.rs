@@ -1,12 +1,6 @@
 //! Crate with derive `IntoSchema` macro
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unimplemented,
-    clippy::arithmetic_side_effects
-)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
@@ -14,7 +8,7 @@ use quote::quote;
 use syn::{
     parse::Parse, parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataEnum,
     DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam,
-    Generics, Lit, LitStr, Meta, NestedMeta, Type, Variant,
+    Generics, LitStr, Meta, NestedMeta, Type,
 };
 
 /// Derive [`iroha_schema::TypeId`]
@@ -224,6 +218,7 @@ fn metadata(data: &Data) -> TokenStream2 {
             .expect("Failed to parse metadata tuple");
             (vec![], expr)
         }
+        #[allow(clippy::unimplemented)]
         Data::Union(_) => unimplemented!(),
     };
 
@@ -279,6 +274,7 @@ fn metadata_for_structs(fields: &FieldsNamed) -> (Vec<Type>, Expr) {
 }
 
 /// Takes variant fields and gets its type
+#[allow(clippy::panic)]
 fn variant_field(fields: &Fields) -> Option<Type> {
     let field = match fields {
         Fields::Unit => return None,
@@ -298,10 +294,13 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
     let variants = data_enum
         .variants
         .iter()
-        .enumerate()
-        .filter(|(_, variant)| !should_skip(&variant.attrs))
-        .map(|(discriminant, variant)| {
-            let discriminant = variant_index(variant, discriminant);
+        .filter(|variant| !should_skip(&variant.attrs))
+        .map(|variant| {
+            assert!(
+                variant.discriminant.is_none(),
+                "Fieldless enums with explicit discriminants are not allowed"
+            );
+
             let name = &variant.ident;
             let ty = variant_field(&variant.fields).map_or_else(
                 || quote! { None },
@@ -310,7 +309,6 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             quote! {
                 iroha_schema::EnumVariant {
                     tag: String::from(stringify!(#name)),
-                    discriminant: #discriminant,
                     ty: #ty,
                 }
             }
@@ -374,38 +372,6 @@ fn should_skip(attrs: &[Attribute]) -> bool {
         None
     })
     .is_some()
-}
-
-/// Look for a `#[scale(index = $int)]` attribute on a variant. If no attribute
-/// is found, fall back to the discriminant or just the variant index.
-fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
-    // first look for an attribute
-    let index = find_meta_item(v.attrs.iter(), |meta| {
-        if let NestedMeta::Meta(Meta::NameValue(ref nv)) = meta {
-            if nv.path.is_ident("index") {
-                if let Lit::Int(ref val) = nv.lit {
-                    let byte = val
-                        .base10_parse::<u8>()
-                        .expect("Internal error, index attribute must have been checked");
-                    return Some(byte);
-                }
-            }
-        }
-
-        None
-    });
-
-    // then fallback to discriminant or just index
-    index
-        .map(|int| quote! { #int })
-        .or_else(|| {
-            v.discriminant.as_ref().map(|(_, expr)| {
-                let n: Lit = syn::parse2(quote! { #expr })
-                    .expect("Fallback in variant_index failed to parse");
-                quote! { #n }
-            })
-        })
-        .unwrap_or_else(|| quote! { #i as u8 })
 }
 
 /// Finds specific attribute with codec ident satisfying predicate

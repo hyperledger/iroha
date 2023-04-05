@@ -98,7 +98,7 @@ pub trait DecimalPlacesAware: 'static {
 }
 
 /// Metadata
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Metadata {
     /// Structure with named fields
     Struct(NamedFieldsMeta),
@@ -127,7 +127,7 @@ pub enum Metadata {
 }
 
 /// Array metadata
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ArrayMeta {
     /// Type
     pub ty: core::any::TypeId,
@@ -136,21 +136,21 @@ pub struct ArrayMeta {
 }
 
 /// Vector metadata
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VecMeta {
     /// Type
     pub ty: core::any::TypeId,
 }
 
 /// Named fields
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NamedFieldsMeta {
     /// Fields
     pub declarations: Vec<Declaration>,
 }
 
 /// Field
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Declaration {
     /// Field name
     pub name: String,
@@ -159,32 +159,30 @@ pub struct Declaration {
 }
 
 /// Unnamed fields
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnnamedFieldsMeta {
     /// Field types
     pub types: Vec<core::any::TypeId>,
 }
 
 /// Enum metadata
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EnumMeta {
     /// Enum variants
     pub variants: Vec<EnumVariant>,
 }
 
 /// Enum variant
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariant {
     /// Enum variant name
     pub tag: String,
-    /// Its discriminant (or identifier)
-    pub discriminant: u8,
     /// Its type
     pub ty: Option<core::any::TypeId>,
 }
 
 /// Result variant
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResultMeta {
     /// Ok type
     pub ok: core::any::TypeId,
@@ -192,7 +190,7 @@ pub struct ResultMeta {
     pub err: core::any::TypeId,
 }
 /// Map variant
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MapMeta {
     /// Key type
     pub key: core::any::TypeId,
@@ -201,7 +199,7 @@ pub struct MapMeta {
 }
 
 /// Fixed metadata
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FixedMeta {
     /// Base type
     pub base: core::any::TypeId,
@@ -210,7 +208,7 @@ pub struct FixedMeta {
 }
 
 /// Integer mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum IntMode {
     /// Fixed width
     FixedWidth,
@@ -482,7 +480,7 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
     fn update_schema_map(map: &mut MetaMap) {
         if !map.contains_key::<Self>() {
             map.insert::<Self>(Metadata::Array(ArrayMeta {
-                ty: core::any::TypeId::of::<u32>(),
+                ty: core::any::TypeId::of::<T>(),
                 len: L.try_into().expect("usize should always fit in u64"),
             }));
 

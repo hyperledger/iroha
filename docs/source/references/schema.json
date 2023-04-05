@@ -1,526 +1,657 @@
 {
   "Account": {
-    "Struct": {
-      "id": "AccountId",
-      "assets": "SortedMap<AssetId, Asset>",
-      "signatories": "SortedVec<PublicKey>",
-      "signature_check_condition": "SignatureCheckCondition",
-      "metadata": "Metadata",
-      "roles": "SortedVec<RoleId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AccountId"
+      },
+      {
+        "name": "assets",
+        "type": "SortedMap<AssetId, Asset>"
+      },
+      {
+        "name": "signatories",
+        "type": "SortedVec<PublicKey>"
+      },
+      {
+        "name": "signature_check_condition",
+        "type": "SignatureCheckCondition"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      },
+      {
+        "name": "roles",
+        "type": "SortedVec<RoleId>"
+      }
+    ]
   },
   "AccountEvent": {
     "Enum": [
       {
         "name": "Asset",
-        "type": "AssetEvent",
-        "discriminant": 0
+        "type": "AssetEvent"
       },
       {
         "name": "Created",
-        "type": "Account",
-        "discriminant": 1
+        "type": "Account"
       },
       {
         "name": "Deleted",
-        "type": "AccountId",
-        "discriminant": 2
+        "type": "AccountId"
       },
       {
         "name": "AuthenticationAdded",
-        "type": "AccountId",
-        "discriminant": 3
+        "type": "AccountId"
       },
       {
         "name": "AuthenticationRemoved",
-        "type": "AccountId",
-        "discriminant": 4
+        "type": "AccountId"
       },
       {
         "name": "PermissionAdded",
-        "type": "AccountPermissionChanged",
-        "discriminant": 5
+        "type": "AccountPermissionChanged"
       },
       {
         "name": "PermissionRemoved",
-        "type": "AccountPermissionChanged",
-        "discriminant": 6
+        "type": "AccountPermissionChanged"
       },
       {
         "name": "RoleRevoked",
-        "type": "AccountRoleChanged",
-        "discriminant": 7
+        "type": "AccountRoleChanged"
       },
       {
         "name": "RoleGranted",
-        "type": "AccountRoleChanged",
-        "discriminant": 8
+        "type": "AccountRoleChanged"
       },
       {
         "name": "MetadataInserted",
-        "type": "MetadataChanged<AccountId>",
-        "discriminant": 9
+        "type": "MetadataChanged<AccountId>"
       },
       {
         "name": "MetadataRemoved",
-        "type": "MetadataChanged<AccountId>",
-        "discriminant": 10
+        "type": "MetadataChanged<AccountId>"
       }
     ]
   },
   "AccountEventFilter": {
     "Enum": [
       {
-        "name": "ByCreated",
-        "discriminant": 0
+        "name": "ByCreated"
       },
       {
-        "name": "ByDeleted",
-        "discriminant": 1
+        "name": "ByDeleted"
       },
       {
-        "name": "ByAuthenticationAdded",
-        "discriminant": 2
+        "name": "ByAuthenticationAdded"
       },
       {
-        "name": "ByAuthenticationRemoved",
-        "discriminant": 3
+        "name": "ByAuthenticationRemoved"
       },
       {
-        "name": "ByPermissionAdded",
-        "discriminant": 4
+        "name": "ByPermissionAdded"
       },
       {
-        "name": "ByPermissionRemoved",
-        "discriminant": 5
+        "name": "ByPermissionRemoved"
       },
       {
-        "name": "ByRoleRevoked",
-        "discriminant": 6
+        "name": "ByRoleRevoked"
       },
       {
-        "name": "ByRoleGranted",
-        "discriminant": 7
+        "name": "ByRoleGranted"
       },
       {
-        "name": "ByMetadataInserted",
-        "discriminant": 8
+        "name": "ByMetadataInserted"
       },
       {
-        "name": "ByMetadataRemoved",
-        "discriminant": 9
+        "name": "ByMetadataRemoved"
       },
       {
         "name": "ByAsset",
-        "type": "FilterOpt<AssetFilter>",
-        "discriminant": 10
+        "type": "FilterOpt<AssetFilter>"
       }
     ]
   },
   "AccountFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<AccountEvent>>",
-      "event_filter": "FilterOpt<AccountEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<AccountEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<AccountEventFilter>"
+      }
+    ]
   },
   "AccountId": {
-    "Struct": {
-      "name": "Name",
-      "domain_id": "DomainId"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      },
+      {
+        "name": "domain_id",
+        "type": "DomainId"
+      }
+    ]
   },
   "AccountPermissionChanged": {
-    "Struct": {
-      "account_id": "AccountId",
-      "permission_id": "PermissionTokenId"
-    }
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "permission_id",
+        "type": "PermissionTokenId"
+      }
+    ]
   },
   "AccountRoleChanged": {
-    "Struct": {
-      "account_id": "AccountId",
-      "role_id": "RoleId"
-    }
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "role_id",
+        "type": "RoleId"
+      }
+    ]
   },
   "Action<FilterBox>": {
-    "Struct": {
-      "executable": "Executable",
-      "repeats": "Repeats",
-      "technical_account": "AccountId",
-      "filter": "FilterBox",
-      "metadata": "Metadata"
-    }
+    "Struct": [
+      {
+        "name": "executable",
+        "type": "Executable"
+      },
+      {
+        "name": "repeats",
+        "type": "Repeats"
+      },
+      {
+        "name": "technical_account",
+        "type": "AccountId"
+      },
+      {
+        "name": "filter",
+        "type": "FilterBox"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
   },
   "Add": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "Algorithm": {
     "Enum": [
       {
-        "name": "Ed25519",
-        "discriminant": 0
+        "name": "Ed25519"
       },
       {
-        "name": "Secp256k1",
-        "discriminant": 1
+        "name": "Secp256k1"
       },
       {
-        "name": "BlsNormal",
-        "discriminant": 2
+        "name": "BlsNormal"
       },
       {
-        "name": "BlsSmall",
-        "discriminant": 3
+        "name": "BlsSmall"
       }
     ]
   },
   "And": {
-    "Struct": {
-      "left": "EvaluatesTo<Bool>",
-      "right": "EvaluatesTo<Bool>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<Bool>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<Bool>"
+      }
+    ]
   },
   "Array<Interval<u16>, 8>": {
     "Array": {
-      "type": "u32",
+      "type": "Interval<u16>",
       "len": 8
     }
   },
   "Array<Interval<u8>, 4>": {
     "Array": {
-      "type": "u32",
+      "type": "Interval<u8>",
       "len": 4
     }
   },
   "Array<u16, 8>": {
     "Array": {
-      "type": "u32",
+      "type": "u16",
       "len": 8
     }
   },
   "Array<u8, 32>": {
     "Array": {
-      "type": "u32",
+      "type": "u8",
       "len": 32
     }
   },
   "Array<u8, 4>": {
     "Array": {
-      "type": "u32",
+      "type": "u8",
       "len": 4
     }
   },
   "Asset": {
-    "Struct": {
-      "id": "AssetId",
-      "value": "AssetValue"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AssetId"
+      },
+      {
+        "name": "value",
+        "type": "AssetValue"
+      }
+    ]
   },
   "AssetChanged": {
-    "Struct": {
-      "asset_id": "AssetId",
-      "amount": "AssetValue"
-    }
+    "Struct": [
+      {
+        "name": "asset_id",
+        "type": "AssetId"
+      },
+      {
+        "name": "amount",
+        "type": "AssetValue"
+      }
+    ]
   },
   "AssetDefinition": {
-    "Struct": {
-      "id": "AssetDefinitionId",
-      "value_type": "AssetValueType",
-      "mintable": "Mintable",
-      "metadata": "Metadata"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "value_type",
+        "type": "AssetValueType"
+      },
+      {
+        "name": "mintable",
+        "type": "Mintable"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
   },
   "AssetDefinitionEntry": {
-    "Struct": {
-      "definition": "AssetDefinition",
-      "owned_by": "AccountId"
-    }
+    "Struct": [
+      {
+        "name": "definition",
+        "type": "AssetDefinition"
+      },
+      {
+        "name": "owned_by",
+        "type": "AccountId"
+      }
+    ]
   },
   "AssetDefinitionEvent": {
     "Enum": [
       {
         "name": "Created",
-        "type": "AssetDefinition",
-        "discriminant": 0
+        "type": "AssetDefinition"
       },
       {
         "name": "MintabilityChanged",
-        "type": "AssetDefinitionId",
-        "discriminant": 1
+        "type": "AssetDefinitionId"
       },
       {
         "name": "OwnerChanged",
-        "type": "AssetDefinitionOwnerChanged",
-        "discriminant": 2
+        "type": "AssetDefinitionOwnerChanged"
       },
       {
         "name": "Deleted",
-        "type": "AssetDefinitionId",
-        "discriminant": 3
+        "type": "AssetDefinitionId"
       },
       {
         "name": "MetadataInserted",
-        "type": "MetadataChanged<AssetDefinitionId>",
-        "discriminant": 4
+        "type": "MetadataChanged<AssetDefinitionId>"
       },
       {
         "name": "MetadataRemoved",
-        "type": "MetadataChanged<AssetDefinitionId>",
-        "discriminant": 5
+        "type": "MetadataChanged<AssetDefinitionId>"
       },
       {
         "name": "TotalQuantityChanged",
-        "type": "AssetDefinitionTotalQuantityChanged",
-        "discriminant": 6
+        "type": "AssetDefinitionTotalQuantityChanged"
       }
     ]
   },
   "AssetDefinitionEventFilter": {
     "Enum": [
       {
-        "name": "ByCreated",
-        "discriminant": 0
+        "name": "ByCreated"
       },
       {
-        "name": "ByMintabilityChanged",
-        "discriminant": 1
+        "name": "ByMintabilityChanged"
       },
       {
-        "name": "ByOwnerChanged",
-        "discriminant": 2
+        "name": "ByOwnerChanged"
       },
       {
-        "name": "ByDeleted",
-        "discriminant": 3
+        "name": "ByDeleted"
       },
       {
-        "name": "ByMetadataInserted",
-        "discriminant": 4
+        "name": "ByMetadataInserted"
       },
       {
-        "name": "ByMetadataRemoved",
-        "discriminant": 5
+        "name": "ByMetadataRemoved"
       },
       {
-        "name": "ByTotalQuantityChanged",
-        "discriminant": 6
+        "name": "ByTotalQuantityChanged"
       }
     ]
   },
   "AssetDefinitionFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<AssetDefinitionEvent>>",
-      "event_filter": "FilterOpt<AssetDefinitionEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<AssetDefinitionEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<AssetDefinitionEventFilter>"
+      }
+    ]
   },
   "AssetDefinitionId": {
-    "Struct": {
-      "name": "Name",
-      "domain_id": "DomainId"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      },
+      {
+        "name": "domain_id",
+        "type": "DomainId"
+      }
+    ]
   },
   "AssetDefinitionOwnerChanged": {
-    "Struct": {
-      "asset_definition_id": "AssetDefinitionId",
-      "new_owner": "AccountId"
-    }
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "new_owner",
+        "type": "AccountId"
+      }
+    ]
   },
   "AssetDefinitionTotalQuantityChanged": {
-    "Struct": {
-      "asset_definition_id": "AssetDefinitionId",
-      "total_amount": "NumericValue"
-    }
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "total_amount",
+        "type": "NumericValue"
+      }
+    ]
   },
   "AssetEvent": {
     "Enum": [
       {
         "name": "Created",
-        "type": "Asset",
-        "discriminant": 0
+        "type": "Asset"
       },
       {
         "name": "Deleted",
-        "type": "AssetId",
-        "discriminant": 1
+        "type": "AssetId"
       },
       {
         "name": "Added",
-        "type": "AssetChanged",
-        "discriminant": 2
+        "type": "AssetChanged"
       },
       {
         "name": "Removed",
-        "type": "AssetChanged",
-        "discriminant": 3
+        "type": "AssetChanged"
       },
       {
         "name": "MetadataInserted",
-        "type": "MetadataChanged<AssetId>",
-        "discriminant": 4
+        "type": "MetadataChanged<AssetId>"
       },
       {
         "name": "MetadataRemoved",
-        "type": "MetadataChanged<AssetId>",
-        "discriminant": 5
+        "type": "MetadataChanged<AssetId>"
       }
     ]
   },
   "AssetEventFilter": {
     "Enum": [
       {
-        "name": "ByCreated",
-        "discriminant": 0
+        "name": "ByCreated"
       },
       {
-        "name": "ByDeleted",
-        "discriminant": 1
+        "name": "ByDeleted"
       },
       {
-        "name": "ByAdded",
-        "discriminant": 2
+        "name": "ByAdded"
       },
       {
-        "name": "ByRemoved",
-        "discriminant": 3
+        "name": "ByRemoved"
       },
       {
-        "name": "ByMetadataInserted",
-        "discriminant": 4
+        "name": "ByMetadataInserted"
       },
       {
-        "name": "ByMetadataRemoved",
-        "discriminant": 5
+        "name": "ByMetadataRemoved"
       }
     ]
   },
   "AssetFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<AssetEvent>>",
-      "event_filter": "FilterOpt<AssetEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<AssetEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<AssetEventFilter>"
+      }
+    ]
   },
   "AssetId": {
-    "Struct": {
-      "definition_id": "AssetDefinitionId",
-      "account_id": "AccountId"
-    }
+    "Struct": [
+      {
+        "name": "definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      }
+    ]
   },
   "AssetValue": {
     "Enum": [
       {
         "name": "Quantity",
-        "type": "u32",
-        "discriminant": 0
+        "type": "u32"
       },
       {
         "name": "BigQuantity",
-        "type": "u128",
-        "discriminant": 1
+        "type": "u128"
       },
       {
         "name": "Fixed",
-        "type": "Fixed",
-        "discriminant": 2
+        "type": "Fixed"
       },
       {
         "name": "Store",
-        "type": "Metadata",
-        "discriminant": 3
+        "type": "Metadata"
       }
     ]
   },
   "AssetValueType": {
     "Enum": [
       {
-        "name": "Quantity",
-        "discriminant": 0
+        "name": "Quantity"
       },
       {
-        "name": "BigQuantity",
-        "discriminant": 1
+        "name": "BigQuantity"
       },
       {
-        "name": "Fixed",
-        "discriminant": 2
+        "name": "Fixed"
       },
       {
-        "name": "Store",
-        "discriminant": 3
+        "name": "Store"
       }
     ]
   },
   "AtIndex": {
-    "Struct": {
-      "index": "u32",
-      "predicate": "ValuePredicate"
-    }
+    "Struct": [
+      {
+        "name": "index",
+        "type": "u32"
+      },
+      {
+        "name": "predicate",
+        "type": "ValuePredicate"
+      }
+    ]
   },
   "BlockHeader": {
-    "Struct": {
-      "timestamp": "u128",
-      "consensus_estimation": "u64",
-      "height": "u64",
-      "view_change_index": "u64",
-      "previous_block_hash": "Option<HashOf<VersionedCommittedBlock>>",
-      "transactions_hash": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>",
-      "rejected_transactions_hash": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>",
-      "committed_with_topology": "Vec<PeerId>"
-    }
+    "Struct": [
+      {
+        "name": "timestamp",
+        "type": "u128"
+      },
+      {
+        "name": "consensus_estimation",
+        "type": "u64"
+      },
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "view_change_index",
+        "type": "u64"
+      },
+      {
+        "name": "previous_block_hash",
+        "type": "Option<HashOf<VersionedCommittedBlock>>"
+      },
+      {
+        "name": "transactions_hash",
+        "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
+      },
+      {
+        "name": "rejected_transactions_hash",
+        "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
+      },
+      {
+        "name": "committed_with_topology",
+        "type": "Vec<PeerId>"
+      }
+    ]
   },
   "BlockMessage": "VersionedCommittedBlock",
   "BlockRejectionReason": {
     "Enum": [
       {
-        "name": "ConsensusBlockRejection",
-        "discriminant": 0
+        "name": "ConsensusBlockRejection"
       }
     ]
   },
   "BlockSubscriptionRequest": "u64",
   "Bool": "Bool",
   "BurnBox": {
-    "Struct": {
-      "object": "EvaluatesTo<Value>",
-      "destination_id": "EvaluatesTo<IdBox>"
-    }
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "destination_id",
+        "type": "EvaluatesTo<IdBox>"
+      }
+    ]
   },
   "CommittedBlock": {
-    "Struct": {
-      "header": "BlockHeader",
-      "rejected_transactions": "Vec<VersionedRejectedTransaction>",
-      "transactions": "Vec<VersionedValidTransaction>",
-      "event_recommendations": "Vec<Event>",
-      "signatures": "SignaturesOf<CommittedBlock>"
-    }
+    "Struct": [
+      {
+        "name": "header",
+        "type": "BlockHeader"
+      },
+      {
+        "name": "rejected_transactions",
+        "type": "Vec<VersionedRejectedTransaction>"
+      },
+      {
+        "name": "transactions",
+        "type": "Vec<VersionedValidTransaction>"
+      },
+      {
+        "name": "event_recommendations",
+        "type": "Vec<Event>"
+      },
+      {
+        "name": "signatures",
+        "type": "SignaturesOf<CommittedBlock>"
+      }
+    ]
   },
   "Compact<u128>": {
     "Int": "Compact"
   },
   "Conditional": {
-    "Struct": {
-      "condition": "EvaluatesTo<Bool>",
-      "then": "InstructionBox",
-      "otherwise": "Option<InstructionBox>"
-    }
+    "Struct": [
+      {
+        "name": "condition",
+        "type": "EvaluatesTo<Bool>"
+      },
+      {
+        "name": "then",
+        "type": "InstructionBox"
+      },
+      {
+        "name": "otherwise",
+        "type": "Option<InstructionBox>"
+      }
+    ]
   },
   "ConfigurationEvent": {
     "Enum": [
       {
         "name": "Changed",
-        "type": "ParameterId",
-        "discriminant": 0
+        "type": "ParameterId"
       },
       {
         "name": "Created",
-        "type": "ParameterId",
-        "discriminant": 1
+        "type": "ParameterId"
       },
       {
         "name": "Deleted",
-        "type": "ParameterId",
-        "discriminant": 2
+        "type": "ParameterId"
       }
     ]
   },
@@ -528,90 +659,99 @@
     "Enum": [
       {
         "name": "Any",
-        "type": "ValuePredicate",
-        "discriminant": 0
+        "type": "ValuePredicate"
       },
       {
         "name": "All",
-        "type": "ValuePredicate",
-        "discriminant": 1
+        "type": "ValuePredicate"
       },
       {
         "name": "AtIndex",
-        "type": "AtIndex",
-        "discriminant": 2
+        "type": "AtIndex"
       },
       {
         "name": "ValueOfKey",
-        "type": "ValueOfKey",
-        "discriminant": 3
+        "type": "ValueOfKey"
       },
       {
         "name": "HasKey",
-        "type": "Name",
-        "discriminant": 4
+        "type": "Name"
       }
     ]
   },
   "Contains": {
-    "Struct": {
-      "collection": "EvaluatesTo<Vec<Value>>",
-      "element": "EvaluatesTo<Value>"
-    }
+    "Struct": [
+      {
+        "name": "collection",
+        "type": "EvaluatesTo<Vec<Value>>"
+      },
+      {
+        "name": "element",
+        "type": "EvaluatesTo<Value>"
+      }
+    ]
   },
   "ContainsAll": {
-    "Struct": {
-      "collection": "EvaluatesTo<Vec<Value>>",
-      "elements": "EvaluatesTo<Vec<Value>>"
-    }
+    "Struct": [
+      {
+        "name": "collection",
+        "type": "EvaluatesTo<Vec<Value>>"
+      },
+      {
+        "name": "elements",
+        "type": "EvaluatesTo<Vec<Value>>"
+      }
+    ]
   },
   "ContainsAny": {
-    "Struct": {
-      "collection": "EvaluatesTo<Vec<Value>>",
-      "elements": "EvaluatesTo<Vec<Value>>"
-    }
+    "Struct": [
+      {
+        "name": "collection",
+        "type": "EvaluatesTo<Vec<Value>>"
+      },
+      {
+        "name": "elements",
+        "type": "EvaluatesTo<Vec<Value>>"
+      }
+    ]
   },
   "ContextValue": {
-    "Struct": {
-      "value_name": "Name"
-    }
+    "Struct": [
+      {
+        "name": "value_name",
+        "type": "Name"
+      }
+    ]
   },
   "DataEntityFilter": {
     "Enum": [
       {
         "name": "ByPeer",
-        "type": "FilterOpt<PeerFilter>",
-        "discriminant": 0
+        "type": "FilterOpt<PeerFilter>"
       },
       {
         "name": "ByDomain",
-        "type": "FilterOpt<DomainFilter>",
-        "discriminant": 1
+        "type": "FilterOpt<DomainFilter>"
       },
       {
         "name": "ByAccount",
-        "type": "FilterOpt<AccountFilter>",
-        "discriminant": 2
+        "type": "FilterOpt<AccountFilter>"
       },
       {
         "name": "ByAssetDefinition",
-        "type": "FilterOpt<AssetDefinitionFilter>",
-        "discriminant": 3
+        "type": "FilterOpt<AssetDefinitionFilter>"
       },
       {
         "name": "ByAsset",
-        "type": "FilterOpt<AssetFilter>",
-        "discriminant": 4
+        "type": "FilterOpt<AssetFilter>"
       },
       {
         "name": "ByTrigger",
-        "type": "FilterOpt<TriggerFilter>",
-        "discriminant": 5
+        "type": "FilterOpt<TriggerFilter>"
       },
       {
         "name": "ByRole",
-        "type": "FilterOpt<RoleFilter>",
-        "discriminant": 6
+        "type": "FilterOpt<RoleFilter>"
       }
     ]
   },
@@ -619,152 +759,169 @@
     "Enum": [
       {
         "name": "Peer",
-        "type": "PeerEvent",
-        "discriminant": 0
+        "type": "PeerEvent"
       },
       {
         "name": "Domain",
-        "type": "DomainEvent",
-        "discriminant": 1
+        "type": "DomainEvent"
       },
       {
         "name": "Account",
-        "type": "AccountEvent",
-        "discriminant": 2
+        "type": "AccountEvent"
       },
       {
         "name": "AssetDefinition",
-        "type": "AssetDefinitionEvent",
-        "discriminant": 3
+        "type": "AssetDefinitionEvent"
       },
       {
         "name": "Asset",
-        "type": "AssetEvent",
-        "discriminant": 4
+        "type": "AssetEvent"
       },
       {
         "name": "Trigger",
-        "type": "TriggerEvent",
-        "discriminant": 5
+        "type": "TriggerEvent"
       },
       {
         "name": "Role",
-        "type": "RoleEvent",
-        "discriminant": 6
+        "type": "RoleEvent"
       },
       {
         "name": "PermissionToken",
-        "type": "PermissionTokenEvent",
-        "discriminant": 7
+        "type": "PermissionTokenEvent"
       },
       {
         "name": "PermissionValidator",
-        "type": "PermissionValidatorEvent",
-        "discriminant": 8
+        "type": "PermissionValidatorEvent"
       },
       {
         "name": "Configuration",
-        "type": "ConfigurationEvent",
-        "discriminant": 9
+        "type": "ConfigurationEvent"
       }
     ]
   },
   "Divide": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "DoesAccountHavePermissionToken": {
-    "Struct": {
-      "account_id": "EvaluatesTo<AccountId>",
-      "permission_token": "PermissionToken"
-    }
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "EvaluatesTo<AccountId>"
+      },
+      {
+        "name": "permission_token",
+        "type": "PermissionToken"
+      }
+    ]
   },
   "Domain": {
-    "Struct": {
-      "id": "DomainId",
-      "accounts": "SortedMap<AccountId, Account>",
-      "asset_definitions": "SortedMap<AssetDefinitionId, AssetDefinitionEntry>",
-      "asset_total_quantities": "SortedMap<AssetDefinitionId, NumericValue>",
-      "logo": "Option<IpfsPath>",
-      "metadata": "Metadata"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "DomainId"
+      },
+      {
+        "name": "accounts",
+        "type": "SortedMap<AccountId, Account>"
+      },
+      {
+        "name": "asset_definitions",
+        "type": "SortedMap<AssetDefinitionId, AssetDefinitionEntry>"
+      },
+      {
+        "name": "asset_total_quantities",
+        "type": "SortedMap<AssetDefinitionId, NumericValue>"
+      },
+      {
+        "name": "logo",
+        "type": "Option<IpfsPath>"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
   },
   "DomainEvent": {
     "Enum": [
       {
         "name": "Account",
-        "type": "AccountEvent",
-        "discriminant": 0
+        "type": "AccountEvent"
       },
       {
         "name": "AssetDefinition",
-        "type": "AssetDefinitionEvent",
-        "discriminant": 1
+        "type": "AssetDefinitionEvent"
       },
       {
         "name": "Created",
-        "type": "Domain",
-        "discriminant": 2
+        "type": "Domain"
       },
       {
         "name": "Deleted",
-        "type": "DomainId",
-        "discriminant": 3
+        "type": "DomainId"
       },
       {
         "name": "MetadataInserted",
-        "type": "MetadataChanged<DomainId>",
-        "discriminant": 4
+        "type": "MetadataChanged<DomainId>"
       },
       {
         "name": "MetadataRemoved",
-        "type": "MetadataChanged<DomainId>",
-        "discriminant": 5
+        "type": "MetadataChanged<DomainId>"
       }
     ]
   },
   "DomainEventFilter": {
     "Enum": [
       {
-        "name": "ByCreated",
-        "discriminant": 0
+        "name": "ByCreated"
       },
       {
-        "name": "ByDeleted",
-        "discriminant": 1
+        "name": "ByDeleted"
       },
       {
-        "name": "ByMetadataInserted",
-        "discriminant": 2
+        "name": "ByMetadataInserted"
       },
       {
-        "name": "ByMetadataRemoved",
-        "discriminant": 3
+        "name": "ByMetadataRemoved"
       },
       {
         "name": "ByAccount",
-        "type": "FilterOpt<AccountFilter>",
-        "discriminant": 4
+        "type": "FilterOpt<AccountFilter>"
       },
       {
         "name": "ByAssetDefinition",
-        "type": "FilterOpt<AssetDefinitionFilter>",
-        "discriminant": 5
+        "type": "FilterOpt<AssetDefinitionFilter>"
       }
     ]
   },
   "DomainFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<DomainEvent>>",
-      "event_filter": "FilterOpt<DomainEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<DomainEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<DomainEventFilter>"
+      }
+    ]
   },
   "DomainId": {
-    "Struct": {
-      "name": "Name"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      }
+    ]
   },
   "Duration": {
     "Tuple": [
@@ -773,107 +930,154 @@
     ]
   },
   "Equal": {
-    "Struct": {
-      "left": "EvaluatesTo<Value>",
-      "right": "EvaluatesTo<Value>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<Value>"
+      }
+    ]
   },
   "EvaluatesTo<AccountId>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<AssetDefinitionId>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<AssetId>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<Bool>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<DomainId>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<Hash>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<IdBox>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<Name>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<NumericValue>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<Parameter>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<RegistrableBox>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<RoleId>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<TriggerId>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<Value>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "EvaluatesTo<Vec<Value>>": {
-    "Struct": {
-      "expression": "Expression"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
   },
   "Event": {
     "Enum": [
       {
         "name": "Pipeline",
-        "type": "PipelineEvent",
-        "discriminant": 0
+        "type": "PipelineEvent"
       },
       {
         "name": "Data",
-        "type": "DataEvent",
-        "discriminant": 1
+        "type": "DataEvent"
       },
       {
         "name": "Time",
-        "type": "TimeEvent",
-        "discriminant": 2
+        "type": "TimeEvent"
       },
       {
         "name": "ExecuteTrigger",
-        "type": "ExecuteTriggerEvent",
-        "discriminant": 3
+        "type": "ExecuteTriggerEvent"
       }
     ]
   },
@@ -883,43 +1087,54 @@
     "Enum": [
       {
         "name": "Instructions",
-        "type": "Vec<InstructionBox>",
-        "discriminant": 0
+        "type": "Vec<InstructionBox>"
       },
       {
         "name": "Wasm",
-        "type": "WasmSmartContract",
-        "discriminant": 1
+        "type": "WasmSmartContract"
       }
     ]
   },
   "ExecuteTriggerBox": {
-    "Struct": {
-      "trigger_id": "TriggerId"
-    }
+    "Struct": [
+      {
+        "name": "trigger_id",
+        "type": "TriggerId"
+      }
+    ]
   },
   "ExecuteTriggerEvent": {
-    "Struct": {
-      "trigger_id": "TriggerId",
-      "authority": "AccountId"
-    }
+    "Struct": [
+      {
+        "name": "trigger_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "authority",
+        "type": "AccountId"
+      }
+    ]
   },
   "ExecuteTriggerEventFilter": {
-    "Struct": {
-      "trigger_id": "TriggerId",
-      "authority": "AccountId"
-    }
+    "Struct": [
+      {
+        "name": "trigger_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "authority",
+        "type": "AccountId"
+      }
+    ]
   },
   "ExecutionTime": {
     "Enum": [
       {
-        "name": "PreCommit",
-        "discriminant": 0
+        "name": "PreCommit"
       },
       {
         "name": "Schedule",
-        "type": "Schedule",
-        "discriminant": 1
+        "type": "Schedule"
       }
     ]
   },
@@ -927,446 +1142,399 @@
     "Enum": [
       {
         "name": "Add",
-        "type": "Add",
-        "discriminant": 0
+        "type": "Add"
       },
       {
         "name": "Subtract",
-        "type": "Subtract",
-        "discriminant": 1
+        "type": "Subtract"
       },
       {
         "name": "Multiply",
-        "type": "Multiply",
-        "discriminant": 2
+        "type": "Multiply"
       },
       {
         "name": "Divide",
-        "type": "Divide",
-        "discriminant": 3
+        "type": "Divide"
       },
       {
         "name": "Mod",
-        "type": "Mod",
-        "discriminant": 4
+        "type": "Mod"
       },
       {
         "name": "RaiseTo",
-        "type": "RaiseTo",
-        "discriminant": 5
+        "type": "RaiseTo"
       },
       {
         "name": "Greater",
-        "type": "Greater",
-        "discriminant": 6
+        "type": "Greater"
       },
       {
         "name": "Less",
-        "type": "Less",
-        "discriminant": 7
+        "type": "Less"
       },
       {
         "name": "Equal",
-        "type": "Equal",
-        "discriminant": 8
+        "type": "Equal"
       },
       {
         "name": "Not",
-        "type": "Not",
-        "discriminant": 9
+        "type": "Not"
       },
       {
         "name": "And",
-        "type": "And",
-        "discriminant": 10
+        "type": "And"
       },
       {
         "name": "Or",
-        "type": "Or",
-        "discriminant": 11
+        "type": "Or"
       },
       {
         "name": "If",
-        "type": "If",
-        "discriminant": 12
+        "type": "If"
       },
       {
         "name": "Raw",
-        "type": "Value",
-        "discriminant": 13
+        "type": "Value"
       },
       {
         "name": "Query",
-        "type": "QueryBox",
-        "discriminant": 14
+        "type": "QueryBox"
       },
       {
         "name": "Contains",
-        "type": "Contains",
-        "discriminant": 15
+        "type": "Contains"
       },
       {
         "name": "ContainsAll",
-        "type": "ContainsAll",
-        "discriminant": 16
+        "type": "ContainsAll"
       },
       {
         "name": "ContainsAny",
-        "type": "ContainsAny",
-        "discriminant": 17
+        "type": "ContainsAny"
       },
       {
         "name": "Where",
-        "type": "Where",
-        "discriminant": 18
+        "type": "Where"
       },
       {
         "name": "ContextValue",
-        "type": "ContextValue",
-        "discriminant": 19
+        "type": "ContextValue"
       }
     ]
   },
   "FailBox": {
-    "Struct": {
-      "message": "String"
-    }
+    "Struct": [
+      {
+        "name": "message",
+        "type": "String"
+      }
+    ]
   },
   "FilterBox": {
     "Enum": [
       {
         "name": "Pipeline",
-        "type": "PipelineEventFilter",
-        "discriminant": 0
+        "type": "PipelineEventFilter"
       },
       {
         "name": "Data",
-        "type": "FilterOpt<DataEntityFilter>",
-        "discriminant": 1
+        "type": "FilterOpt<DataEntityFilter>"
       },
       {
         "name": "Time",
-        "type": "TimeEventFilter",
-        "discriminant": 2
+        "type": "TimeEventFilter"
       },
       {
         "name": "ExecuteTrigger",
-        "type": "ExecuteTriggerEventFilter",
-        "discriminant": 3
+        "type": "ExecuteTriggerEventFilter"
       }
     ]
   },
   "FilterOpt<AccountEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "AccountEventFilter",
-        "discriminant": 1
+        "type": "AccountEventFilter"
       }
     ]
   },
   "FilterOpt<AccountFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "AccountFilter",
-        "discriminant": 1
+        "type": "AccountFilter"
       }
     ]
   },
   "FilterOpt<AssetDefinitionEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "AssetDefinitionEventFilter",
-        "discriminant": 1
+        "type": "AssetDefinitionEventFilter"
       }
     ]
   },
   "FilterOpt<AssetDefinitionFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "AssetDefinitionFilter",
-        "discriminant": 1
+        "type": "AssetDefinitionFilter"
       }
     ]
   },
   "FilterOpt<AssetEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "AssetEventFilter",
-        "discriminant": 1
+        "type": "AssetEventFilter"
       }
     ]
   },
   "FilterOpt<AssetFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "AssetFilter",
-        "discriminant": 1
+        "type": "AssetFilter"
       }
     ]
   },
   "FilterOpt<DataEntityFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "DataEntityFilter",
-        "discriminant": 1
+        "type": "DataEntityFilter"
       }
     ]
   },
   "FilterOpt<DomainEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "DomainEventFilter",
-        "discriminant": 1
+        "type": "DomainEventFilter"
       }
     ]
   },
   "FilterOpt<DomainFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "DomainFilter",
-        "discriminant": 1
+        "type": "DomainFilter"
       }
     ]
   },
   "FilterOpt<OriginFilter<AccountEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<AccountEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<AccountEvent>"
       }
     ]
   },
   "FilterOpt<OriginFilter<AssetDefinitionEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<AssetDefinitionEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<AssetDefinitionEvent>"
       }
     ]
   },
   "FilterOpt<OriginFilter<AssetEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<AssetEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<AssetEvent>"
       }
     ]
   },
   "FilterOpt<OriginFilter<DomainEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<DomainEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<DomainEvent>"
       }
     ]
   },
   "FilterOpt<OriginFilter<PeerEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<PeerEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<PeerEvent>"
       }
     ]
   },
   "FilterOpt<OriginFilter<RoleEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<RoleEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<RoleEvent>"
       }
     ]
   },
   "FilterOpt<OriginFilter<TriggerEvent>>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "OriginFilter<TriggerEvent>",
-        "discriminant": 1
+        "type": "OriginFilter<TriggerEvent>"
       }
     ]
   },
   "FilterOpt<PeerEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "PeerEventFilter",
-        "discriminant": 1
+        "type": "PeerEventFilter"
       }
     ]
   },
   "FilterOpt<PeerFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "PeerFilter",
-        "discriminant": 1
+        "type": "PeerFilter"
       }
     ]
   },
   "FilterOpt<RoleEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "RoleEventFilter",
-        "discriminant": 1
+        "type": "RoleEventFilter"
       }
     ]
   },
   "FilterOpt<RoleFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "RoleFilter",
-        "discriminant": 1
+        "type": "RoleFilter"
       }
     ]
   },
   "FilterOpt<TriggerEventFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "TriggerEventFilter",
-        "discriminant": 1
+        "type": "TriggerEventFilter"
       }
     ]
   },
   "FilterOpt<TriggerFilter>": {
     "Enum": [
       {
-        "name": "AcceptAll",
-        "discriminant": 0
+        "name": "AcceptAll"
       },
       {
         "name": "BySome",
-        "type": "TriggerFilter",
-        "discriminant": 1
+        "type": "TriggerFilter"
       }
     ]
   },
   "FindAccountById": {
-    "Struct": {
-      "id": "EvaluatesTo<AccountId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AccountId>"
+      }
+    ]
   },
   "FindAccountKeyValueByIdAndKey": {
-    "Struct": {
-      "id": "EvaluatesTo<AccountId>",
-      "key": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AccountId>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindAccountsByDomainId": {
-    "Struct": {
-      "domain_id": "EvaluatesTo<DomainId>"
-    }
+    "Struct": [
+      {
+        "name": "domain_id",
+        "type": "EvaluatesTo<DomainId>"
+      }
+    ]
   },
   "FindAccountsByName": {
-    "Struct": {
-      "name": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindAccountsWithAsset": {
-    "Struct": {
-      "asset_definition_id": "EvaluatesTo<AssetDefinitionId>"
-    }
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      }
+    ]
   },
   "FindAllAccounts": null,
   "FindAllActiveTriggerIds": null,
@@ -1382,188 +1550,256 @@
   "FindAllRoles": null,
   "FindAllTransactions": null,
   "FindAssetById": {
-    "Struct": {
-      "id": "EvaluatesTo<AssetId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AssetId>"
+      }
+    ]
   },
   "FindAssetDefinitionById": {
-    "Struct": {
-      "id": "EvaluatesTo<AssetDefinitionId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      }
+    ]
   },
   "FindAssetDefinitionKeyValueByIdAndKey": {
-    "Struct": {
-      "id": "EvaluatesTo<AssetDefinitionId>",
-      "key": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindAssetKeyValueByIdAndKey": {
-    "Struct": {
-      "id": "EvaluatesTo<AssetId>",
-      "key": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AssetId>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindAssetQuantityById": {
-    "Struct": {
-      "id": "EvaluatesTo<AssetId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AssetId>"
+      }
+    ]
   },
   "FindAssetsByAccountId": {
-    "Struct": {
-      "account_id": "EvaluatesTo<AccountId>"
-    }
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "EvaluatesTo<AccountId>"
+      }
+    ]
   },
   "FindAssetsByAssetDefinitionId": {
-    "Struct": {
-      "asset_definition_id": "EvaluatesTo<AssetDefinitionId>"
-    }
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      }
+    ]
   },
   "FindAssetsByDomainId": {
-    "Struct": {
-      "domain_id": "EvaluatesTo<DomainId>"
-    }
+    "Struct": [
+      {
+        "name": "domain_id",
+        "type": "EvaluatesTo<DomainId>"
+      }
+    ]
   },
   "FindAssetsByDomainIdAndAssetDefinitionId": {
-    "Struct": {
-      "domain_id": "EvaluatesTo<DomainId>",
-      "asset_definition_id": "EvaluatesTo<AssetDefinitionId>"
-    }
+    "Struct": [
+      {
+        "name": "domain_id",
+        "type": "EvaluatesTo<DomainId>"
+      },
+      {
+        "name": "asset_definition_id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      }
+    ]
   },
   "FindAssetsByName": {
-    "Struct": {
-      "name": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindBlockHeaderByHash": {
-    "Struct": {
-      "hash": "EvaluatesTo<Hash>"
-    }
+    "Struct": [
+      {
+        "name": "hash",
+        "type": "EvaluatesTo<Hash>"
+      }
+    ]
   },
   "FindDomainById": {
-    "Struct": {
-      "id": "EvaluatesTo<DomainId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<DomainId>"
+      }
+    ]
   },
   "FindDomainKeyValueByIdAndKey": {
-    "Struct": {
-      "id": "EvaluatesTo<DomainId>",
-      "key": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<DomainId>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindError": {
     "Enum": [
       {
         "name": "Asset",
-        "type": "AssetId",
-        "discriminant": 0
+        "type": "AssetId"
       },
       {
         "name": "AssetDefinition",
-        "type": "AssetDefinitionId",
-        "discriminant": 1
+        "type": "AssetDefinitionId"
       },
       {
         "name": "Account",
-        "type": "AccountId",
-        "discriminant": 2
+        "type": "AccountId"
       },
       {
         "name": "Domain",
-        "type": "DomainId",
-        "discriminant": 3
+        "type": "DomainId"
       },
       {
         "name": "MetadataKey",
-        "type": "Name",
-        "discriminant": 4
+        "type": "Name"
       },
       {
         "name": "Block",
-        "type": "HashOf<VersionedCommittedBlock>",
-        "discriminant": 5
+        "type": "HashOf<VersionedCommittedBlock>"
       },
       {
         "name": "Transaction",
-        "type": "HashOf<VersionedSignedTransaction>",
-        "discriminant": 6
+        "type": "HashOf<VersionedSignedTransaction>"
       },
       {
         "name": "Peer",
-        "type": "PeerId",
-        "discriminant": 7
+        "type": "PeerId"
       },
       {
         "name": "Trigger",
-        "type": "TriggerId",
-        "discriminant": 8
+        "type": "TriggerId"
       },
       {
         "name": "Role",
-        "type": "RoleId",
-        "discriminant": 9
+        "type": "RoleId"
       },
       {
         "name": "PermissionTokenDefinition",
-        "type": "PermissionTokenId",
-        "discriminant": 10
+        "type": "PermissionTokenId"
       },
       {
         "name": "Validator",
-        "type": "ValidatorId",
-        "discriminant": 11
+        "type": "ValidatorId"
       },
       {
         "name": "Parameter",
-        "type": "ParameterId",
-        "discriminant": 12
+        "type": "ParameterId"
       }
     ]
   },
   "FindPermissionTokensByAccountId": {
-    "Struct": {
-      "id": "EvaluatesTo<AccountId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AccountId>"
+      }
+    ]
   },
   "FindRoleByRoleId": {
-    "Struct": {
-      "id": "EvaluatesTo<RoleId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<RoleId>"
+      }
+    ]
   },
   "FindRolesByAccountId": {
-    "Struct": {
-      "id": "EvaluatesTo<AccountId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AccountId>"
+      }
+    ]
   },
   "FindTotalAssetQuantityByAssetDefinitionId": {
-    "Struct": {
-      "id": "EvaluatesTo<AssetDefinitionId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      }
+    ]
   },
   "FindTransactionByHash": {
-    "Struct": {
-      "hash": "EvaluatesTo<Hash>"
-    }
+    "Struct": [
+      {
+        "name": "hash",
+        "type": "EvaluatesTo<Hash>"
+      }
+    ]
   },
   "FindTransactionsByAccountId": {
-    "Struct": {
-      "account_id": "EvaluatesTo<AccountId>"
-    }
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "EvaluatesTo<AccountId>"
+      }
+    ]
   },
   "FindTriggerById": {
-    "Struct": {
-      "id": "EvaluatesTo<TriggerId>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<TriggerId>"
+      }
+    ]
   },
   "FindTriggerKeyValueByIdAndKey": {
-    "Struct": {
-      "id": "EvaluatesTo<TriggerId>",
-      "key": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "EvaluatesTo<TriggerId>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "FindTriggersByDomainId": {
-    "Struct": {
-      "domain_id": "EvaluatesTo<DomainId>"
-    }
+    "Struct": [
+      {
+        "name": "domain_id",
+        "type": "EvaluatesTo<DomainId>"
+      }
+    ]
   },
   "Fixed": "FixedPoint<i64>",
   "FixedPoint<i64>": {
@@ -1576,42 +1812,53 @@
     "Enum": [
       {
         "name": "And",
-        "type": "NonTrivial<GenericPredicateBox<ValuePredicate>>",
-        "discriminant": 0
+        "type": "NonTrivial<GenericPredicateBox<ValuePredicate>>"
       },
       {
         "name": "Or",
-        "type": "NonTrivial<GenericPredicateBox<ValuePredicate>>",
-        "discriminant": 1
+        "type": "NonTrivial<GenericPredicateBox<ValuePredicate>>"
       },
       {
         "name": "Not",
-        "type": "GenericPredicateBox<ValuePredicate>",
-        "discriminant": 2
+        "type": "GenericPredicateBox<ValuePredicate>"
       },
       {
         "name": "Raw",
-        "type": "ValuePredicate",
-        "discriminant": 3
+        "type": "ValuePredicate"
       }
     ]
   },
   "GenesisTransaction": {
-    "Struct": {
-      "isi": "Vec<InstructionBox>"
-    }
+    "Struct": [
+      {
+        "name": "isi",
+        "type": "Vec<InstructionBox>"
+      }
+    ]
   },
   "GrantBox": {
-    "Struct": {
-      "object": "EvaluatesTo<Value>",
-      "destination_id": "EvaluatesTo<IdBox>"
-    }
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "destination_id",
+        "type": "EvaluatesTo<IdBox>"
+      }
+    ]
   },
   "Greater": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "Hash": "Array<u8, 32>",
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
@@ -1621,53 +1868,43 @@
     "Enum": [
       {
         "name": "DomainId",
-        "type": "DomainId",
-        "discriminant": 0
+        "type": "DomainId"
       },
       {
         "name": "AccountId",
-        "type": "AccountId",
-        "discriminant": 1
+        "type": "AccountId"
       },
       {
         "name": "AssetDefinitionId",
-        "type": "AssetDefinitionId",
-        "discriminant": 2
+        "type": "AssetDefinitionId"
       },
       {
         "name": "AssetId",
-        "type": "AssetId",
-        "discriminant": 3
+        "type": "AssetId"
       },
       {
         "name": "PeerId",
-        "type": "PeerId",
-        "discriminant": 4
+        "type": "PeerId"
       },
       {
         "name": "TriggerId",
-        "type": "TriggerId",
-        "discriminant": 5
+        "type": "TriggerId"
       },
       {
         "name": "RoleId",
-        "type": "RoleId",
-        "discriminant": 6
+        "type": "RoleId"
       },
       {
         "name": "PermissionTokenDefinitionId",
-        "type": "PermissionTokenId",
-        "discriminant": 7
+        "type": "PermissionTokenId"
       },
       {
         "name": "ValidatorId",
-        "type": "ValidatorId",
-        "discriminant": 8
+        "type": "ValidatorId"
       },
       {
         "name": "ParameterId",
-        "type": "ParameterId",
-        "discriminant": 9
+        "type": "ParameterId"
       }
     ]
   },
@@ -1675,184 +1912,181 @@
     "Enum": [
       {
         "name": "NewDomain",
-        "type": "NewDomain",
-        "discriminant": 0
+        "type": "NewDomain"
       },
       {
         "name": "NewAccount",
-        "type": "NewAccount",
-        "discriminant": 1
+        "type": "NewAccount"
       },
       {
         "name": "NewAssetDefinition",
-        "type": "NewAssetDefinition",
-        "discriminant": 2
+        "type": "NewAssetDefinition"
       },
       {
         "name": "NewRole",
-        "type": "NewRole",
-        "discriminant": 3
+        "type": "NewRole"
       },
       {
         "name": "Peer",
-        "type": "Peer",
-        "discriminant": 4
+        "type": "Peer"
       },
       {
         "name": "Domain",
-        "type": "Domain",
-        "discriminant": 5
+        "type": "Domain"
       },
       {
         "name": "Account",
-        "type": "Account",
-        "discriminant": 6
+        "type": "Account"
       },
       {
         "name": "AssetDefinition",
-        "type": "AssetDefinition",
-        "discriminant": 7
+        "type": "AssetDefinition"
       },
       {
         "name": "Asset",
-        "type": "Asset",
-        "discriminant": 8
+        "type": "Asset"
       },
       {
         "name": "Trigger",
-        "type": "Trigger<FilterBox>",
-        "discriminant": 9
+        "type": "Trigger<FilterBox>"
       },
       {
         "name": "Role",
-        "type": "Role",
-        "discriminant": 10
+        "type": "Role"
       },
       {
         "name": "PermissionTokenDefinition",
-        "type": "PermissionTokenDefinition",
-        "discriminant": 11
+        "type": "PermissionTokenDefinition"
       },
       {
         "name": "Validator",
-        "type": "Validator",
-        "discriminant": 12
+        "type": "Validator"
       },
       {
         "name": "Parameter",
-        "type": "Parameter",
-        "discriminant": 13
+        "type": "Parameter"
       }
     ]
   },
   "If": {
-    "Struct": {
-      "condition": "EvaluatesTo<Bool>",
-      "then": "EvaluatesTo<Value>",
-      "otherwise": "EvaluatesTo<Value>"
-    }
+    "Struct": [
+      {
+        "name": "condition",
+        "type": "EvaluatesTo<Bool>"
+      },
+      {
+        "name": "then",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "otherwise",
+        "type": "EvaluatesTo<Value>"
+      }
+    ]
   },
   "InstructionBox": {
     "Enum": [
       {
         "name": "Register",
-        "type": "RegisterBox",
-        "discriminant": 0
+        "type": "RegisterBox"
       },
       {
         "name": "Unregister",
-        "type": "UnregisterBox",
-        "discriminant": 1
+        "type": "UnregisterBox"
       },
       {
         "name": "Mint",
-        "type": "MintBox",
-        "discriminant": 2
+        "type": "MintBox"
       },
       {
         "name": "Burn",
-        "type": "BurnBox",
-        "discriminant": 3
+        "type": "BurnBox"
       },
       {
         "name": "Transfer",
-        "type": "TransferBox",
-        "discriminant": 4
+        "type": "TransferBox"
       },
       {
         "name": "If",
-        "type": "Conditional",
-        "discriminant": 5
+        "type": "Conditional"
       },
       {
         "name": "Pair",
-        "type": "Pair",
-        "discriminant": 6
+        "type": "Pair"
       },
       {
         "name": "Sequence",
-        "type": "SequenceBox",
-        "discriminant": 7
+        "type": "SequenceBox"
       },
       {
         "name": "Fail",
-        "type": "FailBox",
-        "discriminant": 8
+        "type": "FailBox"
       },
       {
         "name": "SetKeyValue",
-        "type": "SetKeyValueBox",
-        "discriminant": 9
+        "type": "SetKeyValueBox"
       },
       {
         "name": "RemoveKeyValue",
-        "type": "RemoveKeyValueBox",
-        "discriminant": 10
+        "type": "RemoveKeyValueBox"
       },
       {
         "name": "Grant",
-        "type": "GrantBox",
-        "discriminant": 11
+        "type": "GrantBox"
       },
       {
         "name": "Revoke",
-        "type": "RevokeBox",
-        "discriminant": 12
+        "type": "RevokeBox"
       },
       {
         "name": "ExecuteTrigger",
-        "type": "ExecuteTriggerBox",
-        "discriminant": 13
+        "type": "ExecuteTriggerBox"
       },
       {
         "name": "SetParameter",
-        "type": "SetParameterBox",
-        "discriminant": 14
+        "type": "SetParameterBox"
       },
       {
         "name": "NewParameter",
-        "type": "NewParameterBox",
-        "discriminant": 15
+        "type": "NewParameterBox"
       }
     ]
   },
   "InstructionExecutionFail": {
-    "Struct": {
-      "instruction": "InstructionBox",
-      "reason": "String"
-    }
+    "Struct": [
+      {
+        "name": "instruction",
+        "type": "InstructionBox"
+      },
+      {
+        "name": "reason",
+        "type": "String"
+      }
+    ]
   },
   "Interval<u16>": {
-    "Struct": {
-      "start": "u16",
-      "limit": "u16"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "u16"
+      },
+      {
+        "name": "limit",
+        "type": "u16"
+      }
+    ]
   },
   "Interval<u8>": {
-    "Struct": {
-      "start": "u8",
-      "limit": "u8"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "u8"
+      },
+      {
+        "name": "limit",
+        "type": "u8"
+      }
+    ]
   },
   "IpfsPath": "String",
   "Ipv4Addr": "Array<u8, 4>",
@@ -1860,161 +2094,277 @@
   "Ipv6Addr": "Array<u16, 8>",
   "Ipv6Predicate": "Array<Interval<u16>, 8>",
   "IsAssetDefinitionOwner": {
-    "Struct": {
-      "asset_definition_id": "EvaluatesTo<AssetDefinitionId>",
-      "account_id": "EvaluatesTo<AccountId>"
-    }
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "EvaluatesTo<AssetDefinitionId>"
+      },
+      {
+        "name": "account_id",
+        "type": "EvaluatesTo<AccountId>"
+      }
+    ]
   },
   "LengthLimits": {
-    "Struct": {
-      "min": "u32",
-      "max": "u32"
-    }
+    "Struct": [
+      {
+        "name": "min",
+        "type": "u32"
+      },
+      {
+        "name": "max",
+        "type": "u32"
+      }
+    ]
   },
   "Less": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "Limits": {
-    "Struct": {
-      "max_len": "u32",
-      "max_entry_byte_size": "u32"
-    }
+    "Struct": [
+      {
+        "name": "max_len",
+        "type": "u32"
+      },
+      {
+        "name": "max_entry_byte_size",
+        "type": "u32"
+      }
+    ]
   },
   "Metadata": {
-    "Struct": {
-      "map": "SortedMap<Name, Value>"
-    }
+    "Struct": [
+      {
+        "name": "map",
+        "type": "SortedMap<Name, Value>"
+      }
+    ]
   },
   "MetadataChanged<AccountId>": {
-    "Struct": {
-      "target_id": "AccountId",
-      "key": "Name",
-      "value": "Value"
-    }
+    "Struct": [
+      {
+        "name": "target_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "Value"
+      }
+    ]
   },
   "MetadataChanged<AssetDefinitionId>": {
-    "Struct": {
-      "target_id": "AssetDefinitionId",
-      "key": "Name",
-      "value": "Value"
-    }
+    "Struct": [
+      {
+        "name": "target_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "Value"
+      }
+    ]
   },
   "MetadataChanged<AssetId>": {
-    "Struct": {
-      "target_id": "AssetId",
-      "key": "Name",
-      "value": "Value"
-    }
+    "Struct": [
+      {
+        "name": "target_id",
+        "type": "AssetId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "Value"
+      }
+    ]
   },
   "MetadataChanged<DomainId>": {
-    "Struct": {
-      "target_id": "DomainId",
-      "key": "Name",
-      "value": "Value"
-    }
+    "Struct": [
+      {
+        "name": "target_id",
+        "type": "DomainId"
+      },
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "value",
+        "type": "Value"
+      }
+    ]
   },
   "MintBox": {
-    "Struct": {
-      "object": "EvaluatesTo<Value>",
-      "destination_id": "EvaluatesTo<IdBox>"
-    }
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "destination_id",
+        "type": "EvaluatesTo<IdBox>"
+      }
+    ]
   },
   "Mintable": {
     "Enum": [
       {
-        "name": "Infinitely",
-        "discriminant": 0
+        "name": "Infinitely"
       },
       {
-        "name": "Once",
-        "discriminant": 1
+        "name": "Once"
       },
       {
-        "name": "Not",
-        "discriminant": 2
+        "name": "Not"
       }
     ]
   },
   "Mod": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "Multiply": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "Name": "String",
   "NewAccount": {
-    "Struct": {
-      "id": "AccountId",
-      "signatories": "SortedVec<PublicKey>",
-      "metadata": "Metadata"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AccountId"
+      },
+      {
+        "name": "signatories",
+        "type": "SortedVec<PublicKey>"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
   },
   "NewAssetDefinition": {
-    "Struct": {
-      "id": "AssetDefinitionId",
-      "value_type": "AssetValueType",
-      "mintable": "Mintable",
-      "metadata": "Metadata"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "value_type",
+        "type": "AssetValueType"
+      },
+      {
+        "name": "mintable",
+        "type": "Mintable"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
   },
   "NewDomain": {
-    "Struct": {
-      "id": "DomainId",
-      "logo": "Option<IpfsPath>",
-      "metadata": "Metadata"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "DomainId"
+      },
+      {
+        "name": "logo",
+        "type": "Option<IpfsPath>"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
   },
   "NewParameterBox": {
-    "Struct": {
-      "parameter": "EvaluatesTo<Parameter>"
-    }
+    "Struct": [
+      {
+        "name": "parameter",
+        "type": "EvaluatesTo<Parameter>"
+      }
+    ]
   },
   "NewRole": {
-    "Struct": {
-      "inner": "Role"
-    }
+    "Struct": [
+      {
+        "name": "inner",
+        "type": "Role"
+      }
+    ]
   },
   "NonTrivial<GenericPredicateBox<ValuePredicate>>": "Vec<GenericPredicateBox<ValuePredicate>>",
   "Not": {
-    "Struct": {
-      "expression": "EvaluatesTo<Bool>"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "EvaluatesTo<Bool>"
+      }
+    ]
   },
   "NotPermittedFail": {
-    "Struct": {
-      "reason": "String"
-    }
+    "Struct": [
+      {
+        "name": "reason",
+        "type": "String"
+      }
+    ]
   },
   "NumericValue": {
     "Enum": [
       {
         "name": "U32",
-        "type": "u32",
-        "discriminant": 0
+        "type": "u32"
       },
       {
         "name": "U64",
-        "type": "u64",
-        "discriminant": 1
+        "type": "u64"
       },
       {
         "name": "U128",
-        "type": "u128",
-        "discriminant": 2
+        "type": "u128"
       },
       {
         "name": "Fixed",
-        "type": "Fixed",
-        "discriminant": 3
+        "type": "Fixed"
       }
     ]
   },
@@ -2055,10 +2405,16 @@
     "Option": "u32"
   },
   "Or": {
-    "Struct": {
-      "left": "EvaluatesTo<Bool>",
-      "right": "EvaluatesTo<Bool>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<Bool>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<Bool>"
+      }
+    ]
   },
   "OriginFilter<AccountEvent>": "AccountId",
   "OriginFilter<AssetDefinitionEvent>": "AssetDefinitionId",
@@ -2068,422 +2424,458 @@
   "OriginFilter<RoleEvent>": "RoleId",
   "OriginFilter<TriggerEvent>": "TriggerId",
   "PaginatedQueryResult": {
-    "Struct": {
-      "result": "QueryResult",
-      "filter": "GenericPredicateBox<ValuePredicate>",
-      "pagination": "Pagination",
-      "sorting": "Sorting",
-      "total": "u64"
-    }
+    "Struct": [
+      {
+        "name": "result",
+        "type": "QueryResult"
+      },
+      {
+        "name": "filter",
+        "type": "GenericPredicateBox<ValuePredicate>"
+      },
+      {
+        "name": "pagination",
+        "type": "Pagination"
+      },
+      {
+        "name": "sorting",
+        "type": "Sorting"
+      },
+      {
+        "name": "total",
+        "type": "u64"
+      }
+    ]
   },
   "Pagination": {
-    "Struct": {
-      "start": "Option<u32>",
-      "limit": "Option<u32>"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "Option<u32>"
+      },
+      {
+        "name": "limit",
+        "type": "Option<u32>"
+      }
+    ]
   },
   "Pair": {
-    "Struct": {
-      "left_instruction": "InstructionBox",
-      "right_instruction": "InstructionBox"
-    }
+    "Struct": [
+      {
+        "name": "left_instruction",
+        "type": "InstructionBox"
+      },
+      {
+        "name": "right_instruction",
+        "type": "InstructionBox"
+      }
+    ]
   },
   "Parameter": {
-    "Struct": {
-      "id": "ParameterId",
-      "val": "Value"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "ParameterId"
+      },
+      {
+        "name": "val",
+        "type": "Value"
+      }
+    ]
   },
   "ParameterId": {
-    "Struct": {
-      "name": "Name"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      }
+    ]
   },
   "Peer": {
-    "Struct": {
-      "id": "PeerId"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "PeerId"
+      }
+    ]
   },
   "PeerEvent": {
     "Enum": [
       {
         "name": "Added",
-        "type": "PeerId",
-        "discriminant": 0
+        "type": "PeerId"
       },
       {
         "name": "Removed",
-        "type": "PeerId",
-        "discriminant": 1
+        "type": "PeerId"
       }
     ]
   },
   "PeerEventFilter": {
     "Enum": [
       {
-        "name": "ByAdded",
-        "discriminant": 0
+        "name": "ByAdded"
       },
       {
-        "name": "ByRemoved",
-        "discriminant": 1
+        "name": "ByRemoved"
       }
     ]
   },
   "PeerFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<PeerEvent>>",
-      "event_filter": "FilterOpt<PeerEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<PeerEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<PeerEventFilter>"
+      }
+    ]
   },
   "PeerId": {
-    "Struct": {
-      "address": "String",
-      "public_key": "PublicKey"
-    }
+    "Struct": [
+      {
+        "name": "address",
+        "type": "String"
+      },
+      {
+        "name": "public_key",
+        "type": "PublicKey"
+      }
+    ]
   },
   "PendingTransactions": "Vec<SignedTransaction>",
   "PermissionRemoved": {
-    "Struct": {
-      "role_id": "RoleId",
-      "permission_definition_id": "PermissionTokenId"
-    }
+    "Struct": [
+      {
+        "name": "role_id",
+        "type": "RoleId"
+      },
+      {
+        "name": "permission_definition_id",
+        "type": "PermissionTokenId"
+      }
+    ]
   },
   "PermissionToken": {
-    "Struct": {
-      "definition_id": "PermissionTokenId",
-      "params": "SortedMap<Name, Value>"
-    }
+    "Struct": [
+      {
+        "name": "definition_id",
+        "type": "PermissionTokenId"
+      },
+      {
+        "name": "params",
+        "type": "SortedMap<Name, Value>"
+      }
+    ]
   },
   "PermissionTokenDefinition": {
-    "Struct": {
-      "id": "PermissionTokenId",
-      "params": "SortedMap<Name, ValueKind>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "PermissionTokenId"
+      },
+      {
+        "name": "params",
+        "type": "SortedMap<Name, ValueKind>"
+      }
+    ]
   },
   "PermissionTokenEvent": {
     "Enum": [
       {
         "name": "DefinitionCreated",
-        "type": "PermissionTokenDefinition",
-        "discriminant": 0
+        "type": "PermissionTokenDefinition"
       },
       {
         "name": "DefinitionDeleted",
-        "type": "PermissionTokenDefinition",
-        "discriminant": 1
+        "type": "PermissionTokenDefinition"
       }
     ]
   },
   "PermissionTokenId": {
-    "Struct": {
-      "name": "Name"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      }
+    ]
   },
   "PermissionValidatorEvent": {
     "Enum": [
       {
         "name": "Added",
-        "type": "ValidatorId",
-        "discriminant": 0
+        "type": "ValidatorId"
       },
       {
         "name": "Removed",
-        "type": "ValidatorId",
-        "discriminant": 1
+        "type": "ValidatorId"
       }
     ]
   },
   "PipelineEntityKind": {
     "Enum": [
       {
-        "name": "Block",
-        "discriminant": 0
+        "name": "Block"
       },
       {
-        "name": "Transaction",
-        "discriminant": 1
+        "name": "Transaction"
       }
     ]
   },
   "PipelineEvent": {
-    "Struct": {
-      "entity_kind": "PipelineEntityKind",
-      "status": "PipelineStatus",
-      "hash": "Hash"
-    }
+    "Struct": [
+      {
+        "name": "entity_kind",
+        "type": "PipelineEntityKind"
+      },
+      {
+        "name": "status",
+        "type": "PipelineStatus"
+      },
+      {
+        "name": "hash",
+        "type": "Hash"
+      }
+    ]
   },
   "PipelineEventFilter": {
-    "Struct": {
-      "entity_kind": "Option<PipelineEntityKind>",
-      "status_kind": "Option<PipelineStatusKind>",
-      "hash": "Option<Hash>"
-    }
+    "Struct": [
+      {
+        "name": "entity_kind",
+        "type": "Option<PipelineEntityKind>"
+      },
+      {
+        "name": "status_kind",
+        "type": "Option<PipelineStatusKind>"
+      },
+      {
+        "name": "hash",
+        "type": "Option<Hash>"
+      }
+    ]
   },
   "PipelineRejectionReason": {
     "Enum": [
       {
         "name": "Block",
-        "type": "BlockRejectionReason",
-        "discriminant": 0
+        "type": "BlockRejectionReason"
       },
       {
         "name": "Transaction",
-        "type": "TransactionRejectionReason",
-        "discriminant": 1
+        "type": "TransactionRejectionReason"
       }
     ]
   },
   "PipelineStatus": {
     "Enum": [
       {
-        "name": "Validating",
-        "discriminant": 0
+        "name": "Validating"
       },
       {
         "name": "Rejected",
-        "type": "PipelineRejectionReason",
-        "discriminant": 1
+        "type": "PipelineRejectionReason"
       },
       {
-        "name": "Committed",
-        "discriminant": 2
+        "name": "Committed"
       }
     ]
   },
   "PipelineStatusKind": {
     "Enum": [
       {
-        "name": "Validating",
-        "discriminant": 0
+        "name": "Validating"
       },
       {
-        "name": "Rejected",
-        "discriminant": 1
+        "name": "Rejected"
       },
       {
-        "name": "Committed",
-        "discriminant": 2
+        "name": "Committed"
       }
     ]
   },
   "PublicKey": {
-    "Struct": {
-      "digest_function": "Algorithm",
-      "payload": "Vec<u8>"
-    }
+    "Struct": [
+      {
+        "name": "digest_function",
+        "type": "Algorithm"
+      },
+      {
+        "name": "payload",
+        "type": "Vec<u8>"
+      }
+    ]
   },
   "QueryBox": {
     "Enum": [
       {
         "name": "FindAllAccounts",
-        "type": "FindAllAccounts",
-        "discriminant": 0
+        "type": "FindAllAccounts"
       },
       {
         "name": "FindAccountById",
-        "type": "FindAccountById",
-        "discriminant": 1
+        "type": "FindAccountById"
       },
       {
         "name": "FindAccountKeyValueByIdAndKey",
-        "type": "FindAccountKeyValueByIdAndKey",
-        "discriminant": 2
+        "type": "FindAccountKeyValueByIdAndKey"
       },
       {
         "name": "FindAccountsByName",
-        "type": "FindAccountsByName",
-        "discriminant": 3
+        "type": "FindAccountsByName"
       },
       {
         "name": "FindAccountsByDomainId",
-        "type": "FindAccountsByDomainId",
-        "discriminant": 4
+        "type": "FindAccountsByDomainId"
       },
       {
         "name": "FindAccountsWithAsset",
-        "type": "FindAccountsWithAsset",
-        "discriminant": 5
+        "type": "FindAccountsWithAsset"
       },
       {
         "name": "FindAllAssets",
-        "type": "FindAllAssets",
-        "discriminant": 6
+        "type": "FindAllAssets"
       },
       {
         "name": "FindAllAssetsDefinitions",
-        "type": "FindAllAssetsDefinitions",
-        "discriminant": 7
+        "type": "FindAllAssetsDefinitions"
       },
       {
         "name": "FindAssetById",
-        "type": "FindAssetById",
-        "discriminant": 8
+        "type": "FindAssetById"
       },
       {
         "name": "FindAssetDefinitionById",
-        "type": "FindAssetDefinitionById",
-        "discriminant": 9
+        "type": "FindAssetDefinitionById"
       },
       {
         "name": "FindAssetsByName",
-        "type": "FindAssetsByName",
-        "discriminant": 10
+        "type": "FindAssetsByName"
       },
       {
         "name": "FindAssetsByAccountId",
-        "type": "FindAssetsByAccountId",
-        "discriminant": 11
+        "type": "FindAssetsByAccountId"
       },
       {
         "name": "FindAssetsByAssetDefinitionId",
-        "type": "FindAssetsByAssetDefinitionId",
-        "discriminant": 12
+        "type": "FindAssetsByAssetDefinitionId"
       },
       {
         "name": "FindAssetsByDomainId",
-        "type": "FindAssetsByDomainId",
-        "discriminant": 13
+        "type": "FindAssetsByDomainId"
       },
       {
         "name": "FindAssetsByDomainIdAndAssetDefinitionId",
-        "type": "FindAssetsByDomainIdAndAssetDefinitionId",
-        "discriminant": 14
+        "type": "FindAssetsByDomainIdAndAssetDefinitionId"
       },
       {
         "name": "FindAssetQuantityById",
-        "type": "FindAssetQuantityById",
-        "discriminant": 15
+        "type": "FindAssetQuantityById"
       },
       {
         "name": "FindTotalAssetQuantityByAssetDefinitionId",
-        "type": "FindTotalAssetQuantityByAssetDefinitionId",
-        "discriminant": 16
+        "type": "FindTotalAssetQuantityByAssetDefinitionId"
       },
       {
         "name": "IsAssetDefinitionOwner",
-        "type": "IsAssetDefinitionOwner",
-        "discriminant": 17
+        "type": "IsAssetDefinitionOwner"
       },
       {
         "name": "FindAssetKeyValueByIdAndKey",
-        "type": "FindAssetKeyValueByIdAndKey",
-        "discriminant": 18
+        "type": "FindAssetKeyValueByIdAndKey"
       },
       {
         "name": "FindAssetDefinitionKeyValueByIdAndKey",
-        "type": "FindAssetDefinitionKeyValueByIdAndKey",
-        "discriminant": 19
+        "type": "FindAssetDefinitionKeyValueByIdAndKey"
       },
       {
         "name": "FindAllDomains",
-        "type": "FindAllDomains",
-        "discriminant": 20
+        "type": "FindAllDomains"
       },
       {
         "name": "FindDomainById",
-        "type": "FindDomainById",
-        "discriminant": 21
+        "type": "FindDomainById"
       },
       {
         "name": "FindDomainKeyValueByIdAndKey",
-        "type": "FindDomainKeyValueByIdAndKey",
-        "discriminant": 22
+        "type": "FindDomainKeyValueByIdAndKey"
       },
       {
         "name": "FindAllPeers",
-        "type": "FindAllPeers",
-        "discriminant": 23
+        "type": "FindAllPeers"
       },
       {
         "name": "FindAllBlocks",
-        "type": "FindAllBlocks",
-        "discriminant": 24
+        "type": "FindAllBlocks"
       },
       {
         "name": "FindAllBlockHeaders",
-        "type": "FindAllBlockHeaders",
-        "discriminant": 25
+        "type": "FindAllBlockHeaders"
       },
       {
         "name": "FindBlockHeaderByHash",
-        "type": "FindBlockHeaderByHash",
-        "discriminant": 26
+        "type": "FindBlockHeaderByHash"
       },
       {
         "name": "FindAllTransactions",
-        "type": "FindAllTransactions",
-        "discriminant": 27
+        "type": "FindAllTransactions"
       },
       {
         "name": "FindTransactionsByAccountId",
-        "type": "FindTransactionsByAccountId",
-        "discriminant": 28
+        "type": "FindTransactionsByAccountId"
       },
       {
         "name": "FindTransactionByHash",
-        "type": "FindTransactionByHash",
-        "discriminant": 29
+        "type": "FindTransactionByHash"
       },
       {
         "name": "FindPermissionTokensByAccountId",
-        "type": "FindPermissionTokensByAccountId",
-        "discriminant": 30
+        "type": "FindPermissionTokensByAccountId"
       },
       {
         "name": "FindAllPermissionTokenDefinitions",
-        "type": "FindAllPermissionTokenDefinitions",
-        "discriminant": 31
+        "type": "FindAllPermissionTokenDefinitions"
       },
       {
         "name": "DoesAccountHavePermissionToken",
-        "type": "DoesAccountHavePermissionToken",
-        "discriminant": 32
+        "type": "DoesAccountHavePermissionToken"
       },
       {
         "name": "FindAllActiveTriggerIds",
-        "type": "FindAllActiveTriggerIds",
-        "discriminant": 33
+        "type": "FindAllActiveTriggerIds"
       },
       {
         "name": "FindTriggerById",
-        "type": "FindTriggerById",
-        "discriminant": 34
+        "type": "FindTriggerById"
       },
       {
         "name": "FindTriggerKeyValueByIdAndKey",
-        "type": "FindTriggerKeyValueByIdAndKey",
-        "discriminant": 35
+        "type": "FindTriggerKeyValueByIdAndKey"
       },
       {
         "name": "FindTriggersByDomainId",
-        "type": "FindTriggersByDomainId",
-        "discriminant": 36
+        "type": "FindTriggersByDomainId"
       },
       {
         "name": "FindAllRoles",
-        "type": "FindAllRoles",
-        "discriminant": 37
+        "type": "FindAllRoles"
       },
       {
         "name": "FindAllRoleIds",
-        "type": "FindAllRoleIds",
-        "discriminant": 38
+        "type": "FindAllRoleIds"
       },
       {
         "name": "FindRoleByRoleId",
-        "type": "FindRoleByRoleId",
-        "discriminant": 39
+        "type": "FindRoleByRoleId"
       },
       {
         "name": "FindRolesByAccountId",
-        "type": "FindRolesByAccountId",
-        "discriminant": 40
+        "type": "FindRolesByAccountId"
       },
       {
         "name": "FindAllParameters",
-        "type": "FindAllParameters",
-        "discriminant": 41
+        "type": "FindAllParameters"
       }
     ]
   },
@@ -2491,235 +2883,341 @@
     "Enum": [
       {
         "name": "Signature",
-        "type": "String",
-        "discriminant": 0
+        "type": "String"
       },
       {
         "name": "Permission",
-        "type": "String",
-        "discriminant": 1
+        "type": "String"
       },
       {
         "name": "Evaluate",
-        "type": "String",
-        "discriminant": 2
+        "type": "String"
       },
       {
         "name": "Find",
-        "type": "FindError",
-        "discriminant": 3
+        "type": "FindError"
       },
       {
         "name": "Conversion",
-        "type": "String",
-        "discriminant": 4
+        "type": "String"
       },
       {
-        "name": "Unauthorized",
-        "discriminant": 5
+        "name": "Unauthorized"
       }
     ]
   },
   "QueryPayload": {
-    "Struct": {
-      "timestamp_ms": "Compact<u128>",
-      "query": "QueryBox",
-      "account_id": "AccountId",
-      "filter": "GenericPredicateBox<ValuePredicate>"
-    }
+    "Struct": [
+      {
+        "name": "timestamp_ms",
+        "type": "Compact<u128>"
+      },
+      {
+        "name": "query",
+        "type": "QueryBox"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "filter",
+        "type": "GenericPredicateBox<ValuePredicate>"
+      }
+    ]
   },
   "QueryResult": "Value",
   "RaiseTo": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "RawGenesisBlock": {
-    "Struct": {
-      "transactions": "Vec<GenesisTransaction>"
-    }
+    "Struct": [
+      {
+        "name": "transactions",
+        "type": "Vec<GenesisTransaction>"
+      }
+    ]
   },
   "RegisterBox": {
-    "Struct": {
-      "object": "EvaluatesTo<RegistrableBox>"
-    }
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<RegistrableBox>"
+      }
+    ]
   },
   "RejectedTransaction": {
-    "Struct": {
-      "payload": "TransactionPayload",
-      "signatures": "SignaturesOf<TransactionPayload>",
-      "rejection_reason": "TransactionRejectionReason"
-    }
+    "Struct": [
+      {
+        "name": "payload",
+        "type": "TransactionPayload"
+      },
+      {
+        "name": "signatures",
+        "type": "SignaturesOf<TransactionPayload>"
+      },
+      {
+        "name": "rejection_reason",
+        "type": "TransactionRejectionReason"
+      }
+    ]
   },
   "RemoveKeyValueBox": {
-    "Struct": {
-      "object_id": "EvaluatesTo<IdBox>",
-      "key": "EvaluatesTo<Name>"
-    }
+    "Struct": [
+      {
+        "name": "object_id",
+        "type": "EvaluatesTo<IdBox>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      }
+    ]
   },
   "Repeats": {
     "Enum": [
       {
-        "name": "Indefinitely",
-        "discriminant": 0
+        "name": "Indefinitely"
       },
       {
         "name": "Exactly",
-        "type": "u32",
-        "discriminant": 1
+        "type": "u32"
       }
     ]
   },
   "RevokeBox": {
-    "Struct": {
-      "object": "EvaluatesTo<Value>",
-      "destination_id": "EvaluatesTo<IdBox>"
-    }
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "destination_id",
+        "type": "EvaluatesTo<IdBox>"
+      }
+    ]
   },
   "Role": {
-    "Struct": {
-      "id": "RoleId",
-      "permissions": "SortedVec<PermissionToken>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "RoleId"
+      },
+      {
+        "name": "permissions",
+        "type": "SortedVec<PermissionToken>"
+      }
+    ]
   },
   "RoleEvent": {
     "Enum": [
       {
         "name": "Created",
-        "type": "Role",
-        "discriminant": 0
+        "type": "Role"
       },
       {
         "name": "Deleted",
-        "type": "RoleId",
-        "discriminant": 1
+        "type": "RoleId"
       },
       {
         "name": "PermissionRemoved",
-        "type": "PermissionRemoved",
-        "discriminant": 2
+        "type": "PermissionRemoved"
       }
     ]
   },
   "RoleEventFilter": {
     "Enum": [
       {
-        "name": "ByCreated",
-        "discriminant": 0
+        "name": "ByCreated"
       },
       {
-        "name": "ByDeleted",
-        "discriminant": 1
+        "name": "ByDeleted"
       },
       {
-        "name": "ByPermissionRemoved",
-        "discriminant": 2
+        "name": "ByPermissionRemoved"
       }
     ]
   },
   "RoleFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<RoleEvent>>",
-      "event_filter": "FilterOpt<RoleEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<RoleEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<RoleEventFilter>"
+      }
+    ]
   },
   "RoleId": {
-    "Struct": {
-      "name": "Name"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      }
+    ]
   },
   "Schedule": {
-    "Struct": {
-      "start": "Duration",
-      "period": "Option<Duration>"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "Duration"
+      },
+      {
+        "name": "period",
+        "type": "Option<Duration>"
+      }
+    ]
   },
   "SemiInterval<Fixed>": {
-    "Struct": {
-      "start": "Fixed",
-      "limit": "Fixed"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "Fixed"
+      },
+      {
+        "name": "limit",
+        "type": "Fixed"
+      }
+    ]
   },
   "SemiInterval<u128>": {
-    "Struct": {
-      "start": "u128",
-      "limit": "u128"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "u128"
+      },
+      {
+        "name": "limit",
+        "type": "u128"
+      }
+    ]
   },
   "SemiInterval<u32>": {
-    "Struct": {
-      "start": "u32",
-      "limit": "u32"
-    }
+    "Struct": [
+      {
+        "name": "start",
+        "type": "u32"
+      },
+      {
+        "name": "limit",
+        "type": "u32"
+      }
+    ]
   },
   "SemiRange": {
     "Enum": [
       {
         "name": "U32",
-        "type": "SemiInterval<u32>",
-        "discriminant": 0
+        "type": "SemiInterval<u32>"
       },
       {
         "name": "U128",
-        "type": "SemiInterval<u128>",
-        "discriminant": 1
+        "type": "SemiInterval<u128>"
       },
       {
         "name": "Fixed",
-        "type": "SemiInterval<Fixed>",
-        "discriminant": 2
+        "type": "SemiInterval<Fixed>"
       }
     ]
   },
   "SequenceBox": {
-    "Struct": {
-      "instructions": "Vec<InstructionBox>"
-    }
+    "Struct": [
+      {
+        "name": "instructions",
+        "type": "Vec<InstructionBox>"
+      }
+    ]
   },
   "SetKeyValueBox": {
-    "Struct": {
-      "object_id": "EvaluatesTo<IdBox>",
-      "key": "EvaluatesTo<Name>",
-      "value": "EvaluatesTo<Value>"
-    }
+    "Struct": [
+      {
+        "name": "object_id",
+        "type": "EvaluatesTo<IdBox>"
+      },
+      {
+        "name": "key",
+        "type": "EvaluatesTo<Name>"
+      },
+      {
+        "name": "value",
+        "type": "EvaluatesTo<Value>"
+      }
+    ]
   },
   "SetParameterBox": {
-    "Struct": {
-      "parameter": "EvaluatesTo<Parameter>"
-    }
+    "Struct": [
+      {
+        "name": "parameter",
+        "type": "EvaluatesTo<Parameter>"
+      }
+    ]
   },
   "Signature": {
-    "Struct": {
-      "public_key": "PublicKey",
-      "payload": "Vec<u8>"
-    }
+    "Struct": [
+      {
+        "name": "public_key",
+        "type": "PublicKey"
+      },
+      {
+        "name": "payload",
+        "type": "Vec<u8>"
+      }
+    ]
   },
   "SignatureCheckCondition": "EvaluatesTo<Bool>",
   "SignatureOf<CommittedBlock>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
   "SignaturesOf<CommittedBlock>": {
-    "Struct": {
-      "signatures": "SortedVec<SignatureOf<CommittedBlock>>"
-    }
+    "Struct": [
+      {
+        "name": "signatures",
+        "type": "SortedVec<SignatureOf<CommittedBlock>>"
+      }
+    ]
   },
   "SignaturesOf<TransactionPayload>": {
-    "Struct": {
-      "signatures": "SortedVec<SignatureOf<TransactionPayload>>"
-    }
+    "Struct": [
+      {
+        "name": "signatures",
+        "type": "SortedVec<SignatureOf<TransactionPayload>>"
+      }
+    ]
   },
   "SignedQuery": {
-    "Struct": {
-      "payload": "QueryPayload",
-      "signature": "SignatureOf<QueryPayload>"
-    }
+    "Struct": [
+      {
+        "name": "payload",
+        "type": "QueryPayload"
+      },
+      {
+        "name": "signature",
+        "type": "SignatureOf<QueryPayload>"
+      }
+    ]
   },
   "SignedTransaction": {
-    "Struct": {
-      "payload": "TransactionPayload",
-      "signatures": "SortedVec<SignatureOf<TransactionPayload>>"
-    }
+    "Struct": [
+      {
+        "name": "payload",
+        "type": "TransactionPayload"
+      },
+      {
+        "name": "signatures",
+        "type": "SortedVec<SignatureOf<TransactionPayload>>"
+      }
+    ]
   },
   "SortedMap<AccountId, Account>": {
     "Map": {
@@ -2779,121 +3277,167 @@
     "Vec": "SignatureOf<TransactionPayload>"
   },
   "Sorting": {
-    "Struct": {
-      "sort_by_metadata_key": "Option<Name>"
-    }
+    "Struct": [
+      {
+        "name": "sort_by_metadata_key",
+        "type": "Option<Name>"
+      }
+    ]
   },
   "String": "String",
   "StringPredicate": {
     "Enum": [
       {
         "name": "Contains",
-        "type": "String",
-        "discriminant": 0
+        "type": "String"
       },
       {
         "name": "StartsWith",
-        "type": "String",
-        "discriminant": 1
+        "type": "String"
       },
       {
         "name": "EndsWith",
-        "type": "String",
-        "discriminant": 2
+        "type": "String"
       },
       {
         "name": "Is",
-        "type": "String",
-        "discriminant": 3
+        "type": "String"
       }
     ]
   },
   "Subtract": {
-    "Struct": {
-      "left": "EvaluatesTo<NumericValue>",
-      "right": "EvaluatesTo<NumericValue>"
-    }
+    "Struct": [
+      {
+        "name": "left",
+        "type": "EvaluatesTo<NumericValue>"
+      },
+      {
+        "name": "right",
+        "type": "EvaluatesTo<NumericValue>"
+      }
+    ]
   },
   "TimeEvent": {
-    "Struct": {
-      "prev_interval": "Option<TimeInterval>",
-      "interval": "TimeInterval"
-    }
+    "Struct": [
+      {
+        "name": "prev_interval",
+        "type": "Option<TimeInterval>"
+      },
+      {
+        "name": "interval",
+        "type": "TimeInterval"
+      }
+    ]
   },
   "TimeEventFilter": "ExecutionTime",
   "TimeInterval": {
-    "Struct": {
-      "since": "Duration",
-      "length": "Duration"
-    }
+    "Struct": [
+      {
+        "name": "since",
+        "type": "Duration"
+      },
+      {
+        "name": "length",
+        "type": "Duration"
+      }
+    ]
   },
   "TransactionExpired": {
-    "Struct": {
-      "time_to_live_ms": "u64"
-    }
+    "Struct": [
+      {
+        "name": "time_to_live_ms",
+        "type": "u64"
+      }
+    ]
   },
   "TransactionLimitError": {
-    "Struct": {
-      "reason": "String"
-    }
+    "Struct": [
+      {
+        "name": "reason",
+        "type": "String"
+      }
+    ]
   },
   "TransactionLimits": {
-    "Struct": {
-      "max_instruction_number": "u64",
-      "max_wasm_size_bytes": "u64"
-    }
+    "Struct": [
+      {
+        "name": "max_instruction_number",
+        "type": "u64"
+      },
+      {
+        "name": "max_wasm_size_bytes",
+        "type": "u64"
+      }
+    ]
   },
   "TransactionPayload": {
-    "Struct": {
-      "account_id": "AccountId",
-      "instructions": "Executable",
-      "creation_time": "u64",
-      "time_to_live_ms": "u64",
-      "nonce": "Option<u32>",
-      "metadata": "SortedMap<Name, Value>"
-    }
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "instructions",
+        "type": "Executable"
+      },
+      {
+        "name": "creation_time",
+        "type": "u64"
+      },
+      {
+        "name": "time_to_live_ms",
+        "type": "u64"
+      },
+      {
+        "name": "nonce",
+        "type": "Option<u32>"
+      },
+      {
+        "name": "metadata",
+        "type": "SortedMap<Name, Value>"
+      }
+    ]
   },
   "TransactionQueryResult": {
-    "Struct": {
-      "tx_value": "TransactionValue",
-      "block_hash": "Hash"
-    }
+    "Struct": [
+      {
+        "name": "tx_value",
+        "type": "TransactionValue"
+      },
+      {
+        "name": "block_hash",
+        "type": "Hash"
+      }
+    ]
   },
   "TransactionRejectionReason": {
     "Enum": [
       {
         "name": "LimitCheck",
-        "type": "TransactionLimitError",
-        "discriminant": 0
+        "type": "TransactionLimitError"
       },
       {
         "name": "NotPermitted",
-        "type": "NotPermittedFail",
-        "discriminant": 1
+        "type": "NotPermittedFail"
       },
       {
         "name": "UnsatisfiedSignatureCondition",
-        "type": "UnsatisfiedSignatureConditionFail",
-        "discriminant": 2
+        "type": "UnsatisfiedSignatureConditionFail"
       },
       {
         "name": "InstructionExecution",
-        "type": "InstructionExecutionFail",
-        "discriminant": 3
+        "type": "InstructionExecutionFail"
       },
       {
         "name": "WasmExecution",
-        "type": "WasmExecutionFail",
-        "discriminant": 4
+        "type": "WasmExecutionFail"
       },
       {
-        "name": "UnexpectedGenesisAccountSignature",
-        "discriminant": 5
+        "name": "UnexpectedGenesisAccountSignature"
       },
       {
         "name": "Expired",
-        "type": "TransactionExpired",
-        "discriminant": 6
+        "type": "TransactionExpired"
       }
     ]
   },
@@ -2901,137 +3445,183 @@
     "Enum": [
       {
         "name": "Transaction",
-        "type": "VersionedSignedTransaction",
-        "discriminant": 0
+        "type": "VersionedSignedTransaction"
       },
       {
         "name": "RejectedTransaction",
-        "type": "VersionedRejectedTransaction",
-        "discriminant": 1
+        "type": "VersionedRejectedTransaction"
       }
     ]
   },
   "TransferBox": {
-    "Struct": {
-      "source_id": "EvaluatesTo<IdBox>",
-      "object": "EvaluatesTo<Value>",
-      "destination_id": "EvaluatesTo<IdBox>"
-    }
+    "Struct": [
+      {
+        "name": "source_id",
+        "type": "EvaluatesTo<IdBox>"
+      },
+      {
+        "name": "object",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "destination_id",
+        "type": "EvaluatesTo<IdBox>"
+      }
+    ]
   },
   "Trigger<FilterBox>": {
-    "Struct": {
-      "id": "TriggerId",
-      "action": "Action<FilterBox>"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "action",
+        "type": "Action<FilterBox>"
+      }
+    ]
   },
   "TriggerEvent": {
     "Enum": [
       {
         "name": "Created",
-        "type": "TriggerId",
-        "discriminant": 0
+        "type": "TriggerId"
       },
       {
         "name": "Deleted",
-        "type": "TriggerId",
-        "discriminant": 1
+        "type": "TriggerId"
       },
       {
         "name": "Extended",
-        "type": "TriggerNumberOfExecutionsChanged",
-        "discriminant": 2
+        "type": "TriggerNumberOfExecutionsChanged"
       },
       {
         "name": "Shortened",
-        "type": "TriggerNumberOfExecutionsChanged",
-        "discriminant": 3
+        "type": "TriggerNumberOfExecutionsChanged"
       }
     ]
   },
   "TriggerEventFilter": {
     "Enum": [
       {
-        "name": "ByCreated",
-        "discriminant": 0
+        "name": "ByCreated"
       },
       {
-        "name": "ByDeleted",
-        "discriminant": 1
+        "name": "ByDeleted"
       },
       {
-        "name": "ByExtended",
-        "discriminant": 2
+        "name": "ByExtended"
       },
       {
-        "name": "ByShortened",
-        "discriminant": 3
+        "name": "ByShortened"
       }
     ]
   },
   "TriggerFilter": {
-    "Struct": {
-      "origin_filter": "FilterOpt<OriginFilter<TriggerEvent>>",
-      "event_filter": "FilterOpt<TriggerEventFilter>"
-    }
+    "Struct": [
+      {
+        "name": "origin_filter",
+        "type": "FilterOpt<OriginFilter<TriggerEvent>>"
+      },
+      {
+        "name": "event_filter",
+        "type": "FilterOpt<TriggerEventFilter>"
+      }
+    ]
   },
   "TriggerId": {
-    "Struct": {
-      "name": "Name",
-      "domain_id": "Option<DomainId>"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      },
+      {
+        "name": "domain_id",
+        "type": "Option<DomainId>"
+      }
+    ]
   },
   "TriggerNumberOfExecutionsChanged": {
-    "Struct": {
-      "trigger_id": "TriggerId",
-      "by": "u32"
-    }
+    "Struct": [
+      {
+        "name": "trigger_id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "by",
+        "type": "u32"
+      }
+    ]
   },
   "UnregisterBox": {
-    "Struct": {
-      "object_id": "EvaluatesTo<IdBox>"
-    }
+    "Struct": [
+      {
+        "name": "object_id",
+        "type": "EvaluatesTo<IdBox>"
+      }
+    ]
   },
   "UnsatisfiedSignatureConditionFail": {
-    "Struct": {
-      "reason": "String"
-    }
+    "Struct": [
+      {
+        "name": "reason",
+        "type": "String"
+      }
+    ]
   },
   "ValidTransaction": {
-    "Struct": {
-      "payload": "TransactionPayload",
-      "signatures": "SignaturesOf<TransactionPayload>"
-    }
+    "Struct": [
+      {
+        "name": "payload",
+        "type": "TransactionPayload"
+      },
+      {
+        "name": "signatures",
+        "type": "SignaturesOf<TransactionPayload>"
+      }
+    ]
   },
   "Validator": {
-    "Struct": {
-      "id": "ValidatorId",
-      "validator_type": "ValidatorType",
-      "wasm": "WasmSmartContract"
-    }
+    "Struct": [
+      {
+        "name": "id",
+        "type": "ValidatorId"
+      },
+      {
+        "name": "validator_type",
+        "type": "ValidatorType"
+      },
+      {
+        "name": "wasm",
+        "type": "WasmSmartContract"
+      }
+    ]
   },
   "ValidatorId": {
-    "Struct": {
-      "name": "Name",
-      "owned_by": "AccountId"
-    }
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      },
+      {
+        "name": "owned_by",
+        "type": "AccountId"
+      }
+    ]
   },
   "ValidatorType": {
     "Enum": [
       {
-        "name": "Transaction",
-        "discriminant": 0
+        "name": "Transaction"
       },
       {
-        "name": "Instruction",
-        "discriminant": 1
+        "name": "Instruction"
       },
       {
-        "name": "Query",
-        "discriminant": 2
+        "name": "Query"
       },
       {
-        "name": "Expression",
-        "discriminant": 3
+        "name": "Expression"
       }
     ]
   },
@@ -3039,245 +3629,201 @@
     "Enum": [
       {
         "name": "Bool",
-        "type": "Bool",
-        "discriminant": 0
+        "type": "Bool"
       },
       {
         "name": "String",
-        "type": "String",
-        "discriminant": 1
+        "type": "String"
       },
       {
         "name": "Name",
-        "type": "Name",
-        "discriminant": 2
+        "type": "Name"
       },
       {
         "name": "Vec",
-        "type": "Vec<Value>",
-        "discriminant": 3
+        "type": "Vec<Value>"
       },
       {
         "name": "LimitedMetadata",
-        "type": "Metadata",
-        "discriminant": 4
+        "type": "Metadata"
       },
       {
         "name": "MetadataLimits",
-        "type": "Limits",
-        "discriminant": 5
+        "type": "Limits"
       },
       {
         "name": "TransactionLimits",
-        "type": "TransactionLimits",
-        "discriminant": 6
+        "type": "TransactionLimits"
       },
       {
         "name": "LengthLimits",
-        "type": "LengthLimits",
-        "discriminant": 7
+        "type": "LengthLimits"
       },
       {
         "name": "Id",
-        "type": "IdBox",
-        "discriminant": 8
+        "type": "IdBox"
       },
       {
         "name": "Identifiable",
-        "type": "IdentifiableBox",
-        "discriminant": 9
+        "type": "IdentifiableBox"
       },
       {
         "name": "PublicKey",
-        "type": "PublicKey",
-        "discriminant": 10
+        "type": "PublicKey"
       },
       {
         "name": "SignatureCheckCondition",
-        "type": "SignatureCheckCondition",
-        "discriminant": 11
+        "type": "SignatureCheckCondition"
       },
       {
         "name": "TransactionValue",
-        "type": "TransactionValue",
-        "discriminant": 12
+        "type": "TransactionValue"
       },
       {
         "name": "TransactionQueryResult",
-        "type": "TransactionQueryResult",
-        "discriminant": 13
+        "type": "TransactionQueryResult"
       },
       {
         "name": "PermissionToken",
-        "type": "PermissionToken",
-        "discriminant": 14
+        "type": "PermissionToken"
       },
       {
         "name": "Hash",
-        "type": "Hash",
-        "discriminant": 15
+        "type": "Hash"
       },
       {
         "name": "Block",
-        "type": "VersionedCommittedBlock",
-        "discriminant": 16
+        "type": "VersionedCommittedBlock"
       },
       {
         "name": "BlockHeader",
-        "type": "BlockHeader",
-        "discriminant": 17
+        "type": "BlockHeader"
       },
       {
         "name": "Ipv4Addr",
-        "type": "Ipv4Addr",
-        "discriminant": 18
+        "type": "Ipv4Addr"
       },
       {
         "name": "Ipv6Addr",
-        "type": "Ipv6Addr",
-        "discriminant": 19
+        "type": "Ipv6Addr"
       },
       {
         "name": "Numeric",
-        "type": "NumericValue",
-        "discriminant": 20
+        "type": "NumericValue"
       }
     ]
   },
   "ValueKind": {
     "Enum": [
       {
-        "name": "Bool",
-        "discriminant": 0
+        "name": "Bool"
       },
       {
-        "name": "String",
-        "discriminant": 1
+        "name": "String"
       },
       {
-        "name": "Name",
-        "discriminant": 2
+        "name": "Name"
       },
       {
-        "name": "Vec",
-        "discriminant": 3
+        "name": "Vec"
       },
       {
-        "name": "LimitedMetadata",
-        "discriminant": 4
+        "name": "LimitedMetadata"
       },
       {
-        "name": "MetadataLimits",
-        "discriminant": 5
+        "name": "MetadataLimits"
       },
       {
-        "name": "TransactionLimits",
-        "discriminant": 6
+        "name": "TransactionLimits"
       },
       {
-        "name": "LengthLimits",
-        "discriminant": 7
+        "name": "LengthLimits"
       },
       {
-        "name": "Id",
-        "discriminant": 8
+        "name": "Id"
       },
       {
-        "name": "Identifiable",
-        "discriminant": 9
+        "name": "Identifiable"
       },
       {
-        "name": "PublicKey",
-        "discriminant": 10
+        "name": "PublicKey"
       },
       {
-        "name": "SignatureCheckCondition",
-        "discriminant": 11
+        "name": "SignatureCheckCondition"
       },
       {
-        "name": "TransactionValue",
-        "discriminant": 12
+        "name": "TransactionValue"
       },
       {
-        "name": "TransactionQueryResult",
-        "discriminant": 13
+        "name": "TransactionQueryResult"
       },
       {
-        "name": "PermissionToken",
-        "discriminant": 14
+        "name": "PermissionToken"
       },
       {
-        "name": "Hash",
-        "discriminant": 15
+        "name": "Hash"
       },
       {
-        "name": "Block",
-        "discriminant": 16
+        "name": "Block"
       },
       {
-        "name": "BlockHeader",
-        "discriminant": 17
+        "name": "BlockHeader"
       },
       {
-        "name": "Ipv4Addr",
-        "discriminant": 18
+        "name": "Ipv4Addr"
       },
       {
-        "name": "Ipv6Addr",
-        "discriminant": 19
+        "name": "Ipv6Addr"
       },
       {
-        "name": "Numeric",
-        "discriminant": 20
+        "name": "Numeric"
       }
     ]
   },
   "ValueOfKey": {
-    "Struct": {
-      "key": "Name",
-      "predicate": "ValuePredicate"
-    }
+    "Struct": [
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "predicate",
+        "type": "ValuePredicate"
+      }
+    ]
   },
   "ValuePredicate": {
     "Enum": [
       {
         "name": "Identifiable",
-        "type": "StringPredicate",
-        "discriminant": 0
+        "type": "StringPredicate"
       },
       {
         "name": "Container",
-        "type": "Container",
-        "discriminant": 1
+        "type": "Container"
       },
       {
         "name": "Display",
-        "type": "StringPredicate",
-        "discriminant": 2
+        "type": "StringPredicate"
       },
       {
         "name": "Numerical",
-        "type": "SemiRange",
-        "discriminant": 3
+        "type": "SemiRange"
       },
       {
         "name": "TimeStamp",
-        "type": "SemiInterval<u128>",
-        "discriminant": 4
+        "type": "SemiInterval<u128>"
       },
       {
         "name": "Ipv4Addr",
-        "type": "Ipv4Predicate",
-        "discriminant": 5
+        "type": "Ipv4Predicate"
       },
       {
         "name": "Ipv6Addr",
-        "type": "Ipv6Predicate",
-        "discriminant": 6
+        "type": "Ipv6Predicate"
       },
       {
-        "name": "Pass",
-        "discriminant": 7
+        "name": "Pass"
       }
     ]
   },
@@ -3315,8 +3861,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "BlockMessage",
-        "discriminant": 1
+        "type": "BlockMessage"
       }
     ]
   },
@@ -3324,8 +3869,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "BlockSubscriptionRequest",
-        "discriminant": 1
+        "type": "BlockSubscriptionRequest"
       }
     ]
   },
@@ -3333,8 +3877,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "CommittedBlock",
-        "discriminant": 1
+        "type": "CommittedBlock"
       }
     ]
   },
@@ -3342,8 +3885,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "EventMessage",
-        "discriminant": 1
+        "type": "EventMessage"
       }
     ]
   },
@@ -3351,8 +3893,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "EventSubscriptionRequest",
-        "discriminant": 1
+        "type": "EventSubscriptionRequest"
       }
     ]
   },
@@ -3360,8 +3901,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "PaginatedQueryResult",
-        "discriminant": 1
+        "type": "PaginatedQueryResult"
       }
     ]
   },
@@ -3369,8 +3909,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "PendingTransactions",
-        "discriminant": 1
+        "type": "PendingTransactions"
       }
     ]
   },
@@ -3378,8 +3917,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "RejectedTransaction",
-        "discriminant": 1
+        "type": "RejectedTransaction"
       }
     ]
   },
@@ -3387,8 +3925,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "SignedQuery",
-        "discriminant": 1
+        "type": "SignedQuery"
       }
     ]
   },
@@ -3396,8 +3933,7 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "SignedTransaction",
-        "discriminant": 1
+        "type": "SignedTransaction"
       }
     ]
   },
@@ -3405,22 +3941,30 @@
     "Enum": [
       {
         "name": "V1",
-        "type": "ValidTransaction",
-        "discriminant": 1
+        "type": "ValidTransaction"
       }
     ]
   },
   "WasmExecutionFail": {
-    "Struct": {
-      "reason": "String"
-    }
+    "Struct": [
+      {
+        "name": "reason",
+        "type": "String"
+      }
+    ]
   },
   "WasmSmartContract": "Vec<u8>",
   "Where": {
-    "Struct": {
-      "expression": "EvaluatesTo<Value>",
-      "values": "SortedMap<Name, EvaluatesTo<Value>>"
-    }
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "EvaluatesTo<Value>"
+      },
+      {
+        "name": "values",
+        "type": "SortedMap<Name, EvaluatesTo<Value>>"
+      }
+    ]
   },
   "i64": {
     "Int": "FixedWidth"

@@ -6,15 +6,71 @@
 )]
 #![allow(clippy::print_stdout, clippy::use_debug, clippy::unnecessary_wraps)]
 
-use std::{collections::BTreeMap, fmt::Debug, fs, io, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
+    fs, io,
+    path::PathBuf,
+    time::Duration,
+};
 
 use clap::Parser;
 use colored::*;
 use eyre::{eyre, Result};
+use iroha_crypto::*;
+use iroha_data_model::{
+    account::NewAccount,
+    asset::NewAssetDefinition,
+    block::{
+        error::BlockRejectionReason,
+        stream::{
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
+        },
+        BlockHeader, CommittedBlock, VersionedCommittedBlock,
+    },
+    domain::{IpfsPath, NewDomain},
+    permission::validator::{Validator, ValidatorId, ValidatorType},
+    predicate::{
+        ip_addr::{Ipv4Predicate, Ipv6Predicate},
+        numerical::{Interval, SemiInterval, SemiRange},
+        string::StringPredicate,
+        value::{AtIndex, Container, ValueOfKey, ValuePredicate},
+        GenericPredicateBox, NonTrivial, PredicateBox,
+    },
+    prelude::*,
+    query::error::{FindError, QueryExecutionFailure},
+    transaction::error::{TransactionExpired, TransactionLimitError},
+    ValueKind, VersionedCommittedBlockWrapper,
+};
+use iroha_primitives::{
+    addr::{Ipv4Addr, Ipv6Addr},
+    atomic::AtomicU32,
+    conststr::ConstString,
+    fixed::{FixNum, Fixed},
+};
 use parity_scale_codec::DecodeAll;
 
-mod generate_map;
-use generate_map::generate_map;
+macro_rules! insert_into_map {
+    ( $map:ident, $t:ty) => {{
+        let type_id = <$t as iroha_schema::TypeId>::id();
+        #[allow(trivial_casts)]
+        $map.insert(type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)
+    }};
+}
+
+/// Generate map with types and `dump_decoded()` ptr
+pub fn generate_map() -> DumpDecodedMap {
+    let mut map = iroha_schema_gen::generate_map!(insert_into_map);
+
+    #[allow(trivial_casts)]
+    map.insert(
+        <iroha_schema::Compact<u128> as iroha_schema::TypeId>::id(),
+        <parity_scale_codec::Compact<u32> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
+    );
+
+    map
+}
 
 /// Parity Scale decoder tool for Iroha data types
 #[derive(Debug, Parser)]

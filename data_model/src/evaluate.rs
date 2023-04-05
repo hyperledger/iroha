@@ -630,7 +630,7 @@ mod tests {
             .with_value(
                 Name::from_str("test_value").expect("Can't fail."),
                 EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32).into())
-            );
+            )
             .evaluate(&TestContext::new())?,
             5_u32.to_value()
         );

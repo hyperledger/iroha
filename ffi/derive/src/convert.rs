@@ -28,7 +28,7 @@ pub fn derive_ffi_type(mut input: DeriveInput) -> TokenStream {
                 if item.variants.iter().any(|v| v.discriminant.is_some()) {
                     abort!(
                         name,
-                        "fieldless enums with explicit discriminants are prohibited"
+                        "fieldless enums with explicit discriminants are not allowed"
                     );
                 }
                 derive_ffi_type_for_fieldless_enum(&input.ident, &item, &repr)

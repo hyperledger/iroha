@@ -53,12 +53,26 @@ impl PartialEq for WithContext<'_, '_, VecMeta> {
     }
 }
 
+impl Serialize for WithContext<'_, '_, Declaration> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("name", &self.data.name)?;
+        map.serialize_entry("type", self.type_name(self.data.ty))?;
+        map.end()
+    }
+}
+impl PartialEq for WithContext<'_, '_, Declaration> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data.name == other.data.name
+            && self.type_name(self.data.ty) == other.type_name(other.data.ty)
+    }
+}
 impl Serialize for WithContext<'_, '_, NamedFieldsMeta> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_map(Some(self.data.declarations.len()))?;
+        let mut seq = serializer.serialize_seq(Some(self.data.declarations.len()))?;
 
         for declaration in &self.data.declarations {
-            seq.serialize_entry(&declaration.name, self.type_name(declaration.ty))?
+            seq.serialize_element(&declaration.add_ctx(self.context))?
         }
 
         seq.end()
@@ -66,18 +80,7 @@ impl Serialize for WithContext<'_, '_, NamedFieldsMeta> {
 }
 impl PartialEq for WithContext<'_, '_, NamedFieldsMeta> {
     fn eq(&self, other: &Self) -> bool {
-        if self.data.declarations.len() != other.data.declarations.len() {
-            return false;
-        }
-
-        self.data
-            .declarations
-            .iter()
-            .zip(other.data.declarations.iter())
-            .all(|(self_declaration, other_declaration)| {
-                self_declaration.name == other_declaration.name
-                    && self.type_name(self_declaration.ty) == other.type_name(other_declaration.ty)
-            })
+        self.data.declarations == other.data.declarations
     }
 }
 
@@ -137,12 +140,10 @@ impl Serialize for WithContext<'_, '_, EnumVariant> {
             let mut map = serializer.serialize_map(Some(3))?;
             map.serialize_entry("name", &self.data.tag)?;
             map.serialize_entry("type", self.type_name(type_id))?;
-            map.serialize_entry("discriminant", &self.data.discriminant)?;
             map.end()
         } else {
             let mut map = serializer.serialize_map(Some(2))?;
             map.serialize_entry("name", &self.data.tag)?;
-            map.serialize_entry("discriminant", &self.data.discriminant)?;
             map.end()
         }
     }
@@ -157,7 +158,7 @@ impl PartialEq for WithContext<'_, '_, EnumVariant> {
             return false;
         }
 
-        self.data.tag == other.data.tag && self.data.discriminant == other.data.discriminant
+        self.data.tag == other.data.tag
     }
 }
 
