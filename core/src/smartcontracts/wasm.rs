@@ -98,10 +98,10 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// Panics if something is wrong with the configuration.
 /// Configuration is hardcoded and tested, so this function should never panic.
 pub fn create_engine() -> Engine {
-    create_config()
-        .and_then(|config| {
-            Engine::new(&config).map_err(|err| Error::Initialization(eyre!(Box::new(err))))
-        })
+    let config = create_config();
+
+    Engine::new(&config)
+        .map_err(|err| Error::Initialization(eyre!(Box::new(err))))
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
@@ -116,13 +116,18 @@ pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime:
     Module::new(engine, bytes).map_err(|err| Error::Instantiation(eyre!(Box::new(err))))
 }
 
-fn create_config() -> Result<Config> {
+fn create_config() -> Config {
     let mut config = Config::new();
+    config.consume_fuel(true);
+
+    if let Err(error) = config.cache_config_load_default() {
+        iroha_logger::warn!(
+            ?error,
+            "Setting up Wasmtime cache failed. Performance might degrade"
+        );
+    }
+
     config
-        .consume_fuel(true)
-        .cache_config_load_default()
-        .map_err(|err| Error::Initialization(eyre!(Box::new(err))))?;
-    Ok(config)
 }
 
 #[derive(Clone)]
@@ -269,7 +274,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let wsv = caller.data().wsv;
         wsv.validator_view()
-            .validate(wsv, &caller.data().account_id, query.clone())
+            .validate(wsv, &caller.data().account_id, query.clone().into())
             .map_err(|error| NotPermittedFail {
                 reason: error.to_string(),
             })
@@ -334,7 +339,7 @@ impl<'wrld> Runtime<'wrld> {
                     .map_err(|error| Trap::new(error.to_string()))?;
             }
             wsv.validator_view()
-                .validate(wsv, account_id, instruction)
+                .validate(wsv, account_id, instruction.into())
                 .map_err(|error| NotPermittedFail {
                     reason: error.to_string(),
                 })

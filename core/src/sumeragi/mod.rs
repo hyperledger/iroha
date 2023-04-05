@@ -1,6 +1,4 @@
 //! Translates to Emperor. Consensus-related logic of Iroha.
-//!
-//! `Consensus` trait is now implemented only by `Sumeragi` for now.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
@@ -19,26 +17,28 @@ use iroha_data_model::{block::*, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
+use main_loop::State;
 use network_topology::{Role, Topology};
+use parking_lot::{Mutex, MutexGuard};
 
-use crate::handler::ThreadHandler;
+use self::{
+    message::{Message, *},
+    view_change::ProofChain,
+};
+use crate::{
+    block::{CommittedBlock, ValidBlock},
+    handler::ThreadHandler,
+    kura::Kura,
+    prelude::*,
+    queue::Queue,
+    tx::TransactionValidator,
+    EventsSender, IrohaNetwork, NetworkMessage,
+};
 
 pub mod main_loop;
 pub mod message;
 pub mod network_topology;
 pub mod view_change;
-
-use main_loop::State;
-use parking_lot::{Mutex, MutexGuard};
-
-use self::{
-    message::{Message, *},
-    view_change::{Proof, ProofChain},
-};
-use crate::{
-    block::*, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator, EventsSender,
-    IrohaNetwork, NetworkMessage,
-};
 
 /*
 The values in the following struct are not atomics because the code that
@@ -132,8 +132,8 @@ impl Sumeragi {
                     break;
                 };
                 block_index += 1;
-                let block_txs_accepted = block.as_v1().transactions.len() as u64;
-                let block_txs_rejected = block.as_v1().rejected_transactions.len() as u64;
+                let block_txs_accepted = block.payload().transactions.len() as u64;
+                let block_txs_rejected = block.payload().rejected_transactions.len() as u64;
 
                 self.metrics
                     .txs
@@ -220,7 +220,7 @@ impl Sumeragi {
     pub fn initialize_and_start_thread(
         sumeragi: Arc<Self>,
         genesis_network: Option<GenesisNetwork>,
-        block_hashes: &[HashOf<VersionedCommittedBlock>],
+        block_hashes: &[HashOf<BlockPayload>],
     ) -> ThreadHandler {
         let wsv = sumeragi.wsv_mutex_access().clone();
 
@@ -230,22 +230,26 @@ impl Sumeragi {
             .zip(1u64..)
         {
             let block_height: u64 = i;
-            let block_ref = sumeragi.internal.kura.get_block_by_height(block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+            let (block, _) = CommittedBlock::commit_without_validation(VersionedSignedBlock::clone(
+                &sumeragi.internal.kura.get_block_by_height(block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected."),
+            ));
             assert_eq!(
-                block_ref.hash(),
+                block.hash(),
                 *block_hash,
                 "Kura init correctly reported the block hash."
             );
 
-            wsv.apply(&block_ref)
+            wsv.apply(&block)
                 .expect("Failed to apply block to wsv in init.");
         }
         let finalized_wsv = wsv.clone();
 
         if !block_hashes.is_empty() {
-            let block_ref = sumeragi.internal.kura.get_block_by_height(block_hashes.len() as u64).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+            let (block, _) = CommittedBlock::commit_without_validation(VersionedSignedBlock::clone(
+                &sumeragi.internal.kura.get_block_by_height(block_hashes.len() as u64).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected."),
+            ));
 
-            wsv.apply(&block_ref)
+            wsv.apply(&block)
                 .expect("Failed to apply block to wsv in init.");
         }
         *sumeragi.wsv_mutex_access() = wsv.clone();
@@ -258,13 +262,18 @@ impl Sumeragi {
         let previous_block_hash = wsv.previous_block_hash();
 
         let current_topology = if latest_block_height == 0 {
-            assert!(!sumeragi.config.trusted_peers.peers.is_empty());
-            Topology::new(sumeragi.config.trusted_peers.peers.clone())
+            Topology::new(
+                sumeragi
+                    .config
+                    .trusted_peers
+                    .peers
+                    .iter()
+                    .cloned()
+                    .collect(),
+            )
         } else {
             let block_ref = sumeragi.internal.kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-            let mut topology = Topology {
-                sorted_peers: block_ref.header().committed_with_topology.clone(),
-            };
+            let mut topology = Topology::new(block_ref.header().commit_topology.clone());
             topology.rotate_set_a();
             topology
         };
@@ -296,7 +305,9 @@ impl Sumeragi {
             .expect("Sumeragi thread spawn should not fail.");
 
         let shutdown = move || {
-            let _result = shutdown_sender.send(());
+            if let Err(error) = shutdown_sender.send(()) {
+                iroha_logger::error!(?error, "Failed to send shut down signal to sumeragi. Thead might already be shut down.");
+            }
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
@@ -328,13 +339,13 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// Valid Block
-    pub block: PendingBlock,
+    pub block: ValidBlock,
 }
 
 impl VotingBlock {
     /// Construct new `VotingBlock` with current time.
     #[allow(clippy::expect_used)]
-    pub fn new(block: PendingBlock) -> VotingBlock {
+    pub fn new(block: ValidBlock) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
@@ -342,7 +353,7 @@ impl VotingBlock {
     }
     /// Construct new `VotingBlock` with the given time.
     #[allow(clippy::expect_used)]
-    pub(crate) fn voted_at(block: PendingBlock, voted_at: Instant) -> VotingBlock {
+    pub(crate) fn voted_at(block: ValidBlock, voted_at: Instant) -> VotingBlock {
         VotingBlock { block, voted_at }
     }
 }

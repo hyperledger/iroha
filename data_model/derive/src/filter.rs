@@ -209,7 +209,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
             }
         }
 
-        #[cfg(feature = "transparent_api")]
+        #[cfg(feature = "_transparent-api")]
         impl #import_path::Filter for #filter_ident {
             type Event = #imp_event;
 
@@ -256,7 +256,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
             }
         }
 
-        #[cfg(feature = "transparent_api")]
+        #[cfg(feature = "_transparent-api")]
         impl #import_path::Filter for #event_filter_ident {
             type Event = #imp_event;
 

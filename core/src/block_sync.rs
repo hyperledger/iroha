@@ -8,7 +8,7 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_macro::*;
 use iroha_p2p::Post;
@@ -125,41 +125,20 @@ impl BlockSynchronizer {
 
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
+    use iroha_data_model::block::{Block, BlockPayload, VersionedSignedBlock};
+
     use super::*;
     use crate::sumeragi::view_change::ProofChain;
 
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 
-    impl VersionedMessage {
-        /// Convert from `&VersionedMessage` to V1 reference
-        pub const fn as_v1(&self) -> &Message {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Convert from `&mut VersionedMessage` to V1 mutable reference
-        pub fn as_mut_v1(&mut self) -> &mut Message {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Performs the conversion from `VersionedMessage` to V1
-        pub fn into_v1(self) -> Message {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
-
     /// Get blocks after some block
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct GetBlocksAfter {
         /// Hash of latest available block
-        pub latest_hash: Option<HashOf<VersionedCommittedBlock>>,
+        pub latest_hash: Option<HashOf<BlockPayload>>,
         /// Hash of second to latest block
-        pub previous_hash: Option<HashOf<VersionedCommittedBlock>>,
+        pub previous_hash: Option<HashOf<BlockPayload>>,
         /// Peer id
         pub peer_id: PeerId,
     }
@@ -167,8 +146,8 @@ pub mod message {
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
         pub const fn new(
-            latest_hash: Option<HashOf<VersionedCommittedBlock>>,
-            previous_hash: Option<HashOf<VersionedCommittedBlock>>,
+            latest_hash: Option<HashOf<BlockPayload>>,
+            previous_hash: Option<HashOf<BlockPayload>>,
             peer_id: PeerId,
         ) -> Self {
             Self {
@@ -183,15 +162,20 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
-        pub blocks: Vec<VersionedCommittedBlock>,
+        pub blocks: Vec<VersionedSignedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
-        pub const fn new(blocks: Vec<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
-            Self { blocks, peer_id }
+        fn new(blocks: Vec<VersionedSignedBlock>, peer_id: PeerId) -> Self {
+            Self {
+                // Converting into non-validated block because it's not possible
+                // to guarantee that the sending peer sent a valid committed block
+                blocks: blocks.into_iter().map(Into::into).collect(),
+                peer_id,
+            }
         }
     }
 
@@ -242,7 +226,7 @@ pub mod message {
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
-                        .map(|block| VersionedCommittedBlock::clone(&block))
+                        .map(|block| VersionedSignedBlock::clone(&block))
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {
@@ -258,11 +242,12 @@ pub mod message {
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
-                    use crate::sumeragi::message::{Message, MessagePacket};
+                    use crate::sumeragi::message::{BlockSyncUpdate, Message, MessagePacket};
+
                     for block in blocks.clone() {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
                             ProofChain::default(),
-                            Message::BlockSyncUpdate(block.into()),
+                            Message::BlockSyncUpdate(BlockSyncUpdate { block }),
                         ));
                     }
                 }

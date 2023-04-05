@@ -8,7 +8,7 @@ use std::collections::btree_set;
 use derive_more::{DebugCustom, Deref, DerefMut};
 use getset::Getters;
 use iroha_schema::{IntoSchema, TypeId};
-use parity_scale_codec::{Decode, Encode, Input};
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use ursa::{
@@ -35,12 +35,12 @@ pub type Payload = Vec<u8>;
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Getters,
     Decode,
     Encode,
     Deserialize,
     Serialize,
-    Hash,
     IntoSchema,
 )]
 #[getset(get = "pub")]
@@ -62,7 +62,7 @@ impl Signature {
     /// # Errors
     /// Fails if signing fails
     #[cfg(feature = "std")]
-    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
+    fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
         let (public_key, private_key) = key_pair.into();
 
         let algorithm: Algorithm = private_key.digest_function();
@@ -86,7 +86,7 @@ impl Signature {
     /// Prefer creating new signatures with [`SignatureOf::new`] whenever possible
     #[inline]
     #[cfg_attr(not(feature = "std"), allow(dead_code))]
-    const fn typed<T>(self) -> SignatureOf<T> {
+    const fn typed_unchecked<T>(self) -> SignatureOf<T> {
         SignatureOf(self, PhantomData)
     }
 
@@ -95,7 +95,7 @@ impl Signature {
     /// # Errors
     /// Fails if message didn't pass verification
     #[cfg(feature = "std")]
-    pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
+    fn verify(&self, payload: &[u8]) -> Result<(), Error> {
         let algorithm: Algorithm = self.public_key.digest_function();
         let public_key = UrsaPublicKey(self.public_key.payload().to_owned());
 
@@ -130,13 +130,11 @@ impl<T> From<SignatureOf<T>> for Signature {
 }
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
-// Lint triggers when expanding #[codec(skip)]
 #[allow(
+    // Caused by #[codec(skip)]
     clippy::default_trait_access,
-    clippy::unsafe_derive_deserialize,
-    clippy::derive_hash_xor_eq
 )]
-#[derive(Deref, DerefMut, Hash, Decode, Encode, Deserialize, Serialize, TypeId)]
+#[derive(Deref, DerefMut, Decode, Encode, Deserialize, Serialize, TypeId)]
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
@@ -179,6 +177,12 @@ impl<T> Ord for SignatureOf<T> {
     }
 }
 
+impl<T> core::hash::Hash for SignatureOf<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
 impl<T: IntoSchema> IntoSchema for SignatureOf<T> {
     fn type_name() -> String {
         format!("SignatureOf<{}>", T::type_name())
@@ -203,28 +207,7 @@ impl<T> SignatureOf<T> {
     /// Fails if signing fails
     #[cfg(feature = "std")]
     pub fn from_hash(key_pair: KeyPair, hash: &HashOf<T>) -> Result<Self, Error> {
-        Ok(Signature::new(key_pair, hash.as_ref())?.typed())
-    }
-
-    /// Transmutes signature to some specific type
-    pub fn transmute<F>(self) -> SignatureOf<F> {
-        SignatureOf(self.0, PhantomData)
-    }
-
-    /// Transmutes signature to some specific type
-    ///
-    /// # Warning:
-    ///
-    /// This method uses [`core::mem::transmute`] internally
-    pub const fn transmute_ref<F>(&self) -> &SignatureOf<F> {
-        #[allow(unsafe_code, trivial_casts)]
-        // SAFETY: transmuting is safe, because we're casting a
-        // pointer of type `SignatureOf<T>` into a pointer of type
-        // `SignatureOf<F>`, where `<F>` and `<T>` type parameters are
-        // normally related types that have the exact same alignment.
-        unsafe {
-            &*((self as *const Self).cast::<SignatureOf<F>>())
-        }
+        Signature::new(key_pair, hash.as_ref()).map(Signature::typed_unchecked)
     }
 
     /// Verify signature for this hash
@@ -287,7 +270,7 @@ impl<T> Eq for SignatureWrapperOf<T> {}
 
 impl<T> PartialOrd for SignatureWrapperOf<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.0.public_key.partial_cmp(&other.0.public_key)
+        Some(self.cmp(other))
     }
 }
 impl<T> Ord for SignatureWrapperOf<T> {
@@ -319,10 +302,7 @@ impl<T> core::hash::Hash for SignatureWrapperOf<T> {
 ///
 /// If the public key of the added signature is already in the set,
 /// the associated signature will be replaced with the new one.
-///
-/// GUARANTEE 1: Each signature corresponds to a different public key
-#[allow(clippy::derive_hash_xor_eq)]
-#[derive(Hash, Encode, Serialize, IntoSchema)]
+#[derive(Default, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
@@ -350,34 +330,20 @@ impl<T> PartialEq for SignaturesOf<T> {
     }
 }
 impl<T> Eq for SignaturesOf<T> {}
-
-impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error as _;
-
-        let signatures = <btree_set::BTreeSet<SignatureWrapperOf<T>>>::deserialize(deserializer)?;
-
-        if signatures.is_empty() {
-            return Err(D::Error::custom(
-                "Could not deserialize SignaturesOf<T>. Input contains 0 signatures",
-            ));
-        }
-
-        Ok(Self { signatures })
+impl<T> PartialOrd for SignaturesOf<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
-impl<T> Decode for SignaturesOf<T> {
-    fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-        let signatures = <btree_set::BTreeSet<SignatureWrapperOf<T>>>::decode(input)?;
+impl<T> Ord for SignaturesOf<T> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.signatures.cmp(&other.signatures)
+    }
+}
 
-        if signatures.is_empty() {
-            return Err("Could not decode SignaturesOf<T>. Input contains 0 signatures".into());
-        }
-
-        Ok(Self { signatures })
+impl<T> core::hash::Hash for SignaturesOf<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.signatures.hash(state);
     }
 }
 
@@ -420,10 +386,8 @@ impl<T> From<SignaturesOf<T>> for btree_set::BTreeSet<SignatureOf<T>> {
     }
 }
 
-impl<T> TryFrom<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
-    type Error = Error;
-
-    fn try_from(signatures: btree_set::BTreeSet<SignatureOf<T>>) -> Result<Self, Self::Error> {
+impl<T> From<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
+    fn from(signatures: btree_set::BTreeSet<SignatureOf<T>>) -> Self {
         signatures.into_iter().collect()
     }
 }
@@ -436,31 +400,15 @@ impl<A> From<SignatureOf<A>> for SignaturesOf<A> {
     }
 }
 
-impl<A> FromIterator<SignatureOf<A>> for Result<SignaturesOf<A>, Error> {
+impl<A> FromIterator<SignatureOf<A>> for SignaturesOf<A> {
     fn from_iter<T: IntoIterator<Item = SignatureOf<A>>>(iter: T) -> Self {
-        let mut iter = iter.into_iter();
-        iter.next()
-            .ok_or(Error::EmptySignatureIter)
-            .map(move |first_signature| core::iter::once(first_signature).chain(iter))
-            .map(|signatures| signatures.map(SignatureWrapperOf).collect())
-            .map(|signatures| SignaturesOf { signatures })
+        Self {
+            signatures: iter.into_iter().map(SignatureWrapperOf).collect(),
+        }
     }
 }
 
 impl<T> SignaturesOf<T> {
-    /// Transmutes signature generic type
-    ///
-    /// # Warning:
-    ///
-    /// This method uses [`core::mem::transmute`] internally
-    #[allow(unsafe_code, clippy::transmute_undefined_repr)]
-    pub fn transmute<F>(self) -> SignaturesOf<F> {
-        // SAFETY: Safe because we are transmuting to a pointer of
-        // type `<F>` which is related to type `<T>`.
-        let signatures = unsafe { core::mem::transmute(self.signatures) };
-        SignaturesOf { signatures }
-    }
-
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn insert(&mut self, signature: SignatureOf<T>) {
         self.signatures.insert(SignatureWrapperOf(signature));
@@ -581,8 +529,6 @@ impl<T> std::error::Error for SignatureVerificationFail<T> {}
 mod tests {
     #![allow(clippy::restriction)]
 
-    use parity_scale_codec::DecodeAll;
-
     #[cfg(feature = "std")]
     use super::*;
     #[cfg(feature = "std")]
@@ -646,32 +592,6 @@ mod tests {
 
     #[test]
     #[cfg(feature = "std")]
-    fn decode_signatures_of() {
-        let no_signatures: SignaturesOf<i32> = SignaturesOf {
-            signatures: btree_set::BTreeSet::new(),
-        };
-        let bytes = no_signatures.encode();
-
-        let signatures = SignaturesOf::<i32>::decode_all(&mut &bytes[..]);
-        assert!(signatures.is_err());
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
-        let no_signatures: SignaturesOf<i32> = SignaturesOf {
-            signatures: btree_set::BTreeSet::new(),
-        };
-        let serialized = serde_json::to_string(&no_signatures)?;
-
-        let signatures = serde_json::from_str::<SignaturesOf<i32>>(serialized.as_str());
-        assert!(signatures.is_err());
-
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
     fn signatures_of_deduplication_by_public_key() {
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
@@ -679,10 +599,7 @@ mod tests {
             SignatureOf::new(key_pair.clone(), &2).expect("Failed to sign"),
             SignatureOf::new(key_pair, &3).expect("Failed to sign"),
         ];
-        let signatures = signatures
-            .into_iter()
-            .collect::<Result<SignaturesOf<u8>, Error>>()
-            .expect("One signature must stay");
+        let signatures: SignaturesOf<_> = signatures.into_iter().collect();
         // Signatures with the same public key was deduplicated
         assert_eq!(signatures.len(), 1);
     }
@@ -707,6 +624,8 @@ mod tests {
                 .collect::<Vec<_>>();
         let hash_set: HashSet<_> = signatures.clone().into_iter().collect();
         let btree_set: BTreeSet<_> = signatures.into_iter().collect();
+        println!("{:#?}", &hash_set);
+        println!("{:#?}", &btree_set);
 
         // Check that `hash_set` is subset of `btree_set`
         for signature in &hash_set {

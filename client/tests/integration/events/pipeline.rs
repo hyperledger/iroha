@@ -54,7 +54,7 @@ fn test_with_instruction_and_status_and_port(
         handles.push(handle_validated);
     }
     // When
-    submitter.submit_transaction(transaction)?;
+    submitter.submit_transaction(&transaction)?;
     thread::sleep(pipeline_time * 2);
     // Then
     for handle in handles {
@@ -66,7 +66,7 @@ fn test_with_instruction_and_status_and_port(
 #[derive(Clone)]
 struct Checker {
     listener: iroha_client::client::Client,
-    hash: iroha_crypto::HashOf<SignedTransaction>,
+    hash: iroha_crypto::HashOf<TransactionPayload>,
 }
 
 impl Checker {
@@ -78,7 +78,7 @@ impl Checker {
                     PipelineEventFilter::new()
                         .entity_kind(PipelineEntityKind::Transaction)
                         .status_kind(status_kind)
-                        .hash(*self.hash),
+                        .hash(self.hash.into()),
                 ))
                 .expect("Failed to create event iterator.");
             let event_result = event_iterator.next().expect("Stream closed");

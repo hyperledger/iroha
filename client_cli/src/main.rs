@@ -217,7 +217,7 @@ pub fn submit(
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
     let hash = iroha_client
-        .submit_transaction_blocking(tx)
+        .submit_transaction_blocking(&tx)
         .wrap_err(err_msg)?;
     Ok(Box::new(hash))
 }
@@ -541,7 +541,7 @@ mod account {
     impl RunArgs for ListPermissions {
         fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
             let client = Client::new(cfg)?;
-            let find_all_permissions = FindPermissionTokensByAccountId { id: self.id.into() };
+            let find_all_permissions = FindPermissionTokensByAccountId::new(self.id);
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;

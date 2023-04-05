@@ -223,7 +223,7 @@ impl Decode for Fixed {
     }
 }
 
-#[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+#[cfg(any(feature = "ffi-export", feature = "ffi-import"))]
 mod ffi {
     //! Manual implementations of FFI related functionality
 

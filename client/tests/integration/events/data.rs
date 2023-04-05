@@ -117,7 +117,7 @@ fn transaction_execution_should_produce_events(
     let transaction = client
         .build_transaction(executable, UnlimitedMetadata::new())
         .unwrap();
-    client.submit_transaction_blocking(transaction)?;
+    client.submit_transaction_blocking(&transaction)?;
 
     // assertion
     for i in 0..4_usize {

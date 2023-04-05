@@ -61,7 +61,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         .expect("Failed to create transaction.");
     iroha_client
         .submit_transaction(
-            iroha_client
+            &iroha_client
                 .sign_transaction(transaction)
                 .expect("Failed to sign transaction."),
         )
@@ -95,7 +95,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         .expect("Found no pending transaction for this account.");
     iroha_client_2
         .submit_transaction(
-            iroha_client_2
+            &iroha_client_2
                 .sign_transaction(transaction)
                 .expect("Failed to sign transaction."),
         )

@@ -561,40 +561,60 @@
   "BlockHeader": {
     "Struct": [
       {
-        "name": "timestamp",
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "timestamp_ms",
         "type": "u128"
       },
       {
-        "name": "consensus_estimation",
-        "type": "u64"
+        "name": "previous_block_hash",
+        "type": "Option<HashOf<BlockPayload>>"
       },
       {
-        "name": "height",
-        "type": "u64"
+        "name": "transactions_hash",
+        "type": "Option<HashOf<MerkleTree<TransactionPayload>>>"
+      },
+      {
+        "name": "rejected_transactions_hash",
+        "type": "Option<HashOf<MerkleTree<TransactionPayload>>>"
+      },
+      {
+        "name": "commit_topology",
+        "type": "Vec<PeerId>"
       },
       {
         "name": "view_change_index",
         "type": "u64"
       },
       {
-        "name": "previous_block_hash",
-        "type": "Option<HashOf<VersionedCommittedBlock>>"
-      },
-      {
-        "name": "transactions_hash",
-        "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
-      },
-      {
-        "name": "rejected_transactions_hash",
-        "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
-      },
-      {
-        "name": "committed_with_topology",
-        "type": "Vec<PeerId>"
+        "name": "consensus_estimation_ms",
+        "type": "u64"
       }
     ]
   },
-  "BlockMessage": "VersionedCommittedBlock",
+  "BlockMessage": "VersionedSignedBlock",
+  "BlockPayload": {
+    "Struct": [
+      {
+        "name": "header",
+        "type": "BlockHeader"
+      },
+      {
+        "name": "transactions",
+        "type": "Vec<VersionedSignedTransaction>"
+      },
+      {
+        "name": "rejected_transactions",
+        "type": "Vec<Tuple2<VersionedSignedTransaction, TransactionRejectionReason>>"
+      },
+      {
+        "name": "event_recommendations",
+        "type": "Vec<Event>"
+      }
+    ]
+  },
   "BlockRejectionReason": {
     "Enum": [
       {
@@ -613,30 +633,6 @@
       {
         "name": "destination_id",
         "type": "EvaluatesTo<IdBox>"
-      }
-    ]
-  },
-  "CommittedBlock": {
-    "Struct": [
-      {
-        "name": "header",
-        "type": "BlockHeader"
-      },
-      {
-        "name": "rejected_transactions",
-        "type": "Vec<VersionedRejectedTransaction>"
-      },
-      {
-        "name": "transactions",
-        "type": "Vec<VersionedValidTransaction>"
-      },
-      {
-        "name": "event_recommendations",
-        "type": "Vec<Event>"
-      },
-      {
-        "name": "signatures",
-        "type": "SignaturesOf<CommittedBlock>"
       }
     ]
   },
@@ -1001,7 +997,15 @@
       }
     ]
   },
-  "EvaluatesTo<Hash>": {
+  "EvaluatesTo<HashOf<BlockPayload>>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
+  "EvaluatesTo<HashOf<TransactionPayload>>": {
     "Struct": [
       {
         "name": "expression",
@@ -1673,7 +1677,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<Hash>"
+        "type": "EvaluatesTo<HashOf<BlockPayload>>"
       }
     ]
   },
@@ -1721,11 +1725,11 @@
       },
       {
         "name": "Block",
-        "type": "HashOf<VersionedCommittedBlock>"
+        "type": "HashOf<BlockPayload>"
       },
       {
         "name": "Transaction",
-        "type": "HashOf<VersionedSignedTransaction>"
+        "type": "HashOf<TransactionPayload>"
       },
       {
         "name": "Peer",
@@ -1785,7 +1789,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<Hash>"
+        "type": "EvaluatesTo<HashOf<TransactionPayload>>"
       }
     ]
   },
@@ -1885,9 +1889,21 @@
     ]
   },
   "Hash": "Array<u8, 32>",
-  "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
-  "HashOf<VersionedCommittedBlock>": "Hash",
-  "HashOf<VersionedSignedTransaction>": "Hash",
+  "HashOf<BlockPayload>": "Hash",
+  "HashOf<MerkleTree<TransactionPayload>>": "Hash",
+  "HashOf<TransactionPayload>": "Hash",
+  "HashValue": {
+    "Enum": [
+      {
+        "name": "Block",
+        "type": "HashOf<BlockPayload>"
+      },
+      {
+        "name": "Transaction",
+        "type": "HashOf<TransactionPayload>"
+      }
+    ]
+  },
   "IdBox": {
     "Enum": [
       {
@@ -2161,6 +2177,22 @@
       }
     ]
   },
+  "LimitsValue": {
+    "Enum": [
+      {
+        "name": "Metadata",
+        "type": "Limits"
+      },
+      {
+        "name": "Transaction",
+        "type": "TransactionLimits"
+      },
+      {
+        "name": "Length",
+        "type": "LengthLimits"
+      }
+    ]
+  },
   "Metadata": {
     "Struct": [
       {
@@ -2413,11 +2445,11 @@
   "Option<Hash>": {
     "Option": "Hash"
   },
-  "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>": {
-    "Option": "HashOf<MerkleTree<VersionedSignedTransaction>>"
+  "Option<HashOf<BlockPayload>>": {
+    "Option": "HashOf<BlockPayload>"
   },
-  "Option<HashOf<VersionedCommittedBlock>>": {
-    "Option": "HashOf<VersionedCommittedBlock>"
+  "Option<HashOf<MerkleTree<TransactionPayload>>>": {
+    "Option": "HashOf<MerkleTree<TransactionPayload>>"
   },
   "Option<InstructionBox>": {
     "Option": "InstructionBox"
@@ -2581,7 +2613,7 @@
       }
     ]
   },
-  "PendingTransactions": "Vec<SignedTransaction>",
+  "PendingTransactions": "Vec<VersionedSignedTransaction>",
   "PermissionRemoved": {
     "Struct": [
       {
@@ -2983,22 +3015,6 @@
       }
     ]
   },
-  "RejectedTransaction": {
-    "Struct": [
-      {
-        "name": "payload",
-        "type": "TransactionPayload"
-      },
-      {
-        "name": "signatures",
-        "type": "SignaturesOf<TransactionPayload>"
-      },
-      {
-        "name": "rejection_reason",
-        "type": "TransactionRejectionReason"
-      }
-    ]
-  },
   "RemoveKeyValueBox": {
     "Struct": [
       {
@@ -3204,14 +3220,14 @@
     ]
   },
   "SignatureCheckCondition": "EvaluatesTo<Bool>",
-  "SignatureOf<CommittedBlock>": "Signature",
+  "SignatureOf<BlockPayload>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
-  "SignaturesOf<CommittedBlock>": {
+  "SignaturesOf<BlockPayload>": {
     "Struct": [
       {
         "name": "signatures",
-        "type": "SortedVec<SignatureOf<CommittedBlock>>"
+        "type": "SortedVec<SignatureOf<BlockPayload>>"
       }
     ]
   },
@@ -3220,6 +3236,18 @@
       {
         "name": "signatures",
         "type": "SortedVec<SignatureOf<TransactionPayload>>"
+      }
+    ]
+  },
+  "SignedBlock": {
+    "Struct": [
+      {
+        "name": "payload",
+        "type": "BlockPayload"
+      },
+      {
+        "name": "signatures",
+        "type": "SignaturesOf<BlockPayload>"
       }
     ]
   },
@@ -3243,7 +3271,7 @@
       },
       {
         "name": "signatures",
-        "type": "SortedVec<SignatureOf<TransactionPayload>>"
+        "type": "SignaturesOf<TransactionPayload>"
       }
     ]
   },
@@ -3298,8 +3326,8 @@
   "SortedVec<RoleId>": {
     "Vec": "RoleId"
   },
-  "SortedVec<SignatureOf<CommittedBlock>>": {
-    "Vec": "SignatureOf<CommittedBlock>"
+  "SortedVec<SignatureOf<BlockPayload>>": {
+    "Vec": "SignatureOf<BlockPayload>"
   },
   "SortedVec<SignatureOf<TransactionPayload>>": {
     "Vec": "SignatureOf<TransactionPayload>"
@@ -3401,6 +3429,14 @@
   "TransactionPayload": {
     "Struct": [
       {
+        "name": "creation_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "nonce",
+        "type": "Option<u32>"
+      },
+      {
         "name": "account_id",
         "type": "AccountId"
       },
@@ -3409,16 +3445,8 @@
         "type": "Executable"
       },
       {
-        "name": "creation_time",
-        "type": "u64"
-      },
-      {
         "name": "time_to_live_ms",
         "type": "u64"
-      },
-      {
-        "name": "nonce",
-        "type": "Option<u32>"
       },
       {
         "name": "metadata",
@@ -3434,7 +3462,7 @@
       },
       {
         "name": "block_hash",
-        "type": "Hash"
+        "type": "HashOf<BlockPayload>"
       }
     ]
   },
@@ -3477,7 +3505,7 @@
       },
       {
         "name": "RejectedTransaction",
-        "type": "VersionedRejectedTransaction"
+        "type": "Tuple2<VersionedSignedTransaction, TransactionRejectionReason>"
       }
     ]
   },
@@ -3605,6 +3633,12 @@
       }
     ]
   },
+  "Tuple2<VersionedSignedTransaction, TransactionRejectionReason>": {
+    "Tuple": [
+      "VersionedSignedTransaction",
+      "TransactionRejectionReason"
+    ]
+  },
   "UnregisterBox": {
     "Struct": [
       {
@@ -3634,18 +3668,6 @@
       {
         "name": "object",
         "type": "EvaluatesTo<UpgradableBox>"
-      }
-    ]
-  },
-  "ValidTransaction": {
-    "Struct": [
-      {
-        "name": "payload",
-        "type": "TransactionPayload"
-      },
-      {
-        "name": "signatures",
-        "type": "SignaturesOf<TransactionPayload>"
       }
     ]
   },
@@ -3707,16 +3729,8 @@
         "type": "Metadata"
       },
       {
-        "name": "MetadataLimits",
-        "type": "Limits"
-      },
-      {
-        "name": "TransactionLimits",
-        "type": "TransactionLimits"
-      },
-      {
-        "name": "LengthLimits",
-        "type": "LengthLimits"
+        "name": "Limits",
+        "type": "LimitsValue"
       },
       {
         "name": "Id",
@@ -3735,10 +3749,6 @@
         "type": "SignatureCheckCondition"
       },
       {
-        "name": "TransactionValue",
-        "type": "TransactionValue"
-      },
-      {
         "name": "TransactionQueryResult",
         "type": "TransactionQueryResult"
       },
@@ -3748,11 +3758,11 @@
       },
       {
         "name": "Hash",
-        "type": "Hash"
+        "type": "HashValue"
       },
       {
         "name": "Block",
-        "type": "VersionedCommittedBlock"
+        "type": "VersionedSignedBlock"
       },
       {
         "name": "BlockHeader",
@@ -3794,13 +3804,7 @@
         "name": "LimitedMetadata"
       },
       {
-        "name": "MetadataLimits"
-      },
-      {
-        "name": "TransactionLimits"
-      },
-      {
-        "name": "LengthLimits"
+        "name": "Limits"
       },
       {
         "name": "Id"
@@ -3813,9 +3817,6 @@
       },
       {
         "name": "SignatureCheckCondition"
-      },
-      {
-        "name": "TransactionValue"
       },
       {
         "name": "TransactionQueryResult"
@@ -3908,17 +3909,14 @@
   "Vec<PeerId>": {
     "Vec": "PeerId"
   },
-  "Vec<SignedTransaction>": {
-    "Vec": "SignedTransaction"
+  "Vec<Tuple2<VersionedSignedTransaction, TransactionRejectionReason>>": {
+    "Vec": "Tuple2<VersionedSignedTransaction, TransactionRejectionReason>"
   },
   "Vec<Value>": {
     "Vec": "Value"
   },
-  "Vec<VersionedRejectedTransaction>": {
-    "Vec": "VersionedRejectedTransaction"
-  },
-  "Vec<VersionedValidTransaction>": {
-    "Vec": "VersionedValidTransaction"
+  "Vec<VersionedSignedTransaction>": {
+    "Vec": "VersionedSignedTransaction"
   },
   "Vec<u8>": {
     "Vec": "u8"
@@ -3936,14 +3934,6 @@
       {
         "name": "V1",
         "type": "BlockSubscriptionRequest"
-      }
-    ]
-  },
-  "VersionedCommittedBlock": {
-    "Enum": [
-      {
-        "name": "V1",
-        "type": "CommittedBlock"
       }
     ]
   },
@@ -3979,11 +3969,11 @@
       }
     ]
   },
-  "VersionedRejectedTransaction": {
+  "VersionedSignedBlock": {
     "Enum": [
       {
         "name": "V1",
-        "type": "RejectedTransaction"
+        "type": "SignedBlock"
       }
     ]
   },
@@ -4000,14 +3990,6 @@
       {
         "name": "V1",
         "type": "SignedTransaction"
-      }
-    ]
-  },
-  "VersionedValidTransaction": {
-    "Enum": [
-      {
-        "name": "V1",
-        "type": "ValidTransaction"
       }
     ]
   },

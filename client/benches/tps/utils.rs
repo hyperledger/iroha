@@ -126,8 +126,11 @@ impl Config {
                 let block = blocks
                     .next()
                     .expect("The block is not yet in WSV. Need more sleep?");
-                let block = block.as_v1();
-                (block.transactions.len(), block.rejected_transactions.len())
+                let payload = block.payload();
+                (
+                    payload.transactions().len(),
+                    payload.rejected_transactions.len(),
+                )
             })
             .fold((0, 0), |acc, pair| (acc.0 + pair.0, acc.1 + pair.1));
         #[allow(clippy::float_arithmetic, clippy::cast_precision_loss)]
@@ -182,7 +185,7 @@ impl MeasurerUnit {
             100_000,
         )
         .sign(keypair)?;
-        self.client.submit_transaction_blocking(grant_tx)?;
+        self.client.submit_transaction_blocking(&grant_tx)?;
 
         let mint_a_rose = MintBox::new(1_u32, asset_id);
         self.client.submit_blocking(mint_a_rose)?;
@@ -236,7 +239,7 @@ impl MeasurerUnit {
                         let transaction = submitter
                             .sign_transaction(transaction)
                             .expect("Failed to sign transaction");
-                        if let Err(error) = submitter.submit_transaction(transaction) {
+                        if let Err(error) = submitter.submit_transaction(&transaction) {
                             iroha_logger::error!(?error, "Failed to submit transaction");
                         }
                         nonce = nonce.wrapping_add(1);

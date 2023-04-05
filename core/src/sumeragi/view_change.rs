@@ -6,12 +6,12 @@
     clippy::std_instead_of_alloc,
     single_use_lifetimes
 )]
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
-use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, Signature};
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::PeerId};
+use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf};
+use iroha_data_model::{block::BlockPayload, prelude::PeerId};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
@@ -25,28 +25,46 @@ pub enum Error {
     ViewChangeNotFound,
 }
 
-/// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
 #[derive(Debug, Clone, Decode, Encode)]
-pub struct Proof {
+struct ProofPayload {
     /// Hash of the latest committed block.
-    pub latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
+    latest_block_hash: Option<HashOf<BlockPayload>>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
-    pub view_change_index: u64,
-    /// Collection of signatures from the different peers.
-    pub signatures: Vec<Signature>,
+    view_change_index: u64,
 }
 
-impl Proof {
-    /// Produce a signature payload in the form of a [`Hash`]
-    pub fn signature_payload(&self) -> Hash {
-        let mut buf = [0_u8; Hash::LENGTH + std::mem::size_of::<u64>()];
-        if let Some(hash) = self.latest_block_hash {
-            buf[..Hash::LENGTH].copy_from_slice(hash.as_ref());
-        }
-        buf[Hash::LENGTH..].copy_from_slice(&self.view_change_index.to_le_bytes());
-        // Now we hash the buffer to produce a payload that is completely
-        // different between view change proofs in the same sumeragi round.
-        Hash::new(buf)
+/// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
+#[derive(Debug, Clone, Decode, Encode)]
+pub struct SignedProof {
+    payload: ProofPayload,
+    /// Collection of signatures from the different peers.
+    signatures: BTreeSet<SignatureOf<ProofPayload>>,
+}
+
+/// Builder for proofs
+#[repr(transparent)]
+pub struct ProofBuilder(SignedProof);
+
+impl ProofBuilder {
+    /// Constructor from index.
+    pub fn new(view_change_index: u64) -> Self {
+        let proof = SignedProof {
+            payload: ProofPayload {
+                latest_block_hash: None,
+                view_change_index,
+            },
+            signatures: BTreeSet::new(),
+        };
+
+        Self(proof)
+    }
+
+    /// Add latest block hash to the proof. This function can be skipped
+    /// only if the genesis block has not yet been committed
+    #[must_use]
+    pub fn with_latest_block_hash(mut self, latest_block_hash: HashOf<BlockPayload>) -> Self {
+        self.0.payload.latest_block_hash = Some(latest_block_hash);
+        self
     }
 
     /// Sign this message with the peer's public and private key.
@@ -54,35 +72,33 @@ impl Proof {
     ///
     /// # Errors
     /// Can fail during creation of signature
-    pub fn sign(&mut self, key_pair: KeyPair) -> Result<()> {
-        let signature = Signature::new(key_pair, self.signature_payload().as_ref())?;
-        self.signatures.push(signature);
-        Ok(())
+    pub fn sign(mut self, key_pair: KeyPair) -> Result<SignedProof> {
+        let signature = SignatureOf::from_hash(key_pair, &HashOf::new(&self.0.payload))?;
+        self.0.signatures.insert(signature);
+        Ok(self.0)
     }
+}
 
+impl SignedProof {
     /// Verify the signatures of `other` and add them to this proof.
-    pub fn merge_signatures(&mut self, other: Vec<Signature>) {
-        let signature_payload = self.signature_payload();
+    fn merge_signatures(&mut self, other: BTreeSet<SignatureOf<ProofPayload>>) {
         for signature in other {
-            if signature.verify(signature_payload.as_ref()).is_ok()
-                && !self.signatures.contains(&signature)
-            {
-                self.signatures.push(signature);
+            if signature.verify(&self.payload).is_ok() && !self.signatures.contains(&signature) {
+                self.signatures.insert(signature);
             }
         }
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
-    pub fn verify(&self, peers: &[PeerId], max_faults: usize) -> bool {
+    fn verify(&self, peers: &[PeerId], max_faults: usize) -> bool {
         let peer_public_keys: HashSet<&PublicKey> =
             peers.iter().map(|peer_id| &peer_id.public_key).collect();
 
-        let signature_payload = self.signature_payload();
         let valid_count = self
             .signatures
             .iter()
             .filter(|signature| {
-                signature.verify(signature_payload.as_ref()).is_ok()
+                signature.verify(&self.payload).is_ok()
                     && peer_public_keys.contains(signature.public_key())
             })
             .count();
@@ -97,7 +113,7 @@ impl Proof {
 
 /// Structure representing sequence of view change proofs.
 #[derive(Debug, Clone, Encode, Decode, Deref, DerefMut, Default)]
-pub struct ProofChain(Vec<Proof>);
+pub struct ProofChain(Vec<SignedProof>);
 
 impl ProofChain {
     /// Verify the view change proof chain.
@@ -105,31 +121,32 @@ impl ProofChain {
         &self,
         peers: &[PeerId],
         max_faults: usize,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        latest_block: Option<HashOf<BlockPayload>>,
     ) -> usize {
         self.iter()
             .enumerate()
             .take_while(|(i, proof)| {
-                proof.latest_block_hash == latest_block
-                    && proof.view_change_index == (*i as u64)
+                proof.payload.latest_block_hash == latest_block
+                    && proof.payload.view_change_index == (*i as u64)
                     && proof.verify(peers, max_faults)
             })
             .count()
     }
 
     /// Remove invalid proofs from the chain.
-    pub fn prune(&mut self, latest_block: Option<HashOf<VersionedCommittedBlock>>) {
+    pub fn prune(&mut self, latest_block: Option<HashOf<BlockPayload>>) {
         let valid_count = self
             .iter()
             .enumerate()
             .take_while(|(i, proof)| {
-                proof.latest_block_hash == latest_block && proof.view_change_index == (*i as u64)
+                proof.payload.latest_block_hash == latest_block
+                    && proof.payload.view_change_index == (*i as u64)
             })
             .count();
         self.truncate(valid_count);
     }
 
-    /// Attempt to insert a view chain proof into this `ProofChain`.
+    /// Attempt to insert a view change proof into [`Self`].
     ///
     /// # Errors
     /// - If proof latest block hash doesn't match peer latest block hash
@@ -139,14 +156,14 @@ impl ProofChain {
         &mut self,
         peers: &[PeerId],
         max_faults: usize,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        new_proof: Proof,
+        latest_block: Option<HashOf<BlockPayload>>,
+        new_proof: SignedProof,
     ) -> Result<(), Error> {
-        if new_proof.latest_block_hash != latest_block {
+        if new_proof.payload.latest_block_hash != latest_block {
             return Err(Error::BlockHashMismatch);
         }
         let next_unfinished_view_change = self.verify_with_state(peers, max_faults, latest_block);
-        if new_proof.view_change_index != (next_unfinished_view_change as u64) {
+        if new_proof.payload.view_change_index != (next_unfinished_view_change as u64) {
             return Err(Error::ViewChangeNotFound); // We only care about the current view change that may or may not happen.
         }
 
@@ -169,7 +186,7 @@ impl ProofChain {
         mut other: Self,
         peers: &[PeerId],
         max_faults: usize,
-        latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
+        latest_block_hash: Option<HashOf<BlockPayload>>,
     ) -> Result<(), Error> {
         // Prune to exclude invalid proofs
         other.prune(latest_block_hash);

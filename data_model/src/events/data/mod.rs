@@ -10,7 +10,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 use super::Filter;
 use crate::prelude::*;
 pub use crate::Registered;

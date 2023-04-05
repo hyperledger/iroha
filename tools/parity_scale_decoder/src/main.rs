@@ -27,7 +27,7 @@ use iroha_data_model::{
             BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
             VersionedBlockSubscriptionRequest,
         },
-        BlockHeader, CommittedBlock, VersionedCommittedBlock,
+        BlockHeader, BlockPayload,
     },
     domain::NewDomain,
     ipfs::IpfsPath,
@@ -40,9 +40,12 @@ use iroha_data_model::{
     },
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
-    transaction::error::{TransactionExpired, TransactionLimitError},
+    transaction::{
+        error::{TransactionExpired, TransactionLimitError},
+        SignedTransaction,
+    },
     validator::Validator,
-    ValueKind, VersionedCommittedBlockWrapper,
+    ValueKind, VersionedSignedBlockWrapper,
 };
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},

@@ -3,11 +3,11 @@
 //! types are included in the schema.
 #![allow(clippy::arithmetic_side_effects)]
 
-use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFailure};
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 
 macro_rules! types {
+
     ($($t:ty),+ $(,)?) => {
         /// Generate map holding all schema types
         #[macro_export]
@@ -17,7 +17,7 @@ macro_rules! types {
                 $( $insert_entry!(map, $t); )+
 
                 #[cfg(target_arch = "aarch64")]
-                $insert_entry!(map, Box<VersionedCommittedBlock>);
+                $insert_entry!(map, Box<VersionedSignedBlock>);
 
                 map
             }}
@@ -95,7 +95,7 @@ types!(
     BTreeSet<PermissionToken>,
     BTreeSet<PublicKey>,
     BTreeSet<RoleId>,
-    BTreeSet<SignatureWrapperOf<CommittedBlock>>,
+    BTreeSet<SignatureWrapperOf<BlockPayload>>,
     BlockHeader,
     BlockMessage,
     BlockRejectionReason,
@@ -119,10 +119,8 @@ types!(
     Box<Trigger<FilterBox, Executable>>,
     Box<Value>,
     Box<ValuePredicate>,
-    Box<VersionedRejectedTransaction>,
     Box<VersionedSignedTransaction>,
     BurnBox,
-    CommittedBlock,
     Conditional,
     ConfigurationEvent,
     ConstString,
@@ -147,7 +145,8 @@ types!(
     EvaluatesTo<AssetDefinitionId>,
     EvaluatesTo<AssetId>,
     EvaluatesTo<DomainId>,
-    EvaluatesTo<Hash>,
+    EvaluatesTo<HashOf<BlockPayload>>,
+    EvaluatesTo<HashOf<TransactionPayload>>,
     EvaluatesTo<IdBox>,
     EvaluatesTo<Name>,
     EvaluatesTo<NumericValue>,
@@ -237,9 +236,9 @@ types!(
     GrantBox,
     Greater,
     Hash,
-    HashOf<MerkleTree<VersionedSignedTransaction>>,
-    HashOf<VersionedCommittedBlock>,
-    HashOf<VersionedSignedTransaction>,
+    HashOf<BlockPayload>,
+    HashOf<MerkleTree<TransactionPayload>>,
+    HashOf<TransactionPayload>,
     IdBox,
     IdentifiableBox,
     If,
@@ -278,8 +277,8 @@ types!(
     Option<DomainId>,
     Option<Duration>,
     Option<Hash>,
-    Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-    Option<HashOf<VersionedCommittedBlock>>,
+    Option<HashOf<BlockPayload>>,
+    Option<HashOf<MerkleTree<TransactionPayload>>>,
     Option<InstructionBox>,
     Option<IpfsPath>,
     Option<Name>,
@@ -325,7 +324,6 @@ types!(
     QueryResult,
     RaiseTo,
     RegisterBox,
-    RejectedTransaction,
     RemoveKeyValueBox,
     Repeats,
     RevokeBox,
@@ -343,12 +341,12 @@ types!(
     SetParameterBox,
     Signature,
     SignatureCheckCondition,
-    SignatureOf<CommittedBlock>,
+    SignatureOf<BlockPayload>,
     SignatureOf<QueryPayload>,
     SignatureOf<TransactionPayload>,
-    SignatureWrapperOf<CommittedBlock>,
+    SignatureWrapperOf<BlockPayload>,
     SignatureWrapperOf<TransactionPayload>,
-    SignaturesOf<CommittedBlock>,
+    SignaturesOf<BlockPayload>,
     SignaturesOf<TransactionPayload>,
     SignedQuery,
     SignedTransaction,
@@ -377,7 +375,6 @@ types!(
     UnregisterBox,
     UnsatisfiedSignatureConditionFail,
     UpgradableBox,
-    ValidTransaction,
     Validator,
     ValidatorEvent,
     Value,
@@ -390,21 +387,17 @@ types!(
     Vec<PredicateBox>,
     Vec<SignedTransaction>,
     Vec<Value>,
-    Vec<VersionedRejectedTransaction>,
-    Vec<VersionedValidTransaction>,
     Vec<u8>,
     VersionedBlockMessage,
     VersionedBlockSubscriptionRequest,
-    VersionedCommittedBlock,
-    VersionedCommittedBlockWrapper,
     VersionedEventMessage,
     VersionedEventSubscriptionRequest,
     VersionedPaginatedQueryResult,
     VersionedPendingTransactions,
-    VersionedRejectedTransaction,
+    VersionedSignedBlock,
+    VersionedSignedBlockWrapper,
     VersionedSignedQuery,
     VersionedSignedTransaction,
-    VersionedValidTransaction,
     WasmExecutionFail,
     WasmSmartContract,
     Where,
@@ -439,7 +432,7 @@ mod tests {
                 BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
                 VersionedBlockSubscriptionRequest,
             },
-            BlockHeader, CommittedBlock, VersionedCommittedBlock,
+            BlockHeader, BlockPayload,
         },
         domain::NewDomain,
         ipfs::IpfsPath,
@@ -452,9 +445,12 @@ mod tests {
         },
         prelude::*,
         query::error::{FindError, QueryExecutionFailure},
-        transaction::error::{TransactionExpired, TransactionLimitError},
+        transaction::{
+            error::{TransactionExpired, TransactionLimitError},
+            SignedTransaction,
+        },
         validator::Validator,
-        ValueKind, VersionedCommittedBlockWrapper,
+        ValueKind, VersionedSignedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;
     use iroha_primitives::{
@@ -468,8 +464,7 @@ mod tests {
 
     // NOTE: These type parameters should not be have their schema exposed
     // By default `PhantomData` wrapped types schema will not be included
-    const SCHEMALESS_TYPES: [&str; 2] =
-        ["MerkleTree<VersionedSignedTransaction>", "RegistrableBox"];
+    const SCHEMALESS_TYPES: [&str; 2] = ["MerkleTree<TransactionPayload>", "RegistrableBox"];
 
     fn is_const_generic(generic: &str) -> bool {
         generic.parse::<usize>().is_ok()

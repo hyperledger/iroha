@@ -31,7 +31,7 @@ ffi_type! {
         niche_value=SliceRef::null()
     }
 }
-#[cfg(feature = "non_robust_ref_mut")]
+#[cfg(feature = "non-robust-ref-mut")]
 ffi_type! {
     unsafe impl<'slice> Transparent for &'slice mut str {
         type Target = &'slice mut [u8];

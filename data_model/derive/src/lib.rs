@@ -10,13 +10,13 @@ mod partially_tagged;
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-/// Macro which controls how to export item's API. The behaviour is controlled with `transparent_api`
+/// Macro which controls how to export item's API. The behaviour is controlled with `_transparent-api`
 /// feature flag. If the flag is active, item's public fields will be exposed as public, however, if
 /// it's not active, item will be exposed as opaque, i.e. no fields will be visible. This enables
 /// internal libraries of Iroha to see and destructure data model items. On the other hand,
 /// client libraries will only see opaque items and can be dynamically linked.
 ///
-/// Additionally, this macro will rewrite private items as public when `transparent_api` is active.
+/// Additionally, this macro will rewrite private items as public when `_transparent-api` is active.
 /// If an item should remain private regardless of consumer library, just don't wrap it in this macro.
 ///
 /// Should be used only on public module named `model`.
@@ -43,20 +43,20 @@ use syn::parse_macro_input;
 /// /* will produce:
 /// pub mod model {
 ///     pub struct DataModel1 {
-///         #[cfg(feature = "transparent_api")]
+///         #[cfg(feature = "_transparent-api")]
 ///         pub item1: u32,
-///         #[cfg(not(feature = "transparent_api"))]
+///         #[cfg(not(feature = "_transparent-api"))]
 ///         pub(crate) item1: u32,
 ///         pub(super) item2: u64
 ///     }
 ///
-///     #[cfg(not(feature = "transparent_api"))]
+///     #[cfg(not(feature = "_transparent-api"))]
 ///     pub struct DataModel2 {
 ///         pub item1: u32,
 ///         pub(super) item2: u64
 ///     }
 ///
-///     #[cfg(feature = "transparent_api")]
+///     #[cfg(feature = "_transparent-api")]
 ///     struct DataModel2 {
 ///         pub item1: u32,
 ///         pub(super) item2: u64

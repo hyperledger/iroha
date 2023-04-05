@@ -2928,10 +2928,13 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_logger",
+ "iroha_macro",
  "iroha_primitives",
  "iroha_schema",
+ "once_cell",
  "serde",
  "serde_json",
+ "thiserror",
  "tracing",
 ]
 

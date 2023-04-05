@@ -189,14 +189,14 @@ where
 {
     type Type = <R::Type as IrTypeFamily>::RefType<'itm>;
 }
-#[cfg(feature = "non_robust_ref_mut")]
+#[cfg(feature = "non-robust-ref-mut")]
 impl<'itm, R: Ir> Ir for &'itm mut R
 where
     R::Type: IrTypeFamily,
 {
     type Type = <R::Type as IrTypeFamily>::RefMutType<'itm>;
 }
-#[cfg(not(feature = "non_robust_ref_mut"))]
+#[cfg(not(feature = "non-robust-ref-mut"))]
 impl<'itm, R: Ir + InfallibleTransmute> Ir for &'itm mut R
 where
     R::Type: IrTypeFamily,
@@ -215,14 +215,14 @@ where
 {
     type Type = <R::Type as IrTypeFamily>::SliceRefType<'itm>;
 }
-#[cfg(feature = "non_robust_ref_mut")]
+#[cfg(feature = "non-robust-ref-mut")]
 impl<'itm, R: Ir> Ir for &'itm mut [R]
 where
     R::Type: IrTypeFamily,
 {
     type Type = <R::Type as IrTypeFamily>::SliceRefMutType<'itm>;
 }
-#[cfg(not(feature = "non_robust_ref_mut"))]
+#[cfg(not(feature = "non-robust-ref-mut"))]
 impl<'itm, R: Ir + InfallibleTransmute> Ir for &'itm mut [R]
 where
     R::Type: IrTypeFamily,

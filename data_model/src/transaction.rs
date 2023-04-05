@@ -1,55 +1,45 @@
 //! [`Transaction`] structures and related implementations.
 #![allow(clippy::std_instead_of_core)]
-// TODO: Remove when a proper `Display` will be implemented for `Transaction`
-#![allow(clippy::use_debug)]
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
 };
 #[cfg(feature = "std")]
-use std::{collections::btree_set, time::Duration};
+use std::time::Duration;
 
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
-use iroha_crypto::{Hash, SignatureOf, SignatureVerificationFail, SignaturesOf};
+use iroha_crypto::{HashOf, SignaturesOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
-#[cfg(feature = "transparent_api")]
-use iroha_version::declare_versioned_with_scale;
-use iroha_version::{declare_versioned, version, version_with_scale};
+use iroha_version::{declare_versioned, version};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, Identifiable};
-
-/// Default maximum number of instructions and expressions per transaction
-pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-
-/// Default maximum number of instructions and expressions per transaction
-pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
+use crate::{
+    account::Account, block::BlockPayload, isi::InstructionBox, metadata::UnlimitedMetadata,
+    Identifiable,
+};
 
 /// Trait for basic transaction operations
 pub trait Transaction {
-    /// Result of hashing
-    type HashOf: Transaction;
-
     /// Returns payload of a transaction
     fn payload(&self) -> &TransactionPayload;
 
     /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
     #[inline]
     #[cfg(feature = "std")]
-    fn hash(&self) -> iroha_crypto::HashOf<Self::HashOf>
-    where
-        Self: Sized,
-    {
-        iroha_crypto::HashOf::new(self.payload()).transmute()
+    fn hash(&self) -> iroha_crypto::HashOf<TransactionPayload> {
+        iroha_crypto::HashOf::new(self.payload())
     }
+
+    /// Return signatures
+    fn signatures(&self) -> &SignaturesOf<TransactionPayload>;
 
     /// Checks if number of instructions in payload or wasm size exceeds maximum
     ///
@@ -103,7 +93,7 @@ pub trait Transaction {
     /// specified TTLs was reached.
     #[cfg(feature = "std")]
     fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
-        let tx_timestamp = Duration::from_millis(self.payload().creation_time);
+        let tx_timestamp = Duration::from_millis(self.payload().creation_time_ms);
         crate::current_time().saturating_sub(tx_timestamp)
             > core::cmp::min(
                 transaction_time_to_live,
@@ -115,7 +105,7 @@ pub trait Transaction {
     /// to have a future timestamp.
     #[cfg(feature = "std")]
     fn is_in_future(&self, threshold: Duration) -> bool {
-        let tx_timestamp = Duration::from_millis(self.payload().creation_time);
+        let tx_timestamp = Duration::from_millis(self.payload().creation_time_ms);
         tx_timestamp.saturating_sub(crate::current_time()) > threshold
     }
 }
@@ -131,12 +121,12 @@ pub trait Sign {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error>;
+    ) -> Result<VersionedSignedTransaction, iroha_crypto::Error>;
 }
 
 #[model]
 pub mod model {
-    use super::*;
+    use super::{error::TransactionRejectionReason, *};
 
     /// Either ISI or Wasm binary
     #[derive(
@@ -205,17 +195,17 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionPayload {
+        /// Creation timestamp (unix time in milliseconds).
+        pub creation_time_ms: u64,
+        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
+        pub nonce: Option<u32>,
         /// Account ID of transaction creator.
         pub account_id: <Account as Identifiable>::Id,
-        /// Instructions or WebAssembly smartcontract
+        /// ISI or a `WebAssembly` smartcontract.
         pub instructions: Executable,
-        /// Time of creation (unix time, in milliseconds).
-        pub creation_time: u64,
-        /// The transaction will be dropped after this time if it is still in a `Queue`.
+        /// If transaction is not committed by this time it will be dropped.
         pub time_to_live_ms: u64,
-        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
-        pub nonce: Option<u32>,
-        /// Metadata.
+        /// Store for additional information.
         pub metadata: UnlimitedMetadata,
     }
 
@@ -256,9 +246,9 @@ pub mod model {
         pub payload: TransactionPayload,
     }
 
-    /// Structure that represents the second state of the transaction after receiving at least one signature.
+    /// Transaction that contains at least one signature
     ///
-    /// `Iroha` and its clients use [`Transaction`] to send transactions over the network.
+    /// `Iroha` and its clients use [`Self`] to send transactions over the network.
     /// After a transaction is signed and before it can be processed any further,
     /// the transaction must be accepted by the `Iroha` peer.
     /// The peer verifies the signatures and checks the limits.
@@ -276,13 +266,14 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[display(fmt = "{self:?}")] // TODO ?
+    #[cfg_attr(not(feature = "std"), display(fmt = "Signed transaction"))]
+    #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[ffi_type]
     pub struct SignedTransaction {
         /// [`Transaction`] payload.
         pub payload: TransactionPayload,
-        /// [`SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: btree_set::BTreeSet<SignatureOf<TransactionPayload>>,
+        /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
+        pub signatures: SignaturesOf<TransactionPayload>,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -294,7 +285,7 @@ pub mod model {
         /// Committed transaction
         Transaction(Box<VersionedSignedTransaction>),
         /// Rejected transaction with reason of rejection
-        RejectedTransaction(Box<VersionedRejectedTransaction>),
+        RejectedTransaction(Box<(VersionedSignedTransaction, TransactionRejectionReason)>),
     }
 
     /// `TransactionQueryResult` is used in `FindAllTransactions` query
@@ -317,56 +308,7 @@ pub mod model {
         /// Transaction
         pub tx_value: TransactionValue,
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: Hash,
-    }
-
-    /// `ValidTransaction` represents trustfull Transaction state.
-    #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
-    #[derive(
-        Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    #[ffi_type]
-    pub struct ValidTransaction {
-        /// The [`Transaction`]'s payload.
-        pub payload: TransactionPayload,
-        /// [`SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: SignaturesOf<TransactionPayload>,
-    }
-
-    /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
-    #[version(n = 1, versioned = "VersionedRejectedTransaction")]
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    pub struct RejectedTransaction {
-        /// The [`Transaction`]'s payload.
-        pub payload: TransactionPayload,
-        /// [`SignatureOf`] [`Transaction`].
-        pub signatures: SignaturesOf<TransactionPayload>,
-        /// The reason for rejecting this transaction during the validation pipeline.
-        #[getset(get = "pub")]
-        pub rejection_reason: error::TransactionRejectionReason,
-    }
-
-    /// `AcceptedTransaction` — a transaction accepted by iroha peer.
-    #[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
-    #[derive(Debug, Clone, Decode, Encode, Serialize)]
-    pub(crate) struct AcceptedTransaction {
-        /// Payload of this transaction.
-        pub payload: TransactionPayload,
-        /// Signatures for this transaction.
-        pub signatures: SignaturesOf<TransactionPayload>,
+        pub block_hash: HashOf<BlockPayload>,
     }
 }
 
@@ -419,7 +361,7 @@ impl TransactionBuilder {
             payload: TransactionPayload {
                 account_id,
                 instructions: instructions.into(),
-                creation_time,
+                creation_time_ms: creation_time,
                 time_to_live_ms: proposed_ttl_ms,
                 nonce: None,
                 metadata: UnlimitedMetadata::new(),
@@ -449,103 +391,64 @@ impl Sign for TransactionBuilder {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error> {
-        let signature = SignatureOf::new(key_pair, &self.payload)?;
-        let signatures = btree_set::BTreeSet::from([signature]);
+    ) -> Result<VersionedSignedTransaction, iroha_crypto::Error> {
+        let signatures = SignaturesOf::new(key_pair, &self.payload)?;
 
         Ok(SignedTransaction {
             payload: self.payload,
             signatures,
-        })
+        }
+        .into())
     }
 }
 
-#[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
+#[cfg(any(feature = "ffi-export", feature = "ffi-import"))]
 declare_versioned!(VersionedSignedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
-#[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
+#[cfg(all(not(feature = "ffi-export"), not(feature = "ffi-import")))]
 declare_versioned!(VersionedSignedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
 
-impl VersionedSignedTransaction {
-    /// Convert from `&VersionedSignedTransaction` to V1 reference
-    pub const fn as_v1(&self) -> &SignedTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Convert from `&mut VersionedSignedTransaction` to V1 mutable reference
-    #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut SignedTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Performs the conversion from `VersionedSignedTransaction` to V1
-    #[inline]
-    pub fn into_v1(self) -> SignedTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-}
-
 impl Transaction for VersionedSignedTransaction {
-    type HashOf = Self;
-
     #[inline]
     fn payload(&self) -> &TransactionPayload {
         match self {
             Self::V1(v1) => &v1.payload,
         }
     }
-}
 
-impl From<VersionedValidTransaction> for VersionedSignedTransaction {
-    fn from(transaction: VersionedValidTransaction) -> Self {
-        match transaction {
-            VersionedValidTransaction::V1(transaction) => {
-                let signatures = transaction.signatures.into();
-
-                SignedTransaction {
-                    payload: transaction.payload,
-                    signatures,
-                }
-                .into()
-            }
-        }
-    }
-}
-
-impl SignedTransaction {
-    /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
-        self.signatures.iter()
+    #[inline]
+    fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
+        let VersionedSignedTransaction::V1(tx) = self;
+        tx.signatures()
     }
 }
 
 impl Transaction for SignedTransaction {
-    type HashOf = Self;
-
     #[inline]
     fn payload(&self) -> &TransactionPayload {
         &self.payload
     }
+
+    #[inline]
+    fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
+        &self.signatures
+    }
 }
 
 #[cfg(feature = "std")]
-impl Sign for SignedTransaction {
+impl Sign for VersionedSignedTransaction {
     fn sign(
-        mut self,
+        self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error> {
-        let signature = SignatureOf::new(key_pair, &self.payload)?;
-        self.signatures.insert(signature);
+    ) -> Result<VersionedSignedTransaction, iroha_crypto::Error> {
+        let VersionedSignedTransaction::V1(mut tx) = self;
+        let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload)?;
+        tx.signatures.insert(signature);
 
         Ok(SignedTransaction {
-            payload: self.payload,
-            signatures: self.signatures,
-        })
+            payload: tx.payload,
+            signatures: tx.signatures,
+        }
+        .into())
     }
 }
 
@@ -555,7 +458,7 @@ impl TransactionValue {
     pub fn payload(&self) -> &TransactionPayload {
         match self {
             TransactionValue::Transaction(tx) => tx.payload(),
-            TransactionValue::RejectedTransaction(tx) => tx.payload(),
+            TransactionValue::RejectedTransaction(tx) => tx.0.payload(),
         }
     }
 }
@@ -571,8 +474,8 @@ impl Ord for TransactionValue {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.payload()
-            .creation_time
-            .cmp(&other.payload().creation_time)
+            .creation_time_ms
+            .cmp(&other.payload().creation_time_ms)
     }
 }
 
@@ -595,233 +498,8 @@ impl Ord for TransactionQueryResult {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.payload()
-            .creation_time
-            .cmp(&other.payload().creation_time)
-    }
-}
-
-#[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
-declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
-#[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
-declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
-
-impl VersionedValidTransaction {
-    /// Convert from `&VersionedValidTransaction` to V1 reference
-    #[inline]
-    pub const fn as_v1(&self) -> &ValidTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Convert from `&mut VersionedValidTransaction` to V1 mutable reference
-    #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut ValidTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Performs the conversion from `VersionedValidTransaction` to V1
-    #[inline]
-    pub fn into_v1(self) -> ValidTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-}
-
-impl Transaction for VersionedValidTransaction {
-    type HashOf = VersionedSignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &TransactionPayload {
-        &self.as_v1().payload
-    }
-}
-
-impl ValidTransaction {
-    /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
-        self.signatures.iter()
-    }
-}
-
-impl Transaction for ValidTransaction {
-    type HashOf = SignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &TransactionPayload {
-        &self.payload
-    }
-}
-
-#[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
-#[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, IntoSchema);
-
-impl VersionedRejectedTransaction {
-    /// Convert from `&VersionedRejectedTransaction` to V1 reference
-    #[inline]
-    pub const fn as_v1(&self) -> &RejectedTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Convert from `&mut VersionedRejectedTransaction` to V1 mutable reference
-    #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut RejectedTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Performs the conversion from `VersionedRejectedTransaction` to V1
-    #[inline]
-    pub fn into_v1(self) -> RejectedTransaction {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-}
-
-impl Transaction for VersionedRejectedTransaction {
-    type HashOf = VersionedSignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &TransactionPayload {
-        match self {
-            Self::V1(v1) => &v1.payload,
-        }
-    }
-}
-
-impl RejectedTransaction {
-    /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
-        self.signatures.iter()
-    }
-}
-
-impl Transaction for RejectedTransaction {
-    type HashOf = SignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &TransactionPayload {
-        &self.payload
-    }
-}
-
-impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
-    fn from(transaction: VersionedRejectedTransaction) -> Self {
-        match transaction {
-            VersionedRejectedTransaction::V1(transaction) => {
-                let signatures = transaction.signatures.into();
-
-                SignedTransaction {
-                    payload: transaction.payload,
-                    signatures,
-                }
-                .into()
-            }
-        }
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, Serialize);
-
-#[cfg(feature = "transparent_api")]
-impl VersionedAcceptedTransaction {
-    /// Convert from `&VersionedAcceptedTransaction` to V1 reference
-    pub const fn as_v1(&self) -> &AcceptedTransaction {
-        match self {
-            VersionedAcceptedTransaction::V1(v1) => v1,
-        }
-    }
-
-    /// Convert from `&mut VersionedAcceptedTransaction` to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut AcceptedTransaction {
-        match self {
-            VersionedAcceptedTransaction::V1(v1) => v1,
-        }
-    }
-
-    /// Performs the conversion from `VersionedAcceptedTransaction` to V1
-    pub fn into_v1(self) -> AcceptedTransaction {
-        match self {
-            VersionedAcceptedTransaction::V1(v1) => v1,
-        }
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl Transaction for VersionedAcceptedTransaction {
-    type HashOf = VersionedSignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &TransactionPayload {
-        &self.as_v1().payload
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl Transaction for AcceptedTransaction {
-    type HashOf = SignedTransaction;
-
-    #[inline]
-    fn payload(&self) -> &TransactionPayload {
-        &self.payload
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl AcceptedTransaction {
-    /// Accept transaction. Transition from [`Transaction`] to [`AcceptedTransaction`].
-    ///
-    /// # Errors
-    ///
-    /// - if it does not adhere to limits
-    /// - if signature verification fails
-    #[cfg(feature = "std")]
-    pub fn accept<const IS_GENESIS: bool>(
-        transaction: SignedTransaction,
-        limits: &TransactionLimits,
-    ) -> Result<Self, error::AcceptTransactionFailure> {
-        if !IS_GENESIS {
-            transaction.check_limits(limits)?
-        }
-        let signatures: SignaturesOf<_> = transaction
-            .signatures
-            .try_into()
-            .expect("Transaction should have at least one signature");
-        signatures.verify(&transaction.payload)?;
-
-        Ok(Self {
-            payload: transaction.payload,
-            signatures,
-        })
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
-    fn from(tx: VersionedAcceptedTransaction) -> Self {
-        let tx: AcceptedTransaction = tx.into_v1();
-        let tx: SignedTransaction = tx.into();
-        tx.into()
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl From<AcceptedTransaction> for SignedTransaction {
-    fn from(transaction: AcceptedTransaction) -> Self {
-        SignedTransaction {
-            payload: transaction.payload,
-            signatures: transaction.signatures.into_iter().collect(),
-        }
+            .creation_time_ms
+            .cmp(&other.payload().creation_time_ms)
     }
 }
 
@@ -871,18 +549,6 @@ pub mod error {
     #[model]
     pub mod model {
         use super::*;
-
-        /// Error type for transaction from [`Transaction`] to [`AcceptedTransaction`]
-        #[derive(Debug, Display, FromVariant)]
-        #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub(crate) enum AcceptTransactionFailure {
-            /// Failure during limits check
-            TransactionLimit(#[cfg_attr(feature = "std", source)] TransactionLimitError),
-            /// Failure during signature verification
-            SignatureVerification(
-                #[cfg_attr(feature = "std", source)] SignatureVerificationFail<TransactionPayload>,
-            ),
-        }
 
         /// Error which indicates max instruction count was reached
         #[derive(
@@ -1150,6 +816,8 @@ mod http {
 
     #[model]
     pub mod model {
+        use iroha_version::version_with_scale;
+
         use super::*;
 
         /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
@@ -1159,43 +827,17 @@ mod http {
         #[repr(transparent)]
         // SAFETY: `PendingTransactions` has no trap representation in `Vec<Transaction>`
         #[ffi_type(unsafe {robust})]
-        pub struct PendingTransactions(pub(super) Vec<SignedTransaction>);
+        pub struct PendingTransactions(pub(super) Vec<VersionedSignedTransaction>);
     }
 
-    impl VersionedPendingTransactions {
-        /// Convert from `&VersionedPendingTransactions` to V1 reference
-        #[inline]
-        pub const fn as_v1(&self) -> &PendingTransactions {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Convert from `&mut VersionedPendingTransactions` to V1 mutable reference
-        #[inline]
-        pub fn as_mut_v1(&mut self) -> &mut PendingTransactions {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Performs the conversion from `VersionedPendingTransactions` to V1
-        #[inline]
-        pub fn into_v1(self) -> PendingTransactions {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
-
-    impl FromIterator<SignedTransaction> for PendingTransactions {
-        fn from_iter<T: IntoIterator<Item = SignedTransaction>>(iter: T) -> Self {
-            Self(iter.into_iter().collect())
+    impl FromIterator<VersionedSignedTransaction> for VersionedPendingTransactions {
+        fn from_iter<T: IntoIterator<Item = VersionedSignedTransaction>>(iter: T) -> Self {
+            PendingTransactions(iter.into_iter().collect::<Vec<_>>()).into()
         }
     }
 
     impl IntoIterator for PendingTransactions {
-        type Item = SignedTransaction;
+        type Item = VersionedSignedTransaction;
 
         type IntoIter = vec::IntoIter<Self::Item>;
 
@@ -1221,13 +863,10 @@ pub mod prelude {
     #[cfg(feature = "std")]
     pub use super::Sign;
     pub use super::{
-        error::prelude::*, Executable, RejectedTransaction, SignedTransaction, Transaction,
-        TransactionBuilder, TransactionLimits, TransactionPayload, TransactionQueryResult,
-        TransactionValue, ValidTransaction, VersionedRejectedTransaction,
-        VersionedSignedTransaction, VersionedValidTransaction, WasmSmartContract,
+        error::prelude::*, Executable, Transaction, TransactionBuilder, TransactionLimits,
+        TransactionPayload, TransactionQueryResult, TransactionValue, VersionedSignedTransaction,
+        WasmSmartContract,
     };
-    #[cfg(feature = "transparent_api")]
-    pub use super::{AcceptedTransaction, VersionedAcceptedTransaction};
 }
 
 #[cfg(test)]
@@ -1235,64 +874,6 @@ mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
     use super::*;
-    #[cfg(feature = "transparent_api")]
-    use crate::prelude::FailBox;
-
-    #[test]
-    #[cfg(feature = "transparent_api")]
-    fn transaction_not_accepted_max_instruction_number() {
-        let key_pair = iroha_crypto::KeyPair::generate().expect("Failed to generate key pair.");
-        let inst: InstructionBox = FailBox {
-            message: "Will fail".to_owned(),
-        }
-        .into();
-        let tx = TransactionBuilder::new(
-            "root@global".parse().expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
-            1000,
-        )
-        .sign(key_pair)
-        .expect("Valid");
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-        let result = AcceptedTransaction::accept::<false>(tx, &tx_limits);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            format!(
-                "Too many instructions in payload, max number is {}, but got {}",
-                tx_limits.max_instruction_number,
-                DEFAULT_MAX_INSTRUCTION_NUMBER + 1
-            )
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "transparent_api")]
-    fn genesis_transaction_ignore_limits() {
-        let key_pair = iroha_crypto::KeyPair::generate().expect("Failed to generate key pair.");
-        let inst: InstructionBox = FailBox {
-            message: "Will fail".to_owned(),
-        }
-        .into();
-        let tx = TransactionBuilder::new(
-            "root@global".parse().expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
-            1000,
-        )
-        .sign(key_pair)
-        .expect("Valid");
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-
-        assert!(AcceptedTransaction::accept::<true>(tx, &tx_limits).is_ok());
-    }
 
     #[test]
     fn wasm_smart_contract_debug_repr_should_contain_just_len() {

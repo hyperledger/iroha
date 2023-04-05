@@ -489,6 +489,28 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
     }
 }
 
+// TODO: Implement for all tuples?
+impl<F: TypeId, S: TypeId> TypeId for (F, S) {
+    fn id() -> String {
+        format!("Tuple2<{}, {}>", F::id(), S::id())
+    }
+}
+impl<F: IntoSchema, S: IntoSchema> IntoSchema for (F, S) {
+    fn type_name() -> String {
+        format!("Tuple2<{}, {}>", F::type_name(), S::type_name())
+    }
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta {
+                types: vec![core::any::TypeId::of::<F>(), core::any::TypeId::of::<S>()],
+            }));
+
+            F::update_schema_map(map);
+            S::update_schema_map(map);
+        }
+    }
+}
+
 pub mod prelude {
     //! Exports common types.
 

@@ -50,7 +50,7 @@ pub enum Error {
     Query(#[from] iroha_data_model::query::error::QueryExecutionFailure),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
-    AcceptTransaction(#[from] iroha_data_model::transaction::error::AcceptTransactionFailure),
+    AcceptTransaction(#[from] iroha_genesis::AcceptTransactionFailure),
     /// Error while getting or setting configuration
     #[error("Configuration error: {0}")]
     Config(#[source] eyre::Report),

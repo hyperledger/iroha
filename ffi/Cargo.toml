@@ -12,7 +12,7 @@ categories = ["development-tools::ffi"]
 # Enables sharing mutable references of non-robust transmutable types across FFI.
 # When handing out non-robust mutable references across FFI, it's possible for the caller
 # to modify the given reference and store a trap representation causing immediate UB.
-non_robust_ref_mut = []
+non-robust-ref-mut = []
 
 [dependencies]
 iroha_ffi_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }

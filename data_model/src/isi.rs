@@ -84,7 +84,7 @@ pub mod model {
         name(InstructionType),
         derive(Display),
         cfg_attr(
-            any(feature = "ffi_import", feature = "ffi_export"),
+            any(feature = "ffi-export", feature = "ffi-import"),
             derive(iroha_ffi::FfiType)
         ),
         allow(missing_docs),

@@ -136,7 +136,7 @@ mod accept_all_as_string {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl<F: Filter> Filter for FilterOpt<F> {
     type Event = F::Event;
 
@@ -148,7 +148,7 @@ impl<F: Filter> Filter for FilterOpt<F> {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Filter for DataEntityFilter {
     type Event = DataEvent;
 
@@ -180,7 +180,7 @@ where
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl<T: HasOrigin> Filter for OriginFilter<T>
 where
     <T::Origin as Identifiable>::Id:
@@ -222,7 +222,7 @@ pub mod prelude {
 }
 
 #[cfg(test)]
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::collections::BTreeSet;
@@ -237,7 +237,7 @@ mod tests {
     };
 
     #[test]
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     fn entity_scope() {
         let domain_name = "wonderland".parse().expect("Valid");
         let account_name = "alice".parse().expect("Valid");

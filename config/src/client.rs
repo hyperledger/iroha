@@ -6,9 +6,11 @@ use derive_more::Display;
 use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{Documented, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
-use iroha_data_model::{prelude::*, transaction};
+use iroha_data_model::prelude::*;
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
+
+use crate::sumeragi::{DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES};
 
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 15_000;
@@ -99,8 +101,8 @@ impl Default for ConfigurationProxy {
             transaction_time_to_live_ms: Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS),
             transaction_status_timeout_ms: Some(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS),
             transaction_limits: Some(TransactionLimits::new(
-                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+                DEFAULT_MAX_INSTRUCTION_NUMBER,
+                DEFAULT_MAX_WASM_SIZE_BYTES,
             )),
             add_transaction_nonce: Some(DEFAULT_ADD_TRANSACTION_NONCE),
         }
@@ -271,8 +273,8 @@ mod tests {
                 transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
                 transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
                 transaction_limits in prop::option::of(Just(TransactionLimits::new(
-                    transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                    transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+                    DEFAULT_MAX_INSTRUCTION_NUMBER,
+                    DEFAULT_MAX_WASM_SIZE_BYTES,
                 ))),
                 add_transaction_nonce in prop::option::of(Just(DEFAULT_ADD_TRANSACTION_NONCE)),
             )

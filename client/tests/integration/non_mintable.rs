@@ -32,7 +32,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     let tx = test_client.build_transaction(instructions, metadata)?;
 
     // We can register and mint the non-mintable token
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id

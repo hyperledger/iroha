@@ -9,7 +9,7 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
@@ -31,7 +31,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::GenesisNetwork;
+use iroha_genesis::{GenesisNetwork, GENESIS_ACCOUNT_ID, GENESIS_DOMAIN_ID};
 use iroha_logger::prelude::span;
 use tokio::{
     signal,
@@ -151,15 +151,23 @@ impl NetworkRelay {
         use iroha_core::NetworkMessage::*;
 
         #[cfg(debug_assertions)]
-        if self.freeze_status.load(Ordering::SeqCst) {
+        if self
+            .freeze_status
+            .load(core::sync::atomic::Ordering::SeqCst)
+        {
             return;
         }
 
         match msg {
             SumeragiPacket(data) => {
-                self.sumeragi.incoming_message(data.into_v1());
+                let iroha_core::sumeragi::message::VersionedPacket::V1(data) = *data;
+                self.sumeragi.incoming_message(data);
             }
-            BlockSync(data) => self.block_sync.message(data.into_v1()).await,
+            BlockSync(data) => {
+                let iroha_core::block_sync::message::VersionedMessage::V1(data) = *data;
+                self.block_sync.message(data).await
+            }
+            // TODO: Should be versioned?
             TransactionGossiper(data) => self.gossiper.gossip(*data).await,
             Health => {}
         }
@@ -253,7 +261,7 @@ impl Iroha {
             let wsv_clone = wsv.clone();
 
             transaction_validator
-                .validate_every(genesis.iter().cloned(), &wsv_clone)
+                .validate_every::<true>(genesis.iter().cloned(), &wsv_clone)
                 .wrap_err("Transaction validation failed in genesis block")?;
             span.exit();
         }
@@ -386,6 +394,7 @@ impl Iroha {
         if let Some((substrate_telemetry, telemetry_future)) = telemetry {
             #[cfg(feature = "dev-telemetry")]
             {
+                // TODO: JoinHandle is just dropped here. It should be joined
                 iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
                     .await
                     .wrap_err("Failed to setup telemetry for futures")?;
@@ -438,17 +447,15 @@ impl Iroha {
 }
 
 fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
-    let genesis_account_id = AccountId::genesis();
-    Account::new(genesis_account_id.clone(), [public_key]).build(genesis_account_id)
+    Account::new(GENESIS_ACCOUNT_ID.clone(), [public_key]).build(GENESIS_ACCOUNT_ID.clone())
 }
 
 fn genesis_domain(configuration: &Configuration) -> Domain {
-    let genesis_account_id = AccountId::genesis();
     let account_public_key = &configuration.genesis.account_public_key;
-    let mut domain = Domain::new(DomainId::genesis()).build(genesis_account_id);
+    let mut domain = Domain::new(GENESIS_DOMAIN_ID.clone()).build(GENESIS_ACCOUNT_ID.clone());
 
     domain.accounts.insert(
-        <Account as Identifiable>::Id::genesis(),
+        GENESIS_ACCOUNT_ID.clone(),
         genesis_account(account_public_key.clone()),
     );
 

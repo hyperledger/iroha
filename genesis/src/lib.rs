@@ -16,15 +16,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use derive_more::{Deref, From};
+use derive_more::{Deref, Display, From};
 use eyre::{bail, eyre, ErrReport, Result, WrapErr};
 use iroha_config::genesis::Configuration;
-use iroha_crypto::{KeyPair, PublicKey};
+use iroha_crypto::{KeyPair, PublicKey, SignatureVerificationFail, SignaturesOf};
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
+    transaction::{error::TransactionLimitError, SignedTransaction},
     validator::Validator,
 };
+use iroha_macro::FromVariant;
 use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::IntoSchema;
 use serde::{Deserialize, Serialize};
@@ -32,9 +34,85 @@ use serde::{Deserialize, Serialize};
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 
+/// `AcceptedTransaction` — a transaction accepted by iroha peer.
+#[derive(Debug, Clone)]
+pub struct AcceptedTransaction {
+    /// Transaction payload.
+    pub payload: TransactionPayload,
+    /// Transaction signatures.
+    pub signatures: SignaturesOf<TransactionPayload>,
+}
+
+/// Error type for transaction from [`Transaction`] to [`AcceptedTransaction`]
+#[derive(Debug, Display, FromVariant, thiserror::Error)]
+pub enum AcceptTransactionFailure {
+    /// Failure during limits check
+    TransactionLimit(#[source] TransactionLimitError),
+    /// Failure during signature verification
+    SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
+}
+
+/// [`Id`] of the genesis domain.
+pub static GENESIS_DOMAIN_ID: once_cell::sync::Lazy<DomainId> =
+    once_cell::sync::Lazy::new(|| "genesis".parse().expect("Valid"));
+/// [`Id`] of the genesis account.
+pub static GENESIS_ACCOUNT_ID: once_cell::sync::Lazy<AccountId> =
+    once_cell::sync::Lazy::new(|| "genesis@genesis".parse().expect("Valid"));
+
+impl Transaction for AcceptedTransaction {
+    #[inline]
+    fn payload(&self) -> &TransactionPayload {
+        &self.payload
+    }
+
+    #[inline]
+    fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
+        &self.signatures
+    }
+}
+
+impl AcceptedTransaction {
+    /// Accept transaction. Transition from [`Transaction`] to [`AcceptedTransaction`].
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    pub fn accept<const IS_GENESIS: bool>(
+        transaction: VersionedSignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<AcceptedTransaction, (VersionedSignedTransaction, AcceptTransactionFailure)> {
+        if let Err(error) = transaction.signatures().verify(transaction.payload()) {
+            return Err((transaction, error.into()));
+        }
+
+        if !IS_GENESIS {
+            if let Err(error) = transaction.check_limits(limits) {
+                return Err((transaction, error.into()));
+            }
+        }
+
+        let VersionedSignedTransaction::V1(v1_transaction) = transaction;
+        Ok(Self {
+            payload: v1_transaction.payload,
+            signatures: v1_transaction.signatures,
+        })
+    }
+}
+
+impl From<AcceptedTransaction> for VersionedSignedTransaction {
+    fn from(source: AcceptedTransaction) -> Self {
+        SignedTransaction {
+            payload: source.payload,
+            signatures: source.signatures,
+        }
+        .into()
+    }
+}
+
 /// Genesis network trait for mocking
 pub trait GenesisNetworkTrait:
-    Deref<Target = Vec<VersionedAcceptedTransaction>> + Sync + Send + 'static + Sized + Debug
+    Deref<Target = Vec<AcceptedTransaction>> + Sync + Send + 'static + Sized + Debug
 {
     /// Construct [`GenesisNetwork`] from configuration.
     ///
@@ -53,7 +131,7 @@ pub trait GenesisNetworkTrait:
 pub struct GenesisNetwork {
     /// transactions from `GenesisBlock`, any transaction is accepted
     #[deref]
-    pub transactions: Vec<VersionedAcceptedTransaction>,
+    pub transactions: Vec<AcceptedTransaction>,
 }
 
 impl GenesisNetworkTrait for GenesisNetwork {
@@ -240,14 +318,18 @@ impl GenesisTransaction {
         self,
         genesis_key_pair: KeyPair,
         limits: &TransactionLimits,
-    ) -> Result<VersionedAcceptedTransaction> {
-        let transaction =
-            TransactionBuilder::new(AccountId::genesis(), self.isi, GENESIS_TRANSACTIONS_TTL_MS)
-                .sign(genesis_key_pair)?;
+    ) -> Result<AcceptedTransaction> {
+        let transaction = TransactionBuilder::new(
+            GENESIS_ACCOUNT_ID.clone(),
+            self.isi,
+            GENESIS_TRANSACTIONS_TTL_MS,
+        )
+        .sign(genesis_key_pair)?;
 
         AcceptedTransaction::accept::<true>(transaction, limits)
-            .wrap_err("Failed to accept transaction")
             .map(Into::into)
+            .map_err(|(_block, error)| error)
+            .wrap_err("Failed to accept transaction")
     }
 }
 
@@ -357,7 +439,7 @@ impl<S> RawGenesisDomainBuilder<S> {
 
     /// Add an account to this domain without a public key.
     #[cfg(test)]
-    pub fn account_without_public_key(mut self, account_name: Name) -> Self {
+    fn account_without_public_key(mut self, account_name: Name) -> Self {
         let account_id = AccountId::new(account_name, self.domain_id.clone());
         self.transaction
             .isi

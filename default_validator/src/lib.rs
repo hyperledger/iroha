@@ -9,7 +9,7 @@ extern crate panic_halt;
 
 pub mod isi;
 
-use iroha_validator::{pass_conditions, prelude::*};
+use iroha_validator::{data_model::transaction::SignedTransaction, pass_conditions, prelude::*};
 
 /// Apply `callback` macro for all token types from this crate.
 ///

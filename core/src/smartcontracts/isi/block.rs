@@ -1,8 +1,11 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
-use iroha_data_model::query::{
-    block::FindBlockHeaderByHash,
-    error::{FindError, QueryExecutionFailure},
+use iroha_data_model::{
+    block::Block,
+    query::{
+        block::FindBlockHeaderByHash,
+        error::{FindError, QueryExecutionFailure},
+    },
 };
 use iroha_telemetry::metrics;
 
@@ -22,7 +25,7 @@ impl ValidQuery for FindAllBlockHeaders {
         let block_headers = wsv
             .all_blocks_by_value()
             .rev()
-            .map(|block| block.into_v1().header)
+            .map(|VersionedSignedBlock::V1(block)| block.payload.header)
             .collect();
         Ok(block_headers)
     }
@@ -35,14 +38,11 @@ impl ValidQuery for FindBlockHeaderByHash {
             .hash
             .evaluate(&Context::new(wsv))
             .wrap_err("Failed to evaluate hash")
-            .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?
-            .typed();
+            .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
 
-        let block = wsv
-            .all_blocks_by_value()
+        wsv.all_blocks_by_value()
             .find(|block| block.hash() == hash)
-            .ok_or_else(|| QueryExecutionFailure::Find(Box::new(FindError::Block(hash))))?;
-
-        Ok(block.into_v1().header)
+            .ok_or_else(|| QueryExecutionFailure::Find(Box::new(FindError::Block(hash))))
+            .map(|VersionedSignedBlock::V1(block)| block.payload.header)
     }
 }

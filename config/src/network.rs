@@ -11,6 +11,7 @@ const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 #[config(env_prefix = "IROHA_NETWORK_")]
 pub struct Configuration {
     /// Buffer capacity of actor's MPSC channel
+    #[deprecated(since = "2.0.0-pre-rc.13", note = "Will be removed in future versions")]
     pub actor_channel_capacity: u32,
 }
 

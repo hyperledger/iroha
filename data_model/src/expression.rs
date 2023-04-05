@@ -1,7 +1,7 @@
 //! Expressions to use inside of ISIs.
 
 #![allow(
-    // Because of `codec(skip)`
+    // Caused by #[codec(skip)]
     clippy::default_trait_access,
     // Because of length on instructions and expressions (can't be 0)
     clippy::len_without_is_empty,

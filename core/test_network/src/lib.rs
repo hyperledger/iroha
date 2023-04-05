@@ -177,7 +177,6 @@ impl Network {
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.sumeragi.max_transactions_in_block = max_txs_in_block;
-        configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
         let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers,
@@ -782,34 +781,6 @@ pub trait TestClient: Sized {
         R::Output: Clone + Debug;
 }
 
-#[cfg(feature = "query")]
-pub mod query {
-    //! Query mocking module.
-    use super::*;
-
-    /// Query result mocking trait.
-    pub trait TestQueryResult {
-        /// Tries to find asset by id
-        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
-    }
-
-    impl TestQueryResult for QueryResult {
-        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-            let QueryResult(Value::Vec(assets)) = self else {
-                panic!("Wrong Query Result Type.");
-            };
-            assets.iter().find_map(|asset| {
-                if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                    if &asset.id().definition_id == asset_id {
-                        return Some(asset.as_ref());
-                    }
-                }
-                None
-            })
-        }
-    }
-}
-
 impl TestRuntime for Runtime {
     fn test() -> Self {
         runtime::Builder::new_multi_thread()
@@ -826,6 +797,9 @@ impl TestConfiguration for Configuration {
             iroha::samples::get_config_proxy(HashSet::new(), Some(get_key_pair()));
         let env_proxy = ConfigurationProxy::from_env();
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
+        if let Some(logger) = sample_proxy.logger.as_mut() {
+            logger.max_log_level = Some(iroha_logger::Level::DEBUG.into());
+        }
         sample_proxy.public_key = Some(public_key);
         sample_proxy.private_key = Some(private_key);
         sample_proxy.override_with(env_proxy)

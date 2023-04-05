@@ -17,11 +17,10 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "fixnum/std", "thiserror"]
+# Expose FFI API for dynamic linking (only applicable if crate-type = "cdylib")
+ffi-export = ["std", "iroha_ffi"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-#ffi_import = ["iroha_ffi"]
-
-# Expose FFI API for dynamic linking (Internal use only)
-ffi_export = ["std", "iroha_ffi"]
+#ffi-import = ["iroha_ffi"]
 
 [dependencies]
 iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.13", default-features = false }

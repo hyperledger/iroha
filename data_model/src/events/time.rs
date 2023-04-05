@@ -135,7 +135,7 @@ pub mod model {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Filter for TimeEventFilter {
     type Event = TimeEvent;
 
@@ -172,7 +172,7 @@ impl Filter for TimeEventFilter {
 }
 
 /// Count something with the `schedule` within the `interval`
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 fn count_matches_in_interval(schedule: &Schedule, interval: &TimeInterval) -> u32 {
     schedule.period.map_or_else(
         || u32::from(Range::from(*interval).contains(&schedule.start)),
@@ -199,7 +199,7 @@ fn count_matches_in_interval(schedule: &Schedule, interval: &TimeInterval) -> u3
 ///
 /// # Panics
 /// Panics if resulting number in seconds can't be represented as `u64`
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
     if let Ok(n) = u32::try_from(n) {
         return duration * n;
@@ -251,7 +251,7 @@ pub mod prelude {
 }
 
 #[cfg(test)]
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 mod tests {
     use super::*;
 

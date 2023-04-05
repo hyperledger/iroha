@@ -336,7 +336,7 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 ffi::ffi_item! {
     /// Public Key used in signatures.
     #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
-    #[debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}")]
+    #[debug(fmt = "digest: {digest_function}, payload: {}", "hex::encode_upper(&self.payload)")]
     pub struct PublicKey {
         /// Digest function
         digest_function: Algorithm,
@@ -346,10 +346,10 @@ ffi::ffi_item! {
 }
 
 #[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
+    all(feature = "ffi-export", not(feature = "ffi-import")),
     iroha_ffi::ffi_export
 )]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+#[cfg_attr(feature = "ffi-import", iroha_ffi::ffi_import)]
 impl PublicKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -421,8 +421,9 @@ impl From<PrivateKey> for PublicKey {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, Serialize, FfiType)]
-    #[debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}")]
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, Serialize, FfiType)]
+    #[debug(fmt = "digest: {digest_function}, payload: {}", "hex::encode_upper(&self.payload)")]
+    #[display(fmt = "{}", "hex::encode_upper(&self.payload)")]
     pub struct PrivateKey {
         /// Digest function
         digest_function: Algorithm,
@@ -432,17 +433,11 @@ ffi::ffi_item! {
     }
 }
 
-impl fmt::Display for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode_upper(&self.payload))
-    }
-}
-
 #[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
+    all(feature = "ffi-export", not(feature = "ffi-import")),
     iroha_ffi::ffi_export
 )]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+#[cfg_attr(feature = "ffi-import", iroha_ffi::ffi_import)]
 impl PrivateKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -528,15 +523,15 @@ pub mod ffi {
 
     macro_rules! ffi_item {
         ($it: item) => {
-            #[cfg(not(feature = "ffi_import"))]
+            #[cfg(not(feature = "ffi-import"))]
             $it
 
-            #[cfg(feature = "ffi_import")]
+            #[cfg(feature = "ffi-import")]
             iroha_ffi::ffi! { $it }
         };
     }
 
-    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+    #[cfg(any(feature = "ffi-export", feature = "ffi-import"))]
     macro_rules! ffi_fn {
         ($macro_name: ident) => {
             iroha_ffi::$macro_name! { "iroha_crypto" Clone: KeyPair, PublicKey, PrivateKey }
@@ -548,14 +543,14 @@ pub mod ffi {
 
     iroha_ffi::handles! {KeyPair, PublicKey, PrivateKey}
 
-    #[cfg(feature = "ffi_import")]
+    #[cfg(feature = "ffi-import")]
     ffi_fn! {decl_ffi_fn}
-    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    #[cfg(all(feature = "ffi-export", not(feature = "ffi-import")))]
     ffi_fn! {def_ffi_fn}
 
     // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
     #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
-    #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+    #[cfg(all(feature = "ffi-export", not(feature = "ffi-import")))]
     mod dylib {
         #[cfg(not(feature = "std"))]
         use alloc::alloc;

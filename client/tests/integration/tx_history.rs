@@ -51,7 +51,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
             .build_transaction(instructions, UnlimitedMetadata::new())
             .expect("Failed to create transaction");
         iroha_client
-            .submit_transaction(transaction)
+            .submit_transaction(&transaction)
             .expect("Failed to submit transaction");
     }
     thread::sleep(pipeline_time * 5);
@@ -69,7 +69,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     for tx in &transactions {
         assert_eq!(&tx.payload().account_id, &account_id);
         //check sorted
-        assert!(tx.payload().creation_time >= prev_creation_time);
-        prev_creation_time = tx.payload().creation_time;
+        assert!(tx.payload().creation_time_ms >= prev_creation_time);
+        prev_creation_time = tx.payload().creation_time_ms;
     }
 }

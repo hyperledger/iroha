@@ -99,7 +99,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     );
     let instructions: Vec<InstructionBox> = vec![create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
@@ -130,7 +130,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     );
     let instructions: Vec<InstructionBox> = vec![create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
@@ -162,7 +162,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     );
     let instructions: Vec<InstructionBox> = vec![create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
@@ -271,7 +271,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         .expect("Failed to sign seller transaction");
 
         test_client
-            .submit_transaction_blocking(grant_asset_transfer_tx)
+            .submit_transaction_blocking(&grant_asset_transfer_tx)
             .expect(&format!(
                 "Failed to grant permission alice to transfer {}.",
                 asset_id

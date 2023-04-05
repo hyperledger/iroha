@@ -2,7 +2,7 @@
 use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
-use derive_more::{DebugCustom, Deref, DerefMut, Display};
+use derive_more::{DebugCustom, Display};
 use iroha_ffi::FfiType;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
@@ -74,7 +74,7 @@ impl Hash {
     /// since it is not possible to validate the correctness of the conversion.
     /// Prefer creating new hashes with [`HashOf::new`] whenever possible
     #[must_use]
-    pub const fn typed<T>(self) -> HashOf<T> {
+    pub(crate) const fn typed_unchecked<T>(self) -> HashOf<T> {
         HashOf(self, PhantomData)
     }
 
@@ -199,23 +199,15 @@ impl<T> From<HashOf<T>> for Hash {
 }
 
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
-// Lint triggers when expanding #[codec(skip)]
-#[allow(clippy::default_trait_access)]
-#[derive(
-    DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize, FfiType, TypeId,
-)]
+#[allow(clippy::default_trait_access)] // NOTE: Caused by #[codec(skip)]
+#[derive(DebugCustom, Display, Decode, Encode, Deserialize, Serialize, FfiType, TypeId)]
 #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
 #[display(fmt = "{_0}")]
 #[serde(transparent)]
 #[repr(transparent)]
 // TODO: Temporary until PRs are resolved
 #[ffi_type(opaque)]
-pub struct HashOf<T>(
-    #[deref]
-    #[deref_mut]
-    Hash,
-    #[codec(skip)] PhantomData<T>,
-);
+pub struct HashOf<T>(Hash, #[codec(skip)] PhantomData<T>);
 
 impl<T> Clone for HashOf<T> {
     fn clone(&self) -> Self {

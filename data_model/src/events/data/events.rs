@@ -526,7 +526,7 @@ mod validator {
         }
     }
 
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     impl super::Filter for ValidatorFilter {
         type Event = ValidatorEvent;
 

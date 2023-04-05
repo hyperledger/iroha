@@ -51,13 +51,13 @@ pub fn process_item(item: syn::Item) -> TokenStream {
     }
 
     let non_transparent_item = quote! {
-        #[cfg(not(feature = "transparent_api"))]
+        #[cfg(not(feature = "_transparent-api"))]
         #input
     };
 
     input.vis = parse_quote! {pub};
     let transparent_item = quote! {
-        #[cfg(feature = "transparent_api")]
+        #[cfg(feature = "_transparent-api")]
         #input
     };
 
@@ -86,11 +86,11 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
                     }
 
                     quote! {
-                        #[cfg(feature = "transparent_api")]
+                        #[cfg(feature = "_transparent-api")]
                         #(#field_attrs)*
                         pub #field_name: #field_ty,
 
-                        #[cfg(not(feature = "transparent_api"))]
+                        #[cfg(not(feature = "_transparent-api"))]
                         #(#field_attrs)*
                         pub(crate) #field_name: #field_ty,
                     }
@@ -114,11 +114,11 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
                     }
 
                     quote! {
-                        #[cfg(feature = "transparent_api")]
+                        #[cfg(feature = "_transparent-api")]
                         #(#field_attrs)*
                         pub #field_ty,
 
-                        #[cfg(not(feature = "transparent_api"))]
+                        #[cfg(not(feature = "_transparent-api"))]
                         #(#field_attrs)*
                         pub(crate) #field_ty,
                     }
@@ -163,11 +163,11 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
 
                 quote! {
                     #(#field_attrs)*
-                    #[cfg(feature = "transparent_api")]
+                    #[cfg(feature = "_transparent-api")]
                     pub #field_name: #field_ty,
 
                     #(#field_attrs)*
-                    #[cfg(not(feature = "transparent_api"))]
+                    #[cfg(not(feature = "_transparent-api"))]
                     pub(crate) #field_name: #field_ty,
                 }
             });
@@ -202,16 +202,16 @@ fn expose_ffi(mut attrs: Vec<Attribute>, item: &TokenStream) -> TokenStream {
         .collect();
 
     quote! {
-        #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
+        #[cfg(all(not(feature = "ffi-export"), not(feature = "ffi-import")))]
         #(#no_ffi_attrs)*
         #item
 
-        #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+        #[cfg(all(feature = "ffi-export", not(feature = "ffi-import")))]
         #[derive(iroha_ffi::FfiType)]
         #(#attrs)*
         #item
 
-        #[cfg(feature = "ffi_import")]
+        #[cfg(feature = "ffi-import")]
         iroha_ffi::ffi! {
             #(#attrs)*
             #item

@@ -196,13 +196,13 @@ impl PipelineEventFilter {
     }
 
     #[inline]
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     fn field_matches<T: Eq>(filter: Option<&T>, event: &T) -> bool {
         filter.map_or(true, |field| field == event)
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl super::Filter for PipelineEventFilter {
     type Event = PipelineEvent;
 
@@ -219,7 +219,7 @@ impl super::Filter for PipelineEventFilter {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl PipelineStatus {
     fn kind(&self) -> PipelineStatusKind {
         PipelineStatusKind::from(self)
@@ -235,7 +235,7 @@ pub mod prelude {
 }
 
 #[cfg(test)]
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 mod tests {
     #![allow(clippy::restriction)]
 

@@ -101,7 +101,10 @@ pub mod handler {
         fn drop(&mut self) {
             (self.shutdown.take().expect("Always some after init"))();
             let handle = self.handle.take().expect("Always some after init");
-            let _joined = handle.join();
+
+            if let Err(error) = handle.join() {
+                iroha_logger::error!(?error, "Fatal error: thread panicked");
+            }
         }
     }
 }
@@ -115,10 +118,6 @@ pub mod prelude {
     #[doc(inline)]
     pub use crate::{
         smartcontracts::ValidQuery,
-        tx::{
-            AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
-            VersionedValidTransaction,
-        },
         wsv::{World, WorldStateView},
         IsInBlockchain,
     };

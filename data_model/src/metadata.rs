@@ -228,7 +228,7 @@ impl Metadata {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Metadata {
     /// Removes a key from the map, returning the owned
     /// `Some(value)` at the key if the key was previously in the
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     fn nested_fns_ignore_empty_path() {
         let mut metadata = Metadata::new();
         let empty_path = vec![];
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     fn nesting_inserts_removes() -> Result<(), TestError> {
         let mut metadata = Metadata::new();
         let limits = Limits::new(1024, 1024);
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     fn non_existent_path_segment_fails() -> Result<(), TestError> {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 15);

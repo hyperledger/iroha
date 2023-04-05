@@ -76,7 +76,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
     let grant_role_tx = TransactionBuilder::new(mouse_id.clone(), vec![grant_role.into()], 100_000)
         .sign(mouse_key_pair)?;
-    test_client.submit_transaction_blocking(grant_role_tx)?;
+    test_client.submit_transaction_blocking(&grant_role_tx)?;
 
     // Alice modifies Mouse's metadata
     let set_key_value = SetKeyValueBox::new(

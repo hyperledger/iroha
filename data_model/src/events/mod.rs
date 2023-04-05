@@ -87,7 +87,7 @@ pub mod model {
 }
 
 /// Trait for filters
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 pub trait Filter {
     /// Type of event that can be filtered
     type Event;
@@ -114,7 +114,7 @@ pub trait Filter {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Filter for FilterBox {
     type Event = Event;
 
@@ -145,29 +145,6 @@ pub mod stream {
 
     declare_versioned_with_scale!(VersionedEventMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-    impl VersionedEventMessage {
-        #[allow(missing_docs)]
-        pub const fn as_v1(&self) -> &EventMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn as_mut_v1(&mut self) -> &mut EventMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn into_v1(self) -> EventMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
-
     #[model]
     pub mod model {
         use super::*;
@@ -194,29 +171,6 @@ pub mod stream {
     }
 
     declare_versioned_with_scale!(VersionedEventSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
-
-    impl VersionedEventSubscriptionRequest {
-        #[allow(missing_docs)]
-        pub const fn as_v1(&self) -> &EventSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn as_mut_v1(&mut self) -> &mut EventSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn into_v1(self) -> EventSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
 }
 
 /// Exports common structs and enums from this module.
@@ -226,7 +180,7 @@ pub mod prelude {
         EventMessage, EventSubscriptionRequest, VersionedEventMessage,
         VersionedEventSubscriptionRequest,
     };
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     pub use super::Filter;
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,

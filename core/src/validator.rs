@@ -71,9 +71,9 @@ impl Validator {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<data_model_validator::NeedsValidationBox>,
+        operation: data_model_validator::NeedsValidationBox,
     ) -> Result<()> {
-        let operation = operation.into();
+        let operation = operation;
 
         let runtime = wasm::RuntimeBuilder::new()
             .with_engine(self.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
@@ -140,9 +140,9 @@ impl MockValidator {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<data_model_validator::NeedsValidationBox>,
+        operation: data_model_validator::NeedsValidationBox,
     ) -> Result<()> {
-        match operation.into() {
+        match operation {
             NeedsValidationBox::Instruction(isi) => {
                 Self::execute_instruction(wsv, authority.clone(), isi)
             }

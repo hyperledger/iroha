@@ -6,8 +6,9 @@ edition = "2021"
 
 [dependencies]
 iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
+iroha_macro = { version = "2.0.0-pre-rc.13", path = "../macro", default-features = false }
 iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["transparent_api"] }
+iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["_transparent-api"] }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
 iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../primitives" }
 iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../schema" }
@@ -15,5 +16,7 @@ iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../schema" }
 derive_more = { version = "0.99.17", default-features = false, features = ["deref"]}
 serde = { version = "1.0.151", features = ["derive"] }
 serde_json = "1.0.91"
-eyre = "0.6.8"
+once_cell = "1.16.0"
+thiserror = "1.0.38"
 tracing = "0.1.37"
+eyre = "0.6.8"

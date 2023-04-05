@@ -357,7 +357,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     // Registering trigger in genesis
     let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
-    match &mut genesis.transactions[0].as_mut_v1().payload.instructions {
+    match &mut genesis.transactions[0].payload.instructions {
         Executable::Instructions(instructions) => {
             instructions.push(RegisterBox::new(trigger).into());
         }

@@ -33,7 +33,7 @@ fn validator_upgrade_should_work() -> Result<()> {
     )
     .sign(admin_keypair.clone())?;
     let _ = client
-        .submit_transaction_blocking(transfer_rose_tx)
+        .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
     // Upgrade Validator
@@ -63,7 +63,7 @@ fn validator_upgrade_should_work() -> Result<()> {
         TransactionBuilder::new(admin_id, vec![transfer_alice_rose.into()], 100_000)
             .sign(admin_keypair)?;
     client
-        .submit_transaction_blocking(transfer_rose_tx)
+        .submit_transaction_blocking(&transfer_rose_tx)
         .expect("Should succeed");
 
     Ok(())

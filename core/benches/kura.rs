@@ -4,9 +4,13 @@ use std::str::FromStr as _;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_core::{block::*, kura::BlockStore, prelude::*, tx::TransactionValidator, wsv::World};
+use iroha_core::{
+    block::*, kura::BlockStore, prelude::*, sumeragi::network_topology::Topology,
+    tx::TransactionValidator, wsv::World,
+};
 use iroha_crypto::KeyPair;
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
+use iroha_data_model::prelude::*;
+use iroha_genesis::AcceptedTransaction;
 use iroha_version::scale::EncodeVersioned;
 use tokio::{fs, runtime::Runtime};
 
@@ -34,43 +38,40 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         max_wasm_size_bytes: 0,
     };
     let tx = AcceptedTransaction::accept::<false>(tx, &transaction_limits)
-        .expect("Failed to accept Transaction.")
-        .into();
+        .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
-    let kura =
-        iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();
+    let kura = iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false)
+        .expect("Valid");
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
-    let mut block = BlockBuilder {
-        transactions: vec![tx],
-        event_recommendations: Vec::new(),
-        height: 1,
-        previous_block_hash: None,
-        view_change_index: 0,
-        committed_with_topology: iroha_core::sumeragi::network_topology::Topology::new(Vec::new()),
-        key_pair: KeyPair::generate().expect("Failed to generate KeyPair"),
-        transaction_validator: &TransactionValidator::new(transaction_limits),
-        wsv: WorldStateView::new(World::new(), kura),
-    }
-    .build();
+    let topology = Topology::new(Vec::new());
+    let wsv = WorldStateView::new(World::new(), kura);
+    let transaction_validator = TransactionValidator::new(transaction_limits);
+    let mut block = BlockBuilder::new(vec![tx], topology.clone(), Vec::new())
+        .chain_first(&transaction_validator, wsv)
+        .sign(KeyPair::generate().expect("Failed to generate KeyPair"))
+        .expect("Valid");
 
     for _ in 1..n_validators {
         block = block
             .sign(KeyPair::generate().expect("Failed to generate KeyPair."))
-            .unwrap();
+            .expect("Valid");
     }
-    let block: VersionedCommittedBlock = block.commit_unchecked().into();
     let mut block_store = BlockStore::new(dir.path())
         .lock()
         .expect("Failed to lock store");
-    block_store.create_files_if_they_do_not_exist().unwrap();
+    block_store
+        .create_files_if_they_do_not_exist()
+        .expect("Valid");
 
-    let serialized_block: Vec<u8> = block.encode_versioned();
+    let serialized_block: Vec<u8> = VersionedSignedBlock::from(block).encode_versioned();
     block_store
         .append_block_to_chain(&serialized_block)
-        .unwrap();
+        .expect("Valid");
 
-    let metadata = fs::metadata(dir.path().join("blocks.data")).await.unwrap();
+    let metadata = fs::metadata(dir.path().join("blocks.data"))
+        .await
+        .expect("Valid");
     let file_size = Byte::from_bytes(u128::from(metadata.len())).get_appropriate_unit(false);
     println!("For {n_validators} validators: {file_size}");
 }
@@ -84,7 +85,9 @@ async fn measure_block_size_async() {
 }
 
 fn measure_block_size(_criterion: &mut Criterion) {
-    Runtime::new().unwrap().block_on(measure_block_size_async());
+    Runtime::new()
+        .expect("Valid")
+        .block_on(measure_block_size_async());
 }
 
 criterion_group!(kura, measure_block_size);

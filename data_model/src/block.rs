@@ -10,274 +10,281 @@ use core::{cmp::Ordering, fmt::Display};
 
 use derive_more::Display;
 use getset::Getters;
-#[cfg(feature = "std")]
-use iroha_crypto::SignatureOf;
-use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
+use iroha_crypto::{HashOf, MerkleTree, SignatureOf, SignaturesOf};
+use iroha_data_model_derive::model;
+use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
-use iroha_version::{declare_versioned_with_scale, version_with_scale};
-use parity_scale_codec::{Decode, Encode};
+use iroha_version::{declare_versioned, version_with_scale};
+pub use model::*;
+use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
-pub use self::{
-    committed::{CommittedBlock, VersionedCommittedBlock},
-    header::BlockHeader,
-};
-use crate::{events::prelude::*, model, peer, transaction::prelude::*};
+use crate::{events::prelude::*, peer, transaction::prelude::*};
 
-mod header {
-    pub use self::model::*;
+/// Trait for basic block operations
+pub trait Block {
+    /// Calculate block hash
+    #[cfg(feature = "std")]
+    fn hash(&self) -> HashOf<BlockPayload> {
+        HashOf::new(self.header()).transmute()
+    }
+    /// Return block header
+    fn header(&self) -> &BlockHeader {
+        &self.payload().header
+    }
+
+    /// Return block payload
+    fn payload(&self) -> &BlockPayload;
+    /// Return block signatures
+    fn signatures(&self) -> &SignaturesOf<BlockPayload>;
+}
+
+#[model]
+pub mod model {
+    use super::*;
+    use crate::transaction::error::TransactionRejectionReason;
+
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[cfg_attr(
+        feature = "std",
+        display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
+    )]
+    #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
+    #[getset(get = "pub")]
+    #[allow(missing_docs)]
+    #[ffi_type]
+    // TODO: Do we need both BlockPayload and BlockHeader?
+    // If yes, what data goes into which structure?
+    pub struct BlockHeader {
+        /// Number of blocks in the chain including this block.
+        pub height: u64,
+        /// Creation timestamp (unix time in milliseconds).
+        pub timestamp_ms: u128,
+        /// Hash of the previous block in the chain.
+        pub previous_block_hash: Option<HashOf<BlockPayload>>,
+        /// Hash of merkle tree root of valid transactions' hashes.
+        pub transactions_hash: Option<HashOf<MerkleTree<TransactionPayload>>>,
+        /// Hash of merkle tree root of rejected transactions' hashes.
+        pub rejected_transactions_hash: Option<HashOf<MerkleTree<TransactionPayload>>>,
+        /// Topology of the network at the time of block commit.
+        pub commit_topology: Vec<peer::PeerId>,
+        /// Value of view change index. Used to resolve soft forks.
+        // NOTE: This field used to be required to rotate topology. After merging
+        // https://github.com/hyperledger/iroha/pull/3250 only commit_topology is used
+        #[deprecated(since = "2.0.0-pre-rc.13", note = "Will be removed in future versions")]
+        pub view_change_index: u64,
+        /// Estimation of consensus duration (in milliseconds).
+        pub consensus_estimation_ms: u64,
+    }
+
+    #[derive(
+        Debug, Display, Clone, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    #[display(fmt = "({header})")]
+    #[getset(get = "pub")]
+    #[allow(missing_docs)]
+    #[ffi_type]
+    pub struct BlockPayload {
+        /// Block header
+        pub header: BlockHeader,
+        /// array of transactions, which successfully passed validation and consensus step.
+        pub transactions: Vec<VersionedSignedTransaction>,
+        /// Array of rejected transactions.
+        pub rejected_transactions: Vec<(VersionedSignedTransaction, TransactionRejectionReason)>,
+        /// Event recommendations.
+        #[getset(skip)] // NOTE: Unused ATM
+        pub event_recommendations: Vec<Event>,
+    }
+
+    /// Signed block
+    #[version_with_scale(n = 1, versioned = "VersionedSignedBlock")]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Getters,
+        Encode,
+        Serialize,
+        IntoSchema,
+    )]
+    #[display(fmt = "({payload})")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct SignedBlock {
+        /// Block payload
+        pub payload: BlockPayload,
+        /// Signatures of peers which approved this block.
+        pub signatures: SignaturesOf<BlockPayload>,
+    }
+}
+
+#[cfg(any(feature = "ffi-export", feature = "ffi-import"))]
+declare_versioned!(VersionedSignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, iroha_ffi::FfiType, IntoSchema);
+#[cfg(all(not(feature = "ffi-export"), not(feature = "ffi-import")))]
+declare_versioned!(VersionedSignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, IntoSchema);
+
+// TODO: Think about how should BlockPayload implement Eq, Ord, Hash?
+impl PartialEq for BlockPayload {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header
+    }
+}
+impl PartialOrd for BlockPayload {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for BlockPayload {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.header.cmp(&other.header)
+    }
+}
+impl core::hash::Hash for BlockPayload {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.header.hash(state)
+    }
+}
+
+impl BlockHeader {
+    /// Checks if it's a header of a genesis block.
+    #[inline]
+    pub const fn is_genesis(&self) -> bool {
+        self.height == 1
+    }
+}
+
+impl Block for SignedBlock {
+    fn payload(&self) -> &BlockPayload {
+        &self.payload
+    }
+    fn signatures(&self) -> &SignaturesOf<BlockPayload> {
+        &self.signatures
+    }
+}
+
+impl Block for VersionedSignedBlock {
+    fn payload(&self) -> &BlockPayload {
+        let VersionedSignedBlock::V1(block) = self;
+        block.payload()
+    }
+    fn signatures(&self) -> &SignaturesOf<BlockPayload> {
+        let VersionedSignedBlock::V1(block) = self;
+        block.signatures()
+    }
+}
+
+mod candidate {
     use super::*;
 
-    #[model]
-    pub mod model {
-        use super::*;
+    #[derive(Decode, Deserialize)]
+    #[serde(transparent)]
+    struct SignedBlockCandidate(SignedBlock);
 
-        /// Header of the block. The hash should be taken from its byte representation.
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            PartialEq,
-            Eq,
-            Hash,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[cfg_attr(
-            feature = "std",
-            display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
-        )]
-        #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
-        #[getset(get = "pub")]
-        #[ffi_type]
-        pub struct BlockHeader {
-            /// Unix time (in milliseconds) of block forming by a peer.
-            pub timestamp: u128,
-            /// Estimation of consensus duration in milliseconds
-            pub consensus_estimation: u64,
-            /// A number of blocks in the chain up to the block.
-            pub height: u64,
-            /// Value of view change index used to resolve soft forks
-            pub view_change_index: u64,
-            /// Hash of a previous block in the chain.
-            /// Is an array of zeros for the first block.
-            pub previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
-            /// Hash of merkle tree root of the tree of valid transactions' hashes.
-            pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-            /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-            pub rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-            /// Network topology when the block was committed.
-            pub committed_with_topology: Vec<peer::PeerId>,
+    impl SignedBlockCandidate {
+        fn validate(mut self) -> Result<SignedBlock, &'static str> {
+            #[cfg(feature = "std")]
+            self.validate_header()?;
+
+            #[cfg(feature = "std")]
+            if self.retain_verified_signatures().is_empty() {
+                return Err("Block contains no signatures");
+            }
+
+            let payload = &self.0.payload;
+            if payload.transactions.is_empty() && payload.rejected_transactions.is_empty() {
+                return Err("Block is empty");
+            }
+
+            Ok(self.0)
+        }
+
+        #[cfg(feature = "std")]
+        fn retain_verified_signatures(&mut self) -> Vec<&SignatureOf<BlockPayload>> {
+            self.0
+                .signatures
+                .retain_verified_by_hash(self.0.hash())
+                .collect()
+        }
+
+        #[cfg(feature = "std")]
+        fn validate_header(&self) -> Result<(), &'static str> {
+            let actual_txs_hash = self.0.header().transactions_hash;
+            let actual_rejected_txs_hash = self.0.header().rejected_transactions_hash;
+
+            let expected_txs_hash = self
+                .0
+                .payload
+                .transactions
+                .iter()
+                .map(VersionedSignedTransaction::hash)
+                .collect::<MerkleTree<_>>()
+                .hash();
+            let expected_rejected_txs_hash = self
+                .0
+                .payload
+                .rejected_transactions
+                .iter()
+                .map(|(rejected_transaction, _)| rejected_transaction.hash())
+                .collect::<MerkleTree<_>>()
+                .hash();
+
+            if expected_txs_hash != actual_txs_hash {
+                return Err("Transactions' hash incorrect. Expected: {expected_txs_hash:?}, actual: {actual_txs_hash:?}");
+            }
+            if expected_rejected_txs_hash != actual_rejected_txs_hash {
+                return Err("Rejected transactions' hash incorrect. Expected: {expected_rejected_txs_hash:?}, actual: {actual_rejected_txs_hash:?}");
+            }
+            // TODO: Validate Event recommendations somehow?
+
+            Ok(())
         }
     }
 
-    impl BlockHeader {
-        /// Checks if it's a header of a genesis block.
-        #[inline]
-        pub const fn is_genesis(&self) -> bool {
-            self.height == 1
+    impl Decode for SignedBlock {
+        fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+            SignedBlockCandidate::decode(input)?
+                .validate()
+                .map_err(Into::into)
         }
     }
+    impl<'de> Deserialize<'de> for SignedBlock {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            use serde::de::Error as _;
 
-    impl PartialOrd for BlockHeader {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl Ord for BlockHeader {
-        fn cmp(&self, other: &Self) -> Ordering {
-            self.timestamp.cmp(&other.timestamp)
+            SignedBlockCandidate::deserialize(deserializer)?
+                .validate()
+                .map_err(D::Error::custom)
         }
     }
 }
 
-mod committed {
-    use iroha_macro::FromVariant;
-
-    pub use self::model::*;
-    use super::*;
-
-    #[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
-    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, iroha_ffi::FfiType, IntoSchema);
-    #[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
-    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, IntoSchema);
-
-    #[model]
-    pub mod model {
-        use super::*;
-
-        /// The `CommittedBlock` struct represents a block accepted by consensus
-        #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            PartialEq,
-            Eq,
-            Hash,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[display(fmt = "({header})")]
-        #[getset(get = "pub")]
-        #[ffi_type]
-        pub struct CommittedBlock {
-            /// Block header
-            pub header: BlockHeader,
-            /// Array of rejected transactions.
-            pub rejected_transactions: Vec<VersionedRejectedTransaction>,
-            /// array of transactions, which successfully passed validation and consensus step.
-            pub transactions: Vec<VersionedValidTransaction>,
-            /// Event recommendations.
-            pub event_recommendations: Vec<Event>,
-            /// Signatures of peers which approved this block
-            pub signatures: SignaturesOf<Self>,
-        }
-    }
-
-    impl VersionedCommittedBlock {
-        /// Convert from `&VersionedCommittedBlock` to V1 reference
-        #[inline]
-        pub const fn as_v1(&self) -> &CommittedBlock {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Convert from `&mut VersionedCommittedBlock` to V1 mutable reference
-        #[inline]
-        pub fn as_mut_v1(&mut self) -> &mut CommittedBlock {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Performs the conversion from `VersionedCommittedBlock` to V1
-        #[inline]
-        pub fn into_v1(self) -> CommittedBlock {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Calculate the hash of the current block.
-        /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
-        #[cfg(feature = "std")]
-        #[inline]
-        pub fn hash(&self) -> HashOf<Self> {
-            self.as_v1().hash().transmute()
-        }
-
-        /// Returns the header of a valid block
-        #[inline]
-        pub const fn header(&self) -> &BlockHeader {
-            &self.as_v1().header
-        }
-
-        /// Return signatures that are verified with the `hash` of this block
-        #[cfg(feature = "std")]
-        #[inline]
-        pub fn signatures(&self) -> impl IntoIterator<Item = &SignatureOf<Self>> {
-            self.as_v1()
-                .signatures
-                .iter()
-                .map(SignatureOf::transmute_ref)
-        }
-    }
-
-    impl Display for VersionedCommittedBlock {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            self.as_v1().fmt(f)
-        }
-    }
-
-    impl PartialOrd for VersionedCommittedBlock {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl Ord for VersionedCommittedBlock {
-        fn cmp(&self, other: &Self) -> Ordering {
-            self.as_v1().cmp(other.as_v1())
-        }
-    }
-
-    impl CommittedBlock {
-        /// Calculate the hash of the current block.
-        /// `CommitedBlock` should have the same hash as `ValidBlock`.
-        #[cfg(feature = "std")]
-        #[inline]
-        pub fn hash(&self) -> HashOf<Self> {
-            HashOf::new(&self.header).transmute()
-        }
-    }
-
-    impl PartialOrd for CommittedBlock {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl Ord for CommittedBlock {
-        fn cmp(&self, other: &Self) -> Ordering {
-            self.header.cmp(&other.header)
-        }
-    }
-
-    #[cfg(feature = "std")]
-    impl From<&CommittedBlock> for Vec<Event> {
-        fn from(block: &CommittedBlock) -> Self {
-            let rejected_tx = block
-                .rejected_transactions
-                .iter()
-                .cloned()
-                .map(|transaction| {
-                    PipelineEvent {
-                        entity_kind: PipelineEntityKind::Transaction,
-                        status: PipelineStatus::Rejected(
-                            transaction.as_v1().rejection_reason.clone().into(),
-                        ),
-                        hash: transaction.hash().into(),
-                    }
-                    .into()
-                });
-            let tx = block.transactions.iter().cloned().map(|transaction| {
-                PipelineEvent {
-                    entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Committed,
-                    hash: transaction.hash().into(),
-                }
-                .into()
-            });
-            let current_block = core::iter::once(
-                PipelineEvent {
-                    entity_kind: PipelineEntityKind::Block,
-                    status: PipelineStatus::Committed,
-                    hash: block.hash().into(),
-                }
-                .into(),
-            );
-
-            tx.chain(rejected_tx).chain(current_block).collect()
-        }
-    }
-
-    #[cfg(feature = "std")]
-    impl From<&VersionedCommittedBlock> for Vec<Event> {
-        #[inline]
-        fn from(block: &VersionedCommittedBlock) -> Self {
-            block.as_v1().into()
-        }
+impl Display for VersionedSignedBlock {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let VersionedSignedBlock::V1(block) = self;
+        block.fmt(f)
     }
 }
 
@@ -296,29 +303,6 @@ pub mod stream {
 
     declare_versioned_with_scale!(VersionedBlockMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-    impl VersionedBlockMessage {
-        /// Convert from `&VersionedBlockPublisherMessage` to V1 reference
-        pub const fn as_v1(&self) -> &BlockMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Convert from `&mut VersionedBlockPublisherMessage` to V1 mutable reference
-        pub fn as_mut_v1(&mut self) -> &mut BlockMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Performs the conversion from `VersionedBlockPublisherMessage` to V1
-        pub fn into_v1(self) -> BlockMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
-
     #[model]
     pub mod model {
         use super::*;
@@ -334,10 +318,10 @@ pub mod stream {
         #[version_with_scale(n = 1, versioned = "VersionedBlockMessage")]
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct BlockMessage(pub VersionedCommittedBlock);
+        pub struct BlockMessage(pub VersionedSignedBlock);
     }
 
-    impl From<BlockMessage> for VersionedCommittedBlock {
+    impl From<BlockMessage> for VersionedSignedBlock {
         fn from(source: BlockMessage) -> Self {
             source.0
         }
@@ -345,36 +329,17 @@ pub mod stream {
 
     declare_versioned_with_scale!(VersionedBlockSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-    impl VersionedBlockSubscriptionRequest {
-        /// Convert from `&VersionedBlockSubscriberMessage` to V1 reference
-        pub const fn as_v1(&self) -> &BlockSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Convert from `&mut VersionedBlockSubscriberMessage` to V1 mutable reference
-        pub fn as_mut_v1(&mut self) -> &mut BlockSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        /// Performs the conversion from `VersionedBlockSubscriberMessage` to V1
-        pub fn into_v1(self) -> BlockSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
-
     /// Exports common structs and enums from this module.
     pub mod prelude {
-        pub use super::{
-            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-            VersionedBlockSubscriptionRequest,
-        };
+        pub use super::{VersionedBlockMessage, VersionedBlockSubscriptionRequest};
     }
+}
+
+/// Exports common structs and enums from this module.
+pub mod prelude {
+    #[cfg(feature = "http")]
+    pub use super::stream::prelude::*;
+    pub use super::{Block, VersionedSignedBlock};
 }
 
 pub mod error {

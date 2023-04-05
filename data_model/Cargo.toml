@@ -21,13 +21,13 @@ default = ["std"]
 std = ["iroha_macro/std", "iroha_version/std", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "strum/std", "dashmap", "tokio"]
 # Enable API for HTTP requests. Should be activated for HTTP clients
 http = ["std", "warp", "iroha_version/http"]
+# Expose FFI API for dynamic linking (only applicable if crate-type = "cdylib")
+ffi-export = ["std", "iroha_ffi", "iroha_primitives/ffi-export", "iroha_crypto/ffi-export"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
-#ffi_import = ["iroha_ffi", "iroha_primitives/ffi_import", "iroha_crypto/ffi_import"]
+#ffi-import = ["iroha_ffi", "iroha_primitives/ffi-import", "iroha_crypto/ffi-import"]
 
-# Expose FFI API for dynamic linking (Internal use only)
-ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export", "iroha_crypto/ffi_export"]
 # Expose API for mutating structures (Internal use only)
-transparent_api = []
+_transparent-api = []
 
 [dependencies]
 iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.13", default-features = false }

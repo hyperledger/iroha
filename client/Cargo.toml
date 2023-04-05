@@ -46,7 +46,7 @@ futures-util = "0.3.25"
 [dev-dependencies]
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
 
-# TODO: These three activate `transparent_api` but client should never activate this feature.
+# TODO: These three activate `_transparent-api` but client should never activate this feature.
 # Additionally there is a dependency on iroha_core in dev-dependencies in telemetry/derive
 # Hopefully, once the integration tests migration is finished these can be removed
 iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }

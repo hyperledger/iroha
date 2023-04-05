@@ -41,11 +41,11 @@ The following is the default configuration used by Iroha.
     "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
-    "KEY_PAIR": null,
     "PEER_ID": null,
-    "BLOCK_TIME_MS": 2000,
+    "KEY_PAIR": null,
     "TRUSTED_PEERS": null,
-    "COMMIT_TIME_LIMIT_MS": 4000,
+    "BLOCK_TIME_MS": 2000,
+    "COMMIT_TIME_MS": 4000,
     "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
@@ -449,7 +449,7 @@ Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via envir
 {
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCK_TIME_MS": 2000,
-  "COMMIT_TIME_LIMIT_MS": 4000,
+  "COMMIT_TIME_MS": 4000,
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "KEY_PAIR": null,
@@ -475,7 +475,7 @@ Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI
 
 ### `sumeragi.block_time_ms`
 
-The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+Time a peer waits to produce a new block since the beginning of the voting round
 
 Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_MS`
 
@@ -483,11 +483,11 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI
 2000
 ```
 
-### `sumeragi.commit_time_limit_ms`
+### `sumeragi.commit_time_ms`
 
-The period of time a peer waits for `CommitMessage` from the proxy tail.
+Time a peer waits for the block to be committed since the beginning of the voting round
 
-Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_LIMIT_MS`
+Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_MS`
 
 ```json
 4000
@@ -558,7 +558,7 @@ Has type `Option<TransactionLimits>`[^1]. Can be configured via environment vari
 
 ### `sumeragi.trusted_peers`
 
-Optional list of predefined trusted peers.
+List of predefined trusted peers.
 
 Has type `Option<TrustedPeers>`[^1]. Can be configured via environment variable `SUMERAGI_TRUSTED_PEERS`
 

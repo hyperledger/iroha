@@ -104,15 +104,15 @@ mod ffi {
 
     macro_rules! ffi_item {
         ($it: item $($attr: meta)?) => {
-            #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
+            #[cfg(all(not(feature = "ffi-export"), not(feature = "ffi-import")))]
             $it
 
-            #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+            #[cfg(all(feature = "ffi-export", not(feature = "ffi-import")))]
             #[derive(iroha_ffi::FfiType)]
             $(#[$attr])?
             $it
 
-            #[cfg(feature = "ffi_import")]
+            #[cfg(feature = "ffi-import")]
             iroha_ffi::ffi! {
                 $(#[$attr])?
                 $it

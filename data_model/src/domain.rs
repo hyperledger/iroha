@@ -198,7 +198,7 @@ impl Domain {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Domain {
     /// Add [`Account`] into the [`Domain`] returning previous account stored under the same id
     #[inline]
@@ -263,21 +263,6 @@ impl FromIterator<Domain> for crate::Value {
             .map(Into::into)
             .collect::<Vec<Self>>()
             .into()
-    }
-}
-
-impl DomainId {
-    #[cfg(feature = "transparent_api")]
-    const GENESIS_DOMAIN_NAME: &str = "genesis";
-
-    /// Construct [`Id`] of the genesis domain.
-    #[inline]
-    #[must_use]
-    #[cfg(feature = "transparent_api")]
-    pub fn genesis() -> Self {
-        Self {
-            name: Self::GENESIS_DOMAIN_NAME.parse().expect("Valid"),
-        }
     }
 }
 

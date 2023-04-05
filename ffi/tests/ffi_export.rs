@@ -211,7 +211,7 @@ pub fn freestanding_with_nested_vec(_vec: Vec<Vec<Vec<u8>>>) {}
 
 /// Take `&mut String`
 #[ffi_export]
-#[cfg(feature = "non_robust_ref_mut")]
+#[cfg(feature = "non-robust-ref-mut")]
 pub fn take_non_robust_ref_mut(val: &mut str) -> &mut str {
     val
 }
@@ -284,7 +284,7 @@ fn get_new_struct_with_params() -> OpaqueStruct {
 
 #[test]
 #[webassembly_test::webassembly_test]
-#[cfg(feature = "non_robust_ref_mut")]
+#[cfg(feature = "non-robust-ref-mut")]
 fn non_robust_ref_mut() {
     use iroha_ffi::slice::SliceMut;
 

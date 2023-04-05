@@ -18,6 +18,11 @@ use std::str::FromStr;
 
 use eyre::Result;
 pub use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    transaction::{error::TransactionRejectionReason, SignedTransaction},
+    validator::NeedsValidationBox,
+};
+use iroha_genesis::AcceptedTransaction;
 use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
 
@@ -48,22 +53,17 @@ impl TransactionValidator {
     ///
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).
-    pub fn validate(
+    pub fn validate<const IS_GENESIS: bool>(
         &self,
         tx: AcceptedTransaction,
-        is_genesis: bool,
         wsv: &WorldStateView,
-    ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
-        if let Err(rejection_reason) = self.validate_internal(tx.clone(), is_genesis, wsv) {
-            return Err(RejectedTransaction {
-                payload: tx.payload,
-                signatures: tx.signatures,
-                rejection_reason,
-            }
-            .into());
+    ) -> Result<VersionedSignedTransaction, (VersionedSignedTransaction, TransactionRejectionReason)>
+    {
+        if let Err(rejection_reason) = self.validate_internal::<IS_GENESIS>(tx.clone(), wsv) {
+            return Err((tx.into(), rejection_reason));
         }
 
-        Ok(ValidTransaction {
+        Ok(SignedTransaction {
             payload: tx.payload,
             signatures: tx.signatures,
         }
@@ -77,27 +77,24 @@ impl TransactionValidator {
     ///
     /// # Errors
     /// Fails if validation of any transaction fails
-    //
-    // TODO (#2742): Accept `txs` by reference, not by value
-    pub fn validate_every(
+    pub fn validate_every<const IS_GENESIS: bool>(
         &self,
-        txs: impl IntoIterator<Item = VersionedAcceptedTransaction>,
+        txs: impl IntoIterator<Item = AcceptedTransaction>,
         wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         for tx in txs {
-            self.validate_internal(tx.into_v1(), true, wsv)?;
+            self.validate_internal::<IS_GENESIS>(tx, wsv)?;
         }
         Ok(())
     }
 
-    fn validate_internal(
+    fn validate_internal<const IS_GENESIS: bool>(
         &self,
         tx: AcceptedTransaction,
-        is_genesis: bool,
         wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let account_id = &tx.payload.account_id;
-        Self::validate_signatures(&tx, is_genesis, wsv)?;
+        Self::validate_signatures::<IS_GENESIS>(&tx, wsv)?;
 
         if !wsv
             .domain(&account_id.domain_id)
@@ -114,7 +111,7 @@ impl TransactionValidator {
             }));
         }
 
-        if !is_genesis {
+        if !IS_GENESIS {
             debug!("Validating transaction: {:?}", tx);
             Self::validate_with_runtime_validator(account_id, tx.clone(), wsv)?;
         }
@@ -122,7 +119,7 @@ impl TransactionValidator {
         match tx.payload.instructions {
             Executable::Instructions(instructions) => {
                 // Non-genesis instructions have been executed in `validate_with_runtime_validators()`.
-                if is_genesis {
+                if IS_GENESIS {
                     for instruction in instructions {
                         instruction
                             .clone()
@@ -138,17 +135,16 @@ impl TransactionValidator {
             Executable::Wasm(bytes) => self.validate_wasm(account_id.clone(), wsv, bytes)?,
         }
 
-        (!is_genesis).then(|| debug!("Validation successful"));
+        (!IS_GENESIS).then(|| debug!("Validation successful"));
         Ok(())
     }
 
     /// Validate signatures for the given transaction
-    fn validate_signatures(
+    fn validate_signatures<const IS_GENESIS: bool>(
         tx: &AcceptedTransaction,
-        is_genesis: bool,
         wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
-        if !is_genesis && tx.payload().account_id == AccountId::genesis() {
+        if !IS_GENESIS && tx.payload.account_id == *iroha_genesis::GENESIS_ACCOUNT_ID {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
@@ -205,7 +201,6 @@ impl TransactionValidator {
             payload,
             signatures,
         } = tx;
-        let signatures = signatures.into_iter().collect();
 
         let signed_tx = SignedTransaction {
             payload,
@@ -213,7 +208,7 @@ impl TransactionValidator {
         };
 
         wsv.validator_view()
-            .validate(wsv, authority, signed_tx)
+            .validate(wsv, authority, NeedsValidationBox::from(signed_tx))
             .map_err(|err| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {
                     reason: err.to_string(),
@@ -236,10 +231,10 @@ pub trait CheckSignatureCondition: Sized {
 
 impl CheckSignatureCondition for AcceptedTransaction {
     fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
-        let account_id = &self.payload.account_id;
+        let account_id = &self.payload().account_id;
 
         let signatories = self
-            .signatures
+            .signatures()
             .iter()
             .map(|signature| signature.public_key())
             .cloned();
@@ -250,12 +245,6 @@ impl CheckSignatureCondition for AcceptedTransaction {
                 .map(MustUse::new)
                 .map_err(Into::into)
         })?
-    }
-}
-
-impl CheckSignatureCondition for VersionedAcceptedTransaction {
-    fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
-        self.as_v1().check_signature_condition(wsv)
     }
 }
 
@@ -288,21 +277,73 @@ impl IsInBlockchain for VersionedSignedTransaction {
         wsv.has_transaction(&self.hash())
     }
 }
-impl IsInBlockchain for VersionedAcceptedTransaction {
+impl IsInBlockchain for AcceptedTransaction {
     #[inline]
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
-impl IsInBlockchain for VersionedValidTransaction {
-    #[inline]
-    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
-        wsv.has_transaction(&self.hash())
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::pedantic)]
+
+    use iroha_config::sumeragi::DEFAULT_MAX_INSTRUCTION_NUMBER;
+    use iroha_data_model::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn transaction_not_accepted_max_instruction_number() {
+        let key_pair = iroha_crypto::KeyPair::generate().expect("Failed to generate key pair.");
+        let inst: InstructionBox = FailBox {
+            message: "Will fail".to_owned(),
+        }
+        .into();
+        let tx = TransactionBuilder::new(
+            "root@global".parse().expect("Valid"),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
+            1000,
+        )
+        .sign(key_pair)
+        .expect("Valid");
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        let result = AcceptedTransaction::accept::<false>(tx, &tx_limits);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.1.to_string(),
+            format!(
+                "Too many instructions in payload, max number is {}, but got {}",
+                tx_limits.max_instruction_number,
+                DEFAULT_MAX_INSTRUCTION_NUMBER + 1
+            )
+        );
     }
-}
-impl IsInBlockchain for VersionedRejectedTransaction {
-    #[inline]
-    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
-        wsv.has_transaction(&self.hash())
+
+    #[test]
+    fn genesis_transaction_ignore_limits() {
+        let key_pair = iroha_crypto::KeyPair::generate().expect("Failed to generate key pair.");
+        let inst: InstructionBox = FailBox {
+            message: "Will fail".to_owned(),
+        }
+        .into();
+        let tx = TransactionBuilder::new(
+            "root@global".parse().expect("Valid"),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
+            1000,
+        )
+        .sign(key_pair)
+        .expect("Valid");
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+
+        assert!(AcceptedTransaction::accept::<true>(tx, &tx_limits).is_ok());
     }
 }

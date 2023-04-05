@@ -180,7 +180,7 @@ pub mod action {
 
     pub use self::model::*;
     use super::*;
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     use crate::prelude::Account;
 
     #[model]
@@ -232,7 +232,7 @@ pub mod action {
         }
     }
 
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     impl<F, E> crate::HasMetadata for Action<F, E> {
         fn metadata(&self) -> &crate::metadata::Metadata {
             &self.metadata
@@ -287,7 +287,7 @@ pub mod action {
     }
 
     /// Trait for common methods for all [`Action`]'s
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     pub trait ActionTrait {
         /// Type of action executable
         type Executable;
@@ -317,7 +317,7 @@ pub mod action {
         fn clone_and_box(&self) -> Action<FilterBox, Self::Executable>;
     }
 
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     impl<F: Filter + Into<FilterBox> + Clone, E: Clone> ActionTrait for Action<F, E> {
         type Executable = E;
 
@@ -398,7 +398,7 @@ pub mod action {
 pub mod prelude {
     //! Re-exports of commonly used types.
 
-    #[cfg(feature = "transparent_api")]
+    #[cfg(feature = "_transparent-api")]
     pub use super::action::ActionTrait;
     pub use super::{action::prelude::*, Trigger, TriggerId};
 }

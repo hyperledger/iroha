@@ -59,7 +59,7 @@ pub mod model {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Filter for ExecuteTriggerEventFilter {
     type Event = ExecuteTriggerEvent;
 

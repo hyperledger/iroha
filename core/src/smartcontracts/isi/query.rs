@@ -91,14 +91,15 @@ mod tests {
 
     use std::str::FromStr;
 
-    use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
+    use iroha_crypto::{HashOf, KeyPair};
+    use iroha_data_model::{block::Block, transaction::TransactionLimits};
+    use iroha_genesis::AcceptedTransaction;
     use once_cell::sync::Lazy;
 
     use super::*;
     use crate::{
-        block::*, kura::Kura, smartcontracts::isi::Registrable as _, tx::TransactionValidator,
-        wsv::World, PeersIds,
+        block::*, kura::Kura, smartcontracts::isi::Registrable as _,
+        sumeragi::network_topology::Topology, tx::TransactionValidator, wsv::World, PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
@@ -190,32 +191,25 @@ mod tests {
         let valid_tx = {
             let tx =
                 TransactionBuilder::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
-            VersionedAcceptedTransaction::from(AcceptedTransaction::accept::<false>(tx, &limits)?)
+            AcceptedTransaction::accept::<false>(tx, &limits).expect("Valid")
         };
         let invalid_tx = {
             let isi: InstructionBox = FailBox::new("fail").into();
             let tx = TransactionBuilder::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
                 .sign(ALICE_KEYS.clone())?;
-            AcceptedTransaction::accept::<false>(tx, &huge_limits)?.into()
+            AcceptedTransaction::accept::<false>(tx, &huge_limits).expect("Valid")
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
         transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-        let first_block: VersionedCommittedBlock = BlockBuilder {
-            transactions: transactions.clone(),
-            event_recommendations: Vec::new(),
-            height: 1,
-            previous_block_hash: None,
-            view_change_index: 0,
-            committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
-            key_pair: ALICE_KEYS.clone(),
-            transaction_validator: &TransactionValidator::new(limits),
-            wsv: wsv.clone(),
-        }
-        .build()
-        .commit_unchecked()
-        .into();
+        let topology = Topology::new(Vec::new());
+        let (first_block, _): (CommittedBlock, _) =
+            BlockBuilder::new(transactions.clone(), topology.clone(), vec![])
+                .chain_first(&TransactionValidator::new(limits), wsv.clone())
+                .sign(ALICE_KEYS.clone())
+                .expect("Failed to sign block")
+                .commit_unchecked();
 
         let mut curr_hash = first_block.hash();
 
@@ -223,21 +217,18 @@ mod tests {
         kura.store_block(first_block);
 
         for height in 1u64..blocks {
-            let block: VersionedCommittedBlock = BlockBuilder {
-                transactions: transactions.clone(),
-                event_recommendations: Vec::new(),
-                height,
-                previous_block_hash: Some(curr_hash),
-                view_change_index: 0,
-                committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
-                key_pair: ALICE_KEYS.clone(),
-                transaction_validator: &TransactionValidator::new(limits),
-                wsv: wsv.clone(),
-            }
-            .build()
-            .commit_unchecked()
-            .into();
-
+            let (block, _): (CommittedBlock, _) =
+                BlockBuilder::new(transactions.clone(), topology.clone(), vec![])
+                    .chain(
+                        height,
+                        Some(curr_hash),
+                        0,
+                        &TransactionValidator::new(limits),
+                        wsv.clone(),
+                    )
+                    .sign(ALICE_KEYS.clone())
+                    .expect("Failed to sign block")
+                    .commit_unchecked();
             curr_hash = block.hash();
             wsv.apply(&block)?;
             kura.store_block(block);
@@ -315,11 +306,11 @@ mod tests {
             .expect("WSV is empty");
 
         assert_eq!(
-            &FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
+            &FindBlockHeaderByHash::new(block.hash()).execute(&wsv)?,
             block.header()
         );
 
-        assert!(FindBlockHeaderByHash::new(Hash::new([42]))
+        assert!(FindBlockHeaderByHash::new(HashOf::new(&42).transmute())
             .execute(&wsv)
             .is_err());
 
@@ -365,33 +356,25 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx: VersionedAcceptedTransaction =
-            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?.into();
+        let va_tx: AcceptedTransaction =
+            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits).expect("Valid");
 
-        let vcb: VersionedCommittedBlock = BlockBuilder {
-            transactions: vec![va_tx.clone()],
-            event_recommendations: Vec::new(),
-            height: 1,
-            previous_block_hash: None,
-            view_change_index: 0,
-            committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
-            key_pair: ALICE_KEYS.clone(),
-            transaction_validator: &TransactionValidator::new(tx_limits),
-            wsv: wsv.clone(),
-        }
-        .build()
-        .commit_unchecked()
-        .into();
+        let topology = Topology::new(Vec::new());
+        let (block, _) = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
+            .chain_first(&TransactionValidator::new(tx_limits), wsv.clone())
+            .sign(ALICE_KEYS.clone())
+            .expect("Failed to sign blocks.")
+            .commit(&topology)
+            .expect("Valid");
+        wsv.apply(&block)?;
+        kura.store_block(block);
 
-        wsv.apply(&vcb)?;
-        kura.store_block(vcb);
-
-        let wrong_hash: Hash = HashOf::new(&2_u8).into();
+        let wrong_hash = HashOf::new(&2_u8).transmute();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
 
-        let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
-        match found_accepted {
+        let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
+        match found_accepted.tx_value {
             TransactionValue::Transaction(tx) => {
                 assert_eq!(va_tx.hash().transmute(), tx.hash())
             }

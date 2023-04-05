@@ -10,11 +10,11 @@
     "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
-    "KEY_PAIR": null,
     "PEER_ID": null,
-    "BLOCK_TIME_MS": 2000,
+    "KEY_PAIR": null,
     "TRUSTED_PEERS": null,
-    "COMMIT_TIME_LIMIT_MS": 4000,
+    "BLOCK_TIME_MS": 2000,
+    "COMMIT_TIME_MS": 4000,
     "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,

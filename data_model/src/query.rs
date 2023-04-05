@@ -1085,13 +1085,13 @@ pub mod transaction {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_crypto::Hash;
+    use iroha_crypto::HashOf;
 
     use super::Query;
     use crate::{
         expression::EvaluatesTo,
         prelude::Account,
-        transaction::{TransactionQueryResult, TransactionValue},
+        transaction::{TransactionPayload, TransactionQueryResult},
         Identifiable,
     };
 
@@ -1119,11 +1119,11 @@ pub mod transaction {
         #[derive(Display)]
         #[display(fmt = "Find transaction with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<Hash>`
+        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<HashOf<TransactionPayload>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionByHash {
             /// Transaction hash.
-            pub hash: EvaluatesTo<Hash>,
+            pub hash: EvaluatesTo<HashOf<TransactionPayload>>,
         }
     }
 
@@ -1132,11 +1132,11 @@ pub mod transaction {
     }
 
     impl Query for FindTransactionsByAccountId {
-        type Output = Vec<TransactionValue>;
+        type Output = Vec<TransactionQueryResult>;
     }
 
     impl Query for FindTransactionByHash {
-        type Output = TransactionValue;
+        type Output = TransactionQueryResult;
     }
 
     impl FindTransactionsByAccountId {
@@ -1150,7 +1150,7 @@ pub mod transaction {
 
     impl FindTransactionByHash {
         ///Construct [`FindTransactionByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<TransactionPayload>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1170,11 +1170,11 @@ pub mod block {
     use alloc::{boxed::Box, format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_crypto::Hash;
+    use iroha_crypto::HashOf;
 
     use super::Query;
     use crate::{
-        block::{BlockHeader, VersionedCommittedBlock},
+        block::{BlockHeader, BlockPayload, VersionedSignedBlock},
         prelude::EvaluatesTo,
     };
 
@@ -1197,16 +1197,16 @@ pub mod block {
         #[derive(Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<Hash>`
+        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<BlockPayload>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: EvaluatesTo<Hash>,
+            pub hash: EvaluatesTo<HashOf<BlockPayload>>,
         }
     }
 
     impl Query for FindAllBlocks {
-        type Output = Vec<VersionedCommittedBlock>;
+        type Output = Vec<VersionedSignedBlock>;
     }
 
     impl Query for FindAllBlockHeaders {
@@ -1219,7 +1219,7 @@ pub mod block {
 
     impl FindBlockHeaderByHash {
         /// Construct [`FindBlockHeaderByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<BlockPayload>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1287,9 +1287,6 @@ pub mod http {
         #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
         #[serde(transparent)]
         #[repr(transparent)]
-        // TODO: This should be a separate type, not just wrap Value because it infects Value
-        // with variants that can only ever be returned, i.e. can't be used in instructions
-        // enum QueryResult { ... }
         pub struct QueryResult(pub Value);
     }
 
@@ -1377,7 +1374,12 @@ pub mod error {
 
     pub use self::model::*;
     use super::*;
-    use crate::{block::VersionedCommittedBlock, permission, prelude::*, validator};
+    use crate::{
+        block::{BlockPayload, VersionedSignedBlock},
+        permission,
+        prelude::*,
+        validator,
+    };
 
     #[model]
     pub mod model {
@@ -1441,10 +1443,10 @@ pub mod error {
             MetadataKey(Name),
             /// Block with supplied parent hash not found. More description in a string.
             #[display(fmt = "Block with hash {_0} not found")]
-            Block(HashOf<VersionedCommittedBlock>),
+            Block(HashOf<BlockPayload>),
             /// Transaction with given hash not found.
             #[display(fmt = "Transaction not found")]
-            Transaction(HashOf<VersionedSignedTransaction>),
+            Transaction(HashOf<TransactionPayload>),
             /// Peer not found.
             #[display(fmt = "Peer {_0} not found")]
             Peer(PeerId),
@@ -1473,7 +1475,7 @@ pub mod prelude {
     pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, Query, QueryBox,
+        error::QueryExecutionFailure, peer::prelude::*, permission::prelude::*, role::prelude::*,
+        transaction::*, trigger::prelude::*, Query, QueryBox,
     };
 }

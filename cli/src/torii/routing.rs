@@ -19,18 +19,16 @@ use iroha_config::{
 use iroha_core::smartcontracts::isi::query::ValidQueryRequest;
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
-    block::{
-        stream::{
-            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-            VersionedBlockSubscriptionRequest,
-        },
-        VersionedCommittedBlock,
+    block::stream::{
+        BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+        VersionedBlockSubscriptionRequest,
     },
     predicate::PredicateBox,
     prelude::*,
     query,
     query::error::QueryExecutionFailure,
 };
+use iroha_genesis::AcceptedTransaction;
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use pagination::{paginate, Paginate};
@@ -75,7 +73,11 @@ impl VerifiedQuery {
             )));
         }
         wsv.validator_view()
-            .validate(wsv, &self.payload.account_id, self.payload.query.clone())
+            .validate(
+                wsv,
+                &self.payload.account_id,
+                self.payload.query.clone().into(),
+            )
             .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
@@ -106,12 +108,9 @@ pub(crate) async fn handle_instructions(
     sumeragi: Arc<Sumeragi>,
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
-    let transaction: SignedTransaction = transaction.into_v1();
     let transaction =
         AcceptedTransaction::accept::<false>(transaction, &iroha_cfg.sumeragi.transaction_limits)
-            .map_err(Error::AcceptTransaction)?
-            .into();
-    #[allow(clippy::map_err_ignore)]
+            .map_err(|(_tx, error)| Error::AcceptTransaction(error))?;
     queue
         .push(transaction, &sumeragi.wsv_mutex_access())
         .map_err(|queue::Failure { tx, err }| {
@@ -233,11 +232,9 @@ async fn handle_pending_transactions(
         queue
             .all_transactions(&sumeragi.wsv_mutex_access())
             .into_iter()
-            .map(VersionedAcceptedTransaction::into_v1)
-            .map(SignedTransaction::from)
+            .map(VersionedSignedTransaction::from)
             .paginate(pagination)
-            .collect::<PendingTransactions>()
-            .into(),
+            .collect::<VersionedPendingTransactions>(),
     ))
 }
 
@@ -283,7 +280,8 @@ async fn handle_post_configuration(
 #[iroha_futures::telemetry_future]
 async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
     let subscription_request: VersionedBlockSubscriptionRequest = stream.recv().await?;
-    let BlockSubscriptionRequest(mut from_height) = subscription_request.into_v1();
+    let VersionedBlockSubscriptionRequest::V1(BlockSubscriptionRequest(mut from_height)) =
+        subscription_request;
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
     loop {
@@ -313,7 +311,7 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
                     stream
                         // TODO: to avoid clone `VersionedBlockMessage` could be split into sending and receiving parts
                         .send(VersionedBlockMessage::from(
-                            BlockMessage(VersionedCommittedBlock::clone(&block)),
+                            BlockMessage(VersionedSignedBlock::clone(&block)),
                         ))
                         .await?;
                     from_height += 1;
@@ -415,7 +413,6 @@ mod subscription {
 async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     use iroha_version::Version;
 
-    #[allow(clippy::expect_used)]
     let string = sumeragi
         .wsv_mutex_access()
         .latest_block_ref()
@@ -490,7 +487,6 @@ impl Torii {
         }
     }
 
-    #[allow(opaque_hidden_inferred_bound)]
     #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
     fn create_telemetry_router(
@@ -528,7 +524,6 @@ impl Torii {
     }
 
     /// Helper function to create router. This router can tested without starting up an HTTP server
-    #[allow(opaque_hidden_inferred_bound)]
     pub(crate) fn create_api_router(
         &self,
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {

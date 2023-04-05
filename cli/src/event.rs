@@ -58,7 +58,8 @@ impl Consumer {
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
         let subscription_request: VersionedEventSubscriptionRequest = stream.recv().await?;
-        let EventSubscriptionRequest(filter) = subscription_request.into_v1();
+        let VersionedEventSubscriptionRequest::V1(EventSubscriptionRequest(filter)) =
+            subscription_request;
 
         Ok(Consumer { stream, filter })
     }

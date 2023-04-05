@@ -21,9 +21,8 @@ fn submit_and_get(
     };
 
     let hash = tx.hash();
-    let _ = client.submit_transaction_blocking(tx);
-
-    client.request(transaction::by_hash(*hash)).unwrap()
+    let _ = client.submit_transaction_blocking(&tx);
+    client.request(transaction::by_hash(hash)).unwrap().tx_value
 }
 
 fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {

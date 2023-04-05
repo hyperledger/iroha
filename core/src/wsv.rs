@@ -20,7 +20,7 @@ use iroha_config::{
 };
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::{CommittedBlock, VersionedCommittedBlock},
+    block::{Block, BlockPayload, VersionedSignedBlock},
     isi::error::{InstructionExecutionFailure as Error, MathError},
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
@@ -35,8 +35,8 @@ use crate::validator::MockValidator as Validator;
 #[cfg(not(test))]
 use crate::validator::Validator;
 use crate::{
+    block::CommittedBlock,
     kura::Kura,
-    prelude::*,
     smartcontracts::{
         triggers::{
             self,
@@ -121,9 +121,9 @@ pub struct WorldStateView {
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
-    pub block_hashes: std::cell::RefCell<Vec<HashOf<VersionedCommittedBlock>>>,
+    pub block_hashes: std::cell::RefCell<Vec<HashOf<BlockPayload>>>,
     /// Hashes of transactions
-    pub transactions: DashSet<HashOf<VersionedSignedTransaction>>,
+    pub transactions: DashSet<HashOf<TransactionPayload>>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
     pub events_buffer: std::cell::RefCell<Vec<Event>>,
     /// Accumulated amount of any asset that has been transacted.
@@ -318,10 +318,9 @@ impl WorldStateView {
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
     #[iroha_logger::log(skip_all, fields(block_height))]
-    pub fn apply(&self, block: &VersionedCommittedBlock) -> Result<()> {
+    pub fn apply(&self, block: &CommittedBlock) -> Result<()> {
         let hash = block.hash();
-        let block = block.as_v1();
-        iroha_logger::prelude::Span::current().record("block_height", block.header.height);
+        iroha_logger::prelude::Span::current().record("block_height", block.header().height);
         trace!("Applying block");
         let time_event = self.create_time_event(block)?;
         self.events_buffer
@@ -354,27 +353,29 @@ impl WorldStateView {
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
     #[inline]
-    pub fn latest_block_ref(&self) -> Option<Arc<VersionedCommittedBlock>> {
+    pub fn latest_block_ref(&self) -> Option<Arc<VersionedSignedBlock>> {
         self.kura
             .get_block_by_height(self.block_hashes.borrow().len() as u64)
     }
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
+        let block_header = block.header();
+
         let prev_interval = self
             .latest_block_ref()
             .map(|latest_block| {
                 let header = latest_block.header();
-                header.timestamp.try_into().map(|since| TimeInterval {
+                header.timestamp_ms.try_into().map(|since| TimeInterval {
                     since: Duration::from_millis(since),
-                    length: Duration::from_millis(header.consensus_estimation),
+                    length: Duration::from_millis(header.consensus_estimation_ms),
                 })
             })
             .transpose()?;
 
         let interval = TimeInterval {
-            since: Duration::from_millis(block.header.timestamp.try_into()?),
-            length: Duration::from_millis(block.header.consensus_estimation),
+            since: Duration::from_millis(block_header.timestamp_ms.try_into()?),
+            length: Duration::from_millis(block_header.consensus_estimation_ms),
         };
 
         Ok(TimeEvent {
@@ -389,16 +390,15 @@ impl WorldStateView {
     /// # Errors
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
+        let payload = block.payload();
+
         // TODO: Should this block panic instead?
-        for tx in &block.transactions {
-            self.process_executable(
-                &tx.as_v1().payload.instructions,
-                tx.payload().account_id.clone(),
-            )?;
+        for tx in &payload.transactions {
+            self.process_executable(&tx.payload().instructions, tx.payload().account_id.clone())?;
             self.transactions.insert(tx.hash());
         }
-        for tx in &block.rejected_transactions {
-            self.transactions.insert(tx.hash());
+        for tx in &payload.rejected_transactions {
+            self.transactions.insert(tx.0.hash());
         }
 
         Ok(())
@@ -429,7 +429,9 @@ impl WorldStateView {
     ///
     /// # Errors
     /// - There is no account with such name.
-    #[allow(clippy::missing_panics_doc)]
+    ///
+    /// # Panics
+    /// - if [`Account::add_asset`] fails.
     pub fn asset_or_insert(
         &self,
         id: &<Asset as Identifiable>::Id,
@@ -458,7 +460,7 @@ impl WorldStateView {
     #[allow(clippy::expect_used)]
     pub fn all_blocks_by_value(
         &self,
-    ) -> impl DoubleEndedIterator<Item = VersionedCommittedBlock> + '_ {
+    ) -> impl DoubleEndedIterator<Item = VersionedSignedBlock> + '_ {
         let block_count = self.block_hashes.borrow().len() as u64;
         (1..=block_count)
             .map(|height| {
@@ -466,14 +468,14 @@ impl WorldStateView {
                     .get_block_by_height(height)
                     .expect("Failed to load block.")
             })
-            .map(|block| VersionedCommittedBlock::clone(&block))
+            .map(|block| VersionedSignedBlock::clone(&block))
     }
 
     /// Return a vector of blockchain blocks after the block with the given `hash`
     pub fn block_hashes_after_hash(
         &self,
-        hash: Option<HashOf<VersionedCommittedBlock>>,
-    ) -> Vec<HashOf<VersionedCommittedBlock>> {
+        hash: Option<HashOf<BlockPayload>>,
+    ) -> Vec<HashOf<BlockPayload>> {
         hash.map_or_else(
             || self.block_hashes.borrow().clone(),
             |block_hash| {
@@ -534,7 +536,7 @@ impl WorldStateView {
     }
 
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
-    pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<VersionedCommittedBlock>> {
+    pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<BlockPayload>> {
         self.block_hashes
             .borrow()
             .iter()
@@ -667,7 +669,7 @@ impl WorldStateView {
             let opt = self
                 .kura
                 .get_block_by_height(1)
-                .map(|genesis_block| genesis_block.as_v1().header.timestamp);
+                .map(|genesis_block| genesis_block.header().timestamp_ms);
 
             if opt.is_none() {
                 error!("Failed to get genesis block from Kura.");
@@ -678,7 +680,7 @@ impl WorldStateView {
 
     /// Check if this [`VersionedSignedTransaction`] is already committed or rejected.
     #[inline]
-    pub fn has_transaction(&self, hash: &HashOf<VersionedSignedTransaction>) -> bool {
+    pub fn has_transaction(&self, hash: &HashOf<TransactionPayload>) -> bool {
         self.transactions.contains(hash)
     }
 
@@ -689,7 +691,7 @@ impl WorldStateView {
     }
 
     /// Return the hash of the latest block
-    pub fn latest_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
+    pub fn latest_block_hash(&self) -> Option<HashOf<BlockPayload>> {
         self.block_hashes.borrow().iter().nth_back(0).copied()
     }
 
@@ -701,7 +703,7 @@ impl WorldStateView {
     }
 
     /// Return the hash of the block one before the latest block
-    pub fn previous_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
+    pub fn previous_block_hash(&self) -> Option<HashOf<BlockPayload>> {
         self.block_hashes.borrow().iter().nth_back(1).copied()
     }
 
@@ -963,18 +965,19 @@ impl WorldStateView {
         let mut txs = self
             .all_blocks_by_value()
             .flat_map(|block| {
-                let block = block.as_v1();
-                block
+                let payload = block.payload();
+
+                payload
                     .rejected_transactions
                     .iter()
                     .cloned()
                     .map(Box::new)
                     .map(|versioned_rejected_tx| TransactionQueryResult {
                         tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
-                        block_hash: Hash::from(block.hash()),
+                        block_hash: block.hash(),
                     })
                     .chain(
-                        block
+                        payload
                             .transactions
                             .iter()
                             .cloned()
@@ -982,7 +985,7 @@ impl WorldStateView {
                             .map(Box::new)
                             .map(|versioned_tx| TransactionQueryResult {
                                 tx_value: TransactionValue::Transaction(versioned_tx),
-                                block_hash: Hash::from(block.hash()),
+                                block_hash: block.hash(),
                             }),
                     )
                     .collect::<Vec<_>>()
@@ -995,25 +998,33 @@ impl WorldStateView {
     /// Find a [`VersionedSignedTransaction`] by hash.
     pub fn transaction_value_by_hash(
         &self,
-        hash: &HashOf<VersionedSignedTransaction>,
-    ) -> Option<TransactionValue> {
+        hash: &HashOf<TransactionPayload>,
+    ) -> Option<TransactionQueryResult> {
         self.all_blocks_by_value().find_map(|b| {
-            b.as_v1()
+            let payload = b.payload();
+
+            payload
                 .rejected_transactions
                 .iter()
-                .find(|e| e.hash() == *hash)
+                .find(|e| e.0.hash() == *hash)
                 .cloned()
                 .map(Box::new)
-                .map(TransactionValue::RejectedTransaction)
+                .map(|versioned_rejected_tx| TransactionQueryResult {
+                    tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
+                    block_hash: b.hash(),
+                })
                 .or_else(|| {
-                    b.as_v1()
+                    payload
                         .transactions
                         .iter()
                         .find(|e| e.hash() == *hash)
                         .cloned()
                         .map(VersionedSignedTransaction::from)
                         .map(Box::new)
-                        .map(TransactionValue::Transaction)
+                        .map(|versioned_tx| TransactionQueryResult {
+                            tx_value: TransactionValue::Transaction(versioned_tx),
+                            block_hash: b.hash(),
+                        })
                 })
         })
     }
@@ -1022,27 +1033,34 @@ impl WorldStateView {
     pub fn transactions_values_by_account_id(
         &self,
         account_id: &AccountId,
-    ) -> Vec<TransactionValue> {
+    ) -> Vec<TransactionQueryResult> {
         let mut transactions = self
             .all_blocks_by_value()
-            .flat_map(|block_entry| {
-                let block = block_entry.as_v1();
-                block
+            .flat_map(|b| {
+                let payload = b.payload();
+
+                payload
                     .rejected_transactions
                     .iter()
-                    .filter(|transaction| &transaction.payload().account_id == account_id)
+                    .filter(|transaction| &transaction.0.payload().account_id == account_id)
                     .cloned()
                     .map(Box::new)
-                    .map(TransactionValue::RejectedTransaction)
+                    .map(|versioned_rejected_tx| TransactionQueryResult {
+                        tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
+                        block_hash: b.hash(),
+                    })
                     .chain(
-                        block
+                        payload
                             .transactions
                             .iter()
                             .filter(|transaction| &transaction.payload().account_id == account_id)
                             .cloned()
                             .map(VersionedSignedTransaction::from)
                             .map(Box::new)
-                            .map(TransactionValue::Transaction),
+                            .map(|versioned_tx| TransactionQueryResult {
+                                tx_value: TransactionValue::Transaction(versioned_tx),
+                                block_hash: b.hash(),
+                            }),
                     )
                     .collect::<Vec<_>>()
             })
@@ -1145,21 +1163,24 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
-    use crate::block::PendingBlock;
+    use crate::block::ValidBlock;
 
     #[test]
     fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(World::default(), kura);
+        let mut valid_block = ValidBlock::new_dummy();
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
-            block.header.height = i as u64;
-            block.header.previous_block_hash = block_hashes.last().copied();
-            let block: VersionedCommittedBlock = block.clone().into();
+            let VersionedSignedBlock::V1(v1_block) = &mut valid_block.0;
+            v1_block.payload.header.height = i as u64;
+            v1_block.payload.header.previous_block_hash = block_hashes.last().copied();
+
+            let block = valid_block.clone().commit_unchecked();
+            let block: CommittedBlock = block.0.clone();
             block_hashes.push(block.hash());
             wsv.apply(&block).unwrap();
         }
@@ -1174,15 +1195,16 @@ mod tests {
     fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(World::default(), kura.clone());
+        let mut valid_block = ValidBlock::new_dummy();
 
         for i in 1..=BLOCK_CNT {
-            block.header.height = i as u64;
-            let block: VersionedCommittedBlock = block.clone().into();
-            wsv.apply(&block).unwrap();
-            kura.store_block(block);
+            let VersionedSignedBlock::V1(v1_block) = &mut valid_block.0;
+            v1_block.payload.header.height = i as u64;
+            let block = valid_block.clone().commit_unchecked();
+            wsv.apply(&block.0).unwrap();
+            kura.store_block(block.0);
         }
 
         assert_eq!(

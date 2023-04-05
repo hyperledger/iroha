@@ -13,7 +13,6 @@
     "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
-    "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": [
       {
         "address": "127.0.0.1:1337",
@@ -32,7 +31,8 @@
         "public_key": "ed01208E351A70B6A603ED285D666B8D689B680865913BA03CE29FB7D13A166C4E7F1F"
       }
     ],
-    "COMMIT_TIME_LIMIT_MS": 2000,
+    "BLOCK_TIME_MS": 1000,
+    "COMMIT_TIME_MS": 2000,
     "MAX_TRANSACTIONS_IN_BLOCK": 8192,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,

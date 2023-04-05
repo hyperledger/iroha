@@ -8,6 +8,7 @@ use iroha_core::{
     sumeragi::network_topology::Topology, tx::TransactionValidator, wsv::World,
 };
 use iroha_data_model::prelude::*;
+use iroha_genesis::AcceptedTransaction;
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -19,7 +20,7 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
     max_wasm_size_bytes: 0,
 };
 
-fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
+fn build_test_transaction(keys: KeyPair) -> VersionedSignedTransaction {
     let domain_name = "domain";
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain = RegisterBox::new(Domain::new(domain_id));
@@ -119,9 +120,8 @@ fn validate_transaction(criterion: &mut Criterion) {
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
         b.iter(|| {
-            match transaction_validator.validate(
+            match transaction_validator.validate::<false>(
                 transaction.clone(),
-                false,
                 &Arc::new(build_test_and_transient_wsv(keys.clone())),
             ) {
                 Ok(_) => success_count += 1,
@@ -132,46 +132,74 @@ fn validate_transaction(criterion: &mut Criterion) {
     println!("Success count: {success_count}, Failure count: {failure_count}");
 }
 
+fn chain_blocks(criterion: &mut Criterion) {
+    let keys = KeyPair::generate().expect("Failed to generate keys");
+    let transaction = AcceptedTransaction::accept::<false>(
+        build_test_transaction(keys.clone()),
+        &TRANSACTION_LIMITS,
+    )
+    .expect("Failed to accept transaction.");
+    let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
+    let wsv = build_test_and_transient_wsv(keys);
+    let topology = Topology::new(Vec::new());
+    let block = BlockBuilder::new(vec![transaction], topology, Vec::new());
+    let previous_block = block
+        .clone()
+        .chain_first(&transaction_validator, wsv.clone());
+    let mut previous_block_hash = previous_block.hash();
+
+    let mut success_count = 0;
+    let _ = criterion.bench_function("chain_block", |b| {
+        b.iter(|| {
+            success_count += 1;
+
+            let new_block = block.clone().chain(
+                success_count,
+                Some(previous_block_hash),
+                0,
+                &transaction_validator,
+                wsv.clone(),
+            );
+
+            previous_block_hash = new_block.hash();
+        });
+    });
+    println!("Total count: {success_count}");
+}
+
 fn sign_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction =
-        AcceptedTransaction::accept::<false>(build_test_transaction(keys), &TRANSACTION_LIMITS)
-            .expect("Failed to accept transaction.");
+    let transaction = AcceptedTransaction::accept::<false>(
+        build_test_transaction(keys.clone()),
+        &TRANSACTION_LIMITS,
+    )
+    .expect("Failed to accept transaction.");
     let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
+    let wsv = build_test_and_transient_wsv(keys);
+    let topology = Topology::new(Vec::new());
+    let block = BlockBuilder::new(vec![transaction], topology, Vec::new())
+        .chain_first(&transaction_validator, wsv);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("sign_block", |b| {
-        b.iter(|| {
-            let block = BlockBuilder {
-                transactions: vec![transaction.clone().into()],
-                event_recommendations: Vec::new(),
-                height: 1,
-                previous_block_hash: None,
-                view_change_index: 0,
-                committed_with_topology: Topology::new(Vec::new()),
-                key_pair: key_pair.clone(),
-                transaction_validator: &transaction_validator,
-                wsv: WorldStateView::new(World::new(), kura.clone()),
-            }
-            .build();
-
-            match block.sign(key_pair.clone()) {
-                Ok(_) => success_count += 1,
-                Err(_) => failures_count += 1,
-            }
+        b.iter(|| match block.clone().sign(key_pair.clone()) {
+            Ok(_) => success_count += 1,
+            Err(_) => failures_count += 1,
         });
     });
     println!("Success count: {success_count}, Failures count: {failures_count}");
 }
 
-criterion_group!(
+criterion_group! {
     transactions,
     accept_transaction,
     sign_transaction,
-    validate_transaction
-);
-criterion_group!(blocks, sign_blocks);
+    validate_transaction,
+}
+criterion_group! {
+    blocks,
+    chain_blocks,
+    sign_blocks,
+}
 criterion_main!(transactions, blocks);

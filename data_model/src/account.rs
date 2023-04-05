@@ -163,22 +163,6 @@ pub mod model {
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 }
 
-impl AccountId {
-    #[cfg(feature = "transparent_api")]
-    const GENESIS_ACCOUNT_NAME: &str = "genesis";
-
-    /// Construct [`Id`] of the genesis account.
-    #[inline]
-    #[must_use]
-    #[cfg(feature = "transparent_api")]
-    pub fn genesis() -> Self {
-        Self {
-            name: Self::GENESIS_ACCOUNT_NAME.parse().expect("Valid"),
-            domain_id: DomainId::genesis(),
-        }
-    }
-}
-
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[inline]
@@ -227,7 +211,7 @@ impl Account {
     }
 }
 
-#[cfg(feature = "transparent_api")]
+#[cfg(feature = "_transparent-api")]
 impl Account {
     /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
     #[inline]

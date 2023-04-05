@@ -15,6 +15,7 @@ use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
+use iroha_genesis::AcceptedTransaction;
 use iroha_logger::{debug, info, trace, warn};
 use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
@@ -28,13 +29,13 @@ use crate::{prelude::*, tx::CheckSignatureCondition as _};
 #[derive(Debug)]
 pub struct Queue {
     /// The queue for transactions that passed signature check
-    queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
+    queue: ArrayQueue<HashOf<TransactionPayload>>,
     /// The queue for transactions that didn't pass signature check and are waiting for additional signatures
     ///
     /// Second queue is needed to prevent situation when multisig transactions prevent ordinary transactions from being added into the queue
-    signature_buffer: ArrayQueue<HashOf<VersionedSignedTransaction>>,
-    /// [`VersionedAcceptedTransaction`]s addressed by `Hash`.
-    txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
+    signature_buffer: ArrayQueue<HashOf<TransactionPayload>>,
+    /// [`AcceptedTransaction`]s addressed by `Hash`.
+    txs: DashMap<HashOf<TransactionPayload>, AcceptedTransaction>,
     /// The maximum number of transactions in the queue
     max_txs: usize,
     /// Length of time after which transactions are dropped.
@@ -69,7 +70,7 @@ pub enum Error {
     #[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
     SignatureCondition {
         /// Transaction hash
-        tx_hash: HashOf<VersionedSignedTransaction>,
+        tx_hash: HashOf<TransactionPayload>,
         /// Failure reason
         reason: Report,
     },
@@ -79,7 +80,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Failure {
     /// Transaction failed to be pushed into the queue
-    pub tx: VersionedAcceptedTransaction,
+    pub tx: AcceptedTransaction,
     /// Push failure reason
     pub err: Error,
 }
@@ -98,12 +99,12 @@ impl Queue {
         }
     }
 
-    fn is_pending(&self, tx: &VersionedAcceptedTransaction, wsv: &WorldStateView) -> bool {
+    fn is_pending(&self, tx: &AcceptedTransaction, wsv: &WorldStateView) -> bool {
         !tx.is_expired(self.tx_time_to_live) && !tx.is_in_blockchain(wsv)
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<VersionedAcceptedTransaction> {
+    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
         self.txs
             .iter()
             .filter(|e| self.is_pending(e.value(), wsv))
@@ -112,11 +113,7 @@ impl Queue {
     }
 
     /// Returns `n` randomly selected transaction from the queue.
-    pub fn n_random_transactions(
-        &self,
-        n: u32,
-        wsv: &WorldStateView,
-    ) -> Vec<VersionedAcceptedTransaction> {
+    pub fn n_random_transactions(&self, n: u32, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
         self.txs
             .iter()
             .filter(|e| self.is_pending(e.value(), wsv))
@@ -129,14 +126,14 @@ impl Queue {
 
     fn check_tx(
         &self,
-        tx: &VersionedAcceptedTransaction,
+        tx: &AcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<MustUse<bool>, Error> {
         if tx.is_in_future(self.future_threshold) {
             Err(Error::InFuture)
         } else if tx.is_expired(self.tx_time_to_live) {
             Err(Error::Expired {
-                time_to_live_ms: tx.payload().time_to_live_ms,
+                time_to_live_ms: tx.payload.time_to_live_ms,
             })
         } else if tx.is_in_blockchain(wsv) {
             Err(Error::InBlockchain)
@@ -153,11 +150,7 @@ impl Queue {
     ///
     /// # Errors
     /// See [`enum@Error`]
-    pub fn push(
-        &self,
-        tx: VersionedAcceptedTransaction,
-        wsv: &WorldStateView,
-    ) -> Result<(), Failure> {
+    pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
         let signature_check_succeed = match self.check_tx(&tx, wsv) {
             Err(err) => {
@@ -173,11 +166,7 @@ impl Queue {
         let entry = match self.txs.entry(hash) {
             Entry::Occupied(mut old_tx) => {
                 // MST case
-                old_tx
-                    .get_mut()
-                    .as_mut_v1()
-                    .signatures
-                    .extend(tx.as_v1().signatures.clone());
+                old_tx.get_mut().signatures.extend(tx.signatures);
                 info!("Signature added to existing multisignature transaction");
                 return Ok(());
             }
@@ -224,10 +213,10 @@ impl Queue {
     /// Pop single transaction from the signature buffer. Record all visited and not removed transactions in `seen`.
     fn pop_from_signature_buffer(
         &self,
-        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
+        seen: &mut Vec<HashOf<TransactionPayload>>,
         wsv: &WorldStateView,
-        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
-    ) -> Option<VersionedAcceptedTransaction> {
+        expired_transactions: &mut Vec<AcceptedTransaction>,
+    ) -> Option<AcceptedTransaction> {
         // NOTE: `SKIP_SIGNATURE_CHECK=false` because `signature_buffer` contains transaction which signature check can be either `true` or `false`.
         self.pop_from::<false>(&self.signature_buffer, seen, wsv, expired_transactions)
     }
@@ -235,10 +224,10 @@ impl Queue {
     /// Pop single transaction from the queue. Record all visited and not removed transactions in `seen`.
     fn pop_from_queue(
         &self,
-        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
+        seen: &mut Vec<HashOf<TransactionPayload>>,
         wsv: &WorldStateView,
-        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
-    ) -> Option<VersionedAcceptedTransaction> {
+        expired_transactions: &mut Vec<AcceptedTransaction>,
+    ) -> Option<AcceptedTransaction> {
         // NOTE: `SKIP_SIGNATURE_CHECK=true` because `queue` contains only transactions for which signature check is `true`.
         self.pop_from::<true>(&self.queue, seen, wsv, expired_transactions)
     }
@@ -247,11 +236,11 @@ impl Queue {
     #[inline]
     fn pop_from<const SKIP_SIGNATURE_CHECK: bool>(
         &self,
-        queue: &ArrayQueue<HashOf<VersionedSignedTransaction>>,
-        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
+        queue: &ArrayQueue<HashOf<TransactionPayload>>,
+        seen: &mut Vec<HashOf<TransactionPayload>>,
         wsv: &WorldStateView,
-        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
-    ) -> Option<VersionedAcceptedTransaction> {
+        expired_transactions: &mut Vec<AcceptedTransaction>,
+    ) -> Option<AcceptedTransaction> {
         loop {
             let Some(hash) = queue.pop() else {
                 trace!("Queue is empty");
@@ -302,7 +291,7 @@ impl Queue {
         &self,
         wsv: &WorldStateView,
         max_txs_in_block: usize,
-    ) -> Vec<VersionedAcceptedTransaction> {
+    ) -> Vec<AcceptedTransaction> {
         let mut transactions = Vec::with_capacity(max_txs_in_block);
         self.get_transactions_for_block(wsv, max_txs_in_block, &mut transactions, &mut Vec::new());
         transactions
@@ -315,8 +304,8 @@ impl Queue {
         &self,
         wsv: &WorldStateView,
         max_txs_in_block: usize,
-        transactions: &mut Vec<VersionedAcceptedTransaction>,
-        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
+        transactions: &mut Vec<AcceptedTransaction>,
+        expired_transactions: &mut Vec<AcceptedTransaction>,
     ) {
         if transactions.len() >= max_txs_in_block {
             return;
@@ -338,10 +327,8 @@ impl Queue {
             )
         });
 
-        let transactions_hashes: HashSet<HashOf<VersionedSignedTransaction>> = transactions
-            .iter()
-            .map(VersionedAcceptedTransaction::hash)
-            .collect();
+        let transactions_hashes: HashSet<_> =
+            transactions.iter().map(AcceptedTransaction::hash).collect();
         let txs = txs_from_queue
             .riffle(txs_from_waiting_buffer)
             .filter(|tx| !transactions_hashes.contains(&tx.hash()))
@@ -383,11 +370,7 @@ mod tests {
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _, wsv::World, PeersIds};
 
-    fn accepted_tx(
-        account_id: &str,
-        proposed_ttl_ms: u64,
-        key: KeyPair,
-    ) -> VersionedAcceptedTransaction {
+    fn accepted_tx(account_id: &str, proposed_ttl_ms: u64, key: KeyPair) -> AcceptedTransaction {
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
@@ -729,7 +712,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let fully_signed_tx: VersionedAcceptedTransaction = {
+        let fully_signed_tx: AcceptedTransaction = {
             let mut signed_tx = tx
                 .clone()
                 .sign((&key_pairs[0]).clone())
@@ -756,7 +739,7 @@ mod tests {
             .into()
         };
         for key_pair in key_pairs {
-            let partially_signed_tx: VersionedAcceptedTransaction = get_tx(key_pair);
+            let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
             // Check that non of partially signed pass signature check
             assert!(matches!(
                 partially_signed_tx.check_signature_condition(&wsv),
@@ -1044,7 +1027,7 @@ mod tests {
         let mut tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
-        tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;
+        tx.payload.creation_time_ms += 2 * future_threshold_ms;
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {

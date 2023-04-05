@@ -238,7 +238,7 @@ fn permissions_differ_not_only_by_names() {
     .sign(mouse_keypair.clone())
     .expect("Failed to sign mouse transaction");
     client
-        .submit_transaction_blocking(grant_hats_access_tx)
+        .submit_transaction_blocking(&grant_hats_access_tx)
         .expect("Failed grant permission to modify Mouse's hats");
 
     // Checking that Alice can modify Mouse's hats ...
@@ -278,7 +278,7 @@ fn permissions_differ_not_only_by_names() {
     .expect("Failed to sign mouse transaction");
 
     client
-        .submit_transaction_blocking(grant_shoes_access_tx)
+        .submit_transaction_blocking(&grant_shoes_access_tx)
         .expect("Failed grant permission to modify Mouse's shoes");
 
     // Checking that Alice can modify Mouse's shoes

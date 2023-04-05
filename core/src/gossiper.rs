@@ -3,10 +3,8 @@
 use std::{sync::Arc, time::Duration};
 
 use iroha_config::sumeragi::Configuration;
-use iroha_data_model::transaction::{
-    AcceptedTransaction, Transaction, TransactionLimits, VersionedAcceptedTransaction,
-    VersionedSignedTransaction,
-};
+use iroha_data_model::transaction::{Transaction, TransactionLimits, VersionedSignedTransaction};
+use iroha_genesis::AcceptedTransaction;
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
@@ -111,11 +109,8 @@ impl TransactionGossiper {
     fn handle_transaction_gossip(&self, TransactionGossip { txs }: TransactionGossip) {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
         for tx in txs {
-            match AcceptedTransaction::accept::<false>(tx.into_v1(), &self.transaction_limits) {
-                Ok(tx) => match self
-                    .queue
-                    .push(tx.into(), &self.sumeragi.wsv_mutex_access())
-                {
+            match AcceptedTransaction::accept::<false>(tx, &self.transaction_limits) {
+                Ok(tx) => match self.queue.push(tx, &self.sumeragi.wsv_mutex_access()) {
                     Ok(_) => {}
                     Err(crate::queue::Failure {
                         tx,
@@ -127,14 +122,16 @@ impl TransactionGossiper {
                         iroha_logger::error!(?err, tx_hash = %tx.hash(), "Failed to enqueue transaction.")
                     }
                 },
-                Err(err) => iroha_logger::error!(%err, "Transaction rejected"),
+                Err((block, err)) => {
+                    iroha_logger::error!(%err, hash=%block.hash(), "Transaction rejected")
+                }
             }
         }
     }
 }
 
 /// Message for gossiping batches of transactions.
-#[derive(Decode, Encode, Debug, Clone)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct TransactionGossip {
     /// Batch of transactions.
     pub txs: Vec<VersionedSignedTransaction>,
@@ -142,7 +139,7 @@ pub struct TransactionGossip {
 
 impl TransactionGossip {
     /// Constructor.
-    pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
+    pub fn new(txs: Vec<AcceptedTransaction>) -> Self {
         Self {
             // Converting into non-accepted transaction because it's not possible
             // to guarantee that the sending peer checked transaction limits

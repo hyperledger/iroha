@@ -39,8 +39,8 @@ impl ValidQuery for FindTransactionByHash {
             .evaluate(&Context::new(wsv))
             .wrap_err("Failed to get hash")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
+
         iroha_logger::trace!(%hash);
-        let hash = hash.typed();
         if !wsv.has_transaction(&hash) {
             return Err(FindError::Transaction(hash).into());
         };

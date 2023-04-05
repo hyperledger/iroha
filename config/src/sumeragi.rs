@@ -5,22 +5,26 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path}
 use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{view, Documented, Proxy};
 use iroha_crypto::prelude::*;
-use iroha_data_model::{prelude::*, transaction};
+use iroha_data_model::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Default Amount of time peer waits for transactions before creating a block.
 pub const DEFAULT_BLOCK_TIME_MS: u64 = 2000;
 /// Default amount of time allocated for voting on a block before a peer can ask for a view change.
-pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
+pub const DEFAULT_COMMIT_TIME_MS: u64 = 4000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 const DEFAULT_MAX_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(9);
+/// Default maximum number of instructions and expressions per transaction
+pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+/// Default maximum number of instructions and expressions per transaction
+pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
 
 /// Default estimation of consensus duration
 #[allow(clippy::integer_division)]
 pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
-    DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
+    DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_MS / 2);
 
 // Generate `ConfigurationView` without keys
 view! {
@@ -31,23 +35,26 @@ view! {
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]
     pub struct Configuration {
+        /// Current Peer Identification.
+        pub peer_id: PeerId,
         /// The key pair consisting of a private and a public key.
         //TODO: consider putting a `#[serde(skip)]` on the proxy struct here
         #[view(ignore)]
         pub key_pair: KeyPair,
-        /// Current Peer Identification.
-        pub peer_id: PeerId,
-        /// The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
-        pub block_time_ms: u64,
-        /// Optional list of predefined trusted peers.
+        /// List of predefined trusted peers.
         pub trusted_peers: TrustedPeers,
-        /// The period of time a peer waits for `CommitMessage` from the proxy tail.
-        pub commit_time_limit_ms: u64,
+        /// Time a peer waits to produce a new block since the beginning of the voting round
+        /// if it cannot satisfy `max_transactions_in_block`. Unless there is no transactions,
+        /// after this time has elapsed the block will be committed regardless.
+        pub block_time_ms: u64,
+        /// Time a peer waits for the block to be committed since the beginning of the voting round
+        pub commit_time_ms: u64,
         /// The upper limit of the number of transactions per block.
         pub max_transactions_in_block: u32,
         /// The limits to which transactions must adhere
         pub transaction_limits: TransactionLimits,
         /// Buffer capacity of actor's MPSC channel
+        #[deprecated(since = "2.0.0-pre-rc.13", note = "Will be removed in future versions")]
         pub actor_channel_capacity: u32,
         /// max number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
         pub gossip_batch_size: u32,
@@ -67,10 +74,10 @@ impl Default for ConfigurationProxy {
             peer_id: None,
             trusted_peers: None,
             block_time_ms: Some(DEFAULT_BLOCK_TIME_MS),
-            commit_time_limit_ms: Some(DEFAULT_COMMIT_TIME_LIMIT_MS),
+            commit_time_ms: Some(DEFAULT_COMMIT_TIME_MS),
             transaction_limits: Some(TransactionLimits::new(
-                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+                DEFAULT_MAX_INSTRUCTION_NUMBER,
+                DEFAULT_MAX_WASM_SIZE_BYTES,
             )),
             actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
             gossip_batch_size: Some(DEFAULT_GOSSIP_BATCH_SIZE),
@@ -106,12 +113,11 @@ impl Configuration {
     #[inline]
     #[must_use]
     pub const fn pipeline_time_ms(&self) -> u64 {
-        self.block_time_ms + self.commit_time_limit_ms
+        self.block_time_ms + self.commit_time_ms
     }
 }
 
-/// `SumeragiConfiguration` provides an ability to define parameters
-/// such as `BLOCK_TIME_MS` and a list of `TRUSTED_PEERS`.
+/// Trusted peers
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(transparent)]
@@ -199,10 +205,10 @@ pub mod tests {
              peer_id in Just(None),
              block_time_ms in prop::option::of(Just(DEFAULT_BLOCK_TIME_MS)),
              trusted_peers in Just(None),
-             commit_time_limit_ms in prop::option::of(Just(DEFAULT_COMMIT_TIME_LIMIT_MS)),
+             commit_time_ms in prop::option::of(Just(DEFAULT_COMMIT_TIME_MS)),
              transaction_limits in prop::option::of(Just(TransactionLimits::new(
-                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+                DEFAULT_MAX_INSTRUCTION_NUMBER,
+                DEFAULT_MAX_WASM_SIZE_BYTES,
             ))),
              actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
              gossip_batch_size in prop::option::of(Just(DEFAULT_GOSSIP_BATCH_SIZE)),
@@ -216,7 +222,7 @@ pub mod tests {
                 peer_id,
                 block_time_ms,
                 trusted_peers,
-                commit_time_limit_ms,
+                commit_time_ms,
                 transaction_limits,
                 actor_channel_capacity,
                 gossip_batch_size,

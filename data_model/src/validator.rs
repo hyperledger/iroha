@@ -53,7 +53,7 @@ pub mod model {
     }
 
     // TODO: Client doesn't need structures defined inside this macro. When dynamic linking is
-    // implemented use: #[cfg(any(feature = "transparent_api", feature = "ffi_import"))]
+    // implemented use: #[cfg(any(feature = "_transparent-api", feature = "ffi-import"))]
 
     /// Boxed version of [`NeedsPermission`]
     #[derive(
@@ -62,6 +62,7 @@ pub mod model {
     #[ffi_type]
     pub enum NeedsValidationBox {
         /// [`Transaction`] application operation
+        // TODO: Should it not be `VersionedSignedTransaction`?
         Transaction(SignedTransaction),
         /// [`InstructionBox`] execution operation
         Instruction(InstructionBox),

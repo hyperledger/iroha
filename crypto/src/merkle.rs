@@ -228,7 +228,7 @@ impl<T> MerkleTree<T> {
             .zip(r_hash.as_ref().iter())
             .map(|(l, r)| l.wrapping_add(*r))
             .collect();
-        Some(crate::Hash::new(sum).typed())
+        Some(crate::Hash::new(sum).typed_unchecked())
     }
 }
 
@@ -261,7 +261,7 @@ mod tests {
 
     fn test_hashes(n_hashes: u8) -> Vec<HashOf<()>> {
         (1..=n_hashes)
-            .map(|i| Hash::prehashed([i; Hash::LENGTH]).typed())
+            .map(|i| Hash::prehashed([i; Hash::LENGTH]).typed_unchecked())
             .collect()
     }
 

@@ -1,4 +1,5 @@
 #![allow(clippy::restriction)]
+#![cfg(debug_assertions)]
 
 use core::sync::atomic::Ordering;
 use std::thread;
