@@ -71,7 +71,7 @@ pub mod isi {
             domain_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
-                .map_err(Error::Validate)?;
+                .map_err(Error::from)?;
 
             wsv.modify_world(|world| {
                 if world.domains.contains_key(&domain_id) {
@@ -389,7 +389,7 @@ pub mod isi {
                     world.parameters.insert(parameter.clone());
                     Ok(ConfigurationEvent::Changed(parameter.id).into())
                 } else {
-                    Err(FindError::Parameter(parameter).into())
+                    Err(FindError::Parameter(parameter.id).into())
                 }
             })
         }
@@ -462,7 +462,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let role_id = self
                 .id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%role_id);
 
@@ -505,7 +505,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let account_id = self
                 .account_id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
             wsv.map_account(&account_id, |account| {

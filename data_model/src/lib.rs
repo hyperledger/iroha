@@ -45,7 +45,7 @@ use iroha_data_model_derive::{
 };
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
-    fixed,
+    fixed::{self, FixedPointOperationError},
     small::{Array as SmallArray, SmallVec},
 };
 use iroha_schema::{IntoSchema, MetaMap};
@@ -61,6 +61,7 @@ pub mod account;
 pub mod asset;
 pub mod block;
 pub mod domain;
+pub mod evaluate;
 pub mod events;
 pub mod expression;
 pub mod isi;
@@ -132,7 +133,7 @@ pub struct ParseError {
 }
 
 /// Validation of the data model entity failed.
-#[derive(Debug, Display, Clone)]
+#[derive(Debug, Display, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ValidationError {
     reason: Cow<'static, str>,
@@ -551,8 +552,8 @@ impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
 #[macro_export]
 macro_rules! val_vec {
     () => { Vec::new() };
-    ($elem:expr; $n:expr) => { vec![iroha_data_model::Value::from($elem); $n] };
-    ($($x:expr),+ $(,)?) => { vec![$(iroha_data_model::Value::from($x),)+] };
+    ($elem:expr; $n:expr) => { vec![$crate::Value::from($elem); $n] };
+    ($($x:expr),+ $(,)?) => { vec![$($crate::Value::from($x),)+] };
 }
 
 /// Boxed [`Value`].
@@ -560,8 +561,8 @@ pub type ValueBox = Box<Value>;
 
 model! {
     /// Sized container for all possible values.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, FromVariant, IntoSchema, EnumDiscriminants, PartiallyTaggedSerialize, PartiallyTaggedDeserialize)]
-    #[strum_discriminants(name(ValueKind), derive(Display, Decode, Encode, Serialize, Deserialize, IntoSchema), allow(missing_docs))]
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, EnumDiscriminants, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
+    #[strum_discriminants(name(ValueKind), derive(Display, Decode, Encode, Deserialize, Serialize, IntoSchema), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
     #[allow(clippy::enum_variant_names, missing_docs)]
     #[ffi_type(opaque)]
     pub enum Value {
@@ -616,6 +617,14 @@ impl NumericValue {
             U128(value) => value == 0_u128,
             Fixed(value) => value.is_zero(),
         }
+    }
+}
+
+impl TryFrom<f64> for NumericValue {
+    type Error = FixedPointOperationError;
+
+    fn try_from(source: f64) -> Result<Self, Self::Error> {
+        source.try_into().map(Self::Fixed)
     }
 }
 
@@ -1490,13 +1499,13 @@ pub mod prelude {
     #[cfg(feature = "transparent_api")]
     pub use super::Registrable;
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, events::prelude::*,
-        expression::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
-        parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
-        role::prelude::*, transaction::prelude::*, trigger::prelude::*, EnumTryAsError,
-        HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, NumericValue,
-        PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, ValidationError,
-        Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, evaluate::prelude::*,
+        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
+        name::prelude::*, parameter::prelude::*, peer::prelude::*, permission::prelude::*,
+        query::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
+        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits,
+        NumericValue, PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue,
+        ValidationError, Value,
     };
     #[cfg(feature = "http")]
     pub use super::{pagination::prelude::*, sorting::prelude::*};

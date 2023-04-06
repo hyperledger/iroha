@@ -4580,39 +4580,34 @@
           "ty": "iroha_crypto::hash::HashOf<iroha_data_model::transaction::VersionedSignedTransaction>"
         },
         {
-          "name": "Context",
-          "discriminant": 7,
-          "ty": "String"
-        },
-        {
           "name": "Peer",
-          "discriminant": 8,
+          "discriminant": 7,
           "ty": "iroha_data_model::peer::Id"
         },
         {
           "name": "Trigger",
-          "discriminant": 9,
+          "discriminant": 8,
           "ty": "iroha_data_model::trigger::Id"
         },
         {
           "name": "Role",
-          "discriminant": 10,
+          "discriminant": 9,
           "ty": "iroha_data_model::role::Id"
         },
         {
           "name": "PermissionTokenDefinition",
-          "discriminant": 11,
+          "discriminant": 10,
           "ty": "iroha_data_model::permission::token::Id"
         },
         {
           "name": "Validator",
-          "discriminant": 12,
+          "discriminant": 11,
           "ty": "iroha_data_model::permission::validator::Id"
         },
         {
           "name": "Parameter",
-          "discriminant": 13,
-          "ty": "iroha_data_model::parameter::Parameter"
+          "discriminant": 12,
+          "ty": "iroha_data_model::parameter::Id"
         }
       ]
     }
@@ -4621,38 +4616,33 @@
     "Enum": {
       "variants": [
         {
-          "name": "Decode",
-          "discriminant": 0,
-          "ty": "iroha_version::error::Error"
-        },
-        {
           "name": "Signature",
-          "discriminant": 1,
+          "discriminant": 0,
           "ty": "String"
         },
         {
           "name": "Permission",
-          "discriminant": 2,
+          "discriminant": 1,
           "ty": "String"
         },
         {
           "name": "Evaluate",
-          "discriminant": 3,
+          "discriminant": 2,
           "ty": "String"
         },
         {
           "name": "Find",
-          "discriminant": 4,
+          "discriminant": 3,
           "ty": "iroha_data_model::query::error::FindError"
         },
         {
           "name": "Conversion",
-          "discriminant": 5,
+          "discriminant": 4,
           "ty": "String"
         },
         {
           "name": "Unauthorized",
-          "discriminant": 6,
+          "discriminant": 5,
           "ty": null
         }
       ]
@@ -5315,87 +5305,6 @@
     "Tuple": {
       "types": [
         "FixedPoint<i64>"
-      ]
-    }
-  },
-  "iroha_version::RawVersioned": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "Json",
-          "discriminant": 0,
-          "ty": "String"
-        },
-        {
-          "name": "ScaleBytes",
-          "discriminant": 1,
-          "ty": "Vec<u8>"
-        }
-      ]
-    }
-  },
-  "iroha_version::UnsupportedVersion": {
-    "Struct": {
-      "declarations": [
-        {
-          "name": "version",
-          "ty": "u8"
-        },
-        {
-          "name": "raw",
-          "ty": "iroha_version::RawVersioned"
-        }
-      ]
-    }
-  },
-  "iroha_version::error::Error": {
-    "Enum": {
-      "variants": [
-        {
-          "name": "NotVersioned",
-          "discriminant": 0,
-          "ty": null
-        },
-        {
-          "name": "UnsupportedJsonEncode",
-          "discriminant": 1,
-          "ty": null
-        },
-        {
-          "name": "ExpectedJson",
-          "discriminant": 2,
-          "ty": null
-        },
-        {
-          "name": "UnsupportedScaleEncode",
-          "discriminant": 3,
-          "ty": null
-        },
-        {
-          "name": "Serde",
-          "discriminant": 4,
-          "ty": null
-        },
-        {
-          "name": "ParityScale",
-          "discriminant": 5,
-          "ty": null
-        },
-        {
-          "name": "ParseInt",
-          "discriminant": 6,
-          "ty": null
-        },
-        {
-          "name": "UnsupportedVersion",
-          "discriminant": 7,
-          "ty": "iroha_version::UnsupportedVersion"
-        },
-        {
-          "name": "ExtraBytesLeft",
-          "discriminant": 8,
-          "ty": "u64"
-        }
       ]
     }
   },

@@ -4,7 +4,7 @@
 use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
-use super::prelude::*;
+use super::{prelude::*, Context};
 use crate::{ValidQuery, WorldStateView};
 
 /// All instructions related to accounts:
@@ -462,7 +462,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let account_id = self
                 .id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
@@ -478,7 +478,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let account_id = self
                 .id
-                .evaluate(wsv, &Context::new())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, accounts=?wsv.world.domains);
@@ -507,7 +507,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -520,7 +520,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let name = self
                 .name
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get account name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
@@ -541,7 +541,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .domain_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -554,12 +554,12 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
@@ -573,7 +573,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let asset_definition_id = self
                 .asset_definition_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%asset_definition_id);

@@ -196,7 +196,6 @@ impl DeclareVersionedArgs {
     pub fn version_idents(&self) -> Vec<Ident> {
         self.range
             .clone()
-            .into_iter()
             .map(|i| Ident::new(&format!("V{i}"), Span::call_site()))
             .collect()
     }
@@ -204,13 +203,12 @@ impl DeclareVersionedArgs {
     pub fn version_struct_idents(&self) -> Vec<Ident> {
         self.range
             .clone()
-            .into_iter()
             .map(|i| Ident::new(&format!("_{}V{}", self.enum_name, i), Span::call_site()))
             .collect()
     }
 
     pub fn version_numbers(&self) -> Vec<u8> {
-        self.range.clone().into_iter().collect()
+        self.range.clone().collect()
     }
 }
 

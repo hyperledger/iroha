@@ -54,7 +54,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
     };
 
     let IdBox::AssetId(asset_id) = unregister.object_id()
-        .evaluate()
+        .evaluate(&Context::new())
         .dbg_expect("Failed to evaluate `Unregister` object id") else {
         pass!();
     };

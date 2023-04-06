@@ -4,7 +4,7 @@
 use iroha_data_model::{
     isi::error::{MathError, Mismatch, TypeError},
     prelude::*,
-    query::error::FindError,
+    query::error::{FindError, QueryExecutionFailure},
 };
 use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
@@ -35,7 +35,7 @@ pub mod isi {
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
 
             // Increase `Store` asset total quantity by 1 if asset was not present earlier
-            if wsv.asset(&asset_id).is_err() {
+            if matches!(wsv.asset(&asset_id), Err(QueryExecutionFailure::Find(_))) {
                 wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
             }
 
@@ -179,7 +179,6 @@ pub mod isi {
     impl_transfer!(Fixed, "transfer_fixed");
 
     /// Trait for blanket mint implementation.
-    #[allow(clippy::trait_duplication_in_bounds)] // TODO: remove when update rust to 1.65+ (false positive)
     trait InnerMint {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
@@ -197,6 +196,11 @@ pub mod isi {
         {
             let asset_id = mint.destination_id;
 
+            assert_asset_type(
+                &asset_id.definition_id,
+                wsv,
+                <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
+            )?;
             assert_can_mint(
                 &asset_id.definition_id,
                 wsv,
@@ -232,7 +236,6 @@ pub mod isi {
     }
 
     /// Trait for blanket burn implementation.
-    #[allow(clippy::trait_duplication_in_bounds)] // TODO: remove when update rust to 1.65+ (false positive)
     trait InnerBurn {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
@@ -470,7 +473,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -489,7 +492,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
@@ -504,7 +507,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let name = self
                 .name
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
@@ -527,7 +530,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .account_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -540,7 +543,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .asset_definition_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -563,7 +566,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .domain_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -582,12 +585,12 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let domain_id = self
                 .domain_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset_definition_id = self
                 .asset_definition_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let domain = wsv.domain(&domain_id)?;
@@ -615,7 +618,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -640,7 +643,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -654,12 +657,12 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
@@ -687,12 +690,12 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let asset_definition_id = self
                 .asset_definition_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let account_id = self
                 .account_id
-                .evaluate(wsv, &Context::default())
+                .evaluate(&Context::new(wsv))
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 

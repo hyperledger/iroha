@@ -7,6 +7,8 @@
 pub mod isi;
 pub mod wasm;
 
+use std::collections::BTreeMap;
+
 use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
 pub use isi::*;
 
@@ -24,21 +26,6 @@ pub trait Execute {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error>;
 }
 
-/// Calculate the result of the expression without mutating the state.
-pub trait Evaluate {
-    /// The resulting type of the expression.
-    type Value;
-    /// Error type returned if the evaluation fails. Typically just [`isi::error::Error`].
-    type Error: std::error::Error;
-
-    /// Calculate result.
-    ///
-    /// # Errors
-    /// Concrete to each implementer.
-    fn evaluate(&self, wsv: &WorldStateView, context: &Context)
-        -> Result<Self::Value, Self::Error>;
-}
-
 /// This trait should be implemented for all Iroha Queries.
 pub trait ValidQuery: Query {
     /// Execute query on the [`WorldStateView`].
@@ -48,16 +35,44 @@ pub trait ValidQuery: Query {
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, QueryExecutionFailure>;
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure>;
 
     /// Executes query and maps it into value
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute_into_value(
-        &self,
-        wsv: &WorldStateView,
-    ) -> eyre::Result<Value, QueryExecutionFailure> {
+    fn execute_into_value(&self, wsv: &WorldStateView) -> Result<Value, QueryExecutionFailure> {
         self.execute(wsv).map(Into::into)
+    }
+}
+
+/// Context of expression evaluation
+#[derive(Clone)]
+pub struct Context<'wsv> {
+    values: BTreeMap<Name, Value>,
+    wsv: &'wsv WorldStateView,
+}
+
+impl<'a> Context<'a> {
+    /// Create new [`Self`]
+    pub fn new(wsv: &'a WorldStateView) -> Self {
+        Self {
+            values: BTreeMap::new(),
+            wsv,
+        }
+    }
+}
+
+impl iroha_data_model::evaluate::Context for Context<'_> {
+    fn query(&self, query: &QueryBox) -> Result<Value, QueryExecutionFailure> {
+        query.execute(self.wsv)
+    }
+
+    fn get(&self, name: &Name) -> Option<&Value> {
+        self.values.get(name)
+    }
+
+    fn update(&mut self, other: impl IntoIterator<Item = (Name, Value)>) {
+        self.values.extend(other)
     }
 }

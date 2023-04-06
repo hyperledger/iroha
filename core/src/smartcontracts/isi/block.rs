@@ -33,7 +33,7 @@ impl ValidQuery for FindBlockHeaderByHash {
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
         let hash = self
             .hash
-            .evaluate(wsv, &Context::default())
+            .evaluate(&Context::new(wsv))
             .wrap_err("Failed to evaluate hash")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?
             .typed();

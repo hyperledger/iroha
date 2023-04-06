@@ -1401,14 +1401,11 @@ pub mod error {
 
     model! {
         /// Query errors.
-        #[derive(Debug, Display, FromVariant, Decode, Encode, IntoSchema)]
+        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, IntoSchema)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporarily opaque because of iroha_version::error::Error
         #[ffi_type(opaque)]
         pub enum QueryExecutionFailure {
-            /// Query cannot be decoded.
-            #[display(fmt = "Query cannot be decoded")]
-            Decode(#[cfg_attr(feature = "std", source)] Box<iroha_version::error::Error>),
             /// Query has wrong signature.
             #[display(fmt = "Query has the wrong signature: {_0}")]
             Signature(#[skip_from] #[skip_try_from] String),
@@ -1430,7 +1427,7 @@ pub mod error {
         }
 
         /// Type assertion error
-        #[derive(Debug, Display, Decode, Encode, IntoSchema)]
+        #[derive(Debug, Display, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
         // TODO: Only temporary
         #[ffi_type(opaque)]
         pub enum FindError {
@@ -1455,9 +1452,6 @@ pub mod error {
             /// Transaction with given hash not found.
             #[display(fmt = "Transaction not found")]
             Transaction(HashOf<VersionedSignedTransaction>),
-            /// Value not found in context.
-            #[display(fmt = "Value named {_0} not found in context")]
-            Context(String),
             /// Peer not found.
             #[display(fmt = "Peer {_0} not found")]
             Peer(PeerId),
@@ -1475,7 +1469,7 @@ pub mod error {
             Validator(permission::validator::Id),
             /// Failed to find specified [`Parameter`] variant.
             #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
-            Parameter(Parameter),
+            Parameter(ParameterId),
         }
     }
 
