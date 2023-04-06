@@ -181,6 +181,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::expect_used)]
+    #[cfg(feature = "transparent_api")]
     fn entity_scope() {
         let domain_name = "wonderland".parse().expect("Valid");
         let account_name = "alice".parse().expect("Valid");

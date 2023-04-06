@@ -106,7 +106,7 @@ The following is the default configuration used by Iroha.
       "max": 128
     },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 20000000,
+      "FUEL_LIMIT": 25000000,
       "MAX_MEMORY": 524288000
     }
   },
@@ -727,7 +727,7 @@ Has type `Option<wsv::ConfigurationProxy>`[^1]. Can be configured via environmen
     "min": 1
   },
   "WASM_RUNTIME_CONFIG": {
-    "FUEL_LIMIT": 20000000,
+    "FUEL_LIMIT": 25000000,
     "MAX_MEMORY": 524288000
   }
 }
@@ -806,7 +806,7 @@ Has type `Option<wasm::ConfigurationProxy>`[^1]. Can be configured via environme
 
 ```json
 {
-  "FUEL_LIMIT": 20000000,
+  "FUEL_LIMIT": 25000000,
   "MAX_MEMORY": 524288000
 }
 ```
@@ -818,7 +818,7 @@ The fuel limit determines the maximum number of instructions that can be execute
 Has type `Option<u64>`[^1]. Can be configured via environment variable `WASM_FUEL_LIMIT`
 
 ```json
-20000000
+25000000
 ```
 
 #### `wsv.wasm_runtime_config.max_memory`

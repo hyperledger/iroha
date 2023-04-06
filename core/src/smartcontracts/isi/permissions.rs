@@ -4,6 +4,8 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
+use iroha_data_model::isi::error::EvaluationError;
+
 use super::*;
 
 /// Verify that the given `instruction` is allowed to be executed
@@ -298,7 +300,7 @@ pub fn check_query_in_instruction(
 pub fn check_permission_token_parameters(
     token: &PermissionToken,
     definition: &PermissionTokenDefinition,
-) -> std::result::Result<(), ValidationError> {
+) -> std::result::Result<(), EvaluationError> {
     use iroha_data_model::ValueKind;
     use itertools::{
         EitherOrBoth::{Both, Left, Right},
@@ -318,7 +320,7 @@ pub fn check_permission_token_parameters(
                     return Err(missing_parameter(expected_key));
                 }
                 if kind != *expected_kind {
-                    return Err(ValidationError::new(format!(
+                    return Err(EvaluationError::PermissionParameter(format!(
                         "Permission token parameter `{key}` type mismatch: \
                          expected `{expected_kind}`, got `{kind}`"
                     )));
@@ -326,7 +328,7 @@ pub fn check_permission_token_parameters(
             }
             // No more parameters in the definition
             Left((key, _)) => {
-                return Err(ValidationError::new(format!(
+                return Err(EvaluationError::PermissionParameter(format!(
                     "Undefined permission token parameter: `{key}`"
                 )));
             }
@@ -340,8 +342,8 @@ pub fn check_permission_token_parameters(
     Ok(())
 }
 
-fn missing_parameter(key: &Name) -> ValidationError {
-    ValidationError::new(format!("Permission parameter `{key}` is missing"))
+fn missing_parameter(key: &Name) -> EvaluationError {
+    EvaluationError::PermissionParameter(format!("Permission parameter `{key}` is missing"))
 }
 
 /// Used in `unpack_` functions for role granting and revoking
@@ -351,12 +353,12 @@ macro_rules! unpack {
         let Instruction::$v(operation) = &$i else {
             return Ok(vec![$i]);
         };
-        let Value::Id(IdBox::RoleId(id)) = operation.object.evaluate($w, &Context::new())? else {
+        let Value::Id(IdBox::RoleId(id)) = operation.object.evaluate(&Context::new($w))? else {
             return Ok(vec![$i]);
         };
 
         let instructions = if let Some(role) = $w.world.roles.get(&id) {
-            let destination_id = operation.destination_id.evaluate($w, &Context::new())?;
+            let destination_id = operation.destination_id.evaluate(&Context::new($w))?;
             role.permissions()
                 .cloned()
                 .map(|permission_token| <$t>::new(permission_token, destination_id.clone()).into())

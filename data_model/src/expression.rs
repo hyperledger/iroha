@@ -165,9 +165,6 @@ macro_rules! gen_expr_and_impls {
     };
 }
 
-/// Context, composed of (name, value) pairs.
-pub type Context = btree_map::BTreeMap<Name, Value>;
-
 /// Boxed expression.
 pub type ExpressionBox = Box<Expression>;
 
@@ -181,7 +178,7 @@ model! {
     #[repr(transparent)]
     // SAFETY: `EvaluatesTo` has no trap representation in `ExpressionBox`
     #[ffi_type(unsafe {robust})]
-    pub struct EvaluatesTo<V: TryFrom<Value>> {
+    pub struct EvaluatesTo<V> {
         /// Expression.
         #[serde(flatten)]
         pub expression: ExpressionBox,
@@ -834,8 +831,8 @@ impl From<QueryBox> for ExpressionBox {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Add, And, Contains, ContainsAll, ContainsAny, Context, ContextValue, Divide, Equal,
-        EvaluatesTo, Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Mod,
-        Multiply, Not, Or, RaiseTo, Subtract, Where, WhereBuilder,
+        Add, And, Contains, ContainsAll, ContainsAny, ContextValue, Divide, Equal, EvaluatesTo,
+        Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Mod, Multiply,
+        Not, Or, RaiseTo, Subtract, Where, WhereBuilder,
     };
 }

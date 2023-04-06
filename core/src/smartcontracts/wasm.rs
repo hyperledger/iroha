@@ -8,7 +8,7 @@
     clippy::std_instead_of_alloc
 )]
 
-use eyre::{eyre, Context};
+use eyre::{eyre, WrapErr};
 use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
@@ -24,7 +24,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::Evaluate;
+use super::{Context, Evaluate};
 use crate::{
     smartcontracts::{Execute, ValidQuery as _},
     wsv::WorldStateView,
@@ -401,10 +401,7 @@ impl<'wrld> Runtime<'wrld> {
         let memory = Self::get_memory(&mut caller)?;
         let expression: ExpressionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
         let value = expression
-            .evaluate(
-                caller.data().wsv,
-                &iroha_data_model::expression::Context::new(),
-            )
+            .evaluate(&Context::new(caller.data().wsv))
             .map_err(|err| Trap::new(format!("Failure during expression evaluation: {err}")))?;
 
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;

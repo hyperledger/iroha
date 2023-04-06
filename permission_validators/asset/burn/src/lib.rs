@@ -54,7 +54,7 @@ pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instructi
     };
 
     let IdBox::AssetId(asset_id) = burn.destination_id()
-        .evaluate()
+        .evaluate(&Context::new())
         .dbg_expect("Failed to evaluate `Burn` destination id") else {
         pass!();
     };
