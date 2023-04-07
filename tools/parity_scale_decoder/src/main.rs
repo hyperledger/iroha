@@ -6,15 +6,71 @@
 )]
 #![allow(clippy::print_stdout, clippy::use_debug, clippy::unnecessary_wraps)]
 
-use std::{collections::BTreeMap, fmt::Debug, fs, io, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
+    fs, io,
+    path::PathBuf,
+    time::Duration,
+};
 
 use clap::Parser;
 use colored::*;
 use eyre::{eyre, Result};
+use iroha_crypto::*;
+use iroha_data_model::{
+    account::NewAccount,
+    asset::NewAssetDefinition,
+    block::{
+        error::BlockRejectionReason,
+        stream::{
+            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
+            VersionedBlockSubscriptionRequest,
+        },
+        BlockHeader, CommittedBlock, VersionedCommittedBlock,
+    },
+    domain::{IpfsPath, NewDomain},
+    permission::validator::{Validator, ValidatorId, ValidatorType},
+    predicate::{
+        ip_addr::{Ipv4Predicate, Ipv6Predicate},
+        numerical::{Interval, SemiInterval, SemiRange},
+        string::StringPredicate,
+        value::{AtIndex, Container, ValueOfKey, ValuePredicate},
+        GenericPredicateBox, NonTrivial, PredicateBox,
+    },
+    prelude::*,
+    query::error::{FindError, QueryExecutionFailure},
+    transaction::error::{TransactionExpired, TransactionLimitError},
+    ValueKind, VersionedCommittedBlockWrapper,
+};
+use iroha_primitives::{
+    addr::{Ipv4Addr, Ipv6Addr},
+    atomic::AtomicU32,
+    conststr::ConstString,
+    fixed::{FixNum, Fixed},
+};
 use parity_scale_codec::DecodeAll;
 
-mod generate_map;
-use generate_map::generate_map;
+macro_rules! insert_into_map {
+    ( $map:ident, $t:ty) => {{
+        let type_id = <$t as iroha_schema::TypeId>::id();
+        #[allow(trivial_casts)]
+        $map.insert(type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)
+    }};
+}
+
+/// Generate map with types and `dump_decoded()` ptr
+pub fn generate_map() -> DumpDecodedMap {
+    let mut map = iroha_schema_gen::generate_map!(insert_into_map);
+
+    #[allow(trivial_casts)]
+    map.insert(
+        <iroha_schema::Compact<u128> as iroha_schema::TypeId>::id(),
+        <parity_scale_codec::Compact<u32> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
+    );
+
+    map
+}
 
 /// Parity Scale decoder tool for Iroha data types
 #[derive(Debug, Parser)]
@@ -33,7 +89,7 @@ struct DecodeArgs {
     /// Type that is expected to be encoded in binary.
     /// If not specified then a guess will be attempted
     #[clap(short, long = "type")]
-    type_id: Option<String>,
+    type_name: Option<String>,
 }
 
 /// Function pointer to [`DumpDecoded::dump_decoded()`]
@@ -95,8 +151,8 @@ impl<'map> Decoder<'map> {
     pub fn decode<W: io::Write>(&self, writer: &mut W) -> Result<()> {
         let bytes = fs::read(self.args.binary.clone())?;
 
-        if let Some(type_id) = &self.args.type_id {
-            return self.decode_by_type(type_id, &bytes, writer);
+        if let Some(type_name) = &self.args.type_name {
+            return self.decode_by_type(type_name, &bytes, writer);
         }
         self.decode_by_guess(&bytes, writer)
     }
@@ -104,19 +160,19 @@ impl<'map> Decoder<'map> {
     /// Decode concrete `type` from `bytes` and print to `writer`
     fn decode_by_type<W: io::Write>(
         &self,
-        type_id: &str,
+        type_name: &str,
         bytes: &[u8],
         writer: &mut W,
     ) -> Result<()> {
-        self.map.get(type_id).map_or_else(
-            || Err(eyre!("Unknown type: `{type_id}`")),
+        self.map.get(type_name).map_or_else(
+            || Err(eyre!("Unknown type: `{type_name}`")),
             |dump_decoded| dump_decoded(bytes, writer),
         )
     }
 
     /// Try to decode every type from `bytes` and print to `writer`
     ///
-    /// TODO: Can be parallelized when there will be too many types
+    // TODO: Can be parallelized when there will be too many types
     fn decode_by_guess<W: io::Write>(&self, bytes: &[u8], writer: &mut W) -> Result<()> {
         let count = self
             .map
@@ -156,8 +212,6 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
-
     use std::str::FromStr as _;
 
     use iroha_data_model::{domain::IpfsPath, prelude::*};
@@ -175,15 +229,10 @@ mod tests {
                 limits,
             )
             .expect("Valid");
-        let account = Account::new("alice@wonderland".parse().expect("Valid"), [])
-            .with_metadata(metadata)
-            .build();
+        let account =
+            Account::new("alice@wonderland".parse().expect("Valid"), []).with_metadata(metadata);
 
-        decode_sample(
-            "account.bin",
-            String::from("iroha_data_model::account::Account"),
-            &account,
-        );
+        decode_sample("account.bin", String::from("NewAccount"), &account);
     }
 
     #[test]
@@ -202,14 +251,9 @@ mod tests {
                 IpfsPath::from_str("/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu")
                     .expect("Valid"),
             )
-            .with_metadata(metadata)
-            .build();
+            .with_metadata(metadata);
 
-        decode_sample(
-            "domain.bin",
-            String::from("iroha_data_model::domain::Domain"),
-            &domain,
-        );
+        decode_sample("domain.bin", String::from("NewDomain"), &domain);
     }
 
     #[test]
@@ -232,11 +276,7 @@ mod tests {
         );
         let trigger = Trigger::new(trigger_id, action);
 
-        decode_sample(
-            "trigger.bin",
-            String::from("iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox>"),
-            &trigger,
-        );
+        decode_sample("trigger.bin", String::from("Trigger<FilterBox>"), &trigger);
     }
 
     fn decode_sample<T: Debug>(sample_path: &str, type_id: String, expected: &T) {
@@ -245,7 +285,7 @@ mod tests {
         binary.push(sample_path);
         let args = DecodeArgs {
             binary,
-            type_id: Some(type_id),
+            type_name: Some(type_id),
         };
 
         let map = generate_map();

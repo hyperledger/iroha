@@ -9,7 +9,7 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 use std::collections::btree_map;
 
 use derive_more::{Constructor, Display};
-use getset::Getters;
+use getset::{CopyGetters, Getters};
 use iroha_data_model_derive::IdEqOrdHash;
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
@@ -27,12 +27,12 @@ use crate::{
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
 pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
 
-/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`DefinitionId`])-value([`AssetDefinition`])
+/// [`AssetDefinitionsMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetDefinition`])
 /// pairs.
 pub type AssetDefinitionsMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
 
-/// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`DefinitionId`])-value([`AssetValue`])
+/// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
 /// pairs.
 pub type AssetTotalQuantityMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, NumericValue>;
@@ -43,15 +43,15 @@ model! {
     /// # Examples
     ///
     /// ```rust
-    /// use iroha_data_model::asset::DefinitionId;
+    /// use iroha_data_model::asset::AssetDefinitionId;
     ///
-    /// let definition_id = "xor#soramitsu".parse::<DefinitionId>().expect("Valid");
+    /// let definition_id = "xor#soramitsu".parse::<AssetDefinitionId>().expect("Valid");
     /// ```
     #[derive(Debug, Clone, Display, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[display(fmt = "{name}#{domain_id}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct DefinitionId {
+    pub struct AssetDefinitionId {
         /// Asset name.
         pub name: Name,
         /// Domain id.
@@ -62,7 +62,7 @@ model! {
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct AssetId {
         /// Entity Identification.
         pub definition_id: <AssetDefinition as Identifiable>::Id,
         /// Account Identification.
@@ -70,15 +70,15 @@ model! {
     }
 
     /// Asset definition defines the type of that asset.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, CopyGetters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "{id} {value_type}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
-    #[getset(get = "pub")]
+    #[getset(get_copy = "pub")]
     #[ffi_type]
     pub struct AssetDefinition {
         /// An Identification of the [`AssetDefinition`].
         #[getset(skip)]
-        pub id: DefinitionId,
+        pub id: AssetDefinitionId,
         /// Type of [`AssetValue`]
         pub value_type: AssetValueType,
         /// Is the asset mintable
@@ -107,7 +107,7 @@ model! {
     #[ffi_type]
     pub struct Asset {
         /// Component Identification.
-        pub id: Id,
+        pub id: AssetId,
         /// Asset's Quantity.
         #[getset(get = "pub")]
         pub value: AssetValue,
@@ -119,13 +119,13 @@ model! {
     #[ffi_type]
     pub struct NewAssetDefinition {
         /// The identification associated with the asset definition builder.
-        id: <AssetDefinition as Identifiable>::Id,
+        pub id: <AssetDefinition as Identifiable>::Id,
         /// The type value associated with the asset definition builder.
-        value_type: AssetValueType,
+        pub value_type: AssetValueType,
         /// The mintablility associated with the asset definition builder.
-        mintable: Mintable,
+        pub mintable: Mintable,
         /// Metadata associated with the asset definition builder.
-        metadata: Metadata,
+        pub metadata: Metadata,
     }
 }
 
@@ -357,7 +357,7 @@ impl TryFrom<AssetValue> for NumericValue {
 }
 
 /// Asset Definition Identification is represented by `name#domain_name` string.
-impl FromStr for DefinitionId {
+impl FromStr for AssetDefinitionId {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
@@ -377,7 +377,7 @@ impl FromStr for DefinitionId {
     }
 }
 
-impl fmt::Display for Id {
+impl fmt::Display for AssetId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.definition_id.domain_id == self.account_id.domain_id {
             write!(f, "{}##{}", self.definition_id.name, self.account_id)
@@ -391,7 +391,7 @@ impl fmt::Display for Id {
 /// `name#asset_domain#account_name@account_domain`. If the domains of
 /// the asset and account match, the name can be shortened to
 /// `asset##account@domain`.
-impl FromStr for Id {
+impl FromStr for AssetId {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
@@ -404,7 +404,7 @@ impl FromStr for Id {
                 if let Ok(def_id) = asset_definition_candidate.parse() {
                     def_id
                 } else if let Some((name, "")) = asset_definition_candidate.rsplit_once('#') {
-                    DefinitionId::new(name.parse()
+                    AssetDefinitionId::new(name.parse()
                                       .map_err(|_e| ParseError {
                                           reason: "The `name` part of the `definition_id` part of the `asset_id` failed to parse as a valid `Name`. You might have forbidden characters like `#` or `@` in the first part."
                                       })?,
@@ -421,22 +421,6 @@ impl FromStr for Id {
             Err(ParseError {
                 reason: "The `AssetId` did not contain the `#` character. ",
             })
-        }
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl crate::Registrable for NewAssetDefinition {
-    type Target = AssetDefinition;
-
-    #[must_use]
-    #[inline]
-    fn build(self) -> Self::Target {
-        Self::Target {
-            id: self.id,
-            value_type: self.value_type,
-            mintable: self.mintable,
-            metadata: self.metadata,
         }
     }
 }
@@ -500,7 +484,7 @@ impl FromIterator<AssetDefinition> for Value {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Asset, AssetDefinition, AssetDefinitionEntry, AssetValue, AssetValueType,
-        DefinitionId as AssetDefinitionId, Id as AssetId, Mintable,
+        Asset, AssetDefinition, AssetDefinitionEntry, AssetDefinitionId, AssetId, AssetValue,
+        AssetValueType, Mintable, NewAssetDefinition,
     };
 }

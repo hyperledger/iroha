@@ -52,7 +52,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     use iroha_client::client::Client;
     use iroha_data_model::{
         metadata::UnlimitedMetadata,
-        prelude::{Domain, DomainId, Instruction, RegisterBox},
+        prelude::{Domain, DomainId, InstructionBox, RegisterBox},
     };
     // #endregion domain_register_example_crates
 
@@ -74,7 +74,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_prepare_tx
     // Prepare a transaction
     let metadata = UnlimitedMetadata::default();
-    let instructions: Vec<Instruction> = vec![create_looking_glass.into()];
+    let instructions: Vec<InstructionBox> = vec![create_looking_glass.into()];
     let tx = iroha_client
         .build_transaction(instructions, metadata)
         .wrap_err("Error building a domain registration transaction")?;
@@ -93,16 +93,13 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
 fn account_definition_test() -> Result<(), Error> {
     // #region account_definition_comparison
-    use iroha_data_model::{account::Id as AccountIdStruct, prelude::AccountId};
+    use iroha_data_model::prelude::AccountId;
 
-    // Create an `iroha_data_model::account::Id` instance
+    // Create an `iroha_data_model::AccountId` instance
     // with a DomainId instance and a Domain ID for an account
-    let longhand_account_id = AccountIdStruct {
-        name: "white_rabbit".parse()?,
-        domain_id: "looking_glass".parse()?,
-    };
+    let longhand_account_id = AccountId::new("white_rabbit".parse()?, "looking_glass".parse()?);
     let account_id: AccountId = "white_rabbit@looking_glass"
-        .parse::<AccountIdStruct>()
+        .parse()
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
 
     // Check that two ways to define an account match
@@ -119,9 +116,8 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     use iroha_client::client::Client;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
-        account::Id as AccountIdStruct,
         metadata::UnlimitedMetadata,
-        prelude::{Account, AccountId, Instruction, RegisterBox},
+        prelude::{Account, AccountId, InstructionBox, RegisterBox},
     };
     // #endregion register_account_crates
 
@@ -129,10 +125,9 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     let iroha_client: Client = Client::new(&config)?;
 
     // #region register_account_create
-    // Create an AccountId instance by providing
-    // the account and domain name
+    // Create an AccountId instance by providing the account and domain name
     let account_id: AccountId = "white_rabbit@looking_glass"
-        .parse::<AccountIdStruct>()
+        .parse()
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
     // #endregion register_account_create
 
@@ -151,7 +146,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // Prepare a transaction using the
     // Account's RegisterBox
     let metadata = UnlimitedMetadata::new();
-    let instructions: Vec<Instruction> = vec![create_account.into()];
+    let instructions: Vec<InstructionBox> = vec![create_account.into()];
     let tx = iroha_client.build_transaction(instructions, metadata)?;
     // #endregion register_account_prepare_tx
 
@@ -169,11 +164,8 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     use std::str::FromStr as _;
 
     use iroha_client::client::Client;
-    use iroha_data_model::{
-        account::Id as AccountIdStruct,
-        prelude::{
-            AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintBox, RegisterBox,
-        },
+    use iroha_data_model::prelude::{
+        AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintBox, RegisterBox,
     };
     // #endregion register_asset_crates
 
@@ -197,7 +189,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // Create an account using the previously defined asset
     let account_id: AccountId = "white_rabbit@looking_glass"
-        .parse::<AccountIdStruct>()
+        .parse()
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
 
     // #region register_asset_mint_submit

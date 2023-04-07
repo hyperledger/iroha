@@ -4,8 +4,8 @@ use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
-    block::*, prelude::*, sumeragi::network_topology::Topology, tx::TransactionValidator,
-    wsv::World,
+    block::*, prelude::*, smartcontracts::isi::Registrable as _,
+    sumeragi::network_topology::Topology, tx::TransactionValidator, wsv::World,
 };
 use iroha_data_model::prelude::*;
 
@@ -39,12 +39,12 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
         domain_name.parse().expect("Valid"),
     );
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
-    let instructions: Vec<Instruction> = vec![
+    let instructions: Vec<InstructionBox> = vec![
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
     ];
-    Transaction::new(
+    TransactionBuilder::new(
         AccountId::new(
             START_ACCOUNT.parse().expect("Valid"),
             START_DOMAIN.parse().expect("Valid"),

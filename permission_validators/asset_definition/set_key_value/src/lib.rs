@@ -36,10 +36,10 @@ pub struct CanSetKeyValueInAssetDefinition {
 /// see [`can_set_key_value_in_asset_definition`].
 ///
 /// [`can_set_key_value_in_asset_definition`]: CanSetKeyValueInAssetDefinition
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(<CanSetKeyValueInAssetDefinition>, (authority, instruction));
 
-    let Instruction::SetKeyValue(set_key_value) = instruction else {
+    let InstructionBox::SetKeyValue(set_key_value) = instruction else {
         pass!();
     };
 

@@ -1,10 +1,32 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 
 use eyre::Result;
-use iroha_data_model::{prelude::*, query::error::FindError};
+use iroha_data_model::{
+    account::AccountsMap,
+    asset::{AssetDefinitionsMap, AssetTotalQuantityMap},
+    prelude::*,
+    query::error::FindError,
+};
 use iroha_telemetry::metrics;
 
 use super::super::isi::prelude::*;
+
+impl Registrable for iroha_data_model::domain::NewDomain {
+    type Target = Domain;
+
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        Self::Target {
+            id: self.id,
+            accounts: AccountsMap::default(),
+            asset_definitions: AssetDefinitionsMap::default(),
+            asset_total_quantities: AssetTotalQuantityMap::default(),
+            metadata: self.metadata,
+            logo: self.logo,
+        }
+    }
+}
 
 /// ISI module contains all instructions related to domains:
 /// - creating/changing assets

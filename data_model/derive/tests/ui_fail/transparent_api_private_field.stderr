@@ -1,4 +1,4 @@
-error[E0616]: field `name` of struct `iroha_data_model::account::Id` is private
+error[E0616]: field `name` of struct `iroha_data_model::account::AccountId` is private
  --> tests/ui_fail/transparent_api_private_field.rs:5:35
   |
 5 |     println!("ID: {}", account_id.name);

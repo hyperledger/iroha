@@ -39,15 +39,19 @@ impl syn::parse::Parse for Items {
 /// use iroha_data_model_derive::model;
 ///
 /// model! {
-///     struct DataModel {
+///     pub struct DataModel1 {
+///        pub item1: u32,
+///        item2: u64
+///     }
+///
+///     pub(crate) struct DataModel2 {
 ///        pub item1: u32,
 ///        item2: u64
 ///     }
 /// }
 ///
 /// /* will produce:
-/// #[cfg(feature = "transparent_api")]
-/// pub struct DataModel {
+/// pub struct DataModel1 {
 ///    #[cfg(feature = "transparent_api")]
 ///    pub item1: u32,
 ///    #[cfg(not(feature = "transparent_api"))]
@@ -56,11 +60,14 @@ impl syn::parse::Parse for Items {
 /// }
 ///
 /// #[cfg(not(feature = "transparent_api"))]
-/// struct DataModel {
-///    #[cfg(feature = "transparent_api")]
+/// pub struct DataModel2 {
 ///    pub item1: u32,
-///    #[cfg(not(feature = "transparent_api"))]
-///    pub(crate) item1: u32,
+///    item2: u64
+/// }
+///
+/// #[cfg(feature = "transparent_api")]
+/// struct DataModel2 {
+///    pub item1: u32,
 ///    item2: u64
 /// }
 /// */

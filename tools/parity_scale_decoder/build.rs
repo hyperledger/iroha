@@ -4,14 +4,14 @@
 
 use std::{fs, io::Result, path::PathBuf};
 
-use iroha_data_model::prelude::*;
+use iroha_data_model::{account::NewAccount, domain::NewDomain, prelude::*};
 use parity_scale_codec::Encode;
 use serde::de::DeserializeOwned;
 
 fn main() {
-    sample_into_binary_file::<Account>("account").expect("Failed to encode into account.bin.");
+    sample_into_binary_file::<NewAccount>("account").expect("Failed to encode into account.bin.");
 
-    sample_into_binary_file::<Domain>("domain").expect("Failed to encode into domain.bin.");
+    sample_into_binary_file::<NewDomain>("domain").expect("Failed to encode into domain.bin.");
 
     sample_into_binary_file::<Trigger<FilterBox>>("trigger")
         .expect("Failed to encode into trigger.bin.");

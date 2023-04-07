@@ -14,7 +14,7 @@ use super::*;
 use crate::{
     account::Account,
     expression::Expression,
-    isi::Instruction,
+    isi::InstructionBox,
     model,
     query::QueryBox,
     transaction::{SignedTransaction, WasmSmartContract},
@@ -29,7 +29,7 @@ model! {
     #[display(fmt = "{name}%{owned_by}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct ValidatorId {
         /// Name given to validator by its creator.
         pub name: Name,
         /// Account that owns the validator.
@@ -39,17 +39,17 @@ model! {
     /// Permission validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
-    /// [`Instruction`]s, etc.
+    /// [`InstructionBox`]s, etc.
     #[derive(Debug, Display, Clone, IdEqOrdHash, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "{id}")]
     #[ffi_type]
     pub struct Validator {
         /// Identification of this [`Validator`].
-        pub id: Id,
+        pub id: ValidatorId,
         /// Type of the validator
         #[getset(get = "pub")]
-        pub validator_type: Type,
+        pub validator_type: ValidatorType,
         /// WASM code of the validator
         // TODO: use another type like `WasmValidator`?
         #[getset(get = "pub")]
@@ -61,7 +61,7 @@ impl Registered for Validator {
     type With = Self;
 }
 
-impl core::str::FromStr for Id {
+impl core::str::FromStr for ValidatorId {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -89,10 +89,10 @@ model! {
     #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash, Encode, Decode, Deserialize, Serialize, IntoSchema)]
     #[repr(u8)]
     #[ffi_type]
-    pub enum Type {
-        /// Validator checking [`Transaction`]
+    pub enum ValidatorType {
+        /// Validator checking [`SignedTransaction`]
         Transaction,
-        /// Validator checking [`Instruction`]
+        /// Validator checking [`InstructionBox`]
         Instruction,
         /// Validator checking [`QueryBox`]
         Query,
@@ -106,25 +106,25 @@ pub trait NeedsPermission {
     /// Get the type of validator required to check the operation
     ///
     /// Accepts `self` because of the [`NeedsPermissionBox`]
-    fn required_validator_type(&self) -> Type;
+    fn required_validator_type(&self) -> ValidatorType;
 }
 
-impl NeedsPermission for Instruction {
-    fn required_validator_type(&self) -> Type {
-        Type::Instruction
+impl NeedsPermission for InstructionBox {
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Instruction
     }
 }
 
 impl NeedsPermission for QueryBox {
-    fn required_validator_type(&self) -> Type {
-        Type::Query
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Query
     }
 }
 
 // Expression might contain a query, therefore needs to be checked.
 impl NeedsPermission for Expression {
-    fn required_validator_type(&self) -> Type {
-        Type::Expression
+    fn required_validator_type(&self) -> ValidatorType {
+        ValidatorType::Expression
     }
 }
 
@@ -136,10 +136,10 @@ model! {
     #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize)]
     #[ffi_type]
     pub enum NeedsPermissionBox {
-        /// [`SignedTransaction`] application operation
+        /// [`Transaction`] application operation
         Transaction(SignedTransaction),
-        /// [`Instruction`] execution operation
-        Instruction(Instruction),
+        /// [`InstructionBox`] execution operation
+        Instruction(InstructionBox),
         /// [`QueryBox`] execution operations
         Query(QueryBox),
         /// [`Expression`] evaluation operation
@@ -171,12 +171,12 @@ model! {
 }
 
 impl NeedsPermission for NeedsPermissionBox {
-    fn required_validator_type(&self) -> Type {
+    fn required_validator_type(&self) -> ValidatorType {
         match self {
-            NeedsPermissionBox::Transaction(_) => Type::Transaction,
-            NeedsPermissionBox::Instruction(_) => Type::Instruction,
-            NeedsPermissionBox::Query(_) => Type::Query,
-            NeedsPermissionBox::Expression(_) => Type::Expression,
+            NeedsPermissionBox::Transaction(_) => ValidatorType::Transaction,
+            NeedsPermissionBox::Instruction(_) => ValidatorType::Instruction,
+            NeedsPermissionBox::Query(_) => ValidatorType::Query,
+            NeedsPermissionBox::Expression(_) => ValidatorType::Expression,
         }
     }
 }

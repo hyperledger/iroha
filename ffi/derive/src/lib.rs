@@ -1,9 +1,5 @@
-#![allow(
-    clippy::str_to_string,
-    missing_docs,
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core
-)]
+//! Crate containing FFI related macro functionality
+#![allow(clippy::arithmetic_side_effects)]
 
 use impl_visitor::{FnDescriptor, ImplDescriptor};
 use proc_macro::TokenStream;
@@ -215,6 +211,8 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
+// TODO: Add docs when this macro is functional
+#[allow(missing_docs)]
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
 pub fn ffi_import(_attr: TokenStream, item: TokenStream) -> TokenStream {

@@ -17,9 +17,9 @@ model! {
     /// [`Domain`](`crate::domain::Domain`) name or
     /// [`Account`](`crate::account::Account`) name.
     #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
-    #[ffi_type(opaque)]
-    #[repr(transparent)]
     #[serde(transparent)]
+    #[repr(transparent)]
+    #[ffi_type(opaque)]
     pub struct Name(ConstString);
 }
 

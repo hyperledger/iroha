@@ -76,13 +76,13 @@ impl Validate for CanCreateParameters {
 /// [`can_revoke_permission_to_new_parameters`]: CanRevokePermissionToCreateParameters
 /// [`can_new_parameters`]: CanCreateParameters
 #[allow(clippy::needless_pass_by_value)]
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(
         <CanGrantPermissionToCreateParameters, CanRevokePermissionToCreateParameters, CanCreateParameters>,
         (authority, instruction)
     );
 
-    let Instruction::NewParameter(_) = instruction else {
+    let InstructionBox::NewParameter(_) = instruction else {
         pass!();
     };
 

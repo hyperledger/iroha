@@ -111,7 +111,7 @@ impl ConfigurationProxy {
             // former and overwritten silently in case of difference
             if let Some(torii_proxy) = &mut self.torii {
                 if sumeragi_proxy.peer_id.is_none() {
-                    sumeragi_proxy.peer_id = Some(iroha_data_model::peer::Id::new(
+                    sumeragi_proxy.peer_id = Some(iroha_data_model::peer::PeerId::new(
                         &torii_proxy.p2p_addr.clone().ok_or_else(|| {
                             eyre::eyre!("Torii `p2p_addr` field has `None` value")
                         })?,

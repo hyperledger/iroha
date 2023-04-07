@@ -754,7 +754,7 @@ pub trait TestClient: Sized {
     /// If predicate is not satisfied, after maximum retries.
     fn submit_till<R>(
         &mut self,
-        instruction: impl Into<Instruction> + Debug,
+        instruction: impl Into<InstructionBox> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
@@ -769,7 +769,7 @@ pub trait TestClient: Sized {
     /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R>(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
@@ -925,7 +925,7 @@ impl TestClient for Client {
 
     fn submit_till<R>(
         &mut self,
-        instruction: impl Into<Instruction> + Debug,
+        instruction: impl Into<InstructionBox> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
@@ -941,7 +941,7 @@ impl TestClient for Client {
 
     fn submit_all_till<R>(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>

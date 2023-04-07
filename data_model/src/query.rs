@@ -8,7 +8,7 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use derive_more::Display;
 use iroha_crypto::SignatureOf;
 use iroha_macro::FromVariant;
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ macro_rules! query {
 }
 
 /// Trait for typesafe query output
-pub trait Query {
+pub trait Query: Into<QueryBox> {
     /// Output type of query
     type Output: Into<Value> + TryFrom<Value>;
 }
@@ -158,7 +158,7 @@ pub mod role {
     }
 
     query! {
-        /// [`FindAllRoleIds`] Iroha Query finds [`Id`](crate::role::Id)s of
+        /// [`FindAllRoleIds`] Iroha Query finds [`Id`](crate::RoleId)s of
         /// all [`Role`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all role ids")]
@@ -171,7 +171,7 @@ pub mod role {
     }
 
     query! {
-        /// [`FindRoleByRoleId`] Iroha Query finds the [`Role`] which has the given [`Id`](crate::role::Id)
+        /// [`FindRoleByRoleId`] Iroha Query finds the [`Role`] which has the given [`Id`](crate::RoleId)
         #[derive(Display)]
         #[display(fmt = "Find `{id}` role")]
         #[repr(transparent)]
@@ -238,7 +238,7 @@ pub mod permissions {
 
     query! {
         /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-        /// [`PermissionTokenDefinition`][crate::permission::token::Definition]s
+        /// [`PermissionTokenDefinition`][crate::permission::token::PermissionTokenDefinition]s
         #[derive(Copy, Display)]
         #[ffi_type]
         pub struct FindAllPermissionTokenDefinitions;
@@ -263,7 +263,7 @@ pub mod permissions {
     }
 
     impl Query for FindPermissionTokensByAccountId {
-        type Output = Vec<permission::Token>;
+        type Output = Vec<permission::PermissionToken>;
     }
 
     query! {
@@ -275,7 +275,7 @@ pub mod permissions {
             /// `Id` of an account to check.
             pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
             /// `PermissionToken` to check for.
-            pub permission_token: permission::Token,
+            pub permission_token: permission::PermissionToken,
         }
     }
 
@@ -287,7 +287,7 @@ pub mod permissions {
         /// Construct [`DoesAccountHavePermissionToken`].
         pub fn new(
             account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>,
-            permission_token: permission::Token,
+            permission_token: permission::PermissionToken,
         ) -> Self {
             Self {
                 account_id: account_id.into(),
@@ -1266,10 +1266,22 @@ pub mod http {
     use super::*;
     use crate::{pagination::prelude::*, predicate::PredicateBox, sorting::prelude::*};
 
+    declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+    declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+    declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+
     model! {
+        /// I/O ready structure to send queries.
+        #[derive(Debug, Clone)]
+        #[repr(transparent)]
+        pub struct QueryBuilder {
+            /// Payload
+            pub payload: QueryPayload,
+        }
+
         /// Payload of a query.
         #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        pub(crate) struct Payload {
+        pub(crate) struct QueryPayload {
             /// Timestamp of the query creation.
             #[codec(compact)]
             pub timestamp_ms: u128,
@@ -1280,51 +1292,27 @@ pub mod http {
             /// The filter applied to the result on the server-side.
             pub filter: PredicateBox,
         }
-    }
 
-    model! {
-        /// I/O ready structure to send queries.
-        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        pub struct QueryRequest {
-            /// Payload
-            pub payload: Payload,
-        }
-    }
-
-    declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-
-    model! {
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(n = 1, versioned = "VersionedSignedQueryRequest")]
-        pub struct SignedQueryRequest {
+        #[version_with_scale(n = 1, versioned = "VersionedSignedQuery")]
+        pub struct SignedQuery {
             /// Payload
-            pub payload: Payload,
+            pub payload: QueryPayload,
             /// Signature of the client who sends this query.
-            pub signature: SignatureOf<Payload>,
+            pub signature: SignatureOf<QueryPayload>,
         }
-    }
 
-    declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-
-    model! {
         /// Sized container for all possible Query results.
         #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
         #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
         #[serde(transparent)]
         #[repr(transparent)]
+        // TODO: This should be a separate type, not just wrap Value because it infects Value
+        // with variants that can only ever be returned, i.e. can't be used in instructions
+        // enum QueryResult { ... }
         pub struct QueryResult(pub Value);
     }
-
-    impl From<QueryResult> for Value {
-        fn from(source: QueryResult) -> Self {
-            source.0
-        }
-    }
-
-    declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     /// Paginated Query Result
     // TODO: This is the only structure whose inner fields are exposed. Wrap it in model macro?
@@ -1343,37 +1331,48 @@ pub mod http {
         pub total: u64,
     }
 
-    impl QueryRequest {
-        /// Constructs a new request with the `query`.
-        pub fn new(
-            query: QueryBox,
-            account_id: <Account as Identifiable>::Id,
-            filter: PredicateBox,
-        ) -> Self {
+    impl QueryBuilder {
+        /// Construct a new request with the `query`.
+        pub fn new(query: impl Into<QueryBox>, account_id: <Account as Identifiable>::Id) -> Self {
             let timestamp_ms = crate::current_time().as_millis();
 
             Self {
-                payload: Payload {
+                payload: QueryPayload {
                     timestamp_ms,
-                    query,
+                    query: query.into(),
                     account_id,
-                    filter,
+                    filter: PredicateBox::default(),
                 },
             }
         }
 
-        /// Consumes self and returns a signed [`QueryRequest`].
+        /// Construct a new request with the `query`.
+        #[must_use]
+        #[inline]
+        pub fn with_filter(mut self, filter: PredicateBox) -> Self {
+            self.payload.filter = filter;
+            self
+        }
+
+        /// Consumes self and returns a signed [`QueryBuilder`].
         ///
         /// # Errors
         /// Fails if signature creation fails.
+        #[inline]
         pub fn sign(
             self,
             key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedQueryRequest, iroha_crypto::Error> {
-            SignatureOf::new(key_pair, &self.payload).map(|signature| SignedQueryRequest {
+        ) -> Result<SignedQuery, iroha_crypto::Error> {
+            SignatureOf::new(key_pair, &self.payload).map(|signature| SignedQuery {
                 payload: self.payload,
                 signature,
             })
+        }
+    }
+
+    impl From<QueryResult> for Value {
+        fn from(source: QueryResult) -> Self {
+            source.0
         }
     }
 
@@ -1381,8 +1380,8 @@ pub mod http {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
         pub use super::{
-            PaginatedQueryResult, QueryRequest, QueryResult, SignedQueryRequest,
-            VersionedPaginatedQueryResult, VersionedQueryResult, VersionedSignedQueryRequest,
+            PaginatedQueryResult, QueryBuilder, QueryResult, SignedQuery,
+            VersionedPaginatedQueryResult, VersionedQueryResult, VersionedSignedQuery,
         };
     }
 }
@@ -1403,8 +1402,6 @@ pub mod error {
         /// Query errors.
         #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, IntoSchema)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        // TODO: Only temporarily opaque because of iroha_version::error::Error
-        #[ffi_type(opaque)]
         pub enum QueryExecutionFailure {
             /// Query has wrong signature.
             #[display(fmt = "Query has the wrong signature: {_0}")]
@@ -1466,7 +1463,7 @@ pub mod error {
             PermissionTokenDefinition(PermissionTokenId),
             /// Failed to find [`Validator`](permission::Validator) by id.
             #[display(fmt = "Failed to find permission validator by id: `{_0}`")]
-            Validator(permission::validator::Id),
+            Validator(permission::validator::ValidatorId),
             /// Failed to find specified [`Parameter`] variant.
             #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
             Parameter(ParameterId),

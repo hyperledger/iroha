@@ -11,6 +11,21 @@ use iroha_telemetry::metrics;
 
 use super::prelude::*;
 
+impl Registrable for NewAssetDefinition {
+    type Target = AssetDefinition;
+
+    #[must_use]
+    #[inline]
+    fn build(self) -> Self::Target {
+        Self::Target {
+            id: self.id,
+            value_type: self.value_type,
+            mintable: self.mintable,
+            metadata: self.metadata,
+        }
+    }
+}
+
 /// ISI module contains all instructions related to assets:
 /// - minting/burning assets
 /// - update metadata

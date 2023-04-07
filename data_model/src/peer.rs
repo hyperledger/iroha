@@ -25,7 +25,7 @@ model! {
     #[display(fmt = "{public_key}@@{address}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct PeerId {
         /// Address of the [`Peer`]'s entrypoint.
         pub address: String,
         /// Public Key of the [`Peer`].
@@ -41,11 +41,11 @@ model! {
     #[ffi_type(opaque)]
     pub struct Peer {
         /// Peer Identification.
-        pub id: Id,
+        pub id: PeerId,
     }
 }
 
-impl Id {
+impl PeerId {
     /// Construct `Id` given `public_key` and `address`.
     #[inline]
     pub fn new(address: &str, public_key: &PublicKey) -> Self {
@@ -64,7 +64,7 @@ impl Peer {
     }
 }
 
-impl PartialEq for Id {
+impl PartialEq for PeerId {
     fn eq(&self, other: &Self) -> bool {
         // Comparison is done by public key only.
         // It is a system invariant that each peer has a unique public key.
@@ -73,19 +73,19 @@ impl PartialEq for Id {
     }
 }
 
-impl PartialOrd for Id {
+impl PartialOrd for PeerId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Id {
+impl Ord for PeerId {
     fn cmp(&self, other: &Self) -> Ordering {
         self.public_key.cmp(&other.public_key)
     }
 }
 
-impl Hash for Id {
+impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.public_key.hash(state);
     }
@@ -95,8 +95,8 @@ impl Registered for Peer {
     type With = Self;
 }
 
-impl FromIterator<Id> for Value {
-    fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
+impl FromIterator<PeerId> for Value {
+    fn from_iter<T: IntoIterator<Item = PeerId>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
             .collect::<Vec<Value>>()
@@ -106,5 +106,5 @@ impl FromIterator<Id> for Value {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Id as PeerId, Peer};
+    pub use super::{Peer, PeerId};
 }

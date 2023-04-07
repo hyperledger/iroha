@@ -162,7 +162,7 @@ impl Validator {
     fn validate_instruction(
         &mut self,
         account_id: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView,
     ) -> Result<(), Trap> {
         self.check_instruction_len()?;
@@ -614,7 +614,7 @@ impl<'wrld> Runtime<'wrld> {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        id: &validator::Id,
+        id: &validator::ValidatorId,
         module: &wasmtime::Module,
         operation: &permission::validator::NeedsPermissionBox,
     ) -> Result<permission::validator::Verdict> {
@@ -861,7 +861,7 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{kura::Kura, PeersIds, World};
+    use crate::{kura::Kura, smartcontracts::isi::Registrable as _, PeersIds, World};
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
@@ -921,7 +921,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
-            encode_hex(Instruction::from(register_isi))
+            encode_hex(InstructionBox::from(register_isi))
         };
 
         let wat = format!(
@@ -997,7 +997,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
-            encode_hex(Instruction::from(register_isi))
+            encode_hex(InstructionBox::from(register_isi))
         };
 
         let wat = format!(
@@ -1044,7 +1044,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
             let register_isi = RegisterBox::new(Account::new(new_account_id, []));
-            encode_hex(Instruction::from(register_isi))
+            encode_hex(InstructionBox::from(register_isi))
         };
 
         let wat = format!(

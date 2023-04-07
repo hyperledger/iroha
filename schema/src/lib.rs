@@ -4,49 +4,101 @@
 
 extern crate alloc;
 
+mod serialize;
+
 use alloc::{
+    borrow::ToOwned as _,
     boxed::Box,
-    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    collections::{btree_map, btree_set},
     format,
     string::String,
     vec,
     vec::Vec,
 };
-use core::num::NonZeroU8;
 
 /// Derive schema. It will make your structure schemaable
-pub use iroha_schema_derive::IntoSchema;
+pub use iroha_schema_derive::*;
 use serde::Serialize;
 
-/// Metadata map
-pub type MetaMap = BTreeMap<String, Metadata>;
+/// Helper struct for building a full schema
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetaMap(pub(crate) btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>);
 
-/// `IntoSchema` trait
-pub trait IntoSchema {
-    /// Returns unique type name.
-    // TODO: Should return &str if possible or be immutable string
-    fn type_name() -> String;
+impl PartialEq<btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>> for MetaMap {
+    fn eq(&self, other: &btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>) -> bool {
+        self.0.eq(other)
+    }
+}
 
-    /// Returns info about current type. Will return map from type names to its metadata
-    fn get_schema() -> MetaMap {
-        let mut map = MetaMap::new();
-        Self::schema(&mut map);
-        map
+impl MetaMap {
+    fn key<K: 'static>() -> core::any::TypeId {
+        core::any::TypeId::of::<K>()
     }
 
-    /// `IntoSchema` function. Give it empty map and it will return description of types
-    /// related to this type
-    fn schema(metamap: &mut MetaMap);
+    /// Create new [`Self`]
+    pub const fn new() -> MetaMap {
+        Self(btree_map::BTreeMap::new())
+    }
+    /// Return `true` if the map contains a metadata for the specified [`core::any::TypeId`]
+    pub fn contains_key<K: 'static>(&self) -> bool {
+        self.0.contains_key(&Self::key::<K>())
+    }
+    /// Insert a key-value pair into the map.
+    pub fn insert<K: IntoSchema>(&mut self, v: Metadata) -> bool {
+        self.0
+            .insert(Self::key::<K>(), (K::type_name(), v))
+            .is_none()
+    }
+    /// Return a reference to the value corresponding to the [`core::any::TypeId`] of the schema type
+    pub fn get<K: 'static>(&self) -> Option<&Metadata> {
+        self.0.get(&Self::key::<K>()).map(|(_, schema)| schema)
+    }
+}
+
+impl IntoIterator for MetaMap {
+    type Item = (core::any::TypeId, (String, Metadata));
+    type IntoIter = btree_map::IntoIter<core::any::TypeId, (String, Metadata)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+/// Globally unique type identifier
+///
+/// No critical code should rely on this trait unless a test
+/// is devised that can prove that all impls are unique
+pub trait TypeId: 'static {
+    /// Return unique type id
+    // TODO: Should return &str or ConstString.
+    fn id() -> String;
+}
+
+/// `IntoSchema` trait
+pub trait IntoSchema: TypeId {
+    /// Name under which a type is represented in the schema
+    // TODO: Should return &str or ConstString.
+    fn type_name() -> String;
+
+    /// Insert descriptions of types referenced by [`Self`]
+    fn update_schema_map(metamap: &mut MetaMap);
+
+    /// Return schema map of types referenced by [`Self`]
+    fn schema() -> MetaMap {
+        let mut map = MetaMap::new();
+        Self::update_schema_map(&mut map);
+        map
+    }
 }
 
 /// Applicable for types that represents decimal place of fixed point
-pub trait DecimalPlacesAware {
+pub trait DecimalPlacesAware: 'static {
     /// decimal places of fixed point
     fn decimal_places() -> u32;
 }
 
 /// Metadata
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Metadata {
     /// Structure with named fields
     Struct(NamedFieldsMeta),
@@ -69,93 +121,94 @@ pub enum Metadata {
     /// Associative array
     Map(MapMeta),
     /// Option with type
-    Option(String),
+    Option(core::any::TypeId),
     /// Result
     Result(ResultMeta),
 }
 
 /// Array metadata
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ArrayMeta {
     /// Type
-    pub ty: String,
+    pub ty: core::any::TypeId,
     /// Length
     pub len: u64,
-    /// Order elements
-    pub sorted: bool,
 }
 
 /// Vector metadata
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VecMeta {
     /// Type
-    pub ty: String,
-    /// Order elements
-    pub sorted: bool,
+    pub ty: core::any::TypeId,
 }
 
 /// Named fields
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NamedFieldsMeta {
     /// Fields
     pub declarations: Vec<Declaration>,
 }
 
 /// Field
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Declaration {
     /// Field name
     pub name: String,
     /// Type
-    pub ty: String,
+    pub ty: core::any::TypeId,
 }
 
 /// Unnamed fields
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnnamedFieldsMeta {
     /// Field types
-    pub types: Vec<String>,
+    pub types: Vec<core::any::TypeId>,
 }
 
 /// Enum metadata
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EnumMeta {
     /// Enum variants
     pub variants: Vec<EnumVariant>,
 }
 
 /// Enum variant
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariant {
     /// Enum variant name
-    pub name: String,
-    /// Its discriminant (or identifier)
-    pub discriminant: u8,
+    pub tag: String,
     /// Its type
-    pub ty: Option<String>,
+    pub ty: Option<core::any::TypeId>,
 }
 
 /// Result variant
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResultMeta {
     /// Ok type
-    pub ok: String,
+    pub ok: core::any::TypeId,
     /// Err type
-    pub err: String,
+    pub err: core::any::TypeId,
 }
 /// Map variant
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MapMeta {
     /// Key type
-    pub key: String,
+    pub key: core::any::TypeId,
     /// Value type
-    pub value: String,
-    /// Order key-value pairs by key
-    pub sorted_by_key: bool,
+    pub value: core::any::TypeId,
+}
+
+/// Fixed metadata
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FixedMeta {
+    /// Base type
+    pub base: core::any::TypeId,
+    /// Decimal places
+    pub decimal_places: u32,
 }
 
 /// Integer mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum IntMode {
     /// Fixed width
     FixedWidth,
@@ -164,56 +217,66 @@ pub enum IntMode {
 }
 
 /// Compact predicate. Just for documentation purposes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Compact<T>(T);
-
-/// Fixed metadata
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct FixedMeta {
-    base: String,
-    decimal_places: u32,
-}
 
 macro_rules! impl_schema_int {
     ($($t:ty),*) => {$(
+        impl TypeId for $t {
+            fn id() -> String {
+                stringify!($t).to_owned()
+            }
+        }
         impl IntoSchema for $t {
             fn type_name() -> String {
-                String::from(stringify!($t))
+                stringify!($t).to_owned()
             }
-            fn schema(map: &mut MetaMap) {
-                let _ = map.entry(Self::type_name()).or_insert(
-                    Metadata::Int(IntMode::FixedWidth),
-                );
+            fn update_schema_map(map: &mut MetaMap) {
+                if !map.contains_key::<Self>() {
+                    map.insert::<Self>(Metadata::Int(IntMode::FixedWidth));
+                }
             }
         }
 
+        impl TypeId for Compact<$t> {
+            fn id() -> String {
+                format!("Compact<{}>", <$t as TypeId>::id())
+            }
+        }
         impl IntoSchema for Compact<$t> {
             fn type_name() -> String {
                 format!("Compact<{}>", <$t as IntoSchema>::type_name())
             }
-            fn schema(map: &mut MetaMap) {
-                let _ = map.entry(Self::type_name()).or_insert(Metadata::Int(IntMode::Compact));
+
+            fn update_schema_map(map: &mut MetaMap) {
+                if !map.contains_key::<Self>() {
+                    map.insert::<Self>(Metadata::Int(IntMode::Compact));
+                }
             }
         }
     )*};
 }
 
-impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8, NonZeroU8);
+impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8);
 
+impl<I: TypeId, P: DecimalPlacesAware> TypeId for fixnum::FixedPoint<I, P> {
+    fn id() -> String {
+        format!("FixedPoint<{}>", I::id())
+    }
+}
 impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, P> {
     fn type_name() -> String {
         format!("FixedPoint<{}>", I::type_name())
     }
 
-    fn schema(metamap: &mut MetaMap) {
-        let _ = metamap.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::FixedPoint(FixedMeta {
-                base: I::type_name(),
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::FixedPoint(FixedMeta {
+                base: core::any::TypeId::of::<I>(),
                 decimal_places: P::decimal_places(),
-            })
-        });
-        if !metamap.contains_key(&I::type_name()) {
-            I::schema(metamap);
+            }));
+
+            I::update_schema_map(map);
         }
     }
 }
@@ -223,159 +286,205 @@ impl DecimalPlacesAware for fixnum::typenum::U9 {
         9
     }
 }
-
+impl TypeId for String {
+    fn id() -> String {
+        "String".to_owned()
+    }
+}
 impl IntoSchema for String {
     fn type_name() -> String {
-        String::from("String")
+        "String".to_owned()
     }
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert(Metadata::String);
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::String);
+        }
     }
 }
 
+impl TypeId for bool {
+    fn id() -> String {
+        "Bool".to_owned()
+    }
+}
 impl IntoSchema for bool {
     fn type_name() -> String {
-        String::from("bool")
+        "Bool".to_owned()
     }
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert(Metadata::Bool);
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Bool);
+        }
     }
 }
 
+impl<T: TypeId> TypeId for Vec<T> {
+    fn id() -> String {
+        format!("Vec<{}>", T::id())
+    }
+}
 impl<T: IntoSchema> IntoSchema for Vec<T> {
     fn type_name() -> String {
         format!("Vec<{}>", T::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Vec(VecMeta {
-                ty: T::type_name(),
-                sorted: false,
-            })
-        });
-        if !map.contains_key(&T::type_name()) {
-            T::schema(map);
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Vec(VecMeta {
+                ty: core::any::TypeId::of::<T>(),
+            }));
+
+            T::update_schema_map(map);
         }
     }
 }
 
+impl<T: TypeId> TypeId for Option<T> {
+    fn id() -> String {
+        format!("Option<{}>", T::id())
+    }
+}
 impl<T: IntoSchema> IntoSchema for Option<T> {
     fn type_name() -> String {
         format!("Option<{}>", T::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        let _ = map
-            .entry(Self::type_name())
-            .or_insert_with(|| Metadata::Option(T::type_name()));
-        if !map.contains_key(&T::type_name()) {
-            T::schema(map);
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            let t_type_id = core::any::TypeId::of::<T>();
+            map.insert::<Self>(Metadata::Option(t_type_id));
+
+            T::update_schema_map(map);
         }
     }
 }
 
+impl<T: TypeId> TypeId for Box<T> {
+    fn id() -> String {
+        format!("Box<{}>", T::id())
+    }
+}
 impl<T: IntoSchema> IntoSchema for Box<T> {
     fn type_name() -> String {
         T::type_name()
     }
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            if !map.contains_key::<T>() {
+                T::update_schema_map(map);
+            }
 
-    fn schema(map: &mut MetaMap) {
-        T::schema(map)
+            if let Some(schema) = map.get::<T>() {
+                map.insert::<Self>(schema.clone());
+            }
+        }
     }
 }
 
+impl<T: TypeId, E: TypeId> TypeId for Result<T, E> {
+    fn id() -> String {
+        format!("Result<{}, {}>", T::id(), E::id())
+    }
+}
 impl<T: IntoSchema, E: IntoSchema> IntoSchema for Result<T, E> {
     fn type_name() -> String {
         format!("Result<{}, {}>", T::type_name(), E::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Result(ResultMeta {
-                ok: T::type_name(),
-                err: E::type_name(),
-            })
-        });
-        if !map.contains_key(&T::type_name()) {
-            T::schema(map);
-        }
-        if !map.contains_key(&E::type_name()) {
-            E::schema(map);
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Result(ResultMeta {
+                ok: core::any::TypeId::of::<T>(),
+                err: core::any::TypeId::of::<E>(),
+            }));
+
+            T::update_schema_map(map);
+            E::update_schema_map(map);
         }
     }
 }
 
-impl<K: IntoSchema, V: IntoSchema> IntoSchema for BTreeMap<K, V> {
+impl<K: TypeId, V: TypeId> TypeId for btree_map::BTreeMap<K, V> {
+    fn id() -> String {
+        format!("SortedMap<{}, {}>", K::id(), V::id(),)
+    }
+}
+impl<K: IntoSchema, V: IntoSchema> IntoSchema for btree_map::BTreeMap<K, V> {
     fn type_name() -> String {
-        format!("Map<{}, {}>", K::type_name(), V::type_name(),)
+        format!("SortedMap<{}, {}>", K::type_name(), V::type_name(),)
     }
-    fn schema(map: &mut MetaMap) {
-        map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Map(MapMeta {
-                key: K::type_name(),
-                value: V::type_name(),
-                sorted_by_key: true,
-            })
-        });
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Map(MapMeta {
+                key: core::any::TypeId::of::<K>(),
+                value: core::any::TypeId::of::<V>(),
+            }));
 
-        if !map.contains_key(&K::type_name()) {
-            K::schema(map);
-        }
-        if !map.contains_key(&V::type_name()) {
-            V::schema(map);
+            K::update_schema_map(map);
+            V::update_schema_map(map);
         }
     }
 }
 
-impl<K: IntoSchema> IntoSchema for BTreeSet<K> {
+impl<K: TypeId> TypeId for btree_set::BTreeSet<K> {
+    fn id() -> String {
+        format!("SortedVec<{}>", K::id())
+    }
+}
+impl<K: IntoSchema> IntoSchema for btree_set::BTreeSet<K> {
     fn type_name() -> String {
-        format!("Vec<{}>", K::type_name())
+        format!("SortedVec<{}>", K::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Vec(VecMeta {
-                ty: K::type_name(),
-                sorted: true,
-            })
-        });
-        if !map.contains_key(&K::type_name()) {
-            K::schema(map)
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Vec(VecMeta {
+                ty: core::any::TypeId::of::<K>(),
+            }));
+
+            K::update_schema_map(map);
         }
     }
 }
 
+impl TypeId for core::time::Duration {
+    fn id() -> String {
+        "Duration".to_owned()
+    }
+}
 impl IntoSchema for core::time::Duration {
     fn type_name() -> String {
-        String::from("Duration")
+        "Duration".to_owned()
     }
-    // Look at:
-    //   https://docs.rs/parity-scale-codec/2.1.1/src/parity_scale_codec/codec.rs.html#1182-1192
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Tuple(UnnamedFieldsMeta {
-                types: vec![u64::type_name(), u32::type_name()],
-            })
-        });
+    // Look at: https://docs.rs/parity-scale-codec/2.1.1/src/parity_scale_codec/codec.rs.html#1182-1192
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta {
+                types: vec![
+                    core::any::TypeId::of::<u64>(),
+                    core::any::TypeId::of::<u32>(),
+                ],
+            }));
 
-        u32::schema(map);
-        u64::schema(map);
+            u32::update_schema_map(map);
+            u64::update_schema_map(map);
+        }
     }
 }
 
+impl<T: TypeId, const L: usize> TypeId for [T; L] {
+    fn id() -> String {
+        format!("Array<{}, {}>", T::id(), L)
+    }
+}
 impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
     fn type_name() -> String {
-        format!("[{}; {}]", T::type_name(), L)
+        format!("Array<{}, {}>", T::type_name(), L)
     }
-
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert_with(|| {
-            #[allow(clippy::expect_used)]
-            Metadata::Array(ArrayMeta {
-                ty: T::type_name(),
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Array(ArrayMeta {
+                ty: core::any::TypeId::of::<T>(),
                 len: L.try_into().expect("usize should always fit in u64"),
-                sorted: false,
-            })
-        });
-        if !map.contains_key(&T::type_name()) {
-            T::schema(map);
+            }));
+
+            T::update_schema_map(map);
         }
     }
 }

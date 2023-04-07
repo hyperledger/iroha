@@ -14,7 +14,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let register: Vec<Instruction> = ('a'..='z') // This is a subtle mistake, I'm glad we can lint it now.
+    let register: Vec<InstructionBox> = ('a'..='z') // This is a subtle mistake, I'm glad we can lint it now.
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {

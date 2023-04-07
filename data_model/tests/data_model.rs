@@ -62,7 +62,7 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
 
 #[test]
 fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
-    let _instruction = IfInstruction::new(
+    let _instruction = Conditional::new(
         Not::new(Greater::new(
             EvaluatesTo::new_unchecked(
                 QueryBox::from(FindAssetQuantityById::new(asset_id_new(
@@ -94,8 +94,8 @@ impl FindRateAndCheckItGreaterThanValue {
         }
     }
 
-    pub fn into_isi(self) -> IfInstruction {
-        IfInstruction::new(
+    pub fn into_isi(self) -> Conditional {
+        Conditional::new(
             Not::new(Greater::new(
                 EvaluatesTo::new_unchecked(
                     QueryBox::from(FindAssetQuantityById::new(AssetId::new(

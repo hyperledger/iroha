@@ -11,7 +11,7 @@ model! {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Event {
+    pub struct ExecuteTriggerEvent {
         /// Id of trigger to be executed
         pub trigger_id: TriggerId,
         /// Authority of user who tries to execute trigger
@@ -20,7 +20,7 @@ model! {
 
     /// Filter for trigger execution [`Event`]
     #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct EventFilter {
+    pub struct ExecuteTriggerEventFilter {
         /// Id of trigger catch executions of
         trigger_id: TriggerId,
         /// Authority of user who owns trigger
@@ -28,18 +28,19 @@ model! {
     }
 }
 
-impl Filter for EventFilter {
-    type Event = Event;
+#[cfg(feature = "transparent_api")]
+impl Filter for ExecuteTriggerEventFilter {
+    type Event = ExecuteTriggerEvent;
 
     /// Check if `event` matches filter
     ///
     /// Event considered as matched if trigger ids are equal
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &ExecuteTriggerEvent) -> bool {
         self.trigger_id == event.trigger_id && self.authority == event.authority
     }
 }
 
 /// Exports common structs and enums from this module.
 pub mod prelude {
-    pub use super::{Event as ExecuteTriggerEvent, EventFilter as ExecuteTriggerEventFilter};
+    pub use super::{ExecuteTriggerEvent, ExecuteTriggerEventFilter};
 }

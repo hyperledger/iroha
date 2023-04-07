@@ -15,7 +15,7 @@ use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConf
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
-    query::error::QueryExecutionFailure, transaction::Payload,
+    query::error::QueryExecutionFailure, transaction::TransactionPayload,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallStr;
@@ -58,10 +58,10 @@ pub type QueryHandlerResult<T> = core::result::Result<T, ClientQueryError>;
 
 impl<R> ResponseHandler for QueryResponseHandler<R>
 where
-    R: Query + Into<QueryBox> + Debug,
+    R: Query + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
-    type Output = QueryHandlerResult<ClientQueryOutput<R>>;
+    type Output = QueryHandlerResult<ClientQueryRequest<R>>;
 
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
         // Separate-compilation friendly response handling
@@ -95,7 +95,7 @@ where
         }
 
         _handle_query_response_base(&resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
-            ClientQueryOutput::try_from(result).map_err(Into::into)
+            ClientQueryRequest::try_from(result).map_err(Into::into)
         })
     }
 }
@@ -187,9 +187,9 @@ impl From<ResponseReport> for eyre::Report {
 /// The only difference is that this struct has `output` field extracted from the result
 /// accordingly to the source query.
 #[derive(Clone, Debug)]
-pub struct ClientQueryOutput<R>
+pub struct ClientQueryRequest<R>
 where
-    R: Query + Into<QueryBox> + Debug,
+    R: Query + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     /// Query output
@@ -204,9 +204,9 @@ where
     pub total: u64,
 }
 
-impl<R> ClientQueryOutput<R>
+impl<R> ClientQueryRequest<R>
 where
-    R: Query + Into<QueryBox> + Debug,
+    R: Query + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     /// Extracts output as is
@@ -215,9 +215,9 @@ where
     }
 }
 
-impl<R> TryFrom<PaginatedQueryResult> for ClientQueryOutput<R>
+impl<R> TryFrom<PaginatedQueryResult> for ClientQueryRequest<R>
 where
-    R: Query + Into<QueryBox> + Debug,
+    R: Query + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     type Error = eyre::Report;
@@ -329,7 +329,7 @@ impl Client {
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
     ) -> Result<SignedTransaction> {
-        let transaction = Transaction::new(
+        let transaction = TransactionBuilder::new(
             self.account_id.clone(),
             instructions,
             self.proposed_transaction_ttl_ms,
@@ -343,7 +343,9 @@ impl Client {
         }
         .with_metadata(metadata);
 
-        self.sign_transaction(transaction_with_metadata)
+        transaction_with_metadata
+            .sign(self.key_pair.clone())
+            .wrap_err("Failed to sign transaction")
     }
 
     /// Signs transaction
@@ -360,7 +362,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_query(&self, query: QueryRequest) -> Result<SignedQueryRequest> {
+    pub fn sign_query(&self, query: QueryBuilder) -> Result<SignedQuery> {
         query
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign query")
@@ -373,7 +375,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit(
         &self,
-        instruction: impl Into<Instruction> + Debug,
+        instruction: impl Into<InstructionBox> + Debug,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         let isi = instruction.into();
         self.submit_all([isi])
@@ -386,34 +388,34 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
         &self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Allows to specify [`Metadata`] of [`TransactionBuilder`].
     /// Returns submitted transaction's hash or error string.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_with_metadata(
         &self,
-        instruction: Instruction,
+        instruction: InstructionBox,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_with_metadata([instruction], metadata)
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Allows to specify [`Metadata`] of [`TransactionBuilder`].
     /// Returns submitted transaction's hash or error string.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
         &self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_transaction(self.build_transaction(instructions, metadata)?)
@@ -573,7 +575,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(
         &self,
-        instruction: impl Into<Instruction>,
+        instruction: impl Into<InstructionBox>,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
@@ -585,34 +587,34 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
         &self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Allows to specify [`Metadata`] of [`TransactionBuilder`].
     /// Returns rejection reason if transaction was rejected.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
         &self,
-        instruction: impl Into<Instruction>,
+        instruction: impl Into<InstructionBox>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
-    /// Allows to specify [`Metadata`] of [`Transaction`].
+    /// Allows to specify [`Metadata`] of [`TransactionBuilder`].
     /// Returns rejection reason if transaction was rejected.
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
         &self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
         let transaction = self.build_transaction(instructions, metadata)?;
@@ -687,14 +689,14 @@ impl Client {
         filter: PredicateBox,
     ) -> Result<(B, QueryResponseHandler<R>)>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
         B: RequestBuilder,
     {
         let pagination: Vec<_> = pagination.into();
         let sorting: Vec<_> = sorting.into();
-        let request = QueryRequest::new(request.into(), self.account_id.clone(), filter);
-        let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
+        let request = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
+        let request: VersionedSignedQuery = self.sign_query(request)?.into();
 
         Ok((
             B::new(
@@ -719,9 +721,9 @@ impl Client {
         pagination: Pagination,
         sorting: Sorting,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
@@ -741,9 +743,9 @@ impl Client {
         request: R,
         pagination: Pagination,
         sorting: Sorting,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination_and_filter_and_sorting(
@@ -763,9 +765,9 @@ impl Client {
         request: R,
         pagination: Pagination,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
         self.request_with_pagination_and_filter_and_sorting(
@@ -785,9 +787,9 @@ impl Client {
         request: R,
         sorting: Sorting,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
         self.request_with_pagination_and_filter_and_sorting(
@@ -809,9 +811,9 @@ impl Client {
         &self,
         request: R,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination_and_filter(request, Pagination::default(), filter)
@@ -828,9 +830,9 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination_and_filter(request, pagination, PredicateBox::default())
@@ -844,9 +846,9 @@ impl Client {
         &self,
         request: R,
         sorting: Sorting,
-    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryRequest<R>>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination_and_sorting(request, Pagination::default(), sorting)
@@ -858,11 +860,11 @@ impl Client {
     /// Fails if sending request fails
     pub fn request<R>(&self, request: R) -> QueryHandlerResult<R::Output>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
-            .map(ClientQueryOutput::only_output)
+            .map(ClientQueryRequest::only_output)
     }
 
     /// Connect (through `WebSocket`) to listen for `Iroha` `pipeline` and `data` events.
@@ -939,7 +941,10 @@ impl Client {
     }
 
     /// Check if two transactions are the same. Compare their contents excluding the creation time.
-    fn equals_excluding_creation_time(first: &Payload, second: &Payload) -> bool {
+    fn equals_excluding_creation_time(
+        first: &TransactionPayload,
+        second: &TransactionPayload,
+    ) -> bool {
         first.account_id() == second.account_id()
             && first.instructions() == second.instructions()
             && first.time_to_live_ms() == second.time_to_live_ms()

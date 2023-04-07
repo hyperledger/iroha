@@ -4,8 +4,6 @@
     clippy::expect_used,
     clippy::same_name_method
 )]
-#[cfg(feature = "deadlock_detection")]
-use core::any::type_name;
 use core::{
     fmt::Debug,
     ops::{Deref, DerefMut},
@@ -85,7 +83,7 @@ impl<A: Actor> Addr<A> {
         Self {
             sender,
             #[cfg(feature = "deadlock_detection")]
-            actor_id: ActorId::new(Some(type_name::<A>())),
+            actor_id: ActorId::new(Some(core::any::type_name::<A>())),
         }
     }
 
@@ -432,7 +430,7 @@ impl<A: Actor> InitializedActor<A> {
                     }
                 }
             }
-            iroha_logger::error!(actor = %std::any::type_name::<A>(), "Actor stopped");
+            iroha_logger::error!(actor = %core::any::type_name::<A>(), "Actor stopped");
             actor.on_stop(&mut ctx).await;
         }
         .in_current_span();

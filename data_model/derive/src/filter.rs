@@ -1,5 +1,4 @@
 #![allow(
-    clippy::expect_used,
     clippy::mixed_read_write_in_expression,
     clippy::unwrap_in_result,
     clippy::arithmetic_side_effects
@@ -209,6 +208,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
                 event_filter: #fil_opt<#event_filter_ident>
             }
         }
+        #[cfg(feature = "transparent_api")]
         impl #import_path::Filter for #filter_ident {
             type Event = #imp_event;
 
@@ -255,6 +255,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
             }
         }
 
+        #[cfg(feature = "transparent_api")]
         impl #import_path::Filter for #event_filter_ident {
             type Event = #imp_event;
 

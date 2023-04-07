@@ -13,8 +13,8 @@ use iroha_validator::prelude::*;
 
 /// Forbid every new validator registration
 #[entrypoint(params = "[instruction]")]
-fn validate(instruction: Instruction) -> Verdict {
-    if let Instruction::Register(register) = instruction {
+fn validate(instruction: InstructionBox) -> Verdict {
+    if let InstructionBox::Register(register) = instruction {
         if let RegistrableBox::Validator(_) = register
             .object()
             .evaluate(&Context::new())

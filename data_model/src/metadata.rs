@@ -275,7 +275,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     #[cfg(feature = "transparent_api")]
     fn nesting_inserts_removes() -> Result<(), TestError> {
         let mut metadata = Metadata::new();

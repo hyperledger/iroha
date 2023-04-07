@@ -254,7 +254,7 @@ impl WorldStateView {
 
     fn process_instructions(
         &self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         authority: &AccountId,
     ) -> Result<()> {
         instructions.into_iter().try_for_each(|instruction| {

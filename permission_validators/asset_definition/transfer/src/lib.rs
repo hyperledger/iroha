@@ -19,8 +19,8 @@ use iroha_validator::{prelude::*, utils};
 /// ## Deny
 ///
 /// If none of the `Pass` conditions are met.
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
-    let Instruction::Transfer(transfer) = instruction else {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
+    let InstructionBox::Transfer(transfer) = instruction else {
         pass!();
     };
 

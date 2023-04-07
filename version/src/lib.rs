@@ -14,8 +14,6 @@ use alloc::{format, string::String, vec::Vec};
 use core::ops::Range;
 
 #[cfg(feature = "derive")]
-use iroha_schema::IntoSchema;
-#[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
 #[cfg(feature = "scale")]
 pub use parity_scale_codec::{Decode, Encode};
@@ -29,8 +27,6 @@ pub mod error {
     use core::fmt;
 
     use iroha_macro::FromVariant;
-    #[cfg(feature = "derive")]
-    use iroha_schema::IntoSchema;
     #[cfg(feature = "scale")]
     use parity_scale_codec::{Decode, Encode};
 
@@ -40,7 +36,6 @@ pub mod error {
 
     /// Versioning errors
     #[derive(Debug, FromVariant)]
-    #[cfg_attr(feature = "derive", derive(IntoSchema))]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     #[cfg_attr(feature = "scale", derive(Encode, Decode))]
     pub enum Error {
@@ -150,7 +145,6 @@ pub trait Version {
 
 /// Structure describing a container content which version is not supported.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "derive", derive(IntoSchema))]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
@@ -184,7 +178,6 @@ impl UnsupportedVersion {
 
 /// Raw versioned content, serialized.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "derive", derive(IntoSchema))]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub enum RawVersioned {

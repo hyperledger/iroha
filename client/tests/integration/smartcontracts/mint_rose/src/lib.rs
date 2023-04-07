@@ -21,5 +21,5 @@ fn trigger_entrypoint(authority: <Account as Identifiable>::Id) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, authority);
 
-    Instruction::from(MintBox::new(1_u32, rose_id)).execute();
+    InstructionBox::from(MintBox::new(1_u32, rose_id)).execute();
 }

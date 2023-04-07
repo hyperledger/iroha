@@ -26,6 +26,7 @@ use iroha_core::{
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
+    smartcontracts::isi::Registrable as _,
     sumeragi::Sumeragi,
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,

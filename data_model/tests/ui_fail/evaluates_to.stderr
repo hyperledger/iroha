@@ -1,15 +1,15 @@
-error[E0277]: the trait bound `iroha_data_model::account::Id: From<DefinitionId>` is not satisfied
+error[E0277]: the trait bound `iroha_data_model::account::AccountId: From<iroha_data_model::asset::AssetDefinitionId>` is not satisfied
   --> tests/ui_fail/evaluates_to.rs:11:30
    |
 11 |     get_assets_by_account_id(asset_definition_id);
-   |     ------------------------ ^^^^^^^^^^^^^^^^^^^ the trait `From<DefinitionId>` is not implemented for `iroha_data_model::account::Id`
+   |     ------------------------ ^^^^^^^^^^^^^^^^^^^ the trait `From<iroha_data_model::asset::AssetDefinitionId>` is not implemented for `iroha_data_model::account::AccountId`
    |     |
    |     required by a bound introduced by this call
    |
-   = note: required for `DefinitionId` to implement `Into<iroha_data_model::account::Id>`
-   = note: required for `iroha_data_model::expression::EvaluatesTo<iroha_data_model::account::Id>` to implement `From<DefinitionId>`
+   = note: required for `iroha_data_model::asset::AssetDefinitionId` to implement `Into<iroha_data_model::account::AccountId>`
+   = note: required for `iroha_data_model::expression::EvaluatesTo<iroha_data_model::account::AccountId>` to implement `From<iroha_data_model::asset::AssetDefinitionId>`
    = note: 1 redundant requirement hidden
-   = note: required for `DefinitionId` to implement `Into<iroha_data_model::expression::EvaluatesTo<iroha_data_model::account::Id>>`
+   = note: required for `iroha_data_model::asset::AssetDefinitionId` to implement `Into<iroha_data_model::expression::EvaluatesTo<iroha_data_model::account::AccountId>>`
 note: required by a bound in `get_assets_by_account_id`
   --> tests/ui_fail/evaluates_to.rs:5:47
    |

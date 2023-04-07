@@ -16,9 +16,7 @@ mod signature;
 mod varint;
 
 #[cfg(not(feature = "std"))]
-use alloc::string::ToString;
-#[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned, format, string::String, vec, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
@@ -431,9 +429,6 @@ impl fmt::Display for PublicKey {
 impl From<Multihash> for PublicKey {
     #[inline]
     fn from(multihash: Multihash) -> Self {
-        #[cfg(not(feature = "std"))]
-        use alloc::string::ToString as _;
-
         let digest_function = match multihash.digest_function {
             MultihashDigestFunction::Ed25519Pub => Algorithm::Ed25519,
             MultihashDigestFunction::Secp256k1Pub => Algorithm::Secp256k1,
@@ -530,9 +525,6 @@ impl PrivateKey {
         digest_function: Algorithm,
         payload: &(impl AsRef<[u8]> + ?Sized),
     ) -> Result<Self, hex::FromHexError> {
-        #[cfg(not(feature = "std"))]
-        use alloc::string::ToString as _;
-
         let payload: Vec<u8> = payload
             .as_ref()
             .iter()
