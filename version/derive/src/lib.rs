@@ -1,11 +1,5 @@
-#![allow(
-    clippy::module_name_repetitions,
-    missing_docs,
-    clippy::shadow_reuse,
-    clippy::str_to_string,
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core
-)]
+//! Crate containing schema related macro functionality
+#![allow(clippy::arithmetic_side_effects)]
 
 use std::{collections::HashMap, ops::Range};
 
@@ -303,7 +297,6 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
     )
 }
 
-//TODO using this cause linters issue FIXME https://jira.hyperledger.org/browse/IR-1048
 fn impl_declare_versioned(
     args: &DeclareVersionedArgs,
     with_scale: bool,

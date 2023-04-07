@@ -1,4 +1,6 @@
-#![allow(clippy::std_instead_of_alloc)]
+extern crate alloc;
+
+use core::any::TypeId;
 
 use iroha_schema::prelude::*;
 use parity_scale_codec::Encode;
@@ -24,72 +26,90 @@ struct Foo {
 
 #[test]
 fn compact() {
-    use std::collections::BTreeMap;
+    use alloc::collections::BTreeMap;
 
     use IntMode::*;
     use Metadata::*;
 
     let expected = vec![
-        ("Compact<u128>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u16>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u32>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u64>".to_owned(), Int(IntMode::Compact)),
-        ("Compact<u8>".to_owned(), Int(IntMode::Compact)),
         (
-            "numbers_compact_and_fixed::Foo".to_owned(),
-            Struct(NamedFieldsMeta {
-                declarations: vec![
-                    Declaration {
-                        name: "u8_compact".to_owned(),
-                        ty: "Compact<u8>".to_owned(),
-                    },
-                    Declaration {
-                        name: "u8_fixed".to_owned(),
-                        ty: "u8".to_owned(),
-                    },
-                    Declaration {
-                        name: "u16_compact".to_owned(),
-                        ty: "Compact<u16>".to_owned(),
-                    },
-                    Declaration {
-                        name: "u16_fixed".to_owned(),
-                        ty: "u16".to_owned(),
-                    },
-                    Declaration {
-                        name: "u32_compact".to_owned(),
-                        ty: "Compact<u32>".to_owned(),
-                    },
-                    Declaration {
-                        name: "u32_fixed".to_owned(),
-                        ty: "u32".to_owned(),
-                    },
-                    Declaration {
-                        name: "u64_compact".to_owned(),
-                        ty: "Compact<u64>".to_owned(),
-                    },
-                    Declaration {
-                        name: "u64_fixed".to_owned(),
-                        ty: "u64".to_owned(),
-                    },
-                    Declaration {
-                        name: "u128_compact".to_owned(),
-                        ty: "Compact<u128>".to_owned(),
-                    },
-                    Declaration {
-                        name: "u128_fixed".to_owned(),
-                        ty: "u128".to_owned(),
-                    },
-                ],
-            }),
+            TypeId::of::<iroha_schema::Compact<u128>>(),
+            ("Compact<u128>".to_owned(), Int(IntMode::Compact)),
         ),
-        ("u128".to_owned(), Int(FixedWidth)),
-        ("u16".to_owned(), Int(FixedWidth)),
-        ("u32".to_owned(), Int(FixedWidth)),
-        ("u64".to_owned(), Int(FixedWidth)),
-        ("u8".to_owned(), Int(FixedWidth)),
+        (
+            TypeId::of::<iroha_schema::Compact<u16>>(),
+            ("Compact<u16>".to_owned(), Int(IntMode::Compact)),
+        ),
+        (
+            TypeId::of::<iroha_schema::Compact<u32>>(),
+            ("Compact<u32>".to_owned(), Int(IntMode::Compact)),
+        ),
+        (
+            TypeId::of::<iroha_schema::Compact<u64>>(),
+            ("Compact<u64>".to_owned(), Int(IntMode::Compact)),
+        ),
+        (
+            TypeId::of::<iroha_schema::Compact<u8>>(),
+            ("Compact<u8>".to_owned(), Int(IntMode::Compact)),
+        ),
+        (
+            TypeId::of::<Foo>(),
+            (
+                "Foo".to_owned(),
+                Struct(NamedFieldsMeta {
+                    declarations: vec![
+                        Declaration {
+                            name: "u8_compact".to_owned(),
+                            ty: TypeId::of::<iroha_schema::Compact<u8>>(),
+                        },
+                        Declaration {
+                            name: "u8_fixed".to_owned(),
+                            ty: TypeId::of::<u8>(),
+                        },
+                        Declaration {
+                            name: "u16_compact".to_owned(),
+                            ty: TypeId::of::<iroha_schema::Compact<u16>>(),
+                        },
+                        Declaration {
+                            name: "u16_fixed".to_owned(),
+                            ty: TypeId::of::<u16>(),
+                        },
+                        Declaration {
+                            name: "u32_compact".to_owned(),
+                            ty: TypeId::of::<iroha_schema::Compact<u32>>(),
+                        },
+                        Declaration {
+                            name: "u32_fixed".to_owned(),
+                            ty: TypeId::of::<u32>(),
+                        },
+                        Declaration {
+                            name: "u64_compact".to_owned(),
+                            ty: TypeId::of::<iroha_schema::Compact<u64>>(),
+                        },
+                        Declaration {
+                            name: "u64_fixed".to_owned(),
+                            ty: TypeId::of::<u64>(),
+                        },
+                        Declaration {
+                            name: "u128_compact".to_owned(),
+                            ty: TypeId::of::<iroha_schema::Compact<u128>>(),
+                        },
+                        Declaration {
+                            name: "u128_fixed".to_owned(),
+                            ty: TypeId::of::<u128>(),
+                        },
+                    ],
+                }),
+            ),
+        ),
+        (TypeId::of::<u128>(), ("u128".to_owned(), Int(FixedWidth))),
+        (TypeId::of::<u16>(), ("u16".to_owned(), Int(FixedWidth))),
+        (TypeId::of::<u32>(), ("u32".to_owned(), Int(FixedWidth))),
+        (TypeId::of::<u64>(), ("u64".to_owned(), Int(FixedWidth))),
+        (TypeId::of::<u8>(), ("u8".to_owned(), Int(FixedWidth))),
     ]
     .into_iter()
     .collect::<BTreeMap<_, _>>();
 
-    assert_eq!(Foo::get_schema(), expected);
+    assert_eq!(Foo::schema(), expected);
 }

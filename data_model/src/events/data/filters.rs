@@ -8,7 +8,7 @@ use super::*;
 use crate::model;
 
 /// Filter for all events
-pub type EventFilter = FilterOpt<EntityFilter>;
+pub type DataEventFilter = FilterOpt<DataEntityFilter>;
 
 model! {
     /// Optional filter. May pass all items or may filter them by `F`
@@ -18,7 +18,7 @@ model! {
     /// Also `FilterOpt` variant names look better for filter needs
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[serde(untagged)]
-    pub enum FilterOpt<F: Filter> {
+    pub enum FilterOpt<F> {
         /// Accept all items that will be passed to `filter()` method
         #[serde(with = "accept_all_as_string")]
         AcceptAll,
@@ -63,6 +63,7 @@ mod accept_all_as_string {
     }
 }
 
+#[cfg(feature = "transparent_api")]
 impl<F: Filter> Filter for FilterOpt<F> {
     type Event = F::Event;
 
@@ -78,7 +79,7 @@ model! {
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[allow(clippy::enum_variant_names)]
     /// Filters event by entity
-    pub enum EntityFilter {
+    pub enum DataEntityFilter {
         /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events
         ByPeer(FilterOpt<PeerFilter>),
         /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
@@ -96,19 +97,22 @@ model! {
     }
 }
 
-impl Filter for EntityFilter {
-    type Event = Event;
+#[cfg(feature = "transparent_api")]
+impl Filter for DataEntityFilter {
+    type Event = DataEvent;
 
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &DataEvent) -> bool {
         match (self, event) {
-            (Self::ByPeer(filter_opt), Event::Peer(peer)) => filter_opt.matches(peer),
-            (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.matches(domain),
-            (Self::ByAccount(filter_opt), Event::Account(account)) => filter_opt.matches(account),
-            (Self::ByAssetDefinition(filter_opt), Event::AssetDefinition(asset_definition)) => {
+            (Self::ByPeer(filter_opt), DataEvent::Peer(peer)) => filter_opt.matches(peer),
+            (Self::ByDomain(filter_opt), DataEvent::Domain(domain)) => filter_opt.matches(domain),
+            (Self::ByAccount(filter_opt), DataEvent::Account(account)) => {
+                filter_opt.matches(account)
+            }
+            (Self::ByAssetDefinition(filter_opt), DataEvent::AssetDefinition(asset_definition)) => {
                 filter_opt.matches(asset_definition)
             }
-            (Self::ByAsset(filter_opt), Event::Asset(asset)) => filter_opt.matches(asset),
-            (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.matches(role),
+            (Self::ByAsset(filter_opt), DataEvent::Asset(asset)) => filter_opt.matches(asset),
+            (Self::ByRole(filter_opt), DataEvent::Role(role)) => filter_opt.matches(role),
             _ => false,
         }
     }
@@ -135,6 +139,7 @@ where
     }
 }
 
+#[cfg(feature = "transparent_api")]
 impl<T: HasOrigin> Filter for OriginFilter<T>
 where
     <T::Origin as Identifiable>::Id:
@@ -169,18 +174,28 @@ where
 
 pub mod prelude {
     pub use super::{
-        EntityFilter as DataEntityFilter, EventFilter as DataEventFilter,
+        DataEntityFilter, DataEventFilter,
         FilterOpt::{self, *},
         OriginFilter,
     };
 }
 
 #[cfg(test)]
+#[cfg(feature = "transparent_api")]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::collections::BTreeSet;
+    #[cfg(feature = "std")]
+    use std::collections::BTreeSet;
+
     use super::*;
+    use crate::{
+        account::AccountsMap,
+        asset::{AssetDefinitionsMap, AssetTotalQuantityMap, AssetsMap},
+        role::RoleIds,
+    };
 
     #[test]
-    #[allow(clippy::expect_used)]
     #[cfg(feature = "transparent_api")]
     fn entity_scope() {
         let domain_name = "wonderland".parse().expect("Valid");
@@ -188,9 +203,23 @@ mod tests {
         let asset_name = "rose".parse().expect("Valid");
 
         let domain_id = DomainId::new(domain_name);
-        let domain = Domain::new(domain_id.clone()).build();
+        let domain = Domain {
+            id: domain_id.clone(),
+            accounts: AccountsMap::default(),
+            asset_definitions: AssetDefinitionsMap::default(),
+            asset_total_quantities: AssetTotalQuantityMap::default(),
+            logo: None,
+            metadata: Metadata::default(),
+        };
         let account_id = AccountId::new(account_name, domain_id.clone());
-        let account = Account::new(account_id.clone(), []).build();
+        let account = Account {
+            id: account_id.clone(),
+            assets: AssetsMap::default(),
+            signatories: BTreeSet::default(),
+            signature_check_condition: SignatureCheckCondition::default(),
+            metadata: Metadata::default(),
+            roles: RoleIds::default(),
+        };
         let asset_id = AssetId::new(
             AssetDefinitionId::new(asset_name, domain_id),
             account_id.clone(),
@@ -201,7 +230,7 @@ mod tests {
         let account_created = AccountEvent::Created(account);
         let asset_created = AssetEvent::Created(asset);
         let account_asset_created = AccountEvent::Asset(asset_created.clone());
-        let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountFilter::new(
+        let account_filter = BySome(DataEntityFilter::ByAccount(BySome(AccountFilter::new(
             BySome(OriginFilter(account_id)),
             AcceptAll,
         ))));

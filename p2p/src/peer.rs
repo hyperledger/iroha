@@ -774,7 +774,7 @@ pub fn read_connection_stream(
 }
 
 /// Peer's identification.
-pub type PeerId = iroha_data_model::peer::Id;
+pub type PeerId = iroha_data_model::peer::PeerId;
 
 /// Placeholder that can skip garbage bytes and generate them.
 struct Garbage {

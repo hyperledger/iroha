@@ -12,7 +12,7 @@
 
 **Method**: `POST`
 
-**Expects**: Body: [`VersionedSignedTransaction`](#iroha-structures)
+**Expects**: Body: `VersionedSignedTransaction`
 
 **Responses**:
 
@@ -34,7 +34,7 @@
 
 **Expects**:
 
-- Body: [`VersionedSignedQueryRequest`](#iroha-structures)
+- Body: `VersionedSignedQuery`
 - Query parameters:
     - `start`: Optional parameter in queries where results can be indexed. Use to return results from specified point.
       Results are ordered where can be by id which uses
@@ -45,15 +45,14 @@
 
 **Responses**:
 
-| Response        | Status | [Body](#iroha-structures)                              |
-|-----------------|--------|--------------------------------------------------------|
-| Decode err.     | 400    | `QueryError::Decode(Box<iroha_version::error::Error>)` |
-| Signature err.  | 401    | `QueryError::Signature(String)`                        |
-| Permission err. | 403    | `QueryError::Permission(String)`                       |
-| Evaluate err.   | 400    | `QueryError::Evaluate(String)`                         |
-| Find err.       | 404    | `QueryError::Find(Box<FindError>)`                     |
-| Conversion err. | 400    | `QueryError::Conversion(String)`                       |
-| Success         | 200    | `VersionedPaginatedQueryResult`                        |
+| Response        | Status |                      Body                     |
+|-----------------|--------|-----------------------------------------------|
+| Signature err.  | 401    | `QueryExecutionFailure::Signature(String)`    |
+| Permission err. | 403    | `QueryExecutionFailure::Permission(String)`   |
+| Evaluate err.   | 400    | `QueryExecutionFailure::Evaluate(String)`     |
+| Find err.       | 404    | `QueryExecutionFailure::Find(Box<FindError>)` |
+| Conversion err. | 400    | `QueryExecutionFailure::Conversion(String)`   |
+| Success         | 200    | `VersionedPaginatedQueryResult`               |
 
 #### Account Not Found 404
 
@@ -87,8 +86,7 @@ Whether each prerequisite object was found and `FindError`:
 
 **Communication**:
 
-After handshake, client should send [`VersionedEventSubscriptionRequest`](#iroha-structures). Then server
-sends [`VersionedEventMessage`](#iroha-structures).
+After handshake, client should send `VersionedEventSubscriptionRequest`. Then server sends `VersionedEventMessage`.
 
 **Notes**:
 
@@ -131,8 +129,7 @@ _Internal use only._ Returns the transactions pending at the moment.
 
 **Communication**:
 
-Client should send [`VersionedBlockSubscriptionRequest`](#iroha-structures) to initiate communication after WebSocket
-handshake. Then server sends [`VersionedBlockMessage`](#iroha-structures).
+Client should send `VersionedBlockSubscriptionRequest` to initiate communication after WebSocket handshake. Then server sends `VersionedBlockMessage`.
 
 **Notes**:
 
@@ -382,17 +379,3 @@ codec's [GitHub repository](https://github.com/paritytech/parity-scale-codec).
 ## Reference Iroha Client Implementation
 
 [Iroha client in Rust.](../../../client)
-
-## Iroha Structures
-
-| Object name                         | Fully qualified object name                                    |
-|-------------------------------------|----------------------------------------------------------------|
-| `VersionedSignedTransaction`        | `iroha_data_model::transaction::VersionedSignedTransaction`    |
-| `VersionedSignedQueryRequest`       | `iroha_data_model::query::VersionedSignedQueryRequest`         |
-| `VersionedPaginatedQueryResult`     | `iroha_data_model::query::VersionedPaginatedQueryResult`       |
-| `QueryError`                        | `iroha_core::smartcontracts::isi::query::Error`                |
-| `FindError`                         | `iroha_core::smartcontracts::isi::error::FindError`            |
-| `VersionedBlockSubscriptionRequest` | `iroha_core::block::stream::VersionedBlockSubscriptionRequest` |
-| `VersionedBlockMessage`             | `iroha_core::block::stream::VersionedBlockMessage`             |
-| `VersionedEventSubscriptionRequest` | `iroha_data_model::events::VersionedEventSubscriptionRequest`  |
-| `VersionedEventMessage`             | `iroha_data_model::events::VersionedEventMessage`              |

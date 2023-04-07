@@ -11,7 +11,7 @@ use super::Configuration;
 
 fn submit_and_get(
     client: &mut Client,
-    instructions: impl IntoIterator<Item = Instruction>,
+    instructions: impl IntoIterator<Item = InstructionBox>,
 ) -> TransactionValue {
     let hash = client.submit_all(instructions).unwrap();
     thread::sleep(Configuration::pipeline_time() * 2);
@@ -51,7 +51,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let charlie = client.request(account::by_id(charlie_id.clone())).unwrap();
     let mut keys = charlie.signatories();
-    let burn = |key: PublicKey| Instruction::from(BurnBox::new(key, charlie_id.clone()));
+    let burn = |key: PublicKey| InstructionBox::from(BurnBox::new(key, charlie_id.clone()));
     let burn_keys_leaving_one = keys.by_ref().take(KEYS_COUNT - 1).cloned().map(burn);
 
     let mut committed_txn = submit_and_get(&mut client, burn_keys_leaving_one);

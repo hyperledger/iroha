@@ -3,10 +3,10 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 
-pub use events::Event;
-pub use filters::EventFilter;
+pub use events::DataEvent;
+pub use filters::DataEventFilter;
 use iroha_macro::FromVariant;
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 

@@ -46,12 +46,12 @@ mod validate;
 /// ## Transaction
 ///
 /// A real function parameter type corresponding to the `transaction` should have
-/// `iroha_validator::data_model::prelude::SignedTransaction` type.
+/// `iroha_validator::data_model::prelude::Transaction` type.
 ///
 /// ## Instruction
 ///
 /// A real function parameter type corresponding to the `instruction` should have
-/// `iroha_validator::data_model::prelude::Instruction` type.
+/// `iroha_validator::data_model::prelude::InstructionBox` type.
 ///
 /// ## Query
 ///
@@ -89,7 +89,7 @@ mod validate;
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[authority, instruction]")]
-/// pub fn validate(authority: AccountId, _: Instruction) -> Verdict {
+/// pub fn validate(authority: AccountId, _: InstructionBox) -> Verdict {
 ///     let admin_domain = "admin_domain".parse()
 ///         .dbg_expect("Failed to parse `admin_domain` as a domain id");
 ///
@@ -121,7 +121,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[entrypoint(params = "[authority, instruction]")]
-/// fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+/// fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
 ///     validate_grant_revoke!(<CanDoSomethingWithAsset>, (authority, instruction));
 ///
 ///     CanDoSomethingWithAsset {

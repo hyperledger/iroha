@@ -20,8 +20,6 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-#[cfg(feature = "transparent_api")]
-use crate::Registrable;
 use crate::{
     asset::{
         prelude::{Asset, AssetId},
@@ -58,15 +56,15 @@ model! {
     /// # Examples
     ///
     /// ```rust
-    /// use iroha_data_model::account::Id;
+    /// use iroha_data_model::account::AccountId;
     ///
-    /// let id = "user@company".parse::<Id>().expect("Valid");
+    /// let id = "user@company".parse::<AccountId>().expect("Valid");
     /// ```
     #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[display(fmt = "{name}@{domain_id}")]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct Id {
+    pub struct AccountId {
         /// [`Account`]'s name.
         pub name: Name,
         /// [`Account`]'s [`Domain`](`crate::domain::Domain`) id.
@@ -80,7 +78,7 @@ model! {
     #[ffi_type]
     pub struct Account {
         /// An Identification of the [`Account`].
-        pub id: Id,
+        pub id: AccountId,
         /// Assets in this [`Account`].
         pub assets: AssetsMap,
         /// [`Account`]'s signatories.
@@ -100,11 +98,11 @@ model! {
     #[ffi_type]
     pub struct NewAccount {
         /// Identification
-        id: <Account as Identifiable>::Id,
+        pub id: <Account as Identifiable>::Id,
         /// Signatories, i.e. signatures attached to this message.
-        signatories: Signatories,
+        pub signatories: Signatories,
         /// Metadata that should be submitted with the builder
-        metadata: Metadata,
+        pub metadata: Metadata,
     }
 
     /// Condition which checks if the account has the right signatures.
@@ -116,7 +114,7 @@ model! {
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 }
 
-impl Id {
+impl AccountId {
     #[cfg(feature = "transparent_api")]
     const GENESIS_ACCOUNT_NAME: &str = "genesis";
 
@@ -258,7 +256,6 @@ impl SignatureCheckCondition {
 /// Returns true if any of the signatories have signed the transaction.
 impl Default for SignatureCheckCondition {
     #[inline]
-    #[allow(clippy::expect_used)]
     fn default() -> Self {
         Self(
             ContainsAny::new(
@@ -279,24 +276,6 @@ impl Default for SignatureCheckCondition {
             )
             .into(),
         )
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl Registrable for NewAccount {
-    type Target = Account;
-
-    #[must_use]
-    #[inline]
-    fn build(self) -> Self::Target {
-        Self::Target {
-            id: self.id,
-            signatories: self.signatories,
-            assets: AssetsMap::default(),
-            signature_check_condition: SignatureCheckCondition::default(),
-            metadata: self.metadata,
-            roles: RoleIds::default(),
-        }
     }
 }
 
@@ -326,7 +305,7 @@ impl FromIterator<Account> for crate::Value {
 }
 
 /// Account Identification is represented by `name@domain_name` string.
-impl FromStr for Id {
+impl FromStr for AccountId {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
@@ -335,7 +314,7 @@ impl FromStr for Id {
             Some(("", _)) => Err(ParseError {
                 reason: "`AccountId` cannot be empty",
             }),
-            Some((name, domain_id)) if !name.is_empty() && !domain_id.is_empty() => Ok(Id {
+            Some((name, domain_id)) if !name.is_empty() && !domain_id.is_empty() => Ok(AccountId {
                 name: name.parse()?,
                 domain_id: domain_id.parse()?,
             }),
@@ -348,5 +327,5 @@ impl FromStr for Id {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Account, Id as AccountId, SignatureCheckCondition};
+    pub use super::{Account, AccountId, SignatureCheckCondition};
 }

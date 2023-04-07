@@ -1,10 +1,12 @@
-#![allow(clippy::std_instead_of_alloc)]
-use std::collections::BTreeMap;
+extern crate alloc;
+
+use alloc::collections::BTreeMap;
+use core::any::TypeId;
 
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-#[derive(IntoSchema, Encode, Decode)]
+#[derive(Decode, Encode, IntoSchema)]
 struct Command {
     executable: String,
     args: Vec<String>,
@@ -22,36 +24,41 @@ fn named_fields() {
         declarations: vec![
             Declaration {
                 name: "executable".to_owned(),
-                ty: "String".to_owned(),
+                ty: TypeId::of::<alloc::string::String>(),
             },
             Declaration {
                 name: "args".to_owned(),
-                ty: "Vec<String>".to_owned(),
+                ty: TypeId::of::<alloc::vec::Vec<alloc::string::String>>(),
             },
             Declaration {
                 name: "num".to_owned(),
-                ty: "i32".to_owned(),
+                ty: TypeId::of::<i32>(),
             },
         ],
     });
 
     let expected = vec![
-        ("String".to_owned(), String),
         (
-            "Vec<String>".to_owned(),
-            Vec(VecMeta {
-                ty: "String".to_owned(),
-                sorted: false,
-            }),
+            TypeId::of::<alloc::string::String>(),
+            ("String".to_owned(), String),
         ),
-        ("i32".to_owned(), Int(FixedWidth)),
         (
-            "struct_with_named_fields::Command".to_owned(),
-            expected_struct,
+            TypeId::of::<alloc::vec::Vec<alloc::string::String>>(),
+            (
+                "Vec<String>".to_owned(),
+                Vec(VecMeta {
+                    ty: TypeId::of::<alloc::string::String>(),
+                }),
+            ),
+        ),
+        (TypeId::of::<i32>(), ("i32".to_owned(), Int(FixedWidth))),
+        (
+            TypeId::of::<Command>(),
+            ("Command".to_owned(), expected_struct),
         ),
     ]
     .into_iter()
     .collect::<BTreeMap<_, _>>();
 
-    assert_eq!(Command::get_schema(), expected);
+    assert_eq!(Command::schema(), expected);
 }

@@ -2377,6 +2377,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_genesis",
+ "iroha_primitives",
  "iroha_schema",
 ]
 
@@ -2427,7 +2428,6 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_macro",
- "iroha_schema",
  "iroha_version_derive",
  "parity-scale-codec",
  "serde",

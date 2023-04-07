@@ -138,8 +138,8 @@ mod role {
             #[has_origin(role => role.id())]
             Created(Role),
             Deleted(RoleId),
-            /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::Id) were
-            /// removed from the role.
+            /// [`PermissionToken`]s with particular [`Id`](crate::permission::token::PermissionTokenId)
+            /// were removed from the role.
             #[has_origin(permission_removed => &permission_removed.role_id)]
             PermissionRemoved(PermissionRemoved),
         }
@@ -163,7 +163,7 @@ mod permission {
     //! This module contains [`PermissionTokenEvent`], [`PermissionValidatorEvent`] and their impls
 
     use super::*;
-    use crate::permission::validator::{Id as ValidatorId, Validator};
+    use crate::permission::validator::{Validator, ValidatorId};
 
     data_event! {
         #[has_origin(origin = PermissionTokenDefinition)]
@@ -333,7 +333,7 @@ model! {
 impl WorldEvent {
     /// Unfold [`Self`] and return vector of [`Event`]s in the expanding scope order: from specific to general.
     /// E.g [`AssetEvent`] -> [`AccountEvent`] -> [`DomainEvent`]
-    pub fn flatten(self) -> SmallVec<[Event; 3]> {
+    pub fn flatten(self) -> SmallVec<[DataEvent; 3]> {
         let mut events = SmallVec::new();
 
         match self {
@@ -380,7 +380,7 @@ model! {
     /// Event
     #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type]
-    pub enum Event {
+    pub enum DataEvent {
         /// Peer event
         Peer(peer::PeerEvent),
         /// Domain event
@@ -404,7 +404,7 @@ model! {
     }
 }
 
-impl Event {
+impl DataEvent {
     /// Return the domain id of [`Event`]
     pub fn domain_id(&self) -> Option<&<Domain as Identifiable>::Id> {
         match self {
@@ -441,6 +441,6 @@ pub mod prelude {
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
-        Event as DataEvent, HasOrigin, MetadataChanged, WorldEvent,
+        DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
 }

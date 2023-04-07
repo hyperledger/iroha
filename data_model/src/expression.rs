@@ -19,7 +19,7 @@ use derive_more::{Constructor, Display};
 use getset::Getters;
 use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
 use iroha_macro::FromVariant;
-use iroha_schema::prelude::*;
+use iroha_schema::{IntoSchema, TypeId};
 use operation::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -170,7 +170,7 @@ pub type ExpressionBox = Box<Expression>;
 
 model! {
     /// Struct for type checking and converting expression results.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize)]
+    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, TypeId)]
     // As this structure exists only for type checking
     // it makes sense to display `expression` directly
     #[display(fmt = "{expression}")]
@@ -262,24 +262,25 @@ impl EvaluatesTo<Value> {
     }
 }
 
-impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+impl<V: TryFrom<Value> + IntoSchema> IntoSchema for EvaluatesTo<V> {
     fn type_name() -> String {
-        format!("{}::EvaluatesTo<{}>", module_path!(), V::type_name())
+        format!("EvaluatesTo<{}>", V::type_name())
     }
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        const EXPRESSION: &str = "expression";
 
-    fn schema(map: &mut MetaMap) {
-        ExpressionBox::schema(map);
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(iroha_schema::Metadata::Struct(
+                iroha_schema::NamedFieldsMeta {
+                    declarations: vec![iroha_schema::Declaration {
+                        name: String::from(EXPRESSION),
+                        ty: core::any::TypeId::of::<ExpressionBox>(),
+                    }],
+                },
+            ));
 
-        map.entry(Self::type_name()).or_insert_with(|| {
-            const EXPRESSION: &str = "expression";
-
-            Metadata::Struct(NamedFieldsMeta {
-                declarations: vec![Declaration {
-                    name: String::from(EXPRESSION),
-                    ty: ExpressionBox::type_name(),
-                }],
-            })
-        });
+            ExpressionBox::update_schema_map(map);
+        }
     }
 }
 
@@ -608,72 +609,12 @@ gen_expr_and_impls! {
     pub Or(bool, bool) -> bool
 }
 
-model! {
-    /// Builder for [`If`] expression.
-    #[derive(Debug)]
-    #[must_use = ".build() not used"]
-    #[ffi_type]
-    pub struct IfBuilder {
-        /// Condition expression, which should evaluate to `Value::Bool`.
-        /// If it is `true`, then the evaluated `then_expression` is returned.
-        /// Otherwise, the evaluated `else_expression` is returned.
-        condition: EvaluatesTo<bool>,
-        /// Expression evaluated and returned if the condition is `true`.
-        then_expression: Option<EvaluatesTo<Value>>,
-        /// Expression evaluated and returned if the condition is `false`.
-        else_expression: Option<EvaluatesTo<Value>>,
-    }
-}
-
-impl IfBuilder {
-    /// Sets the `condition`.
-    pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
-        Self {
-            condition: condition.into(),
-            then_expression: None,
-            else_expression: None,
-        }
-    }
-
-    /// Sets `then_expression`.
-    pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        Self {
-            then_expression: Some(expression.into()),
-            ..self
-        }
-    }
-
-    /// Sets `else_expression`.
-    pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        Self {
-            else_expression: Some(expression.into()),
-            ..self
-        }
-    }
-
-    /// Returns [`If`] expression if all the fields are filled.
-    ///
-    /// # Errors
-    ///
-    /// Fails if some of the fields are not filled.
-    pub fn build(self) -> Result<If, &'static str> {
-        if let (Some(then_expression), Some(else_expression)) =
-            (self.then_expression, self.else_expression)
-        {
-            return Ok(If::new(self.condition, then_expression, else_expression));
-        }
-
-        Err("Not all fields filled")
-    }
-}
-
 gen_expr_and_impls! {
-    /// If expression. Based on the `condition`, returns the result of
-    /// either `then_expression`  or `else_expression`.
+    /// If expression. Based on the `condition`, returns the result of either `then` or `otherwise`.
     #[derive(Display)]
-    #[display(fmt = "if {condition} {{ {then_expression} }} else {{ {else_expression} }}")]
+    #[display(fmt = "if {condition} {{ {then} }} else {{ {otherwise} }}")]
     #[ffi_type]
-    pub If(condition: bool, then_expression: Value, else_expression: Value) -> ?
+    pub If(condition: bool, then: Value, otherwise: Value) -> ?
 }
 
 gen_expr_and_impls! {
@@ -712,47 +653,6 @@ gen_expr_and_impls! {
     )]
     #[ffi_type]
     pub Equal(Value, Value) -> bool
-}
-
-model! {
-    /// [`Where`] builder.
-    #[derive(Debug)]
-    #[ffi_type]
-    pub struct WhereBuilder {
-        /// Expression to be evaluated.
-        expression: EvaluatesTo<Value>,
-        /// Context values for the context binded to their `String` names.
-        values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
-    }
-}
-
-impl WhereBuilder {
-    /// Sets the `expression` to be evaluated.
-    #[must_use]
-    pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> Self {
-        Self {
-            expression: expression.into(),
-            values: btree_map::BTreeMap::new(),
-        }
-    }
-
-    /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
-    #[must_use]
-    pub fn with_value<E: Into<EvaluatesTo<Value>>>(
-        mut self,
-        value_name: Name,
-        expression: E,
-    ) -> Self {
-        let _result = self.values.insert(value_name, expression.into());
-        self
-    }
-
-    /// Returns a [`Where`] expression.
-    #[inline]
-    #[must_use]
-    pub fn build(self) -> Where {
-        Where::new(self.expression, self.values)
-    }
 }
 
 model! {
@@ -797,14 +697,22 @@ impl Where {
 
     /// Construct [`Where`] expression
     #[must_use]
-    pub fn new(
-        expression: impl Into<EvaluatesTo<Value>>,
-        values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
-    ) -> Self {
+    pub fn new(expression: impl Into<EvaluatesTo<Value>>) -> Self {
         Self {
             expression: expression.into(),
-            values,
+            values: Default::default(),
         }
+    }
+
+    /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
+    #[must_use]
+    pub fn with_value<E: Into<EvaluatesTo<Value>>>(
+        mut self,
+        value_name: Name,
+        expression: E,
+    ) -> Self {
+        self.values.insert(value_name, expression.into());
+        self
     }
 }
 
@@ -832,7 +740,7 @@ impl From<QueryBox> for ExpressionBox {
 pub mod prelude {
     pub use super::{
         Add, And, Contains, ContainsAll, ContainsAny, ContextValue, Divide, Equal, EvaluatesTo,
-        Expression, ExpressionBox, Greater, If as IfExpression, IfBuilder, Less, Mod, Multiply,
-        Not, Or, RaiseTo, Subtract, Where, WhereBuilder,
+        Expression, ExpressionBox, Greater, If, Less, Mod, Multiply, Not, Or, RaiseTo, Subtract,
+        Where,
     };
 }

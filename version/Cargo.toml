@@ -24,7 +24,6 @@ http = ["std", "warp"]
 [dependencies]
 iroha_version_derive = { version = "=2.0.0-pre-rc.13", path = "derive", default-features = false, optional = true }
 iroha_macro = { version = "=2.0.0-pre-rc.13", path = "../macro", default-features = false }
-iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../schema", default-features = false }
 
 parity-scale-codec = { version = "3.2.1", default-features = false, optional = true, features = ["derive"] }
 serde_json = { version = "1.0.91", default-features = false, optional = true, features = ["alloc"] }

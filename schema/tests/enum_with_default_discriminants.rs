@@ -1,8 +1,11 @@
-#![allow(clippy::std_instead_of_alloc)]
+extern crate alloc;
+
+use core::any::TypeId;
+
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
-#[derive(IntoSchema, Encode, Decode)]
+#[derive(Decode, Encode, IntoSchema)]
 enum Foo {
     Variant1(bool),
     Variant2(String),
@@ -14,52 +17,59 @@ enum Foo {
 
 #[test]
 fn default_discriminants() {
-    use std::collections::BTreeMap;
+    use alloc::collections::BTreeMap;
 
     use IntMode::*;
     use Metadata::*;
 
     let expected = vec![
         (
-            "Result<bool, String>".to_owned(),
-            Result(ResultMeta {
-                ok: "bool".to_owned(),
-                err: "String".to_owned(),
-            }),
+            TypeId::of::<core::result::Result<bool, alloc::string::String>>(),
+            (
+                "Result<Bool, String>".to_owned(),
+                Result(ResultMeta {
+                    ok: TypeId::of::<bool>(),
+                    err: TypeId::of::<alloc::string::String>(),
+                }),
+            ),
         ),
-        ("String".to_owned(), String),
-        ("bool".to_owned(), Bool),
         (
-            "enum_with_default_discriminants::Foo".to_owned(),
-            Enum(EnumMeta {
-                variants: vec![
-                    EnumVariant {
-                        name: "Variant1".to_owned(),
-                        discriminant: 0,
-                        ty: Some("bool".to_owned()),
-                    },
-                    EnumVariant {
-                        name: "Variant2".to_owned(),
-                        discriminant: 1,
-                        ty: Some("String".to_owned()),
-                    },
-                    EnumVariant {
-                        name: "Variant3".to_owned(),
-                        discriminant: 2,
-                        ty: Some("Result<bool, String>".to_owned()),
-                    },
-                    EnumVariant {
-                        name: "Variant5".to_owned(),
-                        discriminant: 4,
-                        ty: Some("i32".to_owned()),
-                    },
-                ],
-            }),
+            TypeId::of::<alloc::string::String>(),
+            ("String".to_owned(), String),
         ),
-        ("i32".to_owned(), Int(FixedWidth)),
+        (TypeId::of::<bool>(), ("Bool".to_owned(), Bool)),
+        (
+            TypeId::of::<Foo>(),
+            (
+                "Foo".to_owned(),
+                Enum(EnumMeta {
+                    variants: vec![
+                        EnumVariant {
+                            tag: "Variant1".to_owned(),
+                            ty: Some(TypeId::of::<bool>()),
+                        },
+                        EnumVariant {
+                            tag: "Variant2".to_owned(),
+                            ty: Some(TypeId::of::<alloc::string::String>()),
+                        },
+                        EnumVariant {
+                            tag: "Variant3".to_owned(),
+                            ty: Some(TypeId::of::<
+                                core::result::Result<bool, alloc::string::String>,
+                            >()),
+                        },
+                        EnumVariant {
+                            tag: "Variant5".to_owned(),
+                            ty: Some(TypeId::of::<i32>()),
+                        },
+                    ],
+                }),
+            ),
+        ),
+        (TypeId::of::<i32>(), ("i32".to_owned(), Int(FixedWidth))),
     ]
     .into_iter()
     .collect::<BTreeMap<_, _>>();
 
-    assert_eq!(Foo::get_schema(), expected);
+    assert_eq!(Foo::schema(), expected);
 }

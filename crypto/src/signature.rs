@@ -7,7 +7,7 @@ use std::collections::btree_set;
 
 use derive_more::{DebugCustom, Deref, DerefMut};
 use getset::Getters;
-use iroha_schema::prelude::*;
+use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
@@ -36,12 +36,12 @@ pub type Payload = Vec<u8>;
     PartialOrd,
     Ord,
     Getters,
-    Encode,
     Decode,
-    Serialize,
+    Encode,
     Deserialize,
-    IntoSchema,
+    Serialize,
     Hash,
+    IntoSchema,
 )]
 #[getset(get = "pub")]
 #[debug(
@@ -136,7 +136,7 @@ impl<T> From<SignatureOf<T>> for Signature {
     clippy::unsafe_derive_deserialize,
     clippy::derive_hash_xor_eq
 )]
-#[derive(Deref, DerefMut, Hash, Decode, Encode, Serialize, Deserialize)]
+#[derive(Deref, DerefMut, Hash, Decode, Encode, Deserialize, Serialize, TypeId)]
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
@@ -181,16 +181,18 @@ impl<T> Ord for SignatureOf<T> {
 
 impl<T: IntoSchema> IntoSchema for SignatureOf<T> {
     fn type_name() -> String {
-        format!("{}::SignatureOf<{}>", module_path!(), T::type_name())
+        format!("SignatureOf<{}>", T::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Tuple(UnnamedFieldsMeta {
-                types: vec![Signature::type_name()],
-            })
-        });
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(iroha_schema::Metadata::Tuple(
+                iroha_schema::UnnamedFieldsMeta {
+                    types: vec![core::any::TypeId::of::<Signature>()],
+                },
+            ));
 
-        Signature::schema(map);
+            Signature::update_schema_map(map);
+        }
     }
 }
 
@@ -259,13 +261,13 @@ impl<T: Encode> SignatureOf<T> {
 
 /// Wrapper around [`SignatureOf`] used to reimplement [`Eq`], [`Ord`], [`Hash`]
 /// to compare signatures only by their [`PublicKey`].
-#[derive(Deref, DerefMut, Encode, Decode, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Deref, DerefMut, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[serde(transparent, bound(deserialize = ""))]
+#[schema(transparent = "SignatureOf<T>")]
 #[repr(transparent)]
 pub struct SignatureWrapperOf<T>(
     #[deref]
     #[deref_mut]
-    #[serde(bound(deserialize = "T: "))]
     SignatureOf<T>,
 );
 
@@ -310,17 +312,6 @@ impl<T> Clone for SignatureWrapperOf<T> {
 impl<T> core::hash::Hash for SignatureWrapperOf<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.0.public_key.hash(state);
-    }
-}
-
-// Wrapper is transparent, so forward to the inner type and exclude from schema.
-impl<T: IntoSchema> IntoSchema for SignatureWrapperOf<T> {
-    fn schema(metamap: &mut MetaMap) {
-        SignatureOf::<T>::schema(metamap)
-    }
-
-    fn type_name() -> String {
-        SignatureOf::<T>::type_name()
     }
 }
 

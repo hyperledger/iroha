@@ -252,15 +252,15 @@ impl Evaluate for Or {
     }
 }
 
-impl Evaluate for IfExpression {
+impl Evaluate for If {
     type Value = Value;
 
     fn evaluate<C: Context>(&self, context: &C) -> Result<Value, Error> {
         let condition = self.condition.evaluate(context)?;
         if condition {
-            self.then_expression.evaluate(context)
+            self.then.evaluate(context)
         } else {
-            self.else_expression.evaluate(context)
+            self.otherwise.evaluate(context)
         }
     }
 }
@@ -525,44 +525,46 @@ mod tests {
         let one_teller_set = Value::Vec(vec![Value::PublicKey(public_key_teller_1)]);
         let manager_signatory = Value::PublicKey(manager_public_key);
         let manager_signatory_set = Value::Vec(vec![manager_signatory.clone()]);
-        let condition = IfBuilder::condition(And::new(
-            Greater::new(
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail.")).into(),
-                ),
-                500_u32,
-            ),
-            Less::new(
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail.")).into(),
-                ),
-                1000_u32,
-            ),
-        ))
-        .then_expression(EvaluatesTo::new_evaluates_to_value(
-            Or::new(
-                ContainsAll::new(
+        let condition = If::new(
+            And::new(
+                Greater::new(
                     EvaluatesTo::new_unchecked(
-                        ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
+                        ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail."))
                             .into(),
                     ),
-                    teller_signatory_set.clone(),
+                    500_u32,
                 ),
-                Contains::new(
+                Less::new(
                     EvaluatesTo::new_unchecked(
-                        ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
+                        ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail."))
                             .into(),
                     ),
-                    manager_signatory,
+                    1000_u32,
                 ),
-            )
-            .into(),
-        ))
-        .else_expression(true)
-        .build()
-        .unwrap();
+            ),
+            EvaluatesTo::new_evaluates_to_value(
+                Or::new(
+                    ContainsAll::new(
+                        EvaluatesTo::new_unchecked(
+                            ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
+                                .into(),
+                        ),
+                        teller_signatory_set.clone(),
+                    ),
+                    Contains::new(
+                        EvaluatesTo::new_unchecked(
+                            ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
+                                .into(),
+                        ),
+                        manager_signatory,
+                    ),
+                )
+                .into(),
+            ),
+            true,
+        );
         // Signed by all tellers
-        let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(
             condition.clone().into(),
         ))
         .with_value(
@@ -574,11 +576,10 @@ mod tests {
         .with_value(
             Name::from_str("signatories").expect("Can't fail."),
             teller_signatory_set,
-        )
-        .build();
+        );
         assert_eq!(expression.evaluate(&TestContext::new())?, Value::Bool(true));
         // Signed by manager
-        let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(
             condition.clone().into(),
         ))
         .with_value(
@@ -588,11 +589,10 @@ mod tests {
         .with_value(
             Name::from_str("signatories").expect("Can't fail."),
             manager_signatory_set,
-        )
-        .build();
+        );
         assert_eq!(expression.evaluate(&TestContext::new())?, Value::Bool(true));
         // Signed by one teller
-        let expression = WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(
             condition.clone().into(),
         ))
         .with_value(
@@ -602,24 +602,21 @@ mod tests {
         .with_value(
             Name::from_str("signatories").expect("Can't fail."),
             one_teller_set.clone(),
-        )
-        .build();
+        );
         assert_eq!(
             expression.evaluate(&TestContext::new())?,
             Value::Bool(false)
         );
         // Signed by one teller with less value
-        let expression =
-            WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(condition.into()))
-                .with_value(
-                    Name::from_str("usd_quantity").expect("Can't fail."),
-                    asset_quantity_low,
-                )
-                .with_value(
-                    Name::from_str("signatories").expect("Can't fail."),
-                    one_teller_set,
-                )
-                .build();
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(condition.into()))
+            .with_value(
+                Name::from_str("usd_quantity").expect("Can't fail."),
+                asset_quantity_low,
+            )
+            .with_value(
+                Name::from_str("signatories").expect("Can't fail."),
+                one_teller_set,
+            );
         assert_eq!(expression.evaluate(&TestContext::new())?, Value::Bool(true));
         Ok(())
     }
@@ -627,14 +624,13 @@ mod tests {
     #[test]
     fn where_expression() -> Result<(), Error> {
         assert_eq!(
-            WhereBuilder::evaluate(EvaluatesTo::new_unchecked(
+            Where::new(EvaluatesTo::new_unchecked(
                 ContextValue::new(Name::from_str("test_value").expect("Can't fail.")).into()
             ))
             .with_value(
                 Name::from_str("test_value").expect("Can't fail."),
                 EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32).into())
             )
-            .build()
             .evaluate(&TestContext::new())?,
             5_u32.to_value()
         );
@@ -643,24 +639,21 @@ mod tests {
 
     #[test]
     fn nested_where_expression() -> Result<(), Error> {
-        let expression = WhereBuilder::evaluate(EvaluatesTo::new_unchecked(
+        let expression = Where::new(EvaluatesTo::new_unchecked(
             ContextValue::new(Name::from_str("a").expect("Can't fail.")).into(),
         ))
-        .with_value(Name::from_str("a").expect("Can't fail."), 2_u32)
-        .build();
-        let outer_expression: ExpressionBox =
-            WhereBuilder::evaluate(EvaluatesTo::new_evaluates_to_value(
-                Add::new(
-                    EvaluatesTo::new_unchecked(expression.into()),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(Name::from_str("b").expect("Can't fail.")).into(),
-                    ),
-                )
-                .into(),
-            ))
-            .with_value(Name::from_str("b").expect("Can't fail."), 4_u32)
-            .build()
-            .into();
+        .with_value(Name::from_str("a").expect("Can't fail."), 2_u32);
+        let outer_expression: ExpressionBox = Where::new(EvaluatesTo::new_evaluates_to_value(
+            Add::new(
+                EvaluatesTo::new_unchecked(expression.into()),
+                EvaluatesTo::new_unchecked(
+                    ContextValue::new(Name::from_str("b").expect("Can't fail.")).into(),
+                ),
+            )
+            .into(),
+        ))
+        .with_value(Name::from_str("b").expect("Can't fail."), 4_u32)
+        .into();
         assert_eq!(
             outer_expression.evaluate(&TestContext::new())?,
             6_u32.to_value()
@@ -669,30 +662,13 @@ mod tests {
     }
 
     #[test]
-    fn if_condition_builder_builds_only_with_both_branches() {
-        let _condition = IfBuilder::condition(true)
-            .then_expression(1_u32)
-            .build()
-            .expect_err("Builder should fail if a branch is missing");
-        let _condition = IfBuilder::condition(true)
-            .else_expression(2_u32)
-            .build()
-            .expect_err("Builder should fail if a branch is missing");
-        let _condition = IfBuilder::condition(true)
-            .then_expression(1_u32)
-            .else_expression(2_u32)
-            .build()
-            .expect("Builder should build if both branches are present.");
-    }
-
-    #[test]
     fn if_condition_branches_correctly() -> Result<(), Error> {
         assert_eq!(
-            IfExpression::new(true, 1_u32, 2_u32).evaluate(&TestContext::new())?,
+            If::new(true, 1_u32, 2_u32).evaluate(&TestContext::new())?,
             1_u32.to_value()
         );
         assert_eq!(
-            IfExpression::new(false, 1_u32, 2_u32).evaluate(&TestContext::new())?,
+            If::new(false, 1_u32, 2_u32).evaluate(&TestContext::new())?,
             2_u32.to_value()
         );
         Ok(())
@@ -739,7 +715,7 @@ mod tests {
             "Should not be possible to apply greater sign to int and vec.",
         );
         assert_eval(
-            &IfExpression::new(EvaluatesTo::new_unchecked(1_u32.into()), 2_u32, 3_u32),
+            &If::new(EvaluatesTo::new_unchecked(1_u32.into()), 2_u32, 3_u32),
             "If condition should be bool",
         );
         assert_eval(

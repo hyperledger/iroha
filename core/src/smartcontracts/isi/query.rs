@@ -96,7 +96,10 @@ mod tests {
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{block::*, kura::Kura, tx::TransactionValidator, wsv::World, PeersIds};
+    use crate::{
+        block::*, kura::Kura, smartcontracts::isi::Registrable as _, tx::TransactionValidator,
+        wsv::World, PeersIds,
+    };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
@@ -185,12 +188,13 @@ mod tests {
         };
 
         let valid_tx = {
-            let tx = Transaction::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
+            let tx =
+                TransactionBuilder::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
             VersionedAcceptedTransaction::from(AcceptedTransaction::accept::<false>(tx, &limits)?)
         };
         let invalid_tx = {
-            let isi: Instruction = FailBox::new("fail").into();
-            let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
+            let isi: InstructionBox = FailBox::new("fail").into();
+            let tx = TransactionBuilder::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
                 .sign(ALICE_KEYS.clone())?;
             AcceptedTransaction::accept::<false>(tx, &huge_limits)?.into()
         };
@@ -343,7 +347,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
-        let tx = Transaction::new(ALICE_ID.clone(), Vec::new(), 4000);
+        let tx = TransactionBuilder::new(ALICE_ID.clone(), Vec::new(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
 
         let tx_limits = TransactionLimits {

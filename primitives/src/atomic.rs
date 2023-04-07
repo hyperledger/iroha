@@ -1,7 +1,7 @@
 //! Contains wrappers above basic atomic, providing useful impls
 
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::{cmp, sync::atomic as core_atomic};
 
 use iroha_schema::IntoSchema;
@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// Provides useful impls, using [`core_atomic::Ordering::Acquire`]
 /// and [`core_atomic::Ordering::Release`] to load and store respectively
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoSchema)]
+#[schema(transparent = "u32")]
 #[serde(from = "u32")]
 #[repr(transparent)]
 pub struct AtomicU32(core_atomic::AtomicU32);
@@ -105,22 +106,6 @@ impl Serialize for AtomicU32 {
         S: serde::Serializer,
     {
         self.get().serialize(serializer)
-    }
-}
-
-impl IntoSchema for AtomicU32 {
-    #[inline]
-    fn type_name() -> String {
-        String::from("AtomicU32Wrapper")
-    }
-
-    #[inline]
-    fn schema(map: &mut iroha_schema::MetaMap) {
-        let _ = map
-            .entry(Self::type_name())
-            .or_insert(iroha_schema::Metadata::Int(
-                iroha_schema::IntMode::FixedWidth,
-            ));
     }
 }
 

@@ -369,7 +369,7 @@ mod genesis {
         Ok(genesis)
     }
 
-    fn register_permission_token_definitions() -> color_eyre::Result<Vec<Instruction>> {
+    fn register_permission_token_definitions() -> color_eyre::Result<Vec<InstructionBox>> {
         Ok(super::tokens::permission_token_definitions()?
             .into_iter()
             .map(RegisterBox::new)
@@ -435,7 +435,7 @@ mod genesis {
         Ok(genesis)
     }
 
-    fn register_validator() -> color_eyre::Result<Instruction> {
+    fn register_validator() -> color_eyre::Result<InstructionBox> {
         const PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators";
 
         let build_dir = tempfile::tempdir()
@@ -449,7 +449,7 @@ mod genesis {
 
         Ok(RegisterBox::new(Validator::new(
             "permission_validator%genesis@genesis".parse()?,
-            validator::Type::Instruction,
+            validator::ValidatorType::Instruction,
             WasmSmartContract::new(wasm_blob),
         ))
         .into())

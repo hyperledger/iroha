@@ -35,7 +35,7 @@ fn deny_new_validators() -> Result<()> {
 
     let validator = Validator::new(
         "deny_new_validators%alice@wonderland".parse().unwrap(),
-        validator::Type::Instruction,
+        validator::ValidatorType::Instruction,
         WasmSmartContract::new(wasm.clone()),
     );
     info!("Submitting registration of the validator (should pass)");
@@ -44,7 +44,7 @@ fn deny_new_validators() -> Result<()> {
     // Trying to register the validator again
     let validator_2 = Validator::new(
         "deny_new_validators_2%alice@wonderland".parse().unwrap(),
-        validator::Type::Instruction,
+        validator::ValidatorType::Instruction,
         WasmSmartContract::new(wasm),
     );
     info!("Submitting registration of a new validator (should fail)");

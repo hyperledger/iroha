@@ -112,7 +112,7 @@ pub mod peer_state {
     /// Peer that is connecting. This is the initial stage of a new
     /// outgoing peer.
     #[derive(Debug, IdEqOrdHash)]
-    pub struct Connecting(#[id] peer::Id, pub Broker);
+    pub struct Connecting(#[id] peer::PeerId, pub Broker);
 
     impl Connecting {
         pub async fn connect_to(Self(id, broker): Self) -> Result<ConnectedTo, crate::Error> {
@@ -124,7 +124,7 @@ pub mod peer_state {
 
     /// Peer that is being connected to.
     #[derive(Debug, IdEqOrdHash)]
-    pub struct ConnectedTo(#[id] peer::Id, Broker, Connection);
+    pub struct ConnectedTo(#[id] peer::PeerId, Broker, Connection);
 
     impl ConnectedTo {
         pub async fn send_client_hello<T: Pload, K: Kex, E: Enc>(
@@ -152,7 +152,7 @@ pub mod peer_state {
 
     /// Peer that is being connected from
     #[derive(Debug, IdEqOrdHash)]
-    pub struct ConnectedFrom(#[id] peer::Id, Broker, Connection);
+    pub struct ConnectedFrom(#[id] peer::PeerId, Broker, Connection);
 
     impl ConnectedFrom {
         #[allow(clippy::expect_used)]
@@ -171,7 +171,7 @@ pub mod peer_state {
 
     /// Peer that needs to send key.
     pub struct SendKey<T: Pload, K: Kex, E: Enc>(
-        peer::Id,
+        peer::PeerId,
         Broker,
         Connection,
         Cryptographer<T, K, E>,
@@ -207,7 +207,7 @@ pub mod peer_state {
 
     /// Peer that needs to get key.
     pub struct GetKey<T: Pload, K: Kex, E: Enc>(
-        peer::Id,
+        peer::PeerId,
         Broker,
         Connection,
         Cryptographer<T, K, E>,
@@ -247,7 +247,7 @@ pub mod peer_state {
     /// Peer that is ready for communication after finishing the
     /// handshake process.
     pub struct Ready<T: Pload, K: Kex, E: Enc>(
-        peer::Id,
+        peer::PeerId,
         pub Broker,
         pub Connection,
         Cryptographer<T, K, E>,
@@ -255,9 +255,9 @@ pub mod peer_state {
 
     /// Peer in disconnected state.
     #[derive(Debug, IdEqOrdHash)]
-    pub struct Disconnected(#[id] peer::Id);
+    pub struct Disconnected(#[id] peer::PeerId);
 
     /// Peer in broken state.
     #[derive(Debug, IdEqOrdHash)]
-    pub struct Broken(#[id] peer::Id, crate::Error);
+    pub struct Broken(#[id] peer::PeerId, crate::Error);
 }

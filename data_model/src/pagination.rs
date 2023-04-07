@@ -1,5 +1,4 @@
 //! Structures and traits related to pagination.
-#![allow(clippy::expect_used)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{

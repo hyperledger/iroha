@@ -1,6 +1,5 @@
 #![allow(
     clippy::str_to_string,
-    clippy::expect_used,
     clippy::mixed_read_write_in_expression,
     clippy::unwrap_in_result
 )]
@@ -152,7 +151,6 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
 
                 #[derive(::serde::Serialize)]
                 #[serde(untagged)]
-                #[allow(variant_size_differences)]
                 enum SerializeHelper<'re> {
                     #(
                         #(
@@ -215,7 +213,6 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
 
                 #[derive(::serde::Deserialize)]
                 #[serde(untagged)]
-                #[allow(variant_size_differences)]
                 enum DeserializeHelper {
                     #(
                         #(

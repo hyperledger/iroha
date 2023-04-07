@@ -919,7 +919,7 @@ mod tests {
     use iroha_data_model::prelude::*;
 
     use super::*;
-    use crate::kura::Kura;
+    use crate::{kura::Kura, smartcontracts::isi::Registrable as _};
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -944,7 +944,7 @@ mod tests {
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-        let create_asset_definition: Instruction =
+        let create_asset_definition: InstructionBox =
             RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into();
 
         // Making two transactions that have the same instruction
@@ -953,7 +953,7 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
         let transaction_validator = TransactionValidator::new(transaction_limits);
-        let tx = Transaction::new(alice_id, [create_asset_definition], 4000)
+        let tx = TransactionBuilder::new(alice_id, [create_asset_definition], 4000)
             .sign(alice_keys)
             .expect("Valid");
         let tx: VersionedAcceptedTransaction =

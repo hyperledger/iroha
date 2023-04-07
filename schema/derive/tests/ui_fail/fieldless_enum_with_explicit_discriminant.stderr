@@ -1,0 +1,7 @@
+error: proc-macro derive panicked
+ --> tests/ui_fail/fieldless_enum_with_explicit_discriminant.rs:3:10
+  |
+3 | #[derive(IntoSchema)]
+  |          ^^^^^^^^^^
+  |
+  = help: message: Fieldless enums with explicit discriminants are not allowed

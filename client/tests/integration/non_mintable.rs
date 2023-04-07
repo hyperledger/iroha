@@ -28,7 +28,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
         )),
     );
 
-    let instructions: [Instruction; 2] = [create_asset.into(), mint.clone().into()];
+    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.clone().into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
 
     // We can register and mint the non-mintable token

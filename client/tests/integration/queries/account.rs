@@ -22,7 +22,11 @@ fn find_accounts_with_asset() -> Result<()> {
     let received_asset_definition =
         test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
 
-    assert_eq!(received_asset_definition, asset_definition.clone().build());
+    assert_eq!(received_asset_definition.id(), asset_definition.id());
+    assert_eq!(
+        received_asset_definition.value_type(),
+        AssetValueType::Quantity
+    );
 
     let accounts: [AccountId; 5] = [
         "alice@wonderland".parse().expect("Valid"),
@@ -55,7 +59,11 @@ fn find_accounts_with_asset() -> Result<()> {
     let received_asset_definition =
         test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
 
-    assert_eq!(received_asset_definition, asset_definition.build());
+    assert_eq!(received_asset_definition.id(), asset_definition.id());
+    assert_eq!(
+        received_asset_definition.value_type(),
+        AssetValueType::Quantity
+    );
 
     let found_accounts = test_client.request(client::account::all_with_asset(definition_id))?;
     let found_ids = found_accounts

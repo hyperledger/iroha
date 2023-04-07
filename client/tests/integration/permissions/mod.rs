@@ -229,7 +229,7 @@ fn permissions_differ_not_only_by_names() {
     )
     .into();
 
-    let grant_hats_access_tx = Transaction::new(
+    let grant_hats_access_tx = TransactionBuilder::new(
         mouse_id.clone(),
         vec![allow_alice_to_set_key_value_in_hats],
         100_000,
@@ -268,7 +268,7 @@ fn permissions_differ_not_only_by_names() {
     )
     .into();
 
-    let grant_shoes_access_tx = Transaction::new(
+    let grant_shoes_access_tx = TransactionBuilder::new(
         mouse_id,
         vec![allow_alice_to_set_key_value_in_shoes],
         100_000,

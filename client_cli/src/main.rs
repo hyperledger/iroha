@@ -440,10 +440,8 @@ mod account {
             let deser_err_msg =
                 format!("Failed to deserialize signature condition from file {}", &s);
             let content = fs::read_to_string(s).wrap_err(err_msg)?;
-            let condition: Box<Expression> = json5::from_str(&content).wrap_err(deser_err_msg)?;
-            Ok(Self(SignatureCheckCondition(EvaluatesTo::new_unchecked(
-                condition,
-            ))))
+            let condition: EvaluatesTo<bool> = json5::from_str(&content).wrap_err(deser_err_msg)?;
+            Ok(Self(SignatureCheckCondition::new(condition)))
         }
     }
 
@@ -866,7 +864,7 @@ mod json {
             reader.read_to_end(&mut raw_content)?;
 
             let content = String::from_utf8(raw_content)?;
-            let instructions: Vec<Instruction> = json5::from_str(&content)?;
+            let instructions: Vec<InstructionBox> = json5::from_str(&content)?;
             submit(instructions, cfg, UnlimitedMetadata::new())
                 .wrap_err("Failed to submit parsed instructions")
         }

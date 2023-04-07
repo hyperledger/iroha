@@ -56,7 +56,7 @@ pub trait ExecuteOnHost {
     fn execute(&self) -> Self::Result;
 }
 
-impl ExecuteOnHost for data_model::isi::Instruction {
+impl ExecuteOnHost for data_model::isi::InstructionBox {
     type Result = ();
 
     /// Execute the given instruction on the host environment
@@ -329,7 +329,7 @@ mod tests {
     const QUERY_RESULT: Value = Value::Numeric(NumericValue::U32(1234_u32));
     const EXPRESSION_RESULT: NumericValue = NumericValue::U32(5_u32);
 
-    fn get_test_instruction() -> Instruction {
+    fn get_test_instruction() -> InstructionBox {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
         let register_isi = RegisterBox::new(Account::new(new_account_id, []));
 
@@ -363,7 +363,7 @@ mod tests {
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(ptr: *const u8, len: usize) {
         let bytes = slice::from_raw_parts(ptr, len);
-        let instruction = Instruction::decode_all(&mut &*bytes);
+        let instruction = InstructionBox::decode_all(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
     }
 

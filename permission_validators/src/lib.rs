@@ -9,11 +9,11 @@ extern crate panic_halt;
 
 use iroha_validator::prelude::*;
 
-/// Validate any [`Instruction`](iroha_validator::data_model::isi::Instruction).
+/// Validate any [`Instruction`](iroha_validator::data_model::isi::InstructionBox).
 //
 // TODO: Not exhaustive list. Add more validators here.
 #[entrypoint(params = "[authority, instruction]")]
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     iroha_asset_burn_validator::validate(authority.clone(), instruction.clone())
         .and_then(|| iroha_asset_mint_validator::validate(authority.clone(), instruction.clone()))
         .and_then(|| {

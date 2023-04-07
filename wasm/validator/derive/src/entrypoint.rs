@@ -27,7 +27,7 @@ impl syn::parse::Parse for Attr {
 /// Type of smart contract entrypoint function parameter.
 ///
 /// *Type* here means not just *Rust* type but also a purpose of a parameter.
-/// So that it uses [`Authority`](ParamType::Authority) instead of `account::Id`.
+/// So that it uses [`Authority`](ParamType::Authority) instead of [`AccountId`].
 #[derive(PartialEq, Eq)]
 enum ParamType {
     Authority,
@@ -74,10 +74,8 @@ impl iroha_derive_primitives::params::ConstructArg for ParamType {
                     ::iroha_validator::iroha_wasm::query_authority()
                 }
             }
-            ParamType::Transaction => {
-                Self::construct_operation_arg(&parse_quote!(SignedTransaction))
-            }
-            ParamType::Instruction => Self::construct_operation_arg(&parse_quote!(Instruction)),
+            ParamType::Transaction => Self::construct_operation_arg(&parse_quote!(Transaction)),
+            ParamType::Instruction => Self::construct_operation_arg(&parse_quote!(InstructionBox)),
             ParamType::Query => Self::construct_operation_arg(&parse_quote!(QueryBox)),
             ParamType::Expression => Self::construct_operation_arg(&parse_quote!(Expression)),
         }

@@ -28,7 +28,16 @@ use iroha_primitives::fixed::Fixed;
 use super::{Context, Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldStateView};
 
-impl Execute for Instruction {
+/// Trait for proxy objects used for registration.
+pub trait Registrable {
+    /// Constructed type
+    type Target;
+
+    /// Construct [`Self::Target`]
+    fn build(self) -> Self::Target;
+}
+
+impl Execute for InstructionBox {
     type Error = Error;
 
     fn execute(
@@ -36,7 +45,7 @@ impl Execute for Instruction {
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
-        use Instruction::*;
+        use InstructionBox::*;
         match self {
             Register(register_box) => register_box.execute(authority, wsv),
             Unregister(unregister_box) => unregister_box.execute(authority, wsv),
@@ -298,7 +307,7 @@ impl Execute for RemoveKeyValueBox {
     }
 }
 
-impl Execute for If {
+impl Execute for Conditional {
     type Error = Error;
 
     fn execute(

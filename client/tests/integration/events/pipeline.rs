@@ -32,7 +32,7 @@ fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
 
 #[allow(dead_code, clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status_and_port(
-    instruction: Option<Instruction>,
+    instruction: Option<InstructionBox>,
     should_be: PipelineStatusKind,
     port: u16,
 ) -> Result<()> {

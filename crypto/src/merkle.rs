@@ -10,12 +10,12 @@ use alloc::{format, string::String, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
-use iroha_schema::prelude::*;
+use iroha_schema::{IntoSchema, TypeId};
 
 use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
-#[derive(Debug)]
+#[derive(Debug, TypeId)]
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 
 /// Iterator over leaves of [`MerkleTree`]
@@ -122,20 +122,19 @@ impl<T> IntoIterator for MerkleTree<T> {
     }
 }
 
+// NOTE: Leaf nodes in the order of insertion
 impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
     fn type_name() -> String {
-        format!("{}::MerkleTree<{}>", module_path!(), T::type_name())
+        format!("MerkleTree<{}>", T::type_name())
     }
-    fn schema(map: &mut MetaMap) {
-        // NOTE: Leaf nodes in the order of insertion
-        map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::Vec(VecMeta {
-                ty: HashOf::<T>::type_name(),
-                sorted: false,
-            })
-        });
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(iroha_schema::Metadata::Vec(iroha_schema::VecMeta {
+                ty: core::any::TypeId::of::<HashOf<T>>(),
+            }));
 
-        HashOf::<T>::schema(map);
+            HashOf::<T>::update_schema_map(map);
+        }
     }
 }
 

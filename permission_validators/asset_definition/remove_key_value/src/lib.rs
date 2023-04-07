@@ -36,10 +36,10 @@ pub struct CanRemoveKeyValueInAssetDefinition {
 /// see [`can_remove_key_value_in_asset_definition`].
 ///
 /// [`can_remove_key_value_in_asset_definition`]: CanRemoveKeyValueInAssetDefinition
-pub fn validate(authority: <Account as Identifiable>::Id, instruction: Instruction) -> Verdict {
+pub fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
     validate_grant_revoke!(<CanRemoveKeyValueInAssetDefinition>, (authority, instruction));
 
-    let Instruction::RemoveKeyValue(remove_key_value) = instruction else {
+    let InstructionBox::RemoveKeyValue(remove_key_value) = instruction else {
         pass!();
     };
 

@@ -44,8 +44,8 @@ fn trigger_entrypoint() {
             .with_metadata(metadata);
         let account_nft_id = <Asset as Identifiable>::Id::new(nft_id, account.id().clone());
 
-        Instruction::from(RegisterBox::new(nft_definition)).execute();
-        Instruction::from(SetKeyValueBox::new(
+        InstructionBox::from(RegisterBox::new(nft_definition)).execute();
+        InstructionBox::from(SetKeyValueBox::new(
             account_nft_id,
             Name::from_str("has_this_nft").dbg_unwrap(),
             Value::Bool(true),

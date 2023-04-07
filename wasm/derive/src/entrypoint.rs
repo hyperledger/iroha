@@ -34,7 +34,7 @@ impl syn::parse::Parse for Attr {
 /// Type of smart contract entrypoint function parameter.
 ///
 /// *Type* here means not just *Rust* type but also a purpose of a parameter.
-/// So that it uses [`Authority`](ParamType::Authority) instead of `account::Id`.
+/// So that it uses [`Authority`](ParamType::Authority) instead of [`AccountId`].
 enum ParamType {
     Authority,
     TriggeringEvent,

@@ -19,7 +19,7 @@ use iroha_data_model::{
     prelude::{Metadata, *},
 };
 use iroha_primitives::small::{smallvec, SmallVec};
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use serde::{Deserialize, Serialize};
 
 /// Time to live for genesis transactions.
@@ -143,7 +143,7 @@ impl RawGenesisBlock {
 #[repr(transparent)]
 pub struct GenesisTransaction {
     /// Instructions
-    pub isi: SmallVec<[Instruction; 8]>,
+    pub isi: SmallVec<[InstructionBox; 8]>,
 }
 
 impl GenesisTransaction {
@@ -156,7 +156,7 @@ impl GenesisTransaction {
         genesis_key_pair: KeyPair,
         limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
-        let transaction = Transaction::new(
+        let transaction = TransactionBuilder::new(
             AccountId::genesis(),
             self.isi.clone(),
             GENESIS_TRANSACTIONS_TTL_MS,
