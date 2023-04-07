@@ -9,7 +9,7 @@ use test_network::*;
 
 #[test]
 fn find_accounts_with_asset() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_760).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Registering new asset definition

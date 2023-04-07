@@ -8,12 +8,12 @@ use test_network::*;
 
 #[test]
 fn simulate_transfer_quantity() {
-    simulate_transfer(200_u32, 20_u32, AssetDefinition::quantity)
+    simulate_transfer(200_u32, 20_u32, AssetDefinition::quantity, 10_710)
 }
 
 #[test]
 fn simulate_transfer_big_quantity() {
-    simulate_transfer(200_u128, 20_u128, AssetDefinition::big_quantity)
+    simulate_transfer(200_u128, 20_u128, AssetDefinition::big_quantity, 10_785)
 }
 
 #[test]
@@ -22,6 +22,7 @@ fn simulate_transfer_fixed() {
         Fixed::try_from(200_f64).expect("Valid"),
         Fixed::try_from(20_f64).expect("Valid"),
         AssetDefinition::fixed,
+        10_790,
     )
 }
 
@@ -33,6 +34,7 @@ fn simulate_insufficient_funds() {
         Fixed::try_from(20_f64).expect("Valid"),
         Fixed::try_from(200_f64).expect("Valid"),
         AssetDefinition::fixed,
+        10_800,
     )
 }
 
@@ -45,10 +47,13 @@ fn simulate_transfer<
     starting_amount: T,
     amount_to_transfer: T,
     value_type: D,
+    port_number: u16,
 ) where
     Value: From<T>,
 {
-    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
+        .with_port(port_number)
+        .start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");

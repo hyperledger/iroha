@@ -30,7 +30,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     const_assert!(PERIOD_MS < DEFAULT_CONSENSUS_ESTIMATION_MS);
     const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
@@ -175,7 +175,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD_MS: u64 = 1000;
     const EXPECTED_COUNT: u64 = 4;
 
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = "alice@wonderland"

@@ -10,7 +10,7 @@ use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_690).start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 

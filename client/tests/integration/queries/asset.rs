@@ -12,7 +12,7 @@ use test_network::*;
 #[test]
 #[allow(clippy::too_many_lines)]
 fn find_asset_total_quantity() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_765).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Register new domain
