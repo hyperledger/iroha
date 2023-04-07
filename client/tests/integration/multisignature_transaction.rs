@@ -14,7 +14,7 @@ use super::Configuration;
 #[allow(clippy::too_many_lines)]
 #[test]
 fn multisignature_transactions_should_wait_for_all_signatures() {
-    let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1, None);
+    let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1, Some(10_945));
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 

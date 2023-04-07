@@ -11,7 +11,7 @@ use super::Configuration;
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let pipeline_time = Configuration::pipeline_time();

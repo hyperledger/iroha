@@ -9,7 +9,7 @@ use test_network::*;
 
 #[test]
 fn register_empty_role() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_695).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
@@ -44,7 +44,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
@@ -95,7 +95,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
 #[test]
 fn unregistered_role_removed_from_account() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_705).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
