@@ -11,7 +11,7 @@ use test_network::*;
 
 #[test]
 fn deny_new_validators() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_755).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     info!("Building Runtime Validator");

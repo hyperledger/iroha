@@ -18,27 +18,27 @@ const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 5;
 fn unstable_network_4_peers_1_fault() {
     let n_peers = 4;
     let n_transactions = 20;
-    unstable_network(n_peers, 1, n_transactions, false);
+    unstable_network(n_peers, 1, n_transactions, false, 10_805);
 }
 
 #[test]
 fn soft_fork() {
     let n_peers = 4;
     let n_transactions = 20;
-    unstable_network(n_peers, 0, n_transactions, true);
+    unstable_network(n_peers, 0, n_transactions, true, 10_830);
 }
 
 #[test]
 fn unstable_network_7_peers_1_fault() {
     let n_peers = 7;
     let n_transactions = 20;
-    unstable_network(n_peers, 1, n_transactions, false);
+    unstable_network(n_peers, 1, n_transactions, false, 10_850);
 }
 
 #[test]
 #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
 fn unstable_network_7_peers_2_faults() {
-    unstable_network(7, 2, 5, false);
+    unstable_network(7, 2, 5, false, 10_890);
 }
 
 fn unstable_network(
@@ -46,6 +46,7 @@ fn unstable_network(
     n_offline_peers: u32,
     n_transactions: usize,
     force_soft_fork: bool,
+    port: u16,
 ) {
     if let Err(error) = iroha_logger::install_panic_hook() {
         eprintln!("Installing panic hook failed: {error}");
@@ -64,7 +65,7 @@ fn unstable_network(
             Some(configuration),
             n_peers + n_offline_peers,
             0,
-            None,
+            Some(port),
         )
         .await
         .expect("Failed to init peers");

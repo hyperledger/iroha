@@ -19,7 +19,7 @@ fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> 
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_require_registration_before_grant() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     // Given
@@ -52,7 +52,8 @@ fn permissions_require_registration_before_grant() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_disallow_asset_transfer() {
-    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _peer, mut iroha_client) =
+        <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
@@ -105,7 +106,8 @@ fn permissions_disallow_asset_transfer() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_disallow_asset_burn() {
-    let (_rt, _not_drop, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _not_drop, mut iroha_client) =
+        <PeerBuilder>::new().with_port(10_735).start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -161,7 +163,8 @@ fn permissions_disallow_asset_burn() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn account_can_query_only_its_own_domain() {
-    let (_rt, _not_drop, iroha_client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _not_drop, iroha_client) =
+        <PeerBuilder>::new().with_port(10_740).start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -191,7 +194,7 @@ fn account_can_query_only_its_own_domain() {
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let (_rt, _not_drop, client) = <PeerBuilder>::new().start_with_runtime();
+    let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
 
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
     let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
@@ -378,7 +381,7 @@ mod token_parameters {
     ///
     /// Will panic with `expect` if permission granting succeeds
     fn run_grant_token_error_test(token: PermissionToken, expect: &'static str) {
-        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+        let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
         wait_for_genesis_committed(&vec![client.clone()], 0);
 
         register_test_token_definition(&client);
@@ -394,7 +397,7 @@ mod token_parameters {
     ///
     /// Will panic with `expect` if role registration succeeds
     fn run_register_role_error_test(token: PermissionToken, expect: &'static str) {
-        let (_rt, _peer, client) = <PeerBuilder>::new().start_with_runtime();
+        let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
         wait_for_genesis_committed(&vec![client.clone()], 0);
 
         register_test_token_definition(&client);
