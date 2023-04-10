@@ -222,7 +222,8 @@ impl MeasurerUnit {
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;
         let instructions = self.instructions();
-        let account_id = account_id(self.name);
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")
+            .expect("Failed to parse account id");
 
         let mut nonce = 0;
         thread::spawn(move || {
@@ -230,7 +231,7 @@ impl MeasurerUnit {
                 match shutdown_signal.try_recv() {
                     Err(mpsc::TryRecvError::Empty) => {
                         let transaction =
-                            TransactionBuilder::new(account_id.clone(), [instruction], u64::MAX)
+                            TransactionBuilder::new(alice_id.clone(), [instruction], u64::MAX)
                                 .with_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
                         let transaction = submitter
                             .sign_transaction(transaction)
