@@ -11,7 +11,8 @@ use std::{
     str::FromStr as _,
 };
 
-use clap::{ArgGroup, StructOpt};
+// use clap::ArgGroup;
+use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
 use iroha_data_model::{prelude::*, ValueKind};
 
@@ -27,7 +28,7 @@ static DEFAULT_PUBLIC_KEY: &str =
 
 fn main() -> Outcome {
     color_eyre::install()?;
-    let args: Args = clap::Parser::parse();
+    let args = Args::parse();
     let mut writer = BufWriter::new(stdout());
     args.run(&mut writer)
 }
@@ -42,8 +43,8 @@ pub trait RunArgs<T: Write> {
 }
 
 /// Tool generating the cryptographic key pairs, schema, genesis block and configuration reference.
-#[derive(StructOpt, Debug)]
-#[structopt(name = "kagami", version, author)]
+#[derive(Parser, Debug)]
+#[command(name = "kagami", version, author)]
 pub enum Args {
     /// Generate cryptographic key pairs
     Crypto(Box<crypto::Args>),
@@ -59,6 +60,8 @@ pub enum Args {
     Tokens(tokens::Args),
     /// Generate validator
     Validator(validator::Args),
+    /// Generate docker-compose configuration
+    Swarm(swarm::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -73,20 +76,22 @@ impl<T: Write> RunArgs<T> for Args {
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
             Validator(args) => args.run(writer),
+            Swarm(_) => Ok(()),
         }
     }
 }
 
 mod crypto {
+    use clap::ArgGroup;
     use color_eyre::eyre::{eyre, WrapErr as _};
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 
     use super::*;
 
     /// Use `Kagami` to generate cryptographic key-pairs.
-    #[derive(StructOpt, Debug, Clone)]
-    #[structopt(group = ArgGroup::new("generate_from").required(false))]
-    #[structopt(group = ArgGroup::new("format").required(false))]
+    #[derive(ClapArgs, Debug, Clone)]
+    #[command(group = ArgGroup::new("generate_from").required(false))]
+    #[command(group = ArgGroup::new("format").required(false))]
     pub struct Args {
         /// Algorithm used to generate the key-pair.
         /// Options: `ed25519`, `secp256k1`, `bls_normal`, `bls_small`.
@@ -178,7 +183,7 @@ mod crypto {
 mod schema {
     use super::*;
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     impl<T: Write> RunArgs<T> for Args {
@@ -513,7 +518,7 @@ mod config {
 
         use super::*;
 
-        #[derive(StructOpt, Debug, Clone, Copy)]
+        #[derive(ClapArgs, Debug, Clone, Copy)]
         pub struct Args;
 
         impl<T: Write> RunArgs<T> for Args {
@@ -547,7 +552,7 @@ mod config {
 
         use super::*;
 
-        #[derive(StructOpt, Debug, Clone, Copy)]
+        #[derive(ClapArgs, Debug, Clone, Copy)]
         pub struct Args;
 
         impl<T: Write> RunArgs<T> for Args {
@@ -577,7 +582,7 @@ mod docs {
 
     impl<E: Debug, C: Documented<Error = E> + Send + Sync + Default> PrintDocs for C {}
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     impl<T: Write> RunArgs<T> for Args {
@@ -704,7 +709,7 @@ mod tokens {
 
     use super::*;
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
@@ -823,5 +828,77 @@ mod validator {
             .into_bytes();
 
         Ok(wasm_blob)
+    }
+}
+
+mod swarm {
+    use std::num::NonZeroUsize;
+
+    use clap::ValueEnum;
+
+    use super::ClapArgs;
+
+    #[derive(ClapArgs, Debug)]
+    pub struct Args {
+        #[command(flatten)]
+        source: ImageSourceArgs,
+        /// How many peers to generate within the docker-compose.
+        ///
+        /// Note that the only one will be exposed.
+        #[arg(long)]
+        peers: NonZeroUsize,
+        /// Target directory where to plate generated files.
+        ///
+        /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
+        /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
+        /// the directory anyway, pass `--dir-force` flag.
+        #[arg(long)]
+        dir: String,
+        /// Flag to re-create the target directory if it already exists.
+        #[arg(long)]
+        dir_force: bool,
+    }
+
+    #[derive(Clone, ValueEnum, Debug)]
+    enum Channel {
+        Dev,
+        Stable,
+        Lts,
+    }
+
+    impl Channel {
+        fn as_git_branch(&self) -> &'static str {
+            match self {
+                Self::Dev => "iroha2-dev",
+                Self::Stable => "iroha2-stable",
+                Self::Lts => "iroha2-lts",
+            }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    enum ImageSource {
+        Dockerhub(Channel),
+        Git { revision: String },
+        Path(String),
+    }
+
+    #[derive(ClapArgs, Clone, Debug)]
+    #[group(required = true, multiple = false)]
+    struct ImageSourceArgs {
+        /// Use images published on Dockerhub.
+        #[arg(long, value_name = "CHANNEL")]
+        dockerhub: Option<Channel>,
+        /// Clone `hyperledger/iroha` repo from the specified revision
+        /// and build images from source code.
+        #[arg(long, value_name = "REVISION")]
+        git: Option<String>,
+        /// Clone `hyperledger/iroha` repo from the specified `iroha2-<CHANNEL>` branch
+        /// and build images from source code.
+        #[arg(long, value_name = "CHANNEL")]
+        git_channel: Option<Channel>,
+        /// Use local path location of the Iroha source code to build images from.
+        #[arg(long, value_name = "PATH")]
+        path: Option<String>,
     }
 }

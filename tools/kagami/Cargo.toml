@@ -19,6 +19,6 @@ iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../../genesis" }
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../../wasm_builder" }
 
 color-eyre = "0.6.2"
-clap = { version = "3.2.23", features = ["derive"] }
+clap = { version = "4.2.1", features = ["derive"] }
 serde_json = "1.0.91"
 tempfile = "3.3.0"
