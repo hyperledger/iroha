@@ -1,0 +1,59 @@
+From 344a8b3963b3a9075d1e779107b4ce6ea7f73a63 Mon Sep 17 00:00:00 2001
+From: Grzegorz Bazior <bazior@agh.edu.pl>
+Date: Fri, 31 Mar 2023 17:26:11 +0200
+Subject: [PATCH] Added patch to enable building on MacOS
+
+Signed-off-by: Grzegorz Bazior <bazior@agh.edu.pl>
+---
+ ports/benchmark/fixedBuildingForMac.patch | 26 +++++++++++++++++++++++
+ ports/benchmark/portfile.cmake            |  1 +
+ 2 files changed, 27 insertions(+)
+ create mode 100644 ports/benchmark/fixedBuildingForMac.patch
+
+diff --git a/ports/benchmark/fixedBuildingForMac.patch b/ports/benchmark/fixedBuildingForMac.patch
+new file mode 100644
+index 000000000..36a45adf7
+--- /dev/null
++++ b/ports/benchmark/fixedBuildingForMac.patch
+@@ -0,0 +1,26 @@
++From b976cab799c7fb20a5ceadd368431125ac0d99c4 Mon Sep 17 00:00:00 2001
++From: Grzegorz Bazior <bazior@agh.edu.pl>
++Date: Fri, 31 Mar 2023 16:20:55 +0200
++Subject: [PATCH] Fixed building for MacOS - there were unused variable
++
++Signed-off-by: Your Name <you@example.com>
++---
++ CMakeLists.txt | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/CMakeLists.txt b/CMakeLists.txt
++index 9ab265e..0cc0e4a 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -20,7 +20,7 @@ option(BENCHMARK_ENABLE_TESTING "Enable testing of the benchmark library." ON)
++ option(BENCHMARK_ENABLE_EXCEPTIONS "Enable the use of exceptions in the benchmark library." ON)
++ option(BENCHMARK_ENABLE_LTO "Enable link time optimisation of the benchmark library." OFF)
++ option(BENCHMARK_USE_LIBCXX "Build and test using libc++ as the standard library." OFF)
++-option(BENCHMARK_ENABLE_WERROR "Build Release candidates with -Werror." ON)
+++option(BENCHMARK_ENABLE_WERROR "Build Release candidates with -Werror." OFF)
++ option(BENCHMARK_FORCE_WERROR "Build Release candidates with -Werror regardless of compiler issues." OFF)
++ 
++ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "PGI")
++-- 
++2.34.1
++
+diff --git a/ports/benchmark/portfile.cmake b/ports/benchmark/portfile.cmake
+index 8e8cef314..36676e59c 100644
+--- a/ports/benchmark/portfile.cmake
++++ b/ports/benchmark/portfile.cmake
+@@ -6,6 +6,7 @@ vcpkg_from_github(
+     REF v1.7.1
+     SHA512 396af1c1d3eaa2b78c6d23b1472f6088db85a294056ae1c2366dc5c0becdc8f141ba8fc3a235033324ab0a41c2298f5d242ef09b9b6f69d9877de6bcb2062efd
+     HEAD_REF master
++    PATCHES fixedBuildingForMac.patch
+ )
+ 
+ vcpkg_cmake_configure(
+-- 
+2.34.1
+
