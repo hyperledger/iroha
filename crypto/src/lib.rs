@@ -50,13 +50,13 @@ use ursa::{
 // information that can be used in malicious ways. If you want to hide
 // these, I'd prefer inlining them instead.
 
-/// ed25519
+/// String algorithm representation
 pub const ED_25519: &str = "ed25519";
-/// secp256k1
+/// String algorithm representation
 pub const SECP_256_K1: &str = "secp256k1";
-/// bls normal
+/// String algorithm representation
 pub const BLS_NORMAL: &str = "bls_normal";
-/// bls small
+/// String algorithm representation
 pub const BLS_SMALL: &str = "bls_small";
 
 /// Error indicating algorithm could not be found
@@ -70,22 +70,32 @@ impl std::error::Error for NoSuchAlgorithm {}
 
 ffi::ffi_item! {
     /// Algorithm for hashing
-    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
     #[repr(u8)]
     pub enum Algorithm {
-        /// Ed25519
-        #[display(fmt = "{ED_25519}")]
         #[default]
         Ed25519,
-        /// Secp256k1
-        #[display(fmt = "{SECP_256_K1}")]
         Secp256k1,
-        /// BlsNormal
-        #[display(fmt = "{BLS_NORMAL}")]
         BlsNormal,
-        /// BlsSmall
-        #[display(fmt = "{BLS_SMALL}")]
         BlsSmall,
+    }
+}
+
+impl Algorithm {
+    /// Maps the algorithm to its static string representation
+    pub const fn as_static_str(&self) -> &'static str {
+        match self {
+            Self::Ed25519 => ED_25519,
+            Self::Secp256k1 => SECP_256_K1,
+            Self::BlsNormal => BLS_NORMAL,
+            Self::BlsSmall => BLS_SMALL,
+        }
+    }
+}
+
+impl fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_static_str())
     }
 }
 
