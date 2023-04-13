@@ -82,7 +82,9 @@ impl<T: Write> RunArgs<T> for Args {
 }
 
 mod crypto {
-    use clap::ArgGroup;
+    use std::fmt::{Display, Formatter};
+
+    use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
     use color_eyre::eyre::{eyre, WrapErr as _};
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 
@@ -94,9 +96,8 @@ mod crypto {
     #[command(group = ArgGroup::new("format").required(false))]
     pub struct Args {
         /// Algorithm used to generate the key-pair.
-        /// Options: `ed25519`, `secp256k1`, `bls_normal`, `bls_small`.
         #[clap(default_value_t, long, short)]
-        algorithm: Algorithm,
+        algorithm: AlgorithmArg,
         /// The `private_key` used to generate the key-pair
         #[clap(long, short, group = "generate_from")]
         private_key: Option<String>,
@@ -109,6 +110,33 @@ mod crypto {
         /// Output the key-pair without additional text
         #[clap(long, short, group = "format")]
         compact: bool,
+    }
+
+    #[derive(Clone, Debug, Default)]
+    struct AlgorithmArg(Algorithm);
+
+    impl Display for AlgorithmArg {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl ValueEnum for AlgorithmArg {
+        fn value_variants<'a>() -> &'a [Self] {
+            // FIXME: compile-time check to ensure all variants are enumerated
+            let variants: [Self; 4] = [
+                Self(Algorithm::Ed25519),
+                Self(Algorithm::Secp256k1),
+                Self(Algorithm::BlsNormal),
+                Self(Algorithm::BlsSmall),
+            ];
+
+            &variants
+        }
+
+        fn to_possible_value(&self) -> Option<PossibleValue> {
+            Some(self.0.as_static_str().into())
+        }
     }
 
     impl<T: Write> RunArgs<T> for Args {
@@ -143,8 +171,8 @@ mod crypto {
 
     impl Args {
         fn key_pair(self) -> color_eyre::Result<KeyPair> {
-            let key_gen_configuration =
-                KeyGenConfiguration::default().with_algorithm(self.algorithm);
+            let algorithm = self.algorithm.0;
+            let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
             let keypair: KeyPair = self.seed.map_or_else(
                 || -> color_eyre::Result<_> {
                     self.private_key.map_or_else(
@@ -153,9 +181,8 @@ mod crypto {
                                 .wrap_err("failed to generate key pair")
                         },
                         |private_key| {
-                            let private_key =
-                                PrivateKey::from_hex(self.algorithm, private_key.as_ref())
-                                    .wrap_err("Failed to decode private key")?;
+                            let private_key = PrivateKey::from_hex(algorithm, private_key.as_ref())
+                                .wrap_err("Failed to decode private key")?;
                             KeyPair::generate_with_configuration(
                                 key_gen_configuration.clone().use_private_key(private_key),
                             )
@@ -166,7 +193,7 @@ mod crypto {
                 |seed| -> color_eyre::Result<_> {
                     let seed: Vec<u8> = seed.as_bytes().into();
                     // `ursa` crashes if provided seed for `secp256k1` shorter than 32 bytes
-                    if seed.len() < 32 && self.algorithm == Algorithm::Secp256k1 {
+                    if seed.len() < 32 && algorithm == Algorithm::Secp256k1 {
                         return Err(eyre!("secp256k1 seed for must be at least 32 bytes long"));
                     }
                     KeyPair::generate_with_configuration(
