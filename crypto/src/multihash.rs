@@ -231,7 +231,7 @@ mod tests {
         };
         let bytes: Vec<u8> = multihash.try_into().expect("Failed to serialize multihash");
         assert_eq!(
-            hex_decode("ed01 20 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+            hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                 .expect("Failed to decode"),
             bytes
         )
@@ -245,7 +245,7 @@ mod tests {
                 .expect("Failed to decode hex."),
         };
         let bytes =
-            hex_decode("ed01 20 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+            hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                 .expect("Failed to decode");
         let multihash_decoded: Multihash = bytes.try_into().expect("Failed to decode.");
         assert_eq!(multihash, multihash_decoded)

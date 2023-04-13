@@ -1681,13 +1681,13 @@ mod tests {
 
         let cfg = ConfigurationProxy {
             public_key: Some(
-                "ed01 20 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
+                "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     .parse()
                     .expect("Public key not in mulithash format"),
             ),
             private_key: Some(iroha_crypto::PrivateKey::from_hex(
             iroha_crypto::Algorithm::Ed25519,
-            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
+            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
             ).expect("Private key not hex encoded")),
             account_id: Some(
                 "alice@wonderland"
