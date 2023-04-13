@@ -215,34 +215,14 @@ impl KeyPair {
             return Err(Error::KeyGen(String::from("Mismatch of key algorithms")));
         }
 
-        match algorithm {
-            Algorithm::Ed25519 | Algorithm::Secp256k1 => {
-                let key_pair = Self::generate_with_configuration(KeyGenConfiguration {
-                    key_gen_option: Some(KeyGenOption::FromPrivateKey(private_key)),
-                    algorithm,
-                })?;
-
-                if *key_pair.public_key() != public_key {
-                    return Err(Error::KeyGen(String::from("Key pair mismatch")));
-                }
-
-                Ok(key_pair)
-            }
-            Algorithm::BlsNormal | Algorithm::BlsSmall => {
-                let dummy_payload = 1_u8;
-
-                let key_pair = Self {
-                    public_key,
-                    private_key,
-                };
-
-                SignatureOf::new(key_pair.clone(), &dummy_payload)?
-                    .verify(&dummy_payload)
-                    .map_err(|_err| Error::KeyGen(String::from("Key pair mismatch")))?;
-
-                Ok(key_pair)
-            }
+        if PublicKey::from(private_key.clone()) != public_key {
+            return Err(Error::KeyGen(String::from("Key pair mismatch")));
         }
+
+        Ok(Self {
+            public_key,
+            private_key,
+        })
     }
 
     /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
@@ -384,10 +364,10 @@ impl fmt::Display for PublicKey {
 
         let mut bytes_iter = bytes.into_iter();
         let fn_code = hex::encode(bytes_iter.by_ref().take(2).collect::<Vec<_>>());
-        let dig_size = hex::encode_upper(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
+        let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
         let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
 
-        write!(f, "{} {} {}", fn_code, dig_size, key)
+        write!(f, "{}{}{}", fn_code, dig_size, key)
     }
 }
 
@@ -413,13 +393,7 @@ ffi::ffi_item! {
 
 impl fmt::Display for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut hex_string = hex::encode_upper(&self.payload);
-
-        if matches!(self.digest_function, Algorithm::Ed25519) {
-            hex_string.insert(hex_string.len() / 2, ' ');
-        }
-
-        write!(f, "{hex_string}")
+        write!(f, "{}", hex::encode_upper(&self.payload))
     }
 }
 
@@ -676,15 +650,15 @@ mod tests {
 
     #[test]
     fn key_pair_match() {
-        assert!(KeyPair::new("ed01 20 59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+        assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC 59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
         ).expect("Private key not hex encoded")).is_ok());
 
-        assert!(KeyPair::new("ea01 61 040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
+        assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
@@ -729,27 +703,27 @@ mod tests {
         assert!(
             PrivateKey::from_hex(
                 Algorithm::BlsNormal,
-                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC 59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             ).is_err());
     }
 
     #[test]
     fn key_pair_mismatch() {
-        assert!(KeyPair::new("ed01 20 59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+        assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
             .expect("Public key not in mulithash format"),
-        PrivateKey::from_hex_unchecked(
+        PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9"
-        ).expect("Private key not hex encoded")).is_err());
+            "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+        ).expect("Private key not valid")).is_err());
 
-        assert!(KeyPair::new("ea01 61 040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
+        assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
             .parse()
             .expect("Public key not in mulithash format"),
-        PrivateKey::from_hex_unchecked(
+        PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC 59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
-        ).expect("Private key not hex encoded")).is_err());
+            "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3"
+        ).expect("Private key not valid")).is_err());
     }
 
     #[test]
@@ -765,7 +739,7 @@ mod tests {
                     .expect("Failed to decode public key.")
                 }
             ),
-            "ed01 20 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+            "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
         );
         assert_eq!(
             format!(
@@ -778,7 +752,7 @@ mod tests {
                     .expect("Failed to decode public key.")
                 }
             ),
-            "e701 21 0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
+            "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
         );
         assert_eq!(
             format!(
@@ -791,7 +765,7 @@ mod tests {
                     .expect("Failed to decode public key.")
                 }
             ),
-            "ea01 61 04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
+            "ea016104175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
         );
         assert_eq!(
             format!(
@@ -804,7 +778,7 @@ mod tests {
                     .expect("Failed to decode public key.")
                 }
             ),
-            "eb01 C1 040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
+            "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
         )
     }
 
@@ -818,10 +792,10 @@ mod tests {
     fn deserialize_keys_ed25519() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"ed01 20 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4\",
+                \"public_key\": \"ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4\",
                 \"private_key\": {
                     \"digest_function\": \"ed25519\",
-                    \"payload\": \"3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4\"
+                    \"payload\": \"3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4\"
                 }
             }").expect("Failed to deserialize."),
             TestJson {
@@ -834,7 +808,7 @@ mod tests {
                 },
                 private_key: PrivateKey {
                     digest_function: Algorithm::Ed25519,
-                    payload: hex_decode("3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A 1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                    payload: hex_decode("3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                     .expect("Failed to decode private key"),
                 }
             }
@@ -845,7 +819,7 @@ mod tests {
     fn deserialize_keys_secp256k1() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"e701 21 0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC\",
+                \"public_key\": \"e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC\",
                 \"private_key\": {
                     \"digest_function\": \"secp256k1\",
                     \"payload\": \"4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445\"
@@ -872,7 +846,7 @@ mod tests {
     fn deserialize_keys_bls() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"ea01 61 04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7\",
+                \"public_key\": \"ea016104175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7\",
                 \"private_key\": {
                     \"digest_function\": \"bls_normal\",
                     \"payload\": \"000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3\"
@@ -895,7 +869,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"eb01 C1 040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0\",
+                \"public_key\": \"eb01C1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0\",
                 \"private_key\": {
                     \"digest_function\": \"bls_small\",
                     \"payload\": \"0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63\"

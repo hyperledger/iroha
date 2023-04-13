@@ -51,7 +51,7 @@ async fn network_create() {
     info!("Starting network tests...");
     let address = gen_address_with_port(12_000);
     let public_key = iroha_crypto::PublicKey::from_str(
-        "ed01 20 7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
+        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
     )
     .unwrap();
     let network = NetworkHandle::start(address.clone(), public_key.clone())
@@ -114,11 +114,11 @@ async fn two_networks() {
     let delay = Duration::from_millis(200);
     setup_logger();
     let public_key1 = iroha_crypto::PublicKey::from_str(
-        "ed01 207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
+        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
     )
     .unwrap();
     let public_key2 = iroha_crypto::PublicKey::from_str(
-        "ed01 207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C1",
+        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C1",
     )
     .unwrap();
     info!("Starting first network...");
