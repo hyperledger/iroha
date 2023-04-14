@@ -2,8 +2,8 @@
 #![allow(clippy::cognitive_complexity)]
 use iroha_crypto::HashOf;
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
+use iroha_p2p::UpdateTopology;
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
 use tracing::{span, Level};
 
 use super::*;
@@ -53,8 +53,6 @@ pub struct Sumeragi {
     /// The time between gossiping. More frequent gossiping shortens
     /// the time to sync, but can overload the network.
     pub gossip_period: Duration,
-    /// [`PeerId`]s of the peers that are currently online.
-    pub current_online_peers: Mutex<HashSet<PeerId>>,
     /// Receiver channel.
     // TODO: Mutex shouldn't be required and must be removed
     pub message_receiver: Mutex<mpsc::Receiver<MessagePacket>>,
@@ -134,20 +132,9 @@ impl Sumeragi {
             network,
             gossip_batch_size: configuration.gossip_batch_size,
             gossip_period: Duration::from_millis(configuration.gossip_period_ms),
-            current_online_peers: Mutex::new(HashSet::new()),
             message_receiver: Mutex::new(message_receiver),
             debug_force_soft_fork: soft_fork,
         }
-    }
-
-    /// Get the current online peers by public key.
-    fn get_online_peer_keys(&self) -> Vec<PublicKey> {
-        self.current_online_peers
-            .lock()
-            .clone()
-            .into_iter()
-            .map(|peer_id| peer_id.public_key)
-            .collect()
     }
 
     /// Send a sumeragi packet over the network to the specified `peer`.
@@ -201,39 +188,8 @@ impl Sumeragi {
 
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
-        let peers_expected = {
-            let mut res = topology.sorted_peers.clone();
-            res.retain(|id| id != &self.peer_id);
-            res.shuffle(&mut rand::thread_rng());
-            res
-        };
-
-        let mut connected_to_peers_by_key = self.get_online_peer_keys();
-
-        for peer_to_be_connected in &peers_expected {
-            connected_to_peers_by_key
-                .iter()
-                .position(|x| x == &peer_to_be_connected.public_key)
-                .map_or_else(
-                    || {
-                        self.network.connect_peer_blocking(ConnectPeer {
-                            peer_id: peer_to_be_connected.clone(),
-                        });
-                    },
-                    |index| {
-                        // By removing the connected to peers that we should be connected to,
-                        // all that remain are the unwelcome and to-be disconnected peers.
-                        connected_to_peers_by_key.remove(index);
-                    },
-                );
-        }
-
-        let to_disconnect_peers = connected_to_peers_by_key;
-
-        for peer in to_disconnect_peers {
-            info!(%peer, "Disconnecting peer");
-            self.network.disconnect_peer_blocking(DisconnectPeer(peer));
-        }
+        let peers = topology.sorted_peers.clone().into_iter().collect();
+        self.network.update_topology(UpdateTopology(peers));
     }
 
     /// The maximum time a sumeragi round can take to produce a block when
@@ -294,12 +250,7 @@ impl Sumeragi {
             state.current_topology.is_consensus_required(),
             "Only peer in network, yet required to receive genesis topology. This is a configuration error."
         );
-        let mut last_connect_peers_instant = Instant::now();
         loop {
-            if last_connect_peers_instant.elapsed().as_millis() > 1000 {
-                self.connect_peers(&state.current_topology);
-                last_connect_peers_instant = Instant::now();
-            }
             std::thread::sleep(Duration::from_millis(50));
             early_return(shutdown_receiver)?;
             // we must connect to peers so that our block_sync can find us
@@ -384,7 +335,7 @@ fn commit_block(sumeragi: &Sumeragi, state: &mut State, block: impl Into<Version
         "Committing block"
     );
 
-    update_topology(state, &committed_block);
+    update_topology(state, sumeragi, &committed_block);
 
     sumeragi.kura.store_block(committed_block);
 
@@ -410,14 +361,18 @@ fn replace_top_block(
         "Replacing top block"
     );
 
-    update_topology(state, &committed_block);
+    update_topology(state, sumeragi, &committed_block);
 
     sumeragi.kura.replace_top_block(committed_block);
 
     cache_transaction(state, sumeragi)
 }
 
-fn update_topology(state: &mut State, committed_block: &VersionedCommittedBlock) {
+fn update_topology(
+    state: &mut State,
+    sumeragi: &Sumeragi,
+    committed_block: &VersionedCommittedBlock,
+) {
     let mut topology = Topology {
         sorted_peers: committed_block.header().committed_with_topology.clone(),
     };
@@ -438,6 +393,7 @@ fn update_topology(state: &mut State, committed_block: &VersionedCommittedBlock)
             .collect::<Vec<PeerId>>(),
     );
     state.current_topology = topology;
+    sumeragi.connect_peers(&state.current_topology);
 }
 
 fn update_state(state: &mut State, sumeragi: &Sumeragi, committed_block: &VersionedCommittedBlock) {
@@ -898,6 +854,9 @@ pub(crate) fn run(
     mut state: State,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
+    // Connect peers with initial topology
+    sumeragi.connect_peers(&state.current_topology);
+
     let is_genesis_peer = if state.latest_block_height == 0 || state.latest_block_hash.is_none() {
         if let Some(genesis_network) = genesis_network {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
@@ -919,8 +878,6 @@ pub(crate) fn run(
         sumeragi.peer_id.public_key,
         state.current_topology.role(&sumeragi.peer_id),
     );
-
-    let mut last_connect_peers_instant = Instant::now();
 
     let mut voting_block = None;
     // Proxy tail collection of voting block signatures
@@ -946,11 +903,6 @@ pub(crate) fn run(
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
-
-        if last_connect_peers_instant.elapsed().as_millis() > 1000 {
-            sumeragi.connect_peers(&state.current_topology);
-            last_connect_peers_instant = Instant::now();
-        }
 
         state
             .transaction_cache

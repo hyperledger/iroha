@@ -75,10 +75,18 @@ impl BlockSynchronizer {
 
     /// Sends request for latest blocks to a random peer
     async fn request_block(&mut self) {
-        if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
+        if let Some(random_peer) = self.network.online_peers(Self::random_peer) {
             self.request_latest_blocks_from_peer(random_peer.id().clone())
                 .await;
         }
+    }
+
+    /// Get a random online peer.
+    pub fn random_peer(peers: &std::collections::HashSet<PeerId>) -> Option<Peer> {
+        use rand::{seq::IteratorRandom, SeedableRng};
+
+        let rng = &mut rand::rngs::StdRng::from_entropy();
+        peers.iter().choose(rng).map(|id| Peer::new(id.clone()))
     }
 
     /// Sends request for latest blocks to a chosen peer
