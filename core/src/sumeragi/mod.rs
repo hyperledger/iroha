@@ -7,7 +7,6 @@
     clippy::std_instead_of_alloc
 )]
 use std::{
-    collections::HashSet,
     fmt::{self, Debug, Formatter},
     sync::{mpsc, Arc},
     time::{Duration, Instant},
@@ -19,7 +18,6 @@ use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::{block::*, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
-use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
@@ -117,9 +115,8 @@ impl Sumeragi {
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .internal
-            .current_online_peers
-            .lock()
-            .len()
+            .network
+            .online_peers(std::collections::HashSet::len)
             .try_into()
             .expect("casting usize to u64");
 
@@ -201,16 +198,6 @@ impl Sumeragi {
     /// Access node metrics.
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
-    }
-
-    /// Get a random online peer for use in block synchronization.
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
-        use rand::{seq::IteratorRandom, SeedableRng};
-
-        let rng = &mut rand::rngs::StdRng::from_entropy();
-        let peers = self.internal.current_online_peers.lock();
-        peers.iter().choose(rng).map(|id| Peer::new(id.clone()))
     }
 
     /// Access the world state view object in a locking fashion.
@@ -313,12 +300,6 @@ impl Sumeragi {
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
-    }
-
-    /// Update the sumeragi internal online peers list.
-    #[allow(clippy::expect_used)]
-    pub fn update_online_peers(&self, online_peers: HashSet<PeerId>) {
-        *self.internal.current_online_peers.lock() = online_peers;
     }
 
     /// Deposit a sumeragi network message.
