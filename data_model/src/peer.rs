@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 use core::{
+    borrow::Borrow,
     cmp::Ordering,
     hash::{Hash, Hasher},
 };
@@ -88,6 +89,12 @@ impl Ord for PeerId {
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.public_key.hash(state);
+    }
+}
+
+impl Borrow<PublicKey> for PeerId {
+    fn borrow(&self) -> &PublicKey {
+        &self.public_key
     }
 }
 

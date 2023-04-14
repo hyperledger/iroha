@@ -32,7 +32,6 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
-use iroha_p2p::OnlinePeers;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
@@ -118,14 +117,12 @@ impl NetworkRelay {
 
     async fn run(mut self) {
         let (sender, mut receiver) = mpsc::channel(1);
-        self.network.subscribe_to_peers_messages(sender).await;
+        self.network.subscribe_to_peers_messages(sender);
         #[allow(clippy::redundant_pub_crate)]
         loop {
             tokio::select! {
                 // Receive message from network
                 Some(msg) = receiver.recv() => self.handle_message(msg).await,
-                // Listen for notifications on online peers
-                online_peers = self.network.wait_online_peers_update() => self.update_online_peers(online_peers),
                 _ = self.shutdown_notify.notified() => {
                     iroha_logger::info!("NetworkRelay is being shut down.");
                     break;
@@ -151,14 +148,6 @@ impl NetworkRelay {
             BlockSync(data) => self.block_sync.message(data.into_v1()).await,
             Health => {}
         }
-    }
-
-    fn update_online_peers(&mut self, online_peers: OnlinePeers) {
-        iroha_logger::trace!(
-            online_peers = online_peers.online_peers.len(),
-            "Relay received the updated online peers."
-        );
-        self.sumeragi.update_online_peers(online_peers.online_peers);
     }
 }
 
