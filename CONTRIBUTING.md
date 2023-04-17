@@ -239,6 +239,22 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 
 </details>
 
+### Debugging using tokio console
+
+<details> <summary> Expand to learn how to compile iroha with tokio console support.</summary>
+
+Sometimes it might be helpful for debugging to analyze tokio tasks using [tokio-console](https://github.com/tokio-rs/console).
+
+In this case you should compile iroha with support of tokio console like that: 
+
+```bash
+RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+```
+
+Port for tokio console can by configured through `TOKIO_CONSOLE_ADDR` configuration parameter (`127.0.0.1:5555`) by default.
+
+</details>
+
 ## Style Guides
 
 Please follow these guidelines when you make code contributions to our project:

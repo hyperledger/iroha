@@ -18,8 +18,16 @@ tracing-futures = { version = "0.2.5", default-features = false, features = ["st
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi"] }
 tracing-bunyan-formatter = { version = "0.3.4", default-features = false }
 tokio = { version = "1.23.0", features = ["sync"] }
+console-subscriber =  { version = "0.1.8", optional = true }
 once_cell = "1.16.0"
 derive_more = "0.99.17"
 
 [dev-dependencies]
 tokio = { version = "1.23.0", features = ["macros", "time", "rt"] }
+
+
+[features]
+default = []
+tokio-console = ["dep:console-subscriber", "tokio/tracing"]
+# Workaround to avoid activating `tokio-console` with `--all-features` flag, because `tokio-console` require `tokio_unstable` rustc flag
+no-tokio-console = []

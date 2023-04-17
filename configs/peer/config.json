@@ -47,7 +47,8 @@
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
     "LOG_FILE_PATH": null,
-    "TERMINAL_COLORS": true
+    "TERMINAL_COLORS": true,
+    "TOKIO_CONSOLE_ADDR": "127.0.0.1:5555"
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,

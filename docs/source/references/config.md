@@ -78,7 +78,8 @@ The following is the default configuration used by Iroha.
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
     "LOG_FILE_PATH": null,
-    "TERMINAL_COLORS": true
+    "TERMINAL_COLORS": true,
+    "TOKIO_CONSOLE_ADDR": "127.0.0.1:5555"
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
@@ -288,7 +289,8 @@ Has type `Option<logger::ConfigurationProxy>`[^1]. Can be configured via environ
   "LOG_FILE_PATH": null,
   "MAX_LOG_LEVEL": "INFO",
   "TELEMETRY_CAPACITY": 1000,
-  "TERMINAL_COLORS": true
+  "TERMINAL_COLORS": true,
+  "TOKIO_CONSOLE_ADDR": "127.0.0.1:5555"
 }
 ```
 
@@ -340,6 +342,16 @@ Has type `Option<bool>`[^1]. Can be configured via environment variable `TERMINA
 
 ```json
 true
+```
+
+### `logger.tokio_console_addr`
+
+Address of tokio console (only available under "tokio-console" feature)
+
+Has type `Option<String>`[^1]. Can be configured via environment variable `TOKIO_CONSOLE_ADDR`
+
+```json
+"127.0.0.1:5555"
 ```
 
 ## `network`

@@ -16,6 +16,7 @@ use tracing_subscriber::{filter::LevelFilter, reload::Handle};
 const TELEMETRY_CAPACITY: u32 = 1000;
 const DEFAULT_COMPACT_MODE: bool = false;
 const DEFAULT_TERMINAL_COLORS: bool = true;
+const DEFAULT_TOKIO_CONSOLE_ADDR: &str = "127.0.0.1:5555";
 
 /// Log level for reading from environment and (de)serializing
 #[derive(
@@ -100,6 +101,8 @@ pub struct Configuration {
     pub log_file_path: Option<std::path::PathBuf>,
     /// Enable ANSI terminal colors for formatted output.
     pub terminal_colors: bool,
+    /// Address of tokio console (only available under "tokio-console" feature)
+    pub tokio_console_addr: String,
 }
 
 impl Default for ConfigurationProxy {
@@ -110,6 +113,7 @@ impl Default for ConfigurationProxy {
             compact_mode: Some(DEFAULT_COMPACT_MODE),
             log_file_path: Some(None),
             terminal_colors: Some(DEFAULT_TERMINAL_COLORS),
+            tokio_console_addr: Some(DEFAULT_TOKIO_CONSOLE_ADDR.into()),
         }
     }
 }
@@ -126,8 +130,9 @@ pub mod tests {
         telemetry_capacity in prop::option::of(Just(TELEMETRY_CAPACITY)),
         compact_mode in prop::option::of(Just(DEFAULT_COMPACT_MODE)),
         log_file_path in prop::option::of(Just(None)),
-        terminal_colors in prop::option::of(Just(DEFAULT_TERMINAL_COLORS))) -> ConfigurationProxy {
-            ConfigurationProxy { max_log_level, telemetry_capacity, compact_mode, log_file_path, terminal_colors }
+        terminal_colors in prop::option::of(Just(DEFAULT_TERMINAL_COLORS)),
+        tokio_console_addr in prop::option::of(Just(DEFAULT_TOKIO_CONSOLE_ADDR.into()))) -> ConfigurationProxy {
+            ConfigurationProxy { max_log_level, telemetry_capacity, compact_mode, log_file_path, terminal_colors, tokio_console_addr }
         }
     }
 }
