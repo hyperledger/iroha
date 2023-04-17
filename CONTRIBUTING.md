@@ -239,6 +239,34 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 
 </details>
 
+### Debugging using tokio console
+
+<details> <summary> Expand to learn how to compile iroha with tokio console support.</summary>
+
+Sometimes it might be helpful for debugging to analyze tokio tasks using [tokio-console](https://github.com/tokio-rs/console).
+
+In this case you should compile iroha with support of tokio console like that: 
+
+```bash
+RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+```
+
+Port for tokio console can by configured through `TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
+Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `MAX_LOG_LEVEL`.
+
+Example of running iroha with tokio console support using `scripts/test_env.sh`:
+
+```bash
+# 1. Compile iroha
+RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
+# 2. Run iroha with TRACE log level
+MAX_LOG_LEVEL=TRACE ./scripts/test_env.sh setup
+# 3. Access iroha. Peers will be available on ports 5555, 5556, ...
+tokio-console http://127.0.0.1:5555
+```
+
+</details>
+
 ## Style Guides
 
 Please follow these guidelines when you make code contributions to our project:

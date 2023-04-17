@@ -213,8 +213,9 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
     });
     ast.ident = format_ident!("{}Proxy", ast.ident);
     // The only needed struct-level attributes are these
-    ast.attrs
-        .retain(|attr| attr.path.is_ident("config") || attr.path.is_ident("serde"));
+    ast.attrs.retain(|attr| {
+        attr.path.is_ident("config") || attr.path.is_ident("serde") || attr.path.is_ident("cfg")
+    });
     ast
 }
 
