@@ -55,7 +55,7 @@ mod gen {
                 "Eq",
             ],
         );
-        keep_attrs_in_struct(&mut ast, &["serde", "doc", "derive"]);
+        keep_attrs_in_struct(&mut ast, &["serde", "doc", "derive", "cfg"]);
         ast.ident = format_ident!("{}View", ast.ident);
         ast
     }
@@ -76,18 +76,30 @@ mod gen {
         } = view;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let field_idents = extract_field_idents(fields);
+        let field_cfg_attrs = fields
+            .iter()
+            .map(|field| {
+                field
+                    .attrs
+                    .iter()
+                    .filter(|attr| attr.path.is_ident("cfg"))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
 
         quote! {
             impl #impl_generics core::convert::From<#original_ident> for #view_ident #ty_generics #where_clause {
                 fn from(config: #original_ident) -> Self {
                     let #original_ident {
                         #(
+                            #(#field_cfg_attrs)*
                             #field_idents,
                         )*
                         ..
                     } =  config;
                     Self {
                         #(
+                            #(#field_cfg_attrs)*
                             #field_idents: core::convert::From::<_>::from(#field_idents),
                         )*
                     }
