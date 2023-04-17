@@ -521,6 +521,22 @@ model! {
     }
 }
 
+impl core::fmt::Display for RegistrableBox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegistrableBox::Peer(p) => write!(f, "Peer: {p}"),
+            RegistrableBox::Domain(d) => write!(f, "Domain {d}"),
+            RegistrableBox::Account(a) => write!(f, "Account: {a}"),
+            RegistrableBox::AssetDefinition(ad) => write!(f, "AssetDefinition: {ad}"),
+            RegistrableBox::Asset(a) => write!(f, "Asset: {a}"),
+            RegistrableBox::Trigger(_) => f.write_str("Trigger"),
+            RegistrableBox::Role(r) => write!(f, "Role: {r}"),
+            RegistrableBox::PermissionTokenDefinition(pd) => write!(f, "PermissionTokenDefinition: {pd}"),
+            RegistrableBox::Validator(_) => f.write_str("Validator"),
+        }
+    }
+}
+
 impl Identifiable for TriggerBox {
     type Id = trigger::TriggerId;
 

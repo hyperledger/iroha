@@ -317,14 +317,20 @@ impl WorldStateView {
     /// you likely have data corruption.
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
+    #[iroha_logger::log(skip_all, fields(block_height))]
     pub fn apply(&self, block: &VersionedCommittedBlock) -> Result<()> {
-        debug!(?block, "Applying block to wsv");
-        let time_event = self.create_time_event(block.as_v1())?;
+        let hash = block.hash();
+        let block = block.as_v1();
+        iroha_logger::prelude::Span::current().record("block_height", block.header.height);
+        trace!("Applying block");
+        let time_event = self.create_time_event(block)?;
         self.events_buffer
             .borrow_mut()
             .push(Event::Time(time_event));
 
-        self.execute_transactions(block.as_v1())?;
+        
+        
+        self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
 
         self.world.triggers.handle_time_event(time_event);
@@ -343,7 +349,7 @@ impl WorldStateView {
             );
         }
 
-        self.block_hashes.borrow_mut().push(block.hash());
+        self.block_hashes.borrow_mut().push(hash);
 
         Ok(())
     }

@@ -61,10 +61,10 @@ impl GenesisNetworkTrait for GenesisNetwork {
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
         if !submit_genesis {
-            iroha_logger::debug!("Not submitting genesis");
+            iroha_logger::trace!("Not submitting genesis");
             return Ok(None);
         }
-        iroha_logger::debug!("Submitting genesis.");
+        iroha_logger::trace!("Submitting genesis.");
         let genesis_config =
             genesis_config.expect("Should be `Some` when `submit_genesis` is true");
         let genesis_key_pair = KeyPair::new(

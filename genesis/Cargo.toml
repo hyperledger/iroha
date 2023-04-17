@@ -16,3 +16,4 @@ derive_more = { version = "0.99.17", default-features = false, features = ["dere
 serde = { version = "1.0.151", features = ["derive"] }
 serde_json = "1.0.91"
 eyre = "0.6.8"
+tracing = "0.1.37"
