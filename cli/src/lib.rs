@@ -13,7 +13,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use eyre::ContextCompat as _;
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
@@ -32,6 +31,8 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
+use iroha_logger::prelude::span;
+use iroha_p2p::OnlinePeers;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
@@ -152,72 +153,6 @@ impl NetworkRelay {
 }
 
 impl Iroha {
-    /// To make `Iroha` peer work all actors should be started first.
-    /// After that moment it you can start it with listening to torii events.
-    ///
-    /// # Side effect
-    /// - Prints welcome message in the log
-    ///
-    /// # Errors
-    /// - Reading genesis from disk
-    /// - Reading telemetry configs
-    /// - telemetry setup
-    /// - Initialization of [`Sumeragi`]
-    #[allow(clippy::non_ascii_literal)]
-    pub async fn new(args: &Arguments) -> Result<Self> {
-        let mut config = args
-            .config_path
-            .first_existing_path()
-            .map_or_else(
-                || {
-                    eprintln!(
-                        "Configuration file not found. Using environment variables as fallback."
-                    );
-                    ConfigurationProxy::default()
-                },
-                |path| ConfigurationProxy::from_path(&path.as_path()),
-            )
-            .override_with(ConfigurationProxy::from_env())
-            .build()?;
-
-        if style::should_disable_color() {
-            config.disable_panic_terminal_colors = true;
-            // Remove terminal colors to comply with XDG
-            // specifications, Rust's conventions as well as remove
-            // escape codes from logs redirected from STDOUT. If you
-            // need syntax highlighting, use JSON logging instead.
-            config.logger.terminal_colors = false;
-        }
-
-        let telemetry = iroha_logger::init(&config.logger)?;
-        iroha_logger::info!(
-            git_commit_sha = env!("VERGEN_GIT_SHA"),
-            "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha {}!",
-            env!("CARGO_PKG_VERSION")
-        );
-
-        let genesis = if let Some(genesis_path) = &args.genesis_path {
-            GenesisNetwork::from_configuration(
-                args.submit_genesis,
-                RawGenesisBlock::from_path(
-                    genesis_path
-                        .first_existing_path()
-                        .wrap_err_with(|| {
-                            format!("Genesis block file {genesis_path:?} doesn't exist")
-                        })?
-                        .as_ref(),
-                )?,
-                Some(&config.genesis),
-                &config.sumeragi.transaction_limits,
-            )
-            .wrap_err("Failed to initialize genesis.")?
-        } else {
-            None
-        };
-
-        Self::with_genesis(genesis, config, telemetry).await
-    }
-
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
         #[cfg(not(feature = "test-network"))]
         use std::panic::set_hook;
@@ -271,20 +206,14 @@ impl Iroha {
     /// - Reading telemetry configs
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
-    #[allow(clippy::too_many_lines)] // This is actually easier to understand as a linear sequence of init statements.
+    #[allow(clippy::too_many_lines)]
+    #[iroha_logger::log(name="init", skip_all)]// This is actually easier to understand as a linear sequence of init statements.
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
-        if !config.disable_panic_terminal_colors {
-            if let Err(e) = color_eyre::install() {
-                let error_message = format!("{e:#}");
-                iroha_logger::error!(error = %error_message, "Tried to `color_eyre::install()` twice",);
-            }
-        }
         let listen_addr = config.torii.p2p_addr.clone();
-        iroha_logger::info!(%listen_addr, "Starting peer");
         let network = IrohaNetwork::start(listen_addr, config.public_key.clone())
             .await
             .wrap_err("Unable to start P2P-network")?;
@@ -306,11 +235,13 @@ impl Iroha {
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
+            let span = span!(tracing::Level::TRACE, "genesis").entered();
             let wsv_clone = wsv.clone();
 
             transaction_validator
                 .validate_every(genesis.iter().cloned(), &wsv_clone)
                 .wrap_err("Transaction validation failed in genesis block")?;
+            span.exit();
         }
 
         let block_hashes = kura.init()?;
@@ -498,6 +429,25 @@ fn genesis_domain(configuration: &Configuration) -> Domain {
 
     domain
 }
+
+pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configuration> {
+    args
+        .config_path
+        .first_existing_path()
+        .map_or_else(
+            || {
+                eprintln!(
+                    "Configuration file not found. Using environment variables as fallback."
+                );
+                ConfigurationProxy::default()
+            },
+            |path| ConfigurationProxy::from_path(&path.as_path()),
+        )
+        .override_with(ConfigurationProxy::from_env())
+        .build()
+        .map_err(Into::into)
+}
+
 
 pub mod style {
     //! Style and colouration of Iroha CLI outputs.
