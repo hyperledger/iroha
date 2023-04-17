@@ -246,13 +246,19 @@ impl Sumeragi {
         state: &mut State,
         shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
     ) -> Result<(), EarlyReturn> {
+        trace!("Listen for genesis");
         assert!(
             state.current_topology.is_consensus_required(),
             "Only peer in network, yet required to receive genesis topology. This is a configuration error."
         );
         loop {
             std::thread::sleep(Duration::from_millis(50));
-            early_return(shutdown_receiver)?;
+            early_return(shutdown_receiver).map_err(
+                |e| {
+                    debug!(?e, "Early return.");
+                    e
+                }
+            )?;
             // we must connect to peers so that our block_sync can find us
             // the genesis block.
             match self.message_receiver.lock().try_recv() {
@@ -838,15 +844,16 @@ fn should_terminate(shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>) 
     use tokio::sync::oneshot::error::TryRecvError;
 
     match shutdown_receiver.try_recv() {
-        Ok(()) | Err(TryRecvError::Closed) => {
-            info!("Sumeragi Thread is being shut down.");
+        
+        Err(TryRecvError::Empty) => false,
+        reason => {
+            info!(?reason, "Sumeragi Thread is being shut down.");
             true
         }
-        Err(TryRecvError::Empty) => false,
     }
 }
 
-#[instrument(skip_all)]
+#[iroha_logger::log(name="consensus", skip_all)]
 /// Execute the main loop of [`Sumeragi`]
 pub(crate) fn run(
     genesis_network: Option<GenesisNetwork>,
@@ -854,9 +861,13 @@ pub(crate) fn run(
     mut state: State,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
+<<<<<<< HEAD
     // Connect peers with initial topology
     sumeragi.connect_peers(&state.current_topology);
 
+=======
+    let span = span!(tracing::Level::TRACE, "genesis").entered();
+>>>>>>> 1871f37a ([refactor]: improve tracing spans)
     let is_genesis_peer = if state.latest_block_height == 0 || state.latest_block_hash.is_none() {
         if let Some(genesis_network) = genesis_network {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
@@ -870,13 +881,14 @@ pub(crate) fn run(
     } else {
         false
     };
+    span.exit();
 
     // Assert initialization was done properly.
     assert_eq!(state.latest_block_hash, state.wsv.latest_block_hash());
     trace!(
-        "I, {}, finished sumeragi init. My role in the next round is {:?}",
-        sumeragi.peer_id.public_key,
-        state.current_topology.role(&sumeragi.peer_id),
+        me=%sumeragi.peer_id.public_key,
+        role_in_next_round=%state.current_topology.role(&sumeragi.peer_id),
+        "Finished sumeragi init.",
     );
 
     let mut voting_block = None;

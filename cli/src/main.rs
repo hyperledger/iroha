@@ -44,6 +44,9 @@ const REQUIRED_ENV_VARS: [(&str, &str); 7] = [
 /// - [`Sumeragi`] init
 async fn main() -> Result<(), color_eyre::Report> {
     let styling = Styling::new();
+    if !iroha::style::should_disable_color() {
+        color_eyre::install()?;
+    }
     let mut args = iroha::Arguments::default();
     if env::args().any(|a| HELP_ARG.contains(&a.as_str())) {
         print_help(&styling)?;
@@ -60,10 +63,12 @@ async fn main() -> Result<(), color_eyre::Report> {
         if let Ok(genesis_path) = env::var("IROHA2_GENESIS_PATH") {
             args.genesis_path =
                 Some(ConfigPath::user_provided(&genesis_path)
-                     .map_err(|e| {color_eyre::install().expect("CRITICAL"); e})
                      .wrap_err_with(
                          ||
-                             format!("Could not read `{genesis_path}`, which is required, given you requested `--submit-genesis` on the command line."))?);
+                             "Required, because `--submit-genesis` was specified.")
+                     .wrap_err_with(
+                         ||
+                             format!("Could not read `{genesis_path}`"))?);
         }
     } else {
         args.genesis_path = None;
@@ -76,16 +81,6 @@ async fn main() -> Result<(), color_eyre::Report> {
                 .any(|group| group.contains(&arg.as_str())))
         {
             print_help(&styling)?;
-            // WORKAROUND for #2212: because of how `color_eyre`
-            // works, we need to install the hook before creating any
-            // instance of `eyre::Report`, otherwise the `eyre`
-            // default reporting hook is going to be installed
-            // automatically.
-
-            // This results in a nasty repetition of the
-            // `color_eyre::install().unwrap()` pattern, which is the
-            // lesser of two evils
-            color_eyre::install().expect("CRITICAL");
             eyre::bail!(
                 "Unrecognised command-line flag `{}`",
                 arg.style(styling.negative)
@@ -95,10 +90,6 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     if let Ok(config_path) = env::var("IROHA2_CONFIG_PATH") {
         args.config_path = ConfigPath::user_provided(&config_path)
-            .map_err(|e| {
-                color_eyre::install().expect("CRITICAL");
-                e
-            })
             .wrap_err_with(|| format!("Failed to parse `{config_path}` as configuration path"))?;
     }
     if !args.config_path.exists() {
@@ -123,6 +114,9 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     let config = iroha::combine_configs(&args)?;
     let telemetry = iroha_logger::init(&config.logger)?;
+    if !config.disable_panic_terminal_colors {
+        iroha_logger::warn!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
+    }
     iroha_logger::info!(
         git_commit_sha = env!("VERGEN_GIT_SHA"),
         "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha {}!",
@@ -136,7 +130,6 @@ async fn main() -> Result<(), color_eyre::Report> {
                 genesis_path
                     .first_existing_path()
                     .ok_or({
-                        color_eyre::install().expect("CRITICAL");
                         color_eyre::eyre::eyre!("Genesis block file {genesis_path:?} doesn't exist")
                     })?
                     .as_ref(),
@@ -152,7 +145,6 @@ async fn main() -> Result<(), color_eyre::Report> {
     iroha::Iroha::with_genesis(
         genesis,
         config,
-        iroha_actor::broker::Broker::new(),
         telemetry,
     )
     .await?;

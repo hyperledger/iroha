@@ -112,6 +112,7 @@ impl Kura {
     /// Fails if:
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
+    #[iroha_logger::log(skip_all, name="kura_init")]
     pub fn init(&self) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
         let block_store = self.block_store.lock();
 
@@ -143,7 +144,7 @@ impl Kura {
                 }
             }
         }
-        info!(block_count = block_hashes.len(), "Init complete");
+        info!(block_count = block_hashes.len(), "Kura init complete");
 
         // The none value is set in order to indicate that the blocks exist on disk but
         // are not yet loaded.
@@ -156,6 +157,7 @@ impl Kura {
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
+    #[iroha_logger::log(skip_all)]
     fn kura_receive_blocks_loop(
         kura: &Kura,
         mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
@@ -197,22 +199,22 @@ impl Kura {
             // If we get here there are blocks to be written.
             let start_height = written_block_count;
             let mut blocks_to_be_written = Vec::new();
-            while written_block_count < block_data_guard.len() {
-                let block_ref = block_data_guard[written_block_count]
-                    .1
-                    .as_ref()
-                    .expect("The block to be written cannot be None, see store_block function.");
-                blocks_to_be_written.push(Arc::clone(block_ref));
-                written_block_count += 1;
-            }
+              while written_block_count < block_data_guard.len() {
+                  let block_ref = block_data_guard[written_block_count]
+                      .1
+                      .as_ref()
+                      .expect("The block to be written cannot be None, see store_block function.");
+                  blocks_to_be_written.push(Arc::clone(block_ref));
+                  written_block_count += 1;
+              }
 
-            // We don't want to hold up other threads so we drop the lock on the block data.
-            drop(block_data_guard);
+              // We don't want to hold up other threads so we drop the lock on the block data.
+              drop(block_data_guard);
 
-            if let Some(path) = kura.block_plain_text_path.as_ref() {
-                let mut plain_text_file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
+              if let Some(path) = kura.block_plain_text_path.as_ref() {
+                    let mut plain_text_file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
                     .open(path)
                     .expect("Couldn't create file for plain text blocks.");
 
