@@ -270,7 +270,7 @@ pub mod message {
                 data,
                 peer_id: peer.clone(),
             };
-            network.post(message).await;
+            network.post(message);
         }
     }
 }

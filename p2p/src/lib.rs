@@ -94,3 +94,57 @@ impl From<io::Error> for Error {
 
 /// Result shorthand.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+pub(crate) mod unbounded_with_len {
+    use std::sync::{atomic::AtomicUsize, Arc};
+
+    use tokio::sync::mpsc;
+
+    pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let len = Arc::new(AtomicUsize::new(1));
+        (
+            Sender {
+                sender,
+                len: Arc::clone(&len),
+            },
+            Receiver { receiver, len },
+        )
+    }
+
+    pub struct Receiver<T> {
+        receiver: mpsc::UnboundedReceiver<T>,
+        len: Arc<AtomicUsize>,
+    }
+
+    #[derive(Clone)]
+    pub struct Sender<T> {
+        sender: mpsc::UnboundedSender<T>,
+        len: Arc<AtomicUsize>,
+    }
+
+    impl<T> Receiver<T> {
+        pub async fn recv(&mut self) -> Option<T>
+        where
+            T: Send,
+        {
+            let message = self.receiver.recv().await?;
+            self.len.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            Some(message)
+        }
+
+        pub fn len(&self) -> usize {
+            self.len
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .saturating_sub(1)
+        }
+    }
+
+    impl<T> Sender<T> {
+        pub fn send(&self, message: T) -> Result<(), mpsc::error::SendError<T>> {
+            self.sender.send(message)?;
+            self.len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+}

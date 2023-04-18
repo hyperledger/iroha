@@ -23,7 +23,7 @@ use crate::{
         message::*,
         Connection, ConnectionId,
     },
-    Error,
+    unbounded_with_len, Error,
 };
 
 /// [`NetworkBase`] actor handle.
@@ -39,7 +39,9 @@ pub struct NetworkBaseHandle<T: Pload, K: Kex, E: Enc> {
     /// [`DisconnectPeer`] message receiver
     disconnect_peer_sender: mpsc::Sender<DisconnectPeer>,
     /// Sender of [`Post`] message
-    post_sender: mpsc::Sender<Post<T>>,
+    // NOTE: it's ok for this channel to be unbounded.
+    // Because post messages originates inside system and there rate is configurable.
+    post_sender: unbounded_with_len::Sender<Post<T>>,
     /// Key exchange used by network
     _key_exchange: core::marker::PhantomData<K>,
     /// Encryptor used by the network
@@ -76,7 +78,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             mpsc::channel(1);
         let (connect_peer_sender, connect_peer_receiver) = mpsc::channel(1);
         let (disconnect_peer_sender, disconnect_peer_receiver) = mpsc::channel(1);
-        let (post_sender, post_receiver) = mpsc::channel(1);
+        let (post_sender, post_receiver) = unbounded_with_len::unbounded_channel();
         let (peer_message_sender, peer_message_receiver) = mpsc::channel(1);
         let network = NetworkBase {
             listen_addr,
@@ -123,6 +125,14 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         self.online_peers_receiver.borrow_and_update().clone()
     }
 
+    /// Send [`Post<T>`] message on network actor.
+    pub fn post(&self, msg: Post<T>) {
+        self.post_sender
+            .send(msg)
+            .map_err(|_| ())
+            .expect("NetworkBase must accept messages until there is at least one handle to it")
+    }
+
     /// Wait for update of [`OnlinePeers`].
     pub async fn wait_online_peers_update(&mut self) -> OnlinePeers {
         self.online_peers_receiver
@@ -159,7 +169,6 @@ macro_rules! impl_handle_methods {
 }
 
 impl_handle_methods! {
-    post (post_blocking): Post<T> => post_sender,
     connect_peer (connect_peer_blocking): ConnectPeer => connect_peer_sender,
     disconnect_peer (disconnect_peer_blocking): DisconnectPeer => disconnect_peer_sender,
 }
@@ -189,7 +198,7 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// [`DisconnectPeer`] message receiver
     disconnect_peer_receiver: mpsc::Receiver<DisconnectPeer>,
     /// Receiver of [`Post`] message
-    post_receiver: mpsc::Receiver<Post<T>>,
+    post_receiver: unbounded_with_len::Receiver<Post<T>>,
     /// Channel to gather messages from all peers
     peer_message_receiver: mpsc::Receiver<PeerMessage<T>>,
     /// Sender for peer messages to provide clone of sender inside peer
@@ -248,7 +257,11 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                         iroha_logger::info!("All handles to network actor are dropped. Shutting down...");
                         break;
                     };
-                    self.post(post).await
+                    let post_receiver_len = self.post_receiver.len();
+                    if post_receiver_len > 100 {
+                        iroha_logger::warn!(size=post_receiver_len, "Network post messages are pilling up in the queue");
+                    }
+                    self.post(post)
                 }
                 else => break,
             }
@@ -343,12 +356,12 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }
     }
 
-    async fn post(&mut self, Post { data, peer_id }: Post<T>) {
+    fn post(&mut self, Post { data, peer_id }: Post<T>) {
         iroha_logger::trace!(peer=%peer_id, "Post message");
         match self.peers.get(&peer_id.public_key) {
             Some(peer) => {
-                if peer.handle.post(data).await.is_err() {
-                    iroha_logger::error!(peer=%peer_id, "Peer not found. Message not sent.");
+                if peer.handle.post(data).is_err() {
+                    iroha_logger::error!(peer=%peer_id, "Failed to send message to peer");
                     self.peers.remove(&peer_id.public_key);
                     self.remove_online_peer(&peer_id);
                 }
@@ -357,7 +370,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                 #[cfg(debug_assertions)]
                 iroha_logger::trace!("Not sending message to myself")
             }
-            _ => iroha_logger::warn!(peer=%peer_id, "Didn't find peer to send message"),
+            _ => iroha_logger::warn!(peer=%peer_id, "Peer not found. Message not sent."),
         }
     }
 

@@ -72,12 +72,10 @@ async fn network_create() {
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
-    network
-        .post(Post {
-            data: TestMessage("Some data to send to peer".to_owned()),
-            peer_id: peer1,
-        })
-        .await;
+    network.post(Post {
+        data: TestMessage("Some data to send to peer".to_owned()),
+        peer_id: peer1,
+    });
 
     tokio::time::sleep(delay).await;
 }
@@ -155,12 +153,10 @@ async fn two_networks() {
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
-    network1
-        .post(Post {
-            data: TestMessage("Some data to send to peer".to_owned()),
-            peer_id: peer2.clone(),
-        })
-        .await;
+    network1.post(Post {
+        data: TestMessage("Some data to send to peer".to_owned()),
+        peer_id: peer2.clone(),
+    });
 
     tokio::time::sleep(delay).await;
     assert_eq!(messages2.load(Ordering::SeqCst), 1);
@@ -235,7 +231,7 @@ async fn multiple_networks() {
                 data: TestMessage(String::from("Some data to send to peer")),
                 peer_id: id.clone(),
             };
-            network.post(post).await;
+            network.post(post);
         }
     }
     info!("Posts sent");
