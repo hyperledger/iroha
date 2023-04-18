@@ -21,6 +21,7 @@ impl Registrable for NewAssetDefinition {
             id: self.id,
             value_type: self.value_type,
             mintable: self.mintable,
+            logo: self.logo,
             metadata: self.metadata,
         }
     }

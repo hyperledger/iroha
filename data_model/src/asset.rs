@@ -20,8 +20,9 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumString;
 
 use crate::{
-    account::prelude::*, domain::prelude::*, metadata::Metadata, model, HasMetadata, Identifiable,
-    Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef, Value,
+    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, model,
+    HasMetadata, Identifiable, Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef,
+    Value,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
@@ -70,19 +71,22 @@ model! {
     }
 
     /// Asset definition defines the type of that asset.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, CopyGetters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Display, Clone, IdEqOrdHash, CopyGetters, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "{id} {value_type}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
-    #[getset(get_copy = "pub")]
     #[ffi_type]
     pub struct AssetDefinition {
         /// An Identification of the [`AssetDefinition`].
         #[getset(skip)]
         pub id: AssetDefinitionId,
         /// Type of [`AssetValue`]
+        #[getset(get_copy = "pub")]
         pub value_type: AssetValueType,
         /// Is the asset mintable
         pub mintable: Mintable,
+        /// IPFS link to the [`AssetDefinition`] logo
+        #[getset(get = "pub")]
+        pub logo: Option<IpfsPath>,
         /// Metadata of this asset definition as a key-value store.
         #[getset(skip)]
         pub metadata: Metadata,
@@ -124,6 +128,8 @@ model! {
         pub value_type: AssetValueType,
         /// The mintablility associated with the asset definition builder.
         pub mintable: Mintable,
+        /// IPFS link to the [`AssetDefinition`] logo
+        pub logo: Option<IpfsPath>,
         /// Metadata associated with the asset definition builder.
         pub metadata: Metadata,
     }
@@ -189,6 +195,7 @@ impl NewAssetDefinition {
             id,
             value_type,
             mintable: Mintable::Infinitely,
+            logo: None,
             metadata: Metadata::default(),
         }
     }
@@ -198,6 +205,13 @@ impl NewAssetDefinition {
     #[must_use]
     pub fn mintable_once(mut self) -> Self {
         self.mintable = Mintable::Once;
+        self
+    }
+
+    /// Add [`logo`](IpfsPath) to the asset definition replacing previously defined value
+    #[must_use]
+    pub fn with_logo(mut self, logo: IpfsPath) -> Self {
+        self.logo = Some(logo);
         self
     }
 
