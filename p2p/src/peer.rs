@@ -27,6 +27,7 @@ pub mod handles {
     //! Module with functions to start peer actor and handle to interact with it.
 
     use super::{run::RunPeerArgs, *};
+    use crate::unbounded_with_len;
 
     /// Start Peer in [`state::Connecting`] state
     pub fn connecting<T: Pload, K: Kex, E: Enc>(
@@ -68,7 +69,9 @@ pub mod handles {
 
     /// Peer actor handle.
     pub struct PeerHandle<T: Pload> {
-        pub(super) post_sender: mpsc::Sender<T>,
+        // NOTE: it's ok for this channel to be unbounded.
+        // Because post messages originate inside the system and their rate is configurable..
+        pub(super) post_sender: unbounded_with_len::Sender<T>,
     }
 
     impl<T: Pload> PeerHandle<T> {
@@ -76,8 +79,8 @@ pub mod handles {
         ///
         /// # Errors
         /// Fail if peer terminated
-        pub async fn post(&self, msg: T) -> Result<(), mpsc::error::SendError<T>> {
-            self.post_sender.send(msg).await
+        pub fn post(&self, msg: T) -> Result<(), mpsc::error::SendError<T>> {
+            self.post_sender.send(msg)
         }
     }
 }
@@ -91,6 +94,7 @@ mod run {
         state::{ConnectedFrom, Connecting, Ready},
         *,
     };
+    use crate::unbounded_with_len;
 
     /// Peer task.
     pub(super) async fn run<T: Pload, K: Kex, E: Enc, P: Entrypoint<K, E>>(
@@ -126,7 +130,7 @@ mod run {
             } = peer;
             peer_id = new_peer_id;
 
-            let (post_sender, mut post_receiver) = mpsc::channel(1);
+            let (post_sender, mut post_receiver) = unbounded_with_len::unbounded_channel();
             let (peer_message_sender, peer_message_receiver) = oneshot::channel();
             let ready_peer_handle = handles::PeerHandle { post_sender };
             if connected_sender
@@ -163,6 +167,10 @@ mod run {
                             iroha_logger::debug!("Peer handle dropped.");
                             break;
                         };
+                        let post_receiver_len = post_receiver.len();
+                        if post_receiver_len > 100 {
+                            iroha_logger::warn!(size=post_receiver_len, peer=%peer_id, "Peer post messages are pilling up");
+                        }
                         if let Err(error) = message_sender.send_message(msg).await {
                             iroha_logger::error!(%error, peer=%peer_id, "Failed to send message to peer.");
                             break;
