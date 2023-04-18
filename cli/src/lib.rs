@@ -76,8 +76,16 @@ impl Default for Arguments {
     }
 }
 
-/// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
-/// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
+/// Iroha is an
+/// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
+/// of the system. It configures, coordinates and manages transactions
+/// and queries processing, work of consensus and storage.
+///
+/// # Usage
+/// Construct and then `start` or `start_as_task`. If you experience
+/// an immediate shutdown after constructing Iroha, then you probably
+/// forgot this step.
+#[must_use = "run `.start().await?` to not immediately stop Iroha"]
 pub struct Iroha {
     /// Queue of transactions
     pub queue: Arc<Queue>,
@@ -97,8 +105,11 @@ pub struct Iroha {
 
 impl Drop for Iroha {
     fn drop(&mut self) {
-        // Drop thread handles first
+        iroha_logger::trace!("Iroha instance dropped");
         let _thread_handles = core::mem::take(&mut self.thread_handlers);
+        iroha_logger::debug!(
+            "Thread handles dropped. Dependent processes going for a graceful shutdown"
+        )
     }
 }
 
@@ -207,7 +218,7 @@ impl Iroha {
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
     #[allow(clippy::too_many_lines)]
-    #[iroha_logger::log(name="init", skip_all)]// This is actually easier to understand as a linear sequence of init statements.
+    #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
@@ -431,14 +442,11 @@ fn genesis_domain(configuration: &Configuration) -> Domain {
 }
 
 pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configuration> {
-    args
-        .config_path
+    args.config_path
         .first_existing_path()
         .map_or_else(
             || {
-                eprintln!(
-                    "Configuration file not found. Using environment variables as fallback."
-                );
+                eprintln!("Configuration file not found. Using environment variables as fallback.");
                 ConfigurationProxy::default()
             },
             |path| ConfigurationProxy::from_path(&path.as_path()),
@@ -447,7 +455,6 @@ pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configurati
         .build()
         .map_err(Into::into)
 }
-
 
 pub mod style {
     //! Style and colouration of Iroha CLI outputs.

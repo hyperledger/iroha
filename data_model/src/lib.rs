@@ -531,7 +531,9 @@ impl core::fmt::Display for RegistrableBox {
             RegistrableBox::Asset(a) => write!(f, "Asset: {a}"),
             RegistrableBox::Trigger(_) => f.write_str("Trigger"),
             RegistrableBox::Role(r) => write!(f, "Role: {r}"),
-            RegistrableBox::PermissionTokenDefinition(pd) => write!(f, "PermissionTokenDefinition: {pd}"),
+            RegistrableBox::PermissionTokenDefinition(pd) => {
+                write!(f, "PermissionTokenDefinition: {pd}")
+            }
             RegistrableBox::Validator(_) => f.write_str("Validator"),
         }
     }
@@ -605,7 +607,7 @@ pub type ValueBox = Box<Value>;
 
 model! {
     /// Sized container for all possible values.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, EnumDiscriminants, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
+    #[derive(derive_more::DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, EnumDiscriminants, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
     #[strum_discriminants(name(ValueKind), derive(Display, Decode, Encode, Deserialize, Serialize, IntoSchema), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
     #[allow(clippy::enum_variant_names, missing_docs)]
     #[ffi_type(opaque)]
@@ -633,21 +635,26 @@ model! {
         Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
         Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
         #[serde_partially_tagged(untagged)]
+        #[debug(fmt = "{_0:?}")]
         Numeric(NumericValue),
         Validator(validator::Validator),
     }
 
     /// Enum for all supported numeric values
-    #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(derive_more::DebugCustom, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type]
     pub enum NumericValue {
         /// `u32` value
+        #[debug(fmt = "{_0}_u32")]
         U32(u32),
         /// `u64` value
+        #[debug(fmt = "{_0}_u64")]
         U64(u64),
         /// `u128` value
+        #[debug(fmt = "{_0}_u126")]
         U128(u128),
         /// `Fixed` value
+        #[debug(fmt = "{_0}_fx")]
         Fixed(fixed::Fixed),
     }
 }
