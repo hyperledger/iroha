@@ -64,6 +64,7 @@ pub mod domain;
 pub mod evaluate;
 pub mod events;
 pub mod expression;
+pub mod ipfs;
 pub mod isi;
 pub mod metadata;
 pub mod name;

@@ -442,7 +442,8 @@ mod tests {
             },
             BlockHeader, CommittedBlock, VersionedCommittedBlock,
         },
-        domain::{IpfsPath, NewDomain},
+        domain::NewDomain,
+        ipfs::IpfsPath,
         permission::validator::Validator,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
