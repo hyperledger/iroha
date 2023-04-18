@@ -10,19 +10,25 @@ use core::{
 
 use derive_more::Display;
 use getset::Getters;
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{model, Identifiable, PublicKey, Registered, Value};
+pub use self::model::*;
+use crate::{Identifiable, PublicKey, Registered, Value};
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Peer's identification.
     ///
     /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
-    #[derive(Debug, Display, Clone, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[display(fmt = "{public_key}@@{address}")]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -34,7 +40,9 @@ model! {
     }
 
     /// Representation of other Iroha Peer instances running in separate processes.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[display(fmt = "@@{}", "id.address")]
     #[serde(transparent)]
     #[repr(transparent)]

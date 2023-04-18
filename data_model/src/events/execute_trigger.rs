@@ -2,13 +2,30 @@
 
 use derive_more::Constructor;
 use getset::Getters;
+use iroha_data_model_derive::model;
 
+pub use self::model::*;
 use super::*;
-use crate::{model, prelude::*};
+use crate::prelude::*;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Trigger execution event. Produced every time the `ExecuteTrigger` instruction is executed.
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct ExecuteTriggerEvent {
@@ -19,12 +36,26 @@ model! {
     }
 
     /// Filter for trigger execution [`Event`]
-    #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialOrd,
+        Ord,
+        PartialEq,
+        Eq,
+        Hash,
+        Constructor,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     pub struct ExecuteTriggerEventFilter {
         /// Id of trigger catch executions of
-        trigger_id: TriggerId,
+        pub(super) trigger_id: TriggerId,
         /// Authority of user who owns trigger
-        authority: AccountId,
+        pub(super) authority: AccountId,
     }
 }
 

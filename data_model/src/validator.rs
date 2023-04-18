@@ -5,24 +5,43 @@ use alloc::{format, string::String, vec::Vec};
 
 use derive_more::{Constructor, Display};
 use getset::Getters;
+use iroha_data_model_derive::model;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+pub use self::model::*;
 use crate::{
     isi::InstructionBox,
-    model,
     query::QueryBox,
     transaction::{SignedTransaction, WasmSmartContract},
     FromVariant,
 };
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
     /// [`InstructionBox`]s, etc.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[allow(clippy::multiple_inherent_impl)]
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
@@ -32,14 +51,14 @@ model! {
         /// WASM code of the validator
         pub wasm: WasmSmartContract,
     }
-}
 
-model! {
     // TODO: Client doesn't need structures defined inside this macro. When dynamic linking is
     // implemented use: #[cfg(any(feature = "transparent_api", feature = "ffi_import"))]
 
     /// Boxed version of [`NeedsPermission`]
-    #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize)]
+    #[derive(
+        Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize,
+    )]
     #[ffi_type]
     pub enum NeedsValidationBox {
         /// [`Transaction`] application operation

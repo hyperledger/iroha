@@ -9,12 +9,13 @@ use alloc::{
 use std::collections::BTreeMap;
 
 use derive_more::Display;
+use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 
+pub use self::model::*;
 use crate::{
     expression::{prelude::*, Expression},
     isi::error::MathError,
-    model,
     prelude::*,
     query::error::QueryExecutionFailure,
 };
@@ -439,7 +440,10 @@ impl Evaluate for Mod {
     }
 }
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Expression evaluation error
     #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -454,10 +458,18 @@ model! {
         Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
         /// Value not found in context.
         #[display(fmt = "{_0}: Value not found in context")]
-        Find(#[skip_from] #[skip_try_from] String),
+        Find(
+            #[skip_from]
+            #[skip_try_from]
+            String,
+        ),
         /// Conversion Error
         #[display(fmt = "Conversion Error: {_0}")]
-        Conversion(#[skip_from] #[skip_try_from] String),
+        Conversion(
+            #[skip_from]
+            #[skip_try_from]
+            String,
+        ),
     }
 }
 

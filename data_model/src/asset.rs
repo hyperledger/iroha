@@ -10,7 +10,7 @@ use std::collections::btree_map;
 
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::{CopyGetters, Getters};
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -19,10 +19,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumString;
 
+pub use self::model::*;
 use crate::{
-    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, model,
-    HasMetadata, Identifiable, Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef,
-    Value,
+    account::prelude::*, domain::prelude::*, ipfs::IpfsPath, metadata::Metadata, HasMetadata,
+    Identifiable, Name, NumericValue, ParseError, Registered, TryAsMut, TryAsRef, Value,
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
@@ -38,7 +38,10 @@ pub type AssetDefinitionsMap =
 pub type AssetTotalQuantityMap =
     btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, NumericValue>;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Identification of an Asset Definition. Consists of Asset name and Domais name.
     ///
     /// # Examples
@@ -48,7 +51,23 @@ model! {
     ///
     /// let definition_id = "xor#soramitsu".parse::<AssetDefinitionId>().expect("Valid");
     /// ```
-    #[derive(DebugCustom, Clone, Display, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        DebugCustom,
+        Clone,
+        Display,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[display(fmt = "{name}#{domain_id}")]
     #[debug(fmt = "{name}#{domain_id}")]
     #[getset(get = "pub")]
@@ -61,7 +80,21 @@ model! {
     }
 
     /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AssetId {
@@ -72,7 +105,19 @@ model! {
     }
 
     /// Asset definition defines the type of that asset.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, CopyGetters, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdEqOrdHash,
+        CopyGetters,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[display(fmt = "{id} {value_type}{mintable}")]
     #[allow(clippy::multiple_inherent_impl)]
     #[ffi_type]
@@ -94,7 +139,19 @@ model! {
     }
 
     /// An entry in [`AssetDefinitionsMap`].
-    #[derive(Debug, Clone, PartialEq, Eq, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[allow(clippy::multiple_inherent_impl)]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -107,7 +164,18 @@ model! {
 
     /// Asset represents some sort of commodity or value.
     /// All possible variants of [`Asset`] entity's components.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdEqOrdHash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[display(fmt = "{id}: {value}")]
     #[ffi_type]
     pub struct Asset {
@@ -119,7 +187,9 @@ model! {
     }
 
     /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[display(fmt = "{id} {mintable}{value_type}")]
     #[ffi_type]
     pub struct NewAssetDefinition {
@@ -133,6 +203,102 @@ model! {
         pub logo: Option<IpfsPath>,
         /// Metadata associated with the asset definition builder.
         pub metadata: Metadata,
+    }
+    /// Asset's inner value type.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        EnumString,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    #[repr(u8)]
+    pub enum AssetValueType {
+        /// Asset's Quantity.
+        #[display(fmt = "q")]
+        Quantity,
+        /// Asset's Big Quantity.
+        #[display(fmt = "Q")]
+        BigQuantity,
+        /// Decimal quantity with fixed precision
+        #[display(fmt = "f")]
+        Fixed,
+        /// Asset's key-value structured data.
+        #[display(fmt = "s")]
+        Store,
+    }
+
+    /// Asset's inner value.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        FromVariant,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub enum AssetValue {
+        /// Asset's Quantity.
+        #[display(fmt = "{_0}q")]
+        Quantity(u32),
+        /// Asset's Big Quantity
+        #[display(fmt = "{_0}Q")]
+        BigQuantity(u128),
+        /// Asset's Decimal Quantity.
+        #[display(fmt = "{_0}f")]
+        Fixed(fixed::Fixed),
+        /// Asset's key-value structured data.
+        Store(Metadata),
+    }
+
+    /// An assets mintability scheme. `Infinitely` means elastic
+    /// supply. `Once` is what you want to use. Don't use `Not` explicitly
+    /// outside of smartcontracts.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    #[repr(u8)]
+    pub enum Mintable {
+        /// Regular asset with elastic supply. Can be minted and burned.
+        #[display(fmt = "+")]
+        Infinitely,
+        /// Non-mintable asset (token), with a fixed supply. Can be burned, and minted **once**.
+        #[display(fmt = "=")]
+        Once,
+        /// Non-mintable asset (token), with a fixed supply. Can be burned, but not minted.
+        #[display(fmt = "-")]
+        Not,
+        // TODO: Support more variants using bit-compacted tag, and `u32` mintability tokens.
     }
 }
 
@@ -242,63 +408,6 @@ impl Ord for AssetDefinitionEntry {
 impl HasMetadata for AssetDefinition {
     fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-}
-
-model! {
-    /// Asset's inner value type.
-    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumString, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[ffi_type]
-    #[repr(u8)]
-    pub enum AssetValueType {
-        /// Asset's Quantity.
-        #[display(fmt = "q")]
-        Quantity,
-        /// Asset's Big Quantity.
-        #[display(fmt = "Q")]
-        BigQuantity,
-        /// Decimal quantity with fixed precision
-        #[display(fmt = "f")]
-        Fixed,
-        /// Asset's key-value structured data.
-        #[display(fmt = "s")]
-        Store,
-    }
-
-    /// Asset's inner value.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema)]
-    #[ffi_type]
-    pub enum AssetValue {
-        /// Asset's Quantity.
-        #[display(fmt = "{_0}q")]
-        Quantity(u32),
-        /// Asset's Big Quantity
-        #[display(fmt = "{_0}Q")]
-        BigQuantity(u128),
-        /// Asset's Decimal Quantity.
-        #[display(fmt = "{_0}f")]
-        Fixed(fixed::Fixed),
-        /// Asset's key-value structured data.
-        Store(Metadata),
-    }
-
-    /// An assets mintability scheme. `Infinitely` means elastic
-    /// supply. `Once` is what you want to use. Don't use `Not` explicitly
-    /// outside of smartcontracts.
-    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[ffi_type]
-    #[repr(u8)]
-    pub enum Mintable {
-        /// Regular asset with elastic supply. Can be minted and burned.
-        #[display(fmt = "+")]
-        Infinitely,
-        /// Non-mintable asset (token), with a fixed supply. Can be burned, and minted **once**.
-        #[display(fmt = "=")]
-        Once,
-        /// Non-mintable asset (token), with a fixed supply. Can be burned, but not minted.
-        #[display(fmt = "-")]
-        Not,
-        // TODO: Support more variants using bit-compacted tag, and `u32` mintability tokens.
     }
 }
 

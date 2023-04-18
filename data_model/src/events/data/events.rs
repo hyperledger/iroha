@@ -2,32 +2,29 @@
 #![allow(missing_docs)]
 
 use getset::Getters;
-use iroha_data_model_derive::{Filter, HasOrigin};
+use iroha_data_model_derive::{model, Filter, HasOrigin};
 use iroha_primitives::small::SmallVec;
 
+pub use self::model::*;
 use super::*;
-use crate::model;
-
-model! {
-    /// Generic [`MetadataChanged`] struct.
-    /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct MetadataChanged<ID> {
-        pub target_id: ID,
-        pub key: Name,
-        pub value: Box<Value>,
-    }
-}
 
 macro_rules! data_event {
     ($item:item) => {
-        crate::model! {
-            #[derive(Debug, Clone, PartialEq, Eq, Hash, Filter, HasOrigin)]
-            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
-            #[derive(serde::Deserialize, serde::Serialize)]
-            #[derive(iroha_schema::IntoSchema)]
+        iroha_data_model_derive::model_single! {
+            #[derive(
+                Debug,
+                Clone,
+                PartialEq,
+                Eq,
+                Hash,
+                Filter,
+                HasOrigin,
+                parity_scale_codec::Decode,
+                parity_scale_codec::Encode,
+                serde::Deserialize,
+                serde::Serialize,
+                iroha_schema::IntoSchema,
+            )]
             #[non_exhaustive]
             #[ffi_type]
             $item
@@ -35,9 +32,94 @@ macro_rules! data_event {
     };
 }
 
+#[model]
+pub mod model {
+    use super::*;
+
+    /// Generic [`MetadataChanged`] struct.
+    /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct MetadataChanged<ID> {
+        pub target_id: ID,
+        pub key: Name,
+        pub value: Box<Value>,
+    }
+
+    /// World event
+    ///
+    /// Does not participate in `Event`, but useful for events warranties when modifying `wsv`
+    #[derive(
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    pub enum WorldEvent {
+        Peer(peer::PeerEvent),
+        Domain(domain::DomainEvent),
+        Role(role::RoleEvent),
+        Trigger(trigger::TriggerEvent),
+        PermissionToken(permission::PermissionTokenEvent),
+        Configuration(config::ConfigurationEvent),
+        Validator(validator::ValidatorEvent),
+    }
+
+    /// Event
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub enum DataEvent {
+        /// Peer event
+        Peer(peer::PeerEvent),
+        /// Domain event
+        Domain(domain::DomainEvent),
+        /// Account event
+        Account(account::AccountEvent),
+        /// Asset definition event
+        AssetDefinition(asset::AssetDefinitionEvent),
+        /// Asset event
+        Asset(asset::AssetEvent),
+        /// Trigger event
+        Trigger(trigger::TriggerEvent),
+        /// Role event
+        Role(role::RoleEvent),
+        /// Permission token event
+        PermissionToken(permission::PermissionTokenEvent),
+        /// Configuration event
+        Configuration(config::ConfigurationEvent),
+        /// Validator event
+        Validator(validator::ValidatorEvent),
+    }
+}
+
 mod asset {
     //! This module contains `AssetEvent`, `AssetDefinitionEvent` and its impls
 
+    use iroha_data_model_derive::model;
+
+    pub use self::model::*;
     use super::*;
 
     // type alias required by `Filter` macro
@@ -79,9 +161,24 @@ mod asset {
         }
     }
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetChanged {
@@ -90,18 +187,40 @@ mod asset {
         }
 
         /// [`Self`] represents updated total asset quantity.
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetDefinitionTotalQuantityChanged {
             pub asset_definition_id: AssetDefinitionId,
             pub total_amount: NumericValue,
         }
-    }
 
-    model! {
-        /// [`Self`] represents updated asset definition ownership.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        /// [`Self`] represents updated total asset quantity.
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AssetDefinitionOwnerChanged {
@@ -130,6 +249,9 @@ mod peer {
 mod role {
     //! This module contains `RoleEvent` and its impls
 
+    use iroha_data_model_derive::model;
+
+    pub use self::model::*;
     use super::*;
 
     data_event! {
@@ -145,9 +267,26 @@ mod role {
         }
     }
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Information about permissions removed from [`Role`]
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct PermissionRemoved {
@@ -178,6 +317,9 @@ mod permission {
 mod account {
     //! This module contains `AccountEvent` and its impls
 
+    use iroha_data_model_derive::model;
+
+    pub use self::model::*;
     use super::*;
 
     // type alias required by `Filter` macro
@@ -208,9 +350,26 @@ mod account {
         }
     }
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Depending on the wrapping event, [`AccountPermissionChanged`] role represents the added or removed account role
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AccountPermissionChanged {
@@ -219,7 +378,21 @@ mod account {
         }
 
         /// Depending on the wrapping event, [`AccountRoleChanged`] represents the granted or revoked role
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct AccountRoleChanged {
@@ -258,6 +431,9 @@ mod domain {
 mod trigger {
     //! This module contains `TriggerEvent` and its impls
 
+    use iroha_data_model_derive::model;
+
+    pub use self::model::*;
     use super::*;
 
     data_event! {
@@ -272,9 +448,26 @@ mod trigger {
         }
     }
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Depending on the wrapping event, [`Self`] represents the increased or decreased number of event executions.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct TriggerNumberOfExecutionsChanged {
@@ -298,30 +491,43 @@ mod config {
 }
 
 mod validator {
-    use super::*;
+    use iroha_data_model_derive::model;
 
-    model! {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-        #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
-        #[derive(serde::Deserialize, serde::Serialize)]
-        #[derive(iroha_schema::IntoSchema)]
+    pub use self::model::*;
+
+    #[model]
+    pub mod model {
+        #[cfg(not(feature = "std"))]
+        use alloc::{format, string::String, vec::Vec};
+
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            parity_scale_codec::Decode,
+            parity_scale_codec::Encode,
+            serde::Deserialize,
+            serde::Serialize,
+            iroha_schema::IntoSchema,
+        )]
         #[non_exhaustive]
         #[ffi_type]
         #[serde(untagged)]
         #[repr(transparent)]
         pub enum ValidatorEvent {
-            Upgraded
+            Upgraded,
         }
 
         /// Filter for [`ValidatorEvent`].
         pub enum ValidatorFilter {
             Upgraded,
         }
-
     }
 
     #[cfg(feature = "transparent_api")]
-    impl Filter for ValidatorFilter {
+    impl super::Filter for ValidatorFilter {
         type Event = ValidatorEvent;
 
         fn matches(&self, event: &Self::Event) -> bool {
@@ -338,22 +544,6 @@ pub trait HasOrigin {
     type Origin: Identifiable;
     /// Identification of the origin.
     fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id;
-}
-
-model! {
-    /// World event
-    ///
-    /// Does not participate in `Event`, but useful for events warranties when modifying `wsv`
-    #[derive(Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub enum WorldEvent {
-        Peer(peer::PeerEvent),
-        Domain(domain::DomainEvent),
-        Role(role::RoleEvent),
-        Trigger(trigger::TriggerEvent),
-        PermissionToken(permission::PermissionTokenEvent),
-        Configuration(config::ConfigurationEvent),
-        Validator(validator::ValidatorEvent),
-    }
 }
 
 impl WorldEvent {
@@ -399,34 +589,6 @@ impl WorldEvent {
         }
 
         events
-    }
-}
-
-model! {
-    /// Event
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[ffi_type]
-    pub enum DataEvent {
-        /// Peer event
-        Peer(peer::PeerEvent),
-        /// Domain event
-        Domain(domain::DomainEvent),
-        /// Account event
-        Account(account::AccountEvent),
-        /// Asset definition event
-        AssetDefinition(asset::AssetDefinitionEvent),
-        /// Asset event
-        Asset(asset::AssetEvent),
-        /// Trigger event
-        Trigger(trigger::TriggerEvent),
-        /// Role event
-        Role(role::RoleEvent),
-        /// Permission token event
-        PermissionToken(permission::PermissionTokenEvent),
-        /// Configuration event
-        Configuration(config::ConfigurationEvent),
-        /// Validator event
-        Validator(validator::ValidatorEvent),
     }
 }
 

@@ -200,7 +200,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
     let filter_doc = format!(" Filter for {event_ident} entity");
 
     quote! {
-        iroha_data_model_derive::model! {
+        iroha_data_model_derive::model_single! {
             #[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[doc = #filter_doc]
             #vis struct #filter_ident #generics {
@@ -208,6 +208,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
                 event_filter: #fil_opt<#event_filter_ident>
             }
         }
+
         #[cfg(feature = "transparent_api")]
         impl #import_path::Filter for #filter_ident {
             type Event = #imp_event;
@@ -245,7 +246,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
     let event_filter_doc = format!(" Event filter for {event_ident} entity");
 
     quote! {
-        iroha_data_model_derive::model! {
+        iroha_data_model_derive::model_single! {
             #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[allow(clippy::enum_variant_names, missing_docs)]
             #[doc = #event_filter_doc]

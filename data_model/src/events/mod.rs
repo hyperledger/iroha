@@ -3,21 +3,37 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::model;
+pub use self::model::*;
 
 pub mod data;
 pub mod execute_trigger;
 pub mod pipeline;
 pub mod time;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     #[allow(missing_docs)]
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
     pub enum Event {
         /// Pipeline event.
@@ -41,6 +57,32 @@ model! {
         Time,
         /// Trigger execution event.
         ExecuteTrigger,
+    }
+
+    /// Event filter.
+    #[allow(variant_size_differences)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub enum FilterBox {
+        /// Listen to pipeline events with filter.
+        Pipeline(pipeline::PipelineEventFilter),
+        /// Listen to data events with filter.
+        Data(data::DataEventFilter),
+        /// Listen to time events with filter.
+        Time(time::TimeEventFilter),
+        /// Listen to trigger execution event with filter.
+        ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
     }
 }
 
@@ -72,22 +114,6 @@ pub trait Filter {
     }
 }
 
-model! {
-    /// Event filter.
-    #[allow(variant_size_differences)]
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub enum FilterBox {
-        /// Listen to pipeline events with filter.
-        Pipeline(pipeline::PipelineEventFilter),
-        /// Listen to data events with filter.
-        Data(data::DataEventFilter),
-        /// Listen to time events with filter.
-        Time(time::TimeEventFilter),
-        /// Listen to trigger execution event with filter.
-        ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
-    }
-}
-
 #[cfg(feature = "transparent_api")]
 impl Filter for FilterBox {
     type Event = Event;
@@ -111,8 +137,10 @@ pub mod stream {
     //! Structures related to event streaming over HTTP
 
     use derive_more::Constructor;
+    use iroha_data_model_derive::model;
     use iroha_version::prelude::*;
 
+    pub use self::model::*;
     use super::*;
 
     declare_versioned_with_scale!(VersionedEventMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
@@ -140,13 +168,23 @@ pub mod stream {
         }
     }
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Message sent by the stream producer.
         /// Event sent by the peer.
         #[version_with_scale(n = 1, versioned = "VersionedEventMessage")]
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct EventMessage(pub Event);
+
+        /// Message sent by the stream consumer.
+        /// Request sent by the client to subscribe to events.
+        #[version_with_scale(n = 1, versioned = "VersionedEventSubscriptionRequest")]
+        #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
+        #[repr(transparent)]
+        pub struct EventSubscriptionRequest(pub FilterBox);
     }
 
     impl From<EventMessage> for Event {
@@ -178,15 +216,6 @@ pub mod stream {
                 Self::V1(v1) => v1,
             }
         }
-    }
-
-    model! {
-        /// Message sent by the stream consumer.
-        /// Request sent by the client to subscribe to events.
-        #[version_with_scale(n = 1, versioned = "VersionedEventSubscriptionRequest")]
-        #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
-        #[repr(transparent)]
-        pub struct EventSubscriptionRequest(pub FilterBox);
     }
 }
 

@@ -14,12 +14,13 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
+pub use self::model::*;
 use crate::{
     asset::{
         prelude::{Asset, AssetId},
@@ -28,7 +29,6 @@ use crate::{
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo},
     metadata::Metadata,
-    model,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
 };
@@ -50,7 +50,10 @@ pub const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
 /// The context value name for account signatories.
 pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Identification of an [`Account`]. Consists of Account name and Domain name.
     ///
     /// # Examples
@@ -60,7 +63,23 @@ model! {
     ///
     /// let id = "user@company".parse::<AccountId>().expect("Valid");
     /// ```
-    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        DebugCustom,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[display(fmt = "{name}@{domain_id}")]
     #[debug(fmt = "{name}@{domain_id}")]
     #[getset(get = "pub")]
@@ -73,7 +92,18 @@ model! {
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdEqOrdHash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "({id})")] // TODO: Add more?
     #[ffi_type]
@@ -94,7 +124,9 @@ model! {
     }
 
     /// Builder which should be submitted in a transaction to create a new [`Account`]
-    #[derive(DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[display(fmt = "[{id}]")]
     #[debug(fmt = "[{id:?}] {{ signatories: {signatories:?}, metadata: {metadata} }}")]
     #[ffi_type]
@@ -108,7 +140,22 @@ model! {
     }
 
     /// Condition which checks if the account has the right signatures.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[serde(transparent)]
     #[repr(transparent)]
     // SAFETY: `SignatureCheckCondition` has no trap representation in `EvalueatesTo<bool>`

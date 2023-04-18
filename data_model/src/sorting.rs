@@ -7,15 +7,20 @@ use alloc::{
     vec::Vec,
 };
 
+use iroha_data_model_derive::model;
 use iroha_schema::IntoSchema;
 use iroha_version::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{model, prelude::*};
+pub use self::model::*;
+use crate::prelude::*;
 
 const SORT_BY_KEY: &str = "sort_by_metadata_key";
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Enum for sorting requests
     #[derive(Debug, Clone, Default, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Sorting {

@@ -5,15 +5,32 @@ use core::{ops::Range, time::Duration};
 
 use derive_more::Constructor;
 use getset::Getters;
+use iroha_data_model_derive::model;
 
+pub use self::model::*;
 use super::*;
-use crate::model;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Special event that is emitted when `WSV` is ready for handling time-triggers
     ///
     /// Contains time interval which is used to identify time-triggers to be executed
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TimeEvent {
@@ -25,10 +42,97 @@ model! {
     }
 
     /// Filter time-events and allow only the ones within the given time interval.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct TimeEventFilter(ExecutionTime);
+    pub struct TimeEventFilter(pub(super) ExecutionTime);
+
+    /// Trigger execution time
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub enum ExecutionTime {
+        /// Execute right before block commit
+        PreCommit,
+        /// Execute with some schedule
+        Schedule(Schedule),
+    }
+
+    /// Schedule of the trigger
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct Schedule {
+        /// The first execution time
+        pub start: Duration,
+        /// If some, the period between cyclic executions
+        pub period: Option<Duration>,
+    }
+
+    /// Time interval in which `TimeAction` should appear
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct TimeInterval {
+        /// The start of a time interval
+        pub since: Duration,
+        /// The length of a time interval
+        pub length: Duration,
+    }
 }
 
 #[cfg(feature = "transparent_api")]
@@ -112,26 +216,6 @@ fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
     Duration::from_secs(new_secs)
 }
 
-model! {
-    /// Trigger execution time
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub enum ExecutionTime {
-        /// Execute right before block commit
-        PreCommit,
-        /// Execute with some schedule
-        Schedule(Schedule),
-    }
-
-    /// Schedule of the trigger
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct Schedule {
-        /// The first execution time
-        pub start: Duration,
-        /// If some, the period between cyclic executions
-        pub period: Option<Duration>,
-    }
-}
-
 impl Schedule {
     /// Create new `Schedule` starting at `start` and without period
     #[must_use]
@@ -149,19 +233,6 @@ impl Schedule {
     pub const fn with_period(mut self, period: Duration) -> Self {
         self.period = Some(period);
         self
-    }
-}
-
-model! {
-    /// Time interval in which `TimeAction` should appear
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct TimeInterval {
-        /// The start of a time interval
-        pub since: Duration,
-        /// The length of a time interval
-        pub length: Duration,
     }
 }
 
