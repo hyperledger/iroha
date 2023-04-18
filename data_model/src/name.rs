@@ -5,22 +5,39 @@ use alloc::{format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
+use iroha_data_model_derive::model;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
-use crate::{model, ParseError, ValidationError};
+pub use self::model::*;
+use crate::{ParseError, ValidationError};
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// `Name` struct represents the type of Iroha Entities names, such as
     /// [`Domain`](`crate::domain::Domain`) name or
     /// [`Account`](`crate::account::Account`) name.
-    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
+    #[derive(
+        DebugCustom,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Encode,
+        Serialize,
+        IntoSchema,
+    )]
     #[serde(transparent)]
     #[repr(transparent)]
     #[ffi_type(opaque)]
-    pub struct Name(ConstString);
+    pub struct Name(pub(super) ConstString);
 }
 
 impl Name {

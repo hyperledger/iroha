@@ -25,12 +25,32 @@ pub use self::{
 use crate::{events::prelude::*, model, peer, transaction::prelude::*};
 
 mod header {
+    pub use self::model::*;
     use super::*;
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Header of the block. The hash should be taken from its byte representation.
-        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[cfg_attr(feature = "std", display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)"))]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[cfg_attr(
+            feature = "std",
+            display(fmt = "Block №{height} (hash: {});", "HashOf::new(&self)")
+        )]
         #[cfg_attr(not(feature = "std"), display(fmt = "Block №{height}"))]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -79,6 +99,7 @@ mod header {
 mod committed {
     use iroha_macro::FromVariant;
 
+    pub use self::model::*;
     use super::*;
 
     #[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
@@ -86,10 +107,26 @@ mod committed {
     #[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
     declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, IntoSchema);
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// The `CommittedBlock` struct represents a block accepted by consensus
         #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
-        #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[display(fmt = "({header})")]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -254,6 +291,7 @@ pub mod stream {
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
 
+    pub use self::model::*;
     use super::*;
 
     declare_versioned_with_scale!(VersionedBlockMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
@@ -281,7 +319,10 @@ pub mod stream {
         }
     }
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Request sent to subscribe to blocks stream starting from the given height.
         #[version_with_scale(n = 1, versioned = "VersionedBlockSubscriptionRequest")]
         #[derive(Debug, Clone, Copy, Constructor, Decode, Encode, IntoSchema)]
@@ -339,11 +380,29 @@ pub mod stream {
 pub mod error {
     //! Module containing errors that can occur during instruction evaluation
 
+    pub use self::model::*;
     use super::*;
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// The reason for rejecting a transaction with new blocks.
-        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, iroha_macro::FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+            iroha_macro::FromVariant,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[display(fmt = "Block was rejected during consensus")]
         #[serde(untagged)]
         #[repr(transparent)]

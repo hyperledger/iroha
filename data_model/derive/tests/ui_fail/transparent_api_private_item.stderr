@@ -7,5 +7,5 @@ error[E0603]: struct `QueryPayload` is private
 note: the struct `QueryPayload` is defined here
  --> $WORKSPACE/data_model/src/query.rs
   |
-  |         pub(crate) struct QueryPayload {
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     pub use self::model::*;
+  |             ^^^^^^^^^^^^^^
