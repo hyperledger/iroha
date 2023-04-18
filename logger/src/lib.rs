@@ -112,6 +112,7 @@ where
         .with(layer)
         .with(filter)
         .with(storage_layer)
+        .with(tracing_error::ErrorLayer::default())
         .with(bunyan_layer);
 
     add_tokio_console_subscriber(configuration, subscriber)

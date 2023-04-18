@@ -2368,6 +2368,7 @@ dependencies = [
  "tracing",
  "tracing-bunyan-formatter",
  "tracing-core",
+ "tracing-error",
  "tracing-futures",
  "tracing-subscriber",
 ]
