@@ -12,7 +12,7 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
-use derive_more::{Constructor, Display};
+use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::IdEqOrdHash;
 use iroha_schema::IntoSchema;
@@ -60,8 +60,9 @@ model! {
     ///
     /// let id = "user@company".parse::<AccountId>().expect("Valid");
     /// ```
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[display(fmt = "{name}@{domain_id}")]
+    #[debug(fmt = "{name}@{domain_id}")]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AccountId {
@@ -93,8 +94,9 @@ model! {
     }
 
     /// Builder which should be submitted in a transaction to create a new [`Account`]
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "[{id}]")]
+    #[debug(fmt = "[{id:?}] {{ signatories: {signatories:?}, metadata: {metadata} }}")]
     #[ffi_type]
     pub struct NewAccount {
         /// Identification

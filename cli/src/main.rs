@@ -61,14 +61,11 @@ async fn main() -> Result<(), color_eyre::Report> {
     if env::args().any(|a| SUBMIT_ARG.contains(&a.as_str())) {
         args.submit_genesis = true;
         if let Ok(genesis_path) = env::var("IROHA2_GENESIS_PATH") {
-            args.genesis_path =
-                Some(ConfigPath::user_provided(&genesis_path)
-                     .wrap_err_with(
-                         ||
-                             "Required, because `--submit-genesis` was specified.")
-                     .wrap_err_with(
-                         ||
-                             format!("Could not read `{genesis_path}`"))?);
+            args.genesis_path = Some(
+                ConfigPath::user_provided(&genesis_path)
+                    .wrap_err_with(|| "Required, because `--submit-genesis` was specified.")
+                    .wrap_err_with(|| format!("Could not read `{genesis_path}`"))?,
+            );
         }
     } else {
         args.genesis_path = None;
@@ -142,12 +139,10 @@ async fn main() -> Result<(), color_eyre::Report> {
         None
     };
 
-    iroha::Iroha::with_genesis(
-        genesis,
-        config,
-        telemetry,
-    )
-    .await?;
+    iroha::Iroha::with_genesis(genesis, config, telemetry)
+        .await?
+        .start()
+        .await?;
     Ok(())
 }
 

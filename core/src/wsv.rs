@@ -328,8 +328,6 @@ impl WorldStateView {
             .borrow_mut()
             .push(Event::Time(time_event));
 
-        
-        
         self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
 

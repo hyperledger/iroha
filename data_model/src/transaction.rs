@@ -136,10 +136,11 @@ pub trait Sign {
 
 model! {
     /// Either ISI or Wasm binary
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(derive_more::DebugCustom, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type(local)]
     pub enum Executable {
         /// Ordered set of instructions.
+        #[debug(fmt = "{_0:?}")]
         Instructions(Vec<InstructionBox>),
         /// WebAssembly smartcontract
         Wasm(WasmSmartContract),

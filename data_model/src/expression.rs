@@ -15,7 +15,7 @@ use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
-use derive_more::{Constructor, Display};
+use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{PartiallyTaggedDeserialize, PartiallyTaggedSerialize};
 use iroha_macro::FromVariant;
@@ -170,10 +170,11 @@ pub type ExpressionBox = Box<Expression>;
 
 model! {
     /// Struct for type checking and converting expression results.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, TypeId)]
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, TypeId)]
     // As this structure exists only for type checking
     // it makes sense to display `expression` directly
     #[display(fmt = "{expression}")]
+    #[debug(fmt = "{expression:?}")]
     #[serde(transparent)]
     #[repr(transparent)]
     // SAFETY: `EvaluatesTo` has no trap representation in `ExpressionBox`
@@ -371,7 +372,7 @@ mod operation {
 
 model! {
     /// Represents all possible expressions.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
     #[ffi_type(opaque)]
     pub enum Expression {
         /// Add expression.
@@ -402,6 +403,7 @@ model! {
         If(If),
         /// Raw value.
         #[serde_partially_tagged(untagged)]
+        #[debug(fmt = "{_0:?}")]
         Raw(ValueBox),
         /// Query to Iroha state.
         Query(QueryBox),

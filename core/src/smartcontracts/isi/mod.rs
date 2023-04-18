@@ -24,7 +24,7 @@ use iroha_data_model::{
     },
     prelude::*,
 };
-use iroha_logger::prelude::{*, Span};
+use iroha_logger::prelude::{Span, *};
 use iroha_primitives::fixed::Fixed;
 
 use super::{Context, Evaluate, Execute};
@@ -106,7 +106,7 @@ impl Execute for RegisterBox {
 impl Execute for UnregisterBox {
     type Error = Error;
 
-    #[iroha_logger::log(name="unregister", skip_all, fields(id))]
+    #[iroha_logger::log(name = "unregister", skip_all, fields(id))]
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
         let object_id = self.object_id.evaluate(&context)?;
@@ -140,7 +140,7 @@ impl Execute for UnregisterBox {
 impl Execute for MintBox {
     type Error = Error;
 
-    #[iroha_logger::log(name="Mint", skip_all, fields(destination))]
+    #[iroha_logger::log(name = "Mint", skip_all, fields(destination))]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -180,7 +180,7 @@ impl Execute for MintBox {
 impl Execute for BurnBox {
     type Error = Error;
 
-    #[iroha_logger::log(name="burn", skip_all, fields(destination))]
+    #[iroha_logger::log(name = "burn", skip_all, fields(destination))]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -219,7 +219,7 @@ impl Execute for BurnBox {
 impl Execute for TransferBox {
     type Error = Error;
 
-    #[iroha_logger::log(name="transfer", skip_all, fields(from, to))]
+    #[iroha_logger::log(name = "transfer", skip_all, fields(from, to))]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -353,7 +353,7 @@ impl Execute for Pair {
 impl Execute for SequenceBox {
     type Error = Error;
 
-    #[iroha_logger::log(skip_all, name="Sequence", fields(count))]
+    #[iroha_logger::log(skip_all, name = "Sequence", fields(count))]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -385,7 +385,7 @@ impl Execute for FailBox {
 impl Execute for GrantBox {
     type Error = Error;
 
-    #[iroha_logger::log(name="grant", skip_all, fields(object))]
+    #[iroha_logger::log(name = "grant", skip_all, fields(object))]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -412,7 +412,7 @@ impl Execute for GrantBox {
 impl Execute for RevokeBox {
     type Error = Error;
 
-    #[iroha_logger::log(name="revoke", skip_all, fields(object))]
+    #[iroha_logger::log(name = "revoke", skip_all, fields(object))]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,

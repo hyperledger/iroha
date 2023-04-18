@@ -6,8 +6,8 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
-use derive_more::{Constructor, Display};
 use getset::Getters;
+use derive_more::{Constructor, DebugCustom, Display};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -19,41 +19,57 @@ use crate::{model, Registered};
 
 model! {
     /// Sized structure for all possible Instructions.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, EnumDiscriminants, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, Hash, FromVariant, EnumDiscriminants, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[strum_discriminants(name(InstructionType), derive(Display), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
     #[ffi_type(opaque)]
     pub enum InstructionBox {
         /// `Register` variant.
+        #[debug(fmt = "{_0:?}")]
         Register(RegisterBox),
         /// `Unregister` variant.
+        #[debug(fmt = "{_0:?}")]
         Unregister(UnregisterBox),
         /// `Mint` variant.
+        #[debug(fmt = "{_0:?}")]
         Mint(MintBox),
         /// `Burn` variant.
+        #[debug(fmt = "{_0:?}")]
         Burn(BurnBox),
         /// `Transfer` variant.
+        #[debug(fmt = "{_0:?}")]
         Transfer(TransferBox),
         /// `If` variant.
+        #[debug(fmt = "{_0:?}")]
         If(Box<Conditional>),
         /// `Pair` variant.
+        #[debug(fmt = "{_0:?}")]
         Pair(Box<Pair>),
         /// `Sequence` variant.
+        #[debug(fmt = "{_0:?}")]
         Sequence(SequenceBox),
         /// `Fail` variant.
+        #[debug(fmt = "{_0:?}")]
         Fail(FailBox),
         /// `SetKeyValue` variant.
+        #[debug(fmt = "{_0:?}")]
         SetKeyValue(SetKeyValueBox),
         /// `RemoveKeyValue` variant.
+        #[debug(fmt = "{_0:?}")]
         RemoveKeyValue(RemoveKeyValueBox),
         /// `Grant` variant.
+        #[debug(fmt = "{_0:?}")]
         Grant(GrantBox),
         /// `Revoke` variant.
+        #[debug(fmt = "{_0:?}")]
         Revoke(RevokeBox),
         /// `ExecuteTrigger` variant.
+        #[debug(fmt = "{_0:?}")]
         ExecuteTrigger(ExecuteTriggerBox),
         /// `SetParameter` variant.
+        #[debug(fmt = "{_0:?}")]
         SetParameter(SetParameterBox),
         /// `NewParameter` variant.
+        #[debug(fmt = "{_0:?}")]
         NewParameter(NewParameterBox),
         /// `Upgrade` variant.
         Upgrade(UpgradeBox)
