@@ -40,9 +40,10 @@ pub trait ValueTrait: Into<Value> {
 
 model! {
     /// Unique id of [`Definition`]
-    #[derive(Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, FromStr, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(derive_more::DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, FromStr, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[repr(transparent)]
     #[ffi_type(opaque)]
+    #[debug(fmt = "PermissionTokenId: {name}")]
     pub struct PermissionTokenId {
         /// [`PermissionToken`] name
         #[getset(get = "pub")]
@@ -74,19 +75,13 @@ model! {
 
 impl core::fmt::Debug for PermissionTokenDefinition {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut fuck_the_borrow_checker = f.debug_struct("PermissionTokenDefinition");
-        let intermediate = fuck_the_borrow_checker.field("id", &self.id.name);
+        let mut borrow_checker_happifier = f.debug_struct("PermissionTokenDefinition");
+        let intermediate = borrow_checker_happifier.field("id", &self.id.name);
         if self.params.is_empty() {
             intermediate.finish()
         } else {
             intermediate.field("params", &self.params).finish()
         }
-    }
-}
-
-impl core::fmt::Debug for PermissionTokenId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "PermissionTokenId: {}", self.name)
     }
 }
 
