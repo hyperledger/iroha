@@ -227,10 +227,17 @@ mod internal {
 
         fn build_smartcontract(&self) -> Result<Output> {
             let out_dir = tempfile::tempdir().wrap_err("Failed to create temporary directory")?;
+            let rustflags = [
+                "--remap-path-prefix=$HOME=/remap-home",
+                "--remap-path-prefix=$PWD=/remap-pwd",
+                "-C codegen-units=1",
+            ]
+            .join(" ");
 
             let command_output = cargo_command()
                 .current_dir(&self.absolute_path)
                 .env("CARGO_TARGET_DIR", self.out_dir.as_ref())
+                .env("RUSTFLAGS", rustflags)
                 .arg("build")
                 .args(Self::build_options())
                 .args(["--out-dir", &out_dir.path().display().to_string()])
@@ -298,22 +305,15 @@ impl Output {
 
 // TODO: Remove cargo invocation (#2152)
 fn cargo_command() -> Command {
+    let sanitized_env =
+        env::vars().filter(|&(ref var, _)| !(var.starts_with("CARGO") || var.starts_with("RUST")));
     let mut cargo = Command::new("cargo");
     cargo
-        // Removing environment variable to avoid
-        // `error: infinite recursion detected` when running `cargo lints`
-        .env_remove("RUST_RECURSION_COUNT")
-        // Removing environment variable to avoid
-        // `error: `profiler_builtins` crate (required by compiler options) is not compatible with crate attribute `#![no_core]``
-        // when running with `-C instrument-coverage`
-        // TODO: Check if there are no problems with that
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .args([
-            TOOLCHAIN,
-        ]);
+        .env_clear()
+        .envs(sanitized_env)
+        .args([TOOLCHAIN, "--locked"]);
     cargo
 }
-
 fn check_command_output(command_output: &std::process::Output, command_name: &str) -> Result<()> {
     if !command_output.status.success() {
         bail!(
