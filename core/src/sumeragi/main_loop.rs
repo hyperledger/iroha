@@ -160,7 +160,7 @@ impl Sumeragi {
             data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
             peer_id: peer.clone(),
         };
-        self.network.post_blocking(post);
+        self.network.post(post);
     }
 
     #[allow(clippy::needless_pass_by_value, single_use_lifetimes)] // TODO: uncomment when anonymous lifetimes are stable
