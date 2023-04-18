@@ -34,6 +34,7 @@ pub enum Error {
 }
 
 impl From<StreamError> for Error {
+    #[cfg_attr(coverage_nightly, no_coverage)] // Obvious
     fn from(error: StreamError) -> Self {
         Self::Stream(Box::new(error))
     }
@@ -44,7 +45,6 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 /// Consumer for Iroha `Event`(s).
 /// Passes the events over the corresponding connection `stream` if they match the `filter`.
-#[derive(Debug)]
 pub struct Consumer {
     stream: WebSocket,
     filter: FilterBox,
@@ -56,6 +56,7 @@ impl Consumer {
     /// # Errors
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
+    #[cfg_attr(coverage_nightly, no_coverage)] // Obvious
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
         let subscription_request: VersionedEventSubscriptionRequest = stream.recv().await?;
         let EventSubscriptionRequest(filter) = subscription_request.into_v1();
@@ -68,6 +69,7 @@ impl Consumer {
     /// # Errors
     /// Can fail due to timeout or sending event. Also receiving might fail
     #[iroha_futures::telemetry_future]
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     pub async fn consume(&mut self, event: Event) -> Result<()> {
         if !self.filter.matches(&event) {
             return Ok(());
@@ -83,6 +85,7 @@ impl Consumer {
     ///
     /// # Errors
     /// Can fail if can't receive message from stream for some reason
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     pub async fn stream_closed(&mut self) -> Result<()> {
         while let Some(message) = self.stream.try_next().await? {
             if message.is_close() {
@@ -97,6 +100,7 @@ impl Consumer {
     ///
     /// # Errors
     /// Throws up [`WebSocket::close()`] errors
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     pub async fn close_stream(self) -> Result<()> {
         self.stream.close().await.map_err(Into::into)
     }

@@ -1,3 +1,4 @@
+#![cfg_attr(coverage_nightly, feature(no_coverage))]
 //! Common primitives for a CLI instance of Iroha. If you're
 //! customising it for deployment, use this crate as a reference to
 //! add more complex behaviour, TUI, GUI, monitoring, etc.
@@ -48,7 +49,6 @@ pub mod torii;
 /// Arguments for Iroha2.  Configuration for arguments is parsed from
 /// environment variables and then the appropriate object is
 /// constructed.
-#[derive(Debug)]
 pub struct Arguments {
     /// Set this flag on the peer that should submit genesis on the network initial start.
     pub submit_genesis: bool,
@@ -67,6 +67,8 @@ static GENESIS_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
     once_cell::sync::Lazy::new(|| std::path::Path::new("genesis"));
 
 impl Default for Arguments {
+    // Not necessary
+    #[cfg_attr(coverage_nightly, no_coverage)]
     fn default() -> Self {
         Self {
             submit_genesis: false,
@@ -405,6 +407,7 @@ impl Iroha {
     /// # Errors
     /// - Forwards initialisation error.
     #[iroha_futures::telemetry_future]
+    #[cfg_attr(coverage_nightly, no_coverage)] // Only used in actual invocation
     pub async fn start(&mut self) -> Result<()> {
         iroha_logger::info!("Starting Iroha");
         self.torii
@@ -456,6 +459,7 @@ impl Iroha {
     }
 
     #[cfg(not(feature = "telemetry"))]
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not run as part of coverage
     async fn start_telemetry(
         _telemetry: Option<(
             iroha_logger::SubstrateTelemetry,
@@ -528,6 +532,7 @@ pub mod style {
     }
 
     impl Default for Styling {
+        #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
         fn default() -> Self {
             Self {
                 positive: Style::new().green().bold(),
@@ -539,6 +544,7 @@ pub mod style {
     }
 
     /// Determine if message colourisation is to be enabled
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     pub fn should_disable_color() -> bool {
         supports_color::on(supports_color::Stream::Stdout).is_none()
             || std::env::var("TERMINAL_COLORS")
@@ -549,6 +555,7 @@ pub mod style {
     impl Styling {
         #[must_use]
         /// Constructor
+        #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
         pub fn new() -> Self {
             if should_disable_color() {
                 Self::no_color()
@@ -557,6 +564,7 @@ pub mod style {
             }
         }
 
+        #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
         fn no_color() -> Self {
             Self {
                 positive: Style::new(),
@@ -567,6 +575,7 @@ pub mod style {
         }
 
         /// Produce documentation for argument group
+        #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
         pub fn or(&self, arg_group: &[&str; 2]) -> String {
             format!(
                 "`{}` (short `{}`)",
@@ -576,6 +585,7 @@ pub mod style {
         }
 
         /// Convenience method for ".json or .json5" pattern
+        #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
         pub fn with_json_file_ext(&self, name: &str) -> String {
             let json = format!("{name}.json");
             let json5 = format!("{name}.json5");

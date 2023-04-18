@@ -72,6 +72,7 @@ where
     type Message: StreamMessage + Send;
 
     /// Encoded message and sends it to the stream
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     async fn send(&mut self, message: S) -> Result<(), Error<Self::Err>> {
         tokio::time::timeout(
             TIMEOUT,
@@ -98,6 +99,7 @@ pub trait Stream<R: DecodeVersioned>:
     type Message: StreamMessage;
 
     /// Receives and decodes message from the stream
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     async fn recv(&mut self) -> Result<R, Error<Self::Err>> {
         let subscription_request_message = tokio::time::timeout(TIMEOUT, self.next())
             .await
@@ -120,18 +122,22 @@ pub trait Stream<R: DecodeVersioned>:
 }
 
 impl StreamMessage for warp::ws::Message {
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     fn binary(source: Vec<u8>) -> Self {
         warp::ws::Message::binary(source)
     }
 
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
     }
 
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     fn is_binary(&self) -> bool {
         self.is_binary()
     }
 
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     fn is_close(&self) -> bool {
         self.is_close()
     }

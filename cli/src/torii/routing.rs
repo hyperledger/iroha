@@ -213,17 +213,20 @@ enum Health {
     Healthy,
 }
 
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 fn handle_health() -> Json {
     reply::json(&Health::Healthy)
 }
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "schema-endpoint")]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_schema() -> Json {
     reply::json(&iroha_schema_gen::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: Arc<Sumeragi>,
@@ -242,6 +245,7 @@ async fn handle_pending_transactions(
 }
 
 #[iroha_futures::telemetry_future]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_get_configuration(
     iroha_cfg: Configuration,
     get_cfg: GetConfiguration,
@@ -263,6 +267,7 @@ async fn handle_get_configuration(
 }
 
 #[iroha_futures::telemetry_future]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_post_configuration(
     iroha_cfg: Configuration,
     cfg: PostConfiguration,
@@ -281,6 +286,7 @@ async fn handle_post_configuration(
 }
 
 #[iroha_futures::telemetry_future]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
     let subscription_request: VersionedBlockSubscriptionRequest = stream.recv().await?;
     let BlockSubscriptionRequest(mut from_height) = subscription_request.into_v1();
@@ -350,6 +356,7 @@ mod subscription {
     }
 
     impl From<event::Error> for Error {
+        #[cfg_attr(coverage_nightly, no_coverage)] // Trivial
         fn from(error: event::Error) -> Self {
             match error {
                 event::Error::Stream(box_err)
@@ -372,6 +379,7 @@ mod subscription {
     /// There should be a [`warp::filters::ws::Message::close()`]
     /// message to end subscription
     #[iroha_futures::telemetry_future]
+    #[cfg_attr(coverage_nightly, no_coverage)] // Trivial
     pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
         let mut consumer = event::Consumer::new(stream).await?;
 
@@ -385,6 +393,7 @@ mod subscription {
     ///
     /// Ideally should return `Result<!>` cause it either runs forever
     /// either returns `Err` variant
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     async fn subscribe_forever(events: EventsSender, consumer: &mut event::Consumer) -> Result<()> {
         let mut events = events.subscribe();
 
@@ -412,6 +421,7 @@ mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
     use iroha_version::Version;
 
@@ -426,6 +436,7 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 fn handle_metrics(sumeragi: &Sumeragi) -> Result<String> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
@@ -438,6 +449,7 @@ fn handle_metrics(sumeragi: &Sumeragi) -> Result<String> {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unnecessary_wraps)]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 fn handle_status(sumeragi: &Sumeragi) -> Result<warp::reply::Json, Infallible> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
@@ -448,6 +460,7 @@ fn handle_status(sumeragi: &Sumeragi) -> Result<warp::reply::Json, Infallible> {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn handle_status_precise(sumeragi: Arc<Sumeragi>, segment: String) -> Result<Json> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
@@ -492,6 +505,7 @@ impl Torii {
 
     #[allow(opaque_hidden_inferred_bound)]
     #[cfg(feature = "telemetry")]
+    #[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
     /// Helper function to create router. This router can tested without starting up an HTTP server
     fn create_telemetry_router(
         &self,

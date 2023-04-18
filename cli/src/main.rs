@@ -1,3 +1,4 @@
+#![cfg_attr(coverage_nightly, feature(no_coverage))]
 //! Iroha peer command-line interface.
 #![allow(clippy::print_stdout)]
 use std::env;
@@ -27,6 +28,7 @@ const REQUIRED_ENV_VARS: [(&str, &str); 7] = [
 ];
 
 #[tokio::main]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 async fn main() -> Result<(), color_eyre::Report> {
     let styling = Styling::new();
     let mut args = iroha::Arguments::default();
@@ -89,6 +91,7 @@ async fn main() -> Result<(), color_eyre::Report> {
 }
 
 #[allow(clippy::print_stdout)]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 fn print_help(styling: &Styling) -> Result<(), std::io::Error> {
     use std::io::Write;
 
@@ -147,6 +150,7 @@ as follows:",
 }
 
 #[allow(clippy::print_stdout)]
+#[cfg_attr(coverage_nightly, no_coverage)] // Not used outside actual run
 fn print_version(styling: &Styling) {
     println!(
         "{} {} (git hash {}) \n {}: {}",
