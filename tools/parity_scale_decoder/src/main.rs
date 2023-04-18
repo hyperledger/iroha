@@ -29,8 +29,8 @@ use iroha_data_model::{
         },
         BlockHeader, CommittedBlock, VersionedCommittedBlock,
     },
-    domain::{IpfsPath, NewDomain},
-    permission::validator::Validator,
+    domain::NewDomain,
+    ipfs::IpfsPath,
     predicate::{
         ip_addr::{Ipv4Predicate, Ipv6Predicate},
         numerical::{Interval, SemiInterval, SemiRange},
@@ -214,7 +214,7 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 mod tests {
     use std::str::FromStr as _;
 
-    use iroha_data_model::{domain::IpfsPath, prelude::*};
+    use iroha_data_model::{ipfs::IpfsPath, prelude::*};
 
     use super::*;
 

@@ -318,6 +318,10 @@
         "type": "Mintable"
       },
       {
+        "name": "logo",
+        "type": "Option<IpfsPath>"
+      },
+      {
         "name": "metadata",
         "type": "Metadata"
       }
@@ -2316,6 +2320,10 @@
       {
         "name": "mintable",
         "type": "Mintable"
+      },
+      {
+        "name": "logo",
+        "type": "Option<IpfsPath>"
       },
       {
         "name": "metadata",
