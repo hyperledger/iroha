@@ -8,7 +8,7 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
-use derive_more::{Constructor, Display};
+use derive_more::{Constructor, DebugCustom, Display};
 use getset::{CopyGetters, Getters};
 use iroha_data_model_derive::IdEqOrdHash;
 use iroha_macro::FromVariant;
@@ -48,8 +48,9 @@ model! {
     ///
     /// let definition_id = "xor#soramitsu".parse::<AssetDefinitionId>().expect("Valid");
     /// ```
-    #[derive(Debug, Clone, Display, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(DebugCustom, Clone, Display, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[display(fmt = "{name}#{domain_id}")]
+    #[debug(fmt = "{name}#{domain_id}")]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AssetDefinitionId {
@@ -60,7 +61,7 @@ model! {
     }
 
     /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AssetId {
@@ -398,6 +399,12 @@ impl fmt::Display for AssetId {
         } else {
             write!(f, "{}#{}", self.definition_id, self.account_id)
         }
+    }
+}
+
+impl fmt::Debug for AssetId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 

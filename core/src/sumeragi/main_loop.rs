@@ -253,12 +253,10 @@ impl Sumeragi {
         );
         loop {
             std::thread::sleep(Duration::from_millis(50));
-            early_return(shutdown_receiver).map_err(
-                |e| {
-                    debug!(?e, "Early return.");
-                    e
-                }
-            )?;
+            early_return(shutdown_receiver).map_err(|e| {
+                debug!(?e, "Early return.");
+                e
+            })?;
             // we must connect to peers so that our block_sync can find us
             // the genesis block.
             match self.message_receiver.lock().try_recv() {
@@ -844,7 +842,6 @@ fn should_terminate(shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>) 
     use tokio::sync::oneshot::error::TryRecvError;
 
     match shutdown_receiver.try_recv() {
-        
         Err(TryRecvError::Empty) => false,
         reason => {
             info!(?reason, "Sumeragi Thread is being shut down.");
@@ -853,7 +850,7 @@ fn should_terminate(shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>) 
     }
 }
 
-#[iroha_logger::log(name="consensus", skip_all)]
+#[iroha_logger::log(name = "consensus", skip_all)]
 /// Execute the main loop of [`Sumeragi`]
 pub(crate) fn run(
     genesis_network: Option<GenesisNetwork>,
@@ -908,12 +905,12 @@ pub(crate) fn run(
 
     while !should_terminate(&mut shutdown_receiver) {
         if should_sleep {
-            let span = span!(Level::TRACE, "Sumeragi Main Thread Sleep");
+            let span = span!(Level::TRACE, "main_thread_sleep");
             let _enter = span.enter();
             std::thread::sleep(std::time::Duration::from_millis(5));
             should_sleep = false;
         }
-        let span_for_sumeragi_cycle = span!(Level::TRACE, "Sumeragi Main Thread Cycle");
+        let span_for_sumeragi_cycle = span!(Level::TRACE, "main_thread_cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
 
         state
