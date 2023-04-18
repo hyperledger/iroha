@@ -35,7 +35,7 @@ use std::borrow::Cow;
 use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
-use derive_more::{AsRef, Deref, Display, From, FromStr, DebugCustom};
+use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
 use events::FilterBox;
 use getset::Getters;
 pub use iroha_crypto::SignatureOf;
