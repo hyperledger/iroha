@@ -107,7 +107,7 @@ impl TestActor {
 /// This peer connects to our second network, emulating some distant peer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_networks() {
-    let delay = Duration::from_millis(200);
+    let delay = Duration::from_millis(300);
     setup_logger();
     let public_key1 = iroha_crypto::PublicKey::from_str(
         "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",

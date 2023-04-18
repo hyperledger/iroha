@@ -13,6 +13,7 @@ use alloc::{
 use std::collections::btree_map;
 
 use derive_more::{Constructor, Display};
+use iroha_data_model_derive::model;
 use iroha_schema::IntoSchema;
 use iroha_version::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -22,15 +23,36 @@ use warp::{
     Reply,
 };
 
-use crate::model;
+pub use self::model::*;
 
 const PAGINATION_START: &str = "start";
 const PAGINATION_LIMIT: &str = "limit";
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Structure for pagination requests
-    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Default, Constructor, Deserialize, Serialize, Decode, Encode, IntoSchema)]
-    #[display(fmt = "{}--{}", "start.unwrap_or(0)", "limit.map_or(\".inf\".to_owned(), |n| n.to_string())")]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Default,
+        Constructor,
+        Deserialize,
+        Serialize,
+        Decode,
+        Encode,
+        IntoSchema,
+    )]
+    #[display(
+        fmt = "{}--{}",
+        "start.unwrap_or(0)",
+        "limit.map_or(\".inf\".to_owned(), |n| n.to_string())"
+    )]
     pub struct Pagination {
         /// start of indexing
         pub start: Option<u32>,

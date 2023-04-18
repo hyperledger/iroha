@@ -11,14 +11,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
+pub use self::model::*;
 use crate::{
-    model, utils::format_comma_separated, IdBox, Identifiable, Name, Registered, Value, ValueKind,
+    utils::format_comma_separated, IdBox, Identifiable, Name, Registered, Value, ValueKind,
 };
 
 /// Collection of [`Token`]s
@@ -38,9 +39,29 @@ pub trait ValueTrait: Into<Value> {
     const TYPE: ValueKind;
 }
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Unique id of [`Definition`]
-    #[derive(derive_more::DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, FromStr, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        derive_more::DebugCustom,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        FromStr,
+        Getters,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[repr(transparent)]
     #[ffi_type(opaque)]
     #[debug(fmt = "PermissionTokenId: {name}")]
@@ -62,7 +83,21 @@ model! {
     }
 
     /// Stored proof of the account having a permission for a certain action.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
     pub struct PermissionToken {
         /// Name of the permission rule given to account.

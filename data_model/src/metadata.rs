@@ -7,18 +7,38 @@ use core::borrow::Borrow;
 use std::collections::btree_map;
 
 use derive_more::Display;
+use iroha_data_model_derive::model;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{model, Name, Value};
+pub use self::model::*;
+use crate::{Name, Value};
 
 /// Collection of parameters by their names.
 pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Limits for [`Metadata`].
-    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
     #[ffi_type]
     pub struct Limits {
@@ -26,6 +46,32 @@ model! {
         pub max_len: u32,
         /// Maximum length of entry
         pub max_entry_byte_size: u32,
+    }
+
+    /// Collection of parameters by their names with checked insertion.
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(clippy::multiple_inherent_impl)]
+    #[display(fmt = "Metadata")]
+    #[ffi_type(opaque)]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct Metadata {
+        pub(super) map: btree_map::BTreeMap<Name, Value>,
     }
 }
 
@@ -69,19 +115,6 @@ impl Limits {
             max_len,
             max_entry_byte_size,
         }
-    }
-}
-
-model! {
-    /// Collection of parameters by their names with checked insertion.
-    #[derive(Debug, Display, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[allow(clippy::multiple_inherent_impl)]
-    #[display(fmt = "Metadata")]
-    #[ffi_type(opaque)]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct Metadata {
-        map: btree_map::BTreeMap<Name, Value>,
     }
 }
 

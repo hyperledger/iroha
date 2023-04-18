@@ -1,28 +1,14 @@
 //! A crate containing various derive macros for `data_model`
 #![allow(clippy::std_instead_of_core)]
 
-mod api;
 mod filter;
 mod has_origin;
 mod id;
+mod model;
 mod partially_tagged;
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
-
-struct Items(Vec<syn::DeriveInput>);
-
-impl syn::parse::Parse for Items {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut items = Vec::new();
-
-        while !input.is_empty() {
-            items.push(input.parse()?);
-        }
-
-        Ok(Self(items))
-    }
-}
 
 /// Macro which controls how to export item's API. The behaviour is controlled with `transparent_api`
 /// feature flag. If the flag is active, item's public fields will be exposed as public, however, if
@@ -33,12 +19,16 @@ impl syn::parse::Parse for Items {
 /// Additionally, this macro will rewrite private items as public when `transparent_api` is active.
 /// If an item should remain private regardless of consumer library, just don't wrap it in this macro.
 ///
+/// Should be used only on public module named `model`.
+/// Macro will modify only structs, enums and unions. Other items will be left as is.
+///
 /// # Example
 ///
 /// ```rust
 /// use iroha_data_model_derive::model;
 ///
-/// model! {
+/// #[model]
+/// pub mod model {
 ///     pub struct DataModel1 {
 ///        pub item1: u32,
 ///        item2: u64
@@ -51,38 +41,42 @@ impl syn::parse::Parse for Items {
 /// }
 ///
 /// /* will produce:
-/// pub struct DataModel1 {
-///    #[cfg(feature = "transparent_api")]
-///    pub item1: u32,
-///    #[cfg(not(feature = "transparent_api"))]
-///    pub(crate) item1: u32,
-///    item2: u64
-/// }
+/// pub mod model {
+///     pub struct DataModel1 {
+///         #[cfg(feature = "transparent_api")]
+///         pub item1: u32,
+///         #[cfg(not(feature = "transparent_api"))]
+///         pub(crate) item1: u32,
+///         pub(super) item2: u64
+///     }
 ///
-/// #[cfg(not(feature = "transparent_api"))]
-/// pub struct DataModel2 {
-///    pub item1: u32,
-///    item2: u64
-/// }
+///     #[cfg(not(feature = "transparent_api"))]
+///     pub struct DataModel2 {
+///         pub item1: u32,
+///         pub(super) item2: u64
+///     }
 ///
-/// #[cfg(feature = "transparent_api")]
-/// struct DataModel2 {
-///    pub item1: u32,
-///    item2: u64
+///     #[cfg(feature = "transparent_api")]
+///     struct DataModel2 {
+///         pub item1: u32,
+///         pub(super) item2: u64
+///     }
 /// }
 /// */
 /// ```
+#[proc_macro_attribute]
+#[proc_macro_error::proc_macro_error]
+pub fn model(_attr: TokenStream, input: TokenStream) -> TokenStream {
+    model::impl_model(&parse_macro_input!(input)).into()
+}
+
+/// Same as [`model`] macro, but only processes a single item.
+///
+/// You should prefer using [`model`] macro over this one.
 #[proc_macro]
 #[proc_macro_error::proc_macro_error]
-pub fn model(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as Items);
-    let mut items = Vec::new();
-
-    for item in input.0 {
-        items.push(api::process_item(item));
-    }
-
-    quote::quote! { #(#items)* }.into()
+pub fn model_single(input: TokenStream) -> TokenStream {
+    model::process_item(parse_macro_input!(input)).into()
 }
 
 /// Derive macro for `Identifiable` trait which also automatically implements [`Ord`], [`Eq`],

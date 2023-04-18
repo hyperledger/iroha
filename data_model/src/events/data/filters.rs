@@ -3,20 +3,37 @@
 use core::{fmt::Debug, hash::Hash};
 
 use derive_more::Constructor;
+use iroha_data_model_derive::model;
 
+pub use self::model::*;
 use super::*;
-use crate::model;
 
 /// Filter for all events
 pub type DataEventFilter = FilterOpt<DataEntityFilter>;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Optional filter. May pass all items or may filter them by `F`
     ///
     /// It's better than `Optional<F>` because `Optional` already has its own `filter` method and it
     /// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
     /// Also `FilterOpt` variant names look better for filter needs
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[serde(untagged)]
     pub enum FilterOpt<F> {
         /// Accept all items that will be passed to `filter()` method
@@ -25,6 +42,62 @@ model! {
         /// Use filter `F` to choose acceptable items passed to `filter()` method
         BySome(F),
     }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(clippy::enum_variant_names)]
+    /// Filters event by entity
+    pub enum DataEntityFilter {
+        /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events
+        ByPeer(FilterOpt<PeerFilter>),
+        /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
+        ByDomain(FilterOpt<DomainFilter>),
+        /// Filter by Account entity. `AcceptAll` value will accept all `Account` events
+        ByAccount(FilterOpt<AccountFilter>),
+        /// Filter by AssetDefinition entity. `AcceptAll` value will accept all `AssetDefinition` events
+        ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
+        /// Filter by Asset entity. `AcceptAll` value will accept all `Asset` events
+        ByAsset(FilterOpt<AssetFilter>),
+        /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
+        ByTrigger(FilterOpt<TriggerFilter>),
+        /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
+        ByRole(FilterOpt<RoleFilter>),
+    }
+
+    /// Filter that accepts a data event with the matching origin.
+    #[derive(
+        Clone,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Constructor,
+        Decode,
+        Encode,
+        Serialize,
+        Deserialize,
+        IntoSchema,
+    )]
+    #[serde(bound(
+        deserialize = "<<T as HasOrigin>::Origin as Identifiable>::Id: Deserialize<'de>"
+    ))]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct OriginFilter<T: HasOrigin>(pub(super) <T::Origin as Identifiable>::Id)
+    where
+        <T::Origin as Identifiable>::Id:
+            Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema;
 }
 
 mod accept_all_as_string {
@@ -75,28 +148,6 @@ impl<F: Filter> Filter for FilterOpt<F> {
     }
 }
 
-model! {
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[allow(clippy::enum_variant_names)]
-    /// Filters event by entity
-    pub enum DataEntityFilter {
-        /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events
-        ByPeer(FilterOpt<PeerFilter>),
-        /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
-        ByDomain(FilterOpt<DomainFilter>),
-        /// Filter by Account entity. `AcceptAll` value will accept all `Account` events
-        ByAccount(FilterOpt<AccountFilter>),
-        /// Filter by AssetDefinition entity. `AcceptAll` value will accept all `AssetDefinition` events
-        ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
-        /// Filter by Asset entity. `AcceptAll` value will accept all `Asset` events
-        ByAsset(FilterOpt<AssetFilter>),
-        /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
-        ByTrigger(FilterOpt<TriggerFilter>),
-        /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
-        ByRole(FilterOpt<RoleFilter>),
-    }
-}
-
 #[cfg(feature = "transparent_api")]
 impl Filter for DataEntityFilter {
     type Event = DataEvent;
@@ -116,16 +167,6 @@ impl Filter for DataEntityFilter {
             _ => false,
         }
     }
-}
-
-model! {
-    /// Filter that accepts a data event with the matching origin.
-    #[derive(Clone, PartialOrd, Ord, Eq, Debug, Constructor, Decode, Encode, Serialize, Deserialize, IntoSchema)]
-    #[serde(bound(deserialize = "<<T as HasOrigin>::Origin as Identifiable>::Id: Deserialize<'de>"))]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct OriginFilter<T: HasOrigin>(<T::Origin as Identifiable>::Id) where
-        <T::Origin as Identifiable>::Id: Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema;
 }
 
 impl<T: HasOrigin> OriginFilter<T>

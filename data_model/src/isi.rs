@@ -8,19 +8,88 @@ use core::fmt::Debug;
 
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
+use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 
+pub use self::model::*;
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
-use crate::{model, Registered};
+use crate::Registered;
 
-model! {
+impl InstructionBox {
+    /// Calculates number of underneath instructions and expressions
+    pub fn len(&self) -> usize {
+        use InstructionBox::*;
+
+        match self {
+            Register(register_box) => register_box.len(),
+            Unregister(unregister_box) => unregister_box.len(),
+            Mint(mint_box) => mint_box.len(),
+            Burn(burn_box) => burn_box.len(),
+            Transfer(transfer_box) => transfer_box.len(),
+            If(if_box) => if_box.len(),
+            Pair(pair_box) => pair_box.len(),
+            Sequence(sequence) => sequence.len(),
+            Fail(fail_box) => fail_box.len(),
+            SetKeyValue(set_key_value) => set_key_value.len(),
+            RemoveKeyValue(remove_key_value) => remove_key_value.len(),
+            Grant(grant_box) => grant_box.len(),
+            Revoke(revoke_box) => revoke_box.len(),
+            ExecuteTrigger(execute_trigger) => execute_trigger.len(),
+            SetParameter(set_parameter) => set_parameter.len(),
+            NewParameter(new_parameter) => new_parameter.len(),
+            Upgrade(upgrade_box) => upgrade_box.len(),
+        }
+    }
+}
+
+macro_rules! isi {
+    ($($meta:meta)* $item:item) => {
+        iroha_data_model_derive::model_single! {
+            #[derive(Debug, Clone, PartialEq, Eq, Hash, getset::Getters)]
+            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+            #[derive(serde::Deserialize, serde::Serialize)]
+            #[derive(iroha_schema::IntoSchema)]
+            #[getset(get = "pub")]
+            $($meta)*
+            $item
+        }
+    };
+}
+
+#[model]
+pub mod model {
+    use super::*;
+
     /// Sized structure for all possible Instructions.
-    #[derive(DebugCustom, Display, Clone, PartialEq, Eq, Hash, FromVariant, EnumDiscriminants, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[strum_discriminants(name(InstructionType), derive(Display), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
+    #[derive(
+        DebugCustom,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        EnumDiscriminants,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[strum_discriminants(
+        name(InstructionType),
+        derive(Display),
+        cfg_attr(
+            any(feature = "ffi_import", feature = "ffi_export"),
+            derive(iroha_ffi::FfiType)
+        ),
+        allow(missing_docs),
+        repr(u8)
+    )]
     #[ffi_type(opaque)]
     pub enum InstructionBox {
         /// `Register` variant.
@@ -72,49 +141,169 @@ model! {
         #[debug(fmt = "{_0:?}")]
         NewParameter(NewParameterBox),
         /// `Upgrade` variant.
-        Upgrade(UpgradeBox)
+        Upgrade(UpgradeBox),
     }
-}
 
-impl InstructionBox {
-    /// Calculates number of underneath instructions and expressions
-    pub fn len(&self) -> usize {
-        use InstructionBox::*;
-
-        match self {
-            Register(register_box) => register_box.len(),
-            Unregister(unregister_box) => unregister_box.len(),
-            Mint(mint_box) => mint_box.len(),
-            Burn(burn_box) => burn_box.len(),
-            Transfer(transfer_box) => transfer_box.len(),
-            If(if_box) => if_box.len(),
-            Pair(pair_box) => pair_box.len(),
-            Sequence(sequence) => sequence.len(),
-            Fail(fail_box) => fail_box.len(),
-            SetKeyValue(set_key_value) => set_key_value.len(),
-            RemoveKeyValue(remove_key_value) => remove_key_value.len(),
-            Grant(grant_box) => grant_box.len(),
-            Revoke(revoke_box) => revoke_box.len(),
-            ExecuteTrigger(execute_trigger) => execute_trigger.len(),
-            SetParameter(set_parameter) => set_parameter.len(),
-            NewParameter(new_parameter) => new_parameter.len(),
-            Upgrade(upgrade_box) => upgrade_box.len(),
-        }
+    /// Generic instruction to set key value at the object.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct SetKeyValue<O, K, V>
+    where
+        O: Identifiable,
+        K: Into<Value>,
+        V: Into<Value>,
+    {
+        /// Where to set key value.
+        pub object_id: O::Id,
+        /// Key.
+        pub key: K,
+        /// Value.
+        pub value: V,
     }
-}
 
-macro_rules! isi {
-    ($($meta:meta)* $item:item) => {
-        crate::model! {
-            #[derive(Debug, Clone, PartialEq, Eq, Hash, getset::Getters)]
-            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
-            #[derive(serde::Deserialize, serde::Serialize)]
-            #[derive(iroha_schema::IntoSchema)]
-            #[getset(get = "pub")]
-            $($meta)*
-            $item
-        }
-    };
+    /// Generic instruction to remove key value at the object.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct RemoveKeyValue<O, K>
+    where
+        O: Identifiable,
+        K: Into<Value>,
+    {
+        /// From where to remove key value.
+        pub object_id: O::Id,
+        /// Key of the pair to remove.
+        pub key: K,
+    }
+
+    /// Generic instruction for a registration of an object to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct Register<O>
+    where
+        O: Registered,
+    {
+        /// The object that should be registered, should be uniquely identifiable by its id.
+        pub object: O::With,
+    }
+
+    /// Generic instruction for an unregistration of an object from the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct Unregister<O>
+    where
+        O: Registered,
+    {
+        /// [`Identifiable::Id`] of the object which should be unregistered.
+        pub object_id: O::Id,
+    }
+
+    /// Generic instruction for a mint of an object to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Mint<D, O>
+    where
+        D: Identifiable,
+        O: Into<Value>,
+    {
+        /// Object which should be minted.
+        pub object: O,
+        /// Destination object [`Identifiable::Id`].
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for a burn of an object to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Burn<D, O>
+    where
+        D: Identifiable,
+        O: Into<Value>,
+    {
+        /// Object which should be burned.
+        pub object: O,
+        /// Destination object [`Identifiable::Id`].
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Transfer<S: Identifiable, O, D: Identifiable>
+    where
+        O: Into<Value>,
+    {
+        /// Source object `Id`.
+        pub source_id: S::Id,
+        /// Object which should be transferred.
+        pub object: O,
+        /// Destination object `Id`.
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for granting permission to an entity.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Grant<D, O>
+    where
+        D: Registered,
+        O: Into<Value>,
+    {
+        /// Object to grant.
+        pub object: O,
+        /// Entity to which to grant this token.
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for revoking permission from an entity.
+    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode, Getters)]
+    #[getset(get = "pub")]
+    pub struct Revoke<D, O>
+    where
+        D: Registered,
+        O: Into<Value>,
+    {
+        /// Object to revoke.
+        pub object: O,
+        /// Entity which is being revoked this token from.
+        pub destination_id: D::Id,
+    }
+
+    /// Generic instruction for setting a chain-wide config parameter.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct SetParameter<P>
+    where
+        P: Identifiable,
+    {
+        /// Parameter to be changed.
+        pub parameter: P,
+    }
+
+    /// Generic instruction for setting a chain-wide config parameter.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct NewParameter<P>
+    where
+        P: Identifiable,
+    {
+        /// Parameter to be changed.
+        pub parameter: P,
+    }
+
+    /// Generic instruction for upgrading runtime objects.
+    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
+    #[getset(get = "pub")]
+    pub struct Upgrade<O>
+    where
+        O: Into<UpgradableBox>,
+    {
+        /// Object to upgrade.
+        pub object: O,
+    }
 }
 
 isi! {
@@ -381,126 +570,6 @@ isi! {
     pub struct UpgradeBox {
         /// The object to upgrade.
         pub object: EvaluatesTo<UpgradableBox>,
-    }
-}
-
-model! {
-    /// Generic instruction to set key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct SetKeyValue<O, K, V> where O: Identifiable, K: Into<Value>, V: Into<Value> {
-        /// Where to set key value.
-        pub object_id: O::Id,
-        /// Key.
-        pub key: K,
-        /// Value.
-        pub value: V,
-    }
-
-    /// Generic instruction to remove key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct RemoveKeyValue<O, K> where O: Identifiable, K: Into<Value> {
-        /// From where to remove key value.
-        pub object_id: O::Id,
-        /// Key of the pair to remove.
-        pub key: K,
-    }
-
-    /// Generic instruction for a registration of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct Register<O> where O: Registered {
-        /// The object that should be registered, should be uniquely identifiable by its id.
-        pub object: O::With,
-    }
-
-    /// Generic instruction for an unregistration of an object from the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct Unregister<O> where O: Registered {
-        /// [`Identifiable::Id`] of the object which should be unregistered.
-        pub object_id: O::Id,
-    }
-
-    /// Generic instruction for a mint of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct Mint<D, O> where D: Identifiable, O: Into<Value> {
-        /// Object which should be minted.
-        pub object: O,
-        /// Destination object [`Identifiable::Id`].
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for a burn of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct Burn<D, O> where D: Identifiable, O: Into<Value> {
-        /// Object which should be burned.
-        pub object: O,
-        /// Destination object [`Identifiable::Id`].
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct Transfer<S: Identifiable, O, D: Identifiable> where O: Into<Value> {
-        /// Source object `Id`.
-        pub source_id: S::Id,
-        /// Object which should be transferred.
-        pub object: O,
-        /// Destination object `Id`.
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for granting permission to an entity.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct Grant<D, O> where D: Registered, O: Into<Value> {
-        /// Object to grant.
-        pub object: O,
-        /// Entity to which to grant this token.
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for revoking permission from an entity.
-    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode, Getters)]
-    #[getset(get = "pub")]
-    pub struct Revoke<D, O> where D: Registered, O: Into<Value> {
-        /// Object to revoke.
-        pub object: O,
-        /// Entity which is being revoked this token from.
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct SetParameter<P> where P: Identifiable {
-        /// Parameter to be changed.
-        pub parameter: P,
-    }
-
-    /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct NewParameter<P> where P: Identifiable {
-        /// Parameter to be changed.
-        pub parameter: P,
-    }
-
-    /// Generic instruction for upgrading runtime objects.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct Upgrade<O> where O: Into<UpgradableBox>{
-        /// Object to upgrade.
-        pub object: O,
     }
 }
 
@@ -825,15 +894,30 @@ impl UpgradeBox {
 pub mod error {
     //! Module containing errors that can occur during instruction evaluation
 
-    use iroha_primitives::fixed::FixedPointOperationError;
+    #[cfg(not(feature = "std"))]
+    use alloc::{boxed::Box, format, string::String, vec::Vec};
+    use core::fmt::Debug;
 
-    use super::*;
+    use derive_more::Display;
+    use iroha_data_model_derive::model;
+    use iroha_macro::FromVariant;
+    use iroha_primitives::fixed::FixedPointOperationError;
+    use iroha_schema::IntoSchema;
+    use parity_scale_codec::{Decode, Encode};
+
+    pub use self::model::*;
+    use super::InstructionType;
     use crate::{
+        asset::{AssetDefinition, AssetValueType},
         evaluate, metadata,
         query::error::{FindError, QueryExecutionFailure},
+        IdBox, Identifiable, NumericValue, Value,
     };
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Instruction execution error type
         #[derive(Debug, Display, PartialEq, Eq, FromVariant)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -851,7 +935,11 @@ pub mod error {
             Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
             /// Conversion Error
             #[display(fmt = "Conversion Error: {_0}")]
-            Conversion(#[skip_from] #[skip_try_from] String),
+            Conversion(
+                #[skip_from]
+                #[skip_try_from]
+                String,
+            ),
             /// Failed to find some entity
             #[display(fmt = "Entity missing: {_0}")]
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
@@ -869,10 +957,14 @@ pub mod error {
             Metadata(#[cfg_attr(feature = "std", source)] metadata::Error),
             /// [`FailBox`] error
             #[display(fmt = "Execution failed: {_0}")]
-            FailBox(#[skip_from] #[skip_try_from] String),
+            FailBox(
+                #[skip_from]
+                #[skip_try_from]
+                String,
+            ),
             /// Invalid instruction parameter
             #[display(fmt = "Invalid parameter: {_0}")]
-            InvalidParameter(InvalidParameterError)
+            InvalidParameter(InvalidParameterError),
         }
 
         /// Evaluation error. This error indicates instruction is not a valid Iroha DSL
@@ -887,7 +979,7 @@ pub mod error {
             #[display(fmt = "Instruction not supported: {_0}")]
             Unsupported(InstructionType),
             /// Failed to find parameter in a permission
-            PermissionParameter(String)
+            PermissionParameter(String),
         }
 
         /// Instruction cannot be executed against current state of Iroha (missing permissions, failed calculation, etc.)
@@ -918,7 +1010,9 @@ pub mod error {
         #[ffi_type]
         pub enum TypeError {
             /// Asset type assertion error
-            #[display(fmt = "Asset Ids correspond to assets with different underlying types. {_0}")]
+            #[display(
+                fmt = "Asset Ids correspond to assets with different underlying types. {_0}"
+            )]
             AssetValueType(Mismatch<AssetValueType>),
             /// Parameter type assertion error
             #[display(fmt = "Value passed to the parameter doesn't have the right type. {_0}")]
@@ -952,7 +1046,9 @@ pub mod error {
             #[display(fmt = "Unknown error")]
             Unknown,
             /// Encountered incompatible type of arguments
-            #[display(fmt = "Binary operation does not support provided combination of arguments ({_0}, {_1})")]
+            #[display(
+                fmt = "Binary operation does not support provided combination of arguments ({_0}, {_1})"
+            )]
             BinaryOpIncompatibleNumericValueTypes(NumericValue, NumericValue),
             /// Conversion failed.
             #[display(fmt = "{_0}")]
@@ -965,10 +1061,14 @@ pub mod error {
         #[repr(u8)]
         pub enum MintabilityError {
             /// Tried to mint an Un-mintable asset.
-            #[display(fmt = "This asset cannot be minted more than once and it was already minted.")]
+            #[display(
+                fmt = "This asset cannot be minted more than once and it was already minted."
+            )]
             MintUnmintable,
             /// Tried to forbid minting on assets that should be mintable.
-            #[display(fmt = "This asset was set as infinitely mintable. You cannot forbid its minting.")]
+            #[display(
+                fmt = "This asset was set as infinitely mintable. You cannot forbid its minting."
+            )]
             ForbidMintOnMintable,
         }
 
@@ -987,7 +1087,7 @@ pub mod error {
     impl std::error::Error for EvaluationError {}
 
     #[cfg(feature = "std")]
-    impl std::error::Error for ValidationError {}
+    impl std::error::Error for self::model::ValidationError {}
 
     #[cfg(feature = "std")]
     impl<T: Debug> std::error::Error for Mismatch<T> {}

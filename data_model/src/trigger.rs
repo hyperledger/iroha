@@ -6,25 +6,43 @@ use core::{cmp, str::FromStr};
 
 use derive_more::{Constructor, Display};
 use getset::Getters;
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
+pub use self::model::*;
 use crate::{
     events::prelude::*,
     metadata::Metadata,
-    model,
     prelude::{Domain, InstructionBox},
     transaction::Executable,
     Identifiable, Name, ParseError, Registered,
 };
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Identification of a `Trigger`.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TriggerId {
@@ -35,7 +53,19 @@ model! {
     }
 
     /// Type which is used for registering a `Trigger`.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdEqOrdHash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[display(fmt = "@@{id}")]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -145,13 +175,18 @@ pub enum OptimizedExecutable {
 pub mod action {
     //! Contains trigger action and common trait for all actions
 
+    use iroha_data_model_derive::model;
     use iroha_primitives::atomic::AtomicU32;
 
+    pub use self::model::*;
     use super::*;
     #[cfg(feature = "transparent_api")]
     use crate::prelude::Account;
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Designed to differentiate between oneshot and unlimited
         /// triggers. If the trigger must be run a limited number of times,
         /// it's the end-user's responsibility to either unregister the
@@ -164,7 +199,9 @@ pub mod action {
         /// triggers without gaps, the `Executable` wrapped in the action must
         /// be run before any of the ISIs are pushed into the queue of the
         /// next block.
-        #[derive(Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
         #[getset(get = "pub")]
         pub struct Action<F, E> {
             /// The executable linked to this action
@@ -181,6 +218,17 @@ pub mod action {
             pub filter: F,
             /// Metadata used as persistent storage for trigger data.
             pub metadata: Metadata,
+        }
+
+        /// Enumeration of possible repetitions schemes.
+        #[derive(
+            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
+        pub enum Repeats {
+            /// Repeat indefinitely, until the trigger is unregistered.
+            Indefinitely,
+            /// Repeat a set number of times
+            Exactly(AtomicU32), // If you need more, use `Indefinitely`.
         }
     }
 
@@ -315,17 +363,6 @@ pub mod action {
                 filter: self.filter.clone().into(),
                 metadata: self.metadata.clone(),
             }
-        }
-    }
-
-    model! {
-        /// Enumeration of possible repetitions schemes.
-        #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        pub enum Repeats {
-            /// Repeat indefinitely, until the trigger is unregistered.
-            Indefinitely,
-            /// Repeat a set number of times
-            Exactly(AtomicU32), // If you need more, use `Indefinitely`.
         }
     }
 

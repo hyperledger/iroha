@@ -1,11 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{
-    borrow::ToOwned as _,
-    format,
-    string::{String, ToString as _},
-    vec,
-    vec::Vec,
-};
+use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};

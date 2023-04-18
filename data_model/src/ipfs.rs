@@ -5,20 +5,38 @@ use alloc::{format, string::String, vec::Vec};
 use core::str::FromStr;
 
 use derive_more::Display;
+use iroha_data_model_derive::model;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-use crate::{model, ParseError};
+pub use self::model::*;
+use crate::ParseError;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Represents path in IPFS. Performs checks to ensure path validity.
     /// Construct using [`FromStr::from_str`] method.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[repr(transparent)]
     #[ffi_type(opaque)]
-    pub struct IpfsPath(ConstString);
+    pub struct IpfsPath(pub(super) ConstString);
 }
 
 impl IpfsPath {

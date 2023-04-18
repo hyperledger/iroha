@@ -1,8 +1,49 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use proc_macro_error::abort;
+use quote::{quote, ToTokens};
 use syn::{parse_quote, Attribute};
 
-pub fn process_item(mut input: syn::DeriveInput) -> TokenStream {
+pub fn impl_model(input: &syn::ItemMod) -> TokenStream {
+    let syn::ItemMod {
+        attrs,
+        vis,
+        mod_token,
+        ident,
+        content,
+        semi,
+        ..
+    } = input;
+
+    let syn::Visibility::Public(vis_public) = vis else {
+        abort!(input, "The `model` attribute can only be used on public modules");
+    };
+    if ident != "model" {
+        abort!(
+            input,
+            "The `model` attribute can only be used on the `model` module"
+        );
+    }
+
+    let items_code = content.as_ref().map_or_else(Vec::new, |(_, items)| {
+        items.iter().cloned().map(process_item).collect()
+    });
+
+    quote! {
+        #(#attrs)*
+        #[allow(missing_docs)]
+        #vis_public #mod_token #ident {
+            #(#items_code)*
+        }#semi
+    }
+}
+
+pub fn process_item(item: syn::Item) -> TokenStream {
+    let mut input: syn::DeriveInput = match item {
+        syn::Item::Struct(item_struct) => item_struct.into(),
+        syn::Item::Enum(item_enum) => item_enum.into(),
+        syn::Item::Union(item_union) => item_union.into(),
+        other => return other.into_token_stream(),
+    };
     let vis = &input.vis;
 
     if matches!(vis, syn::Visibility::Public(_)) {

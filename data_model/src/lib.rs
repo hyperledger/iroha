@@ -55,6 +55,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumDiscriminants;
 
+pub use self::model::*;
 use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
 
 pub mod account;
@@ -87,7 +88,8 @@ pub mod utils {
 
     use core::fmt::*;
 
-    /// Format `input` separating items with a comma, wrapping the whole output into `[` and `]`
+    /// Format `input` separating items with a comma,
+    /// wrapping the whole output into provided characters.
     ///
     /// # Errors
     /// If cannot write to the `f`
@@ -215,11 +217,31 @@ pub mod parameter {
 
     use derive_more::Constructor;
 
+    pub use self::model::*;
     use super::*;
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Identification of a [`Parameter`].
-        #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, FromStr, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Getters,
+            FromStr,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
         #[display(fmt = "{name}")]
         #[getset(get = "pub")]
         #[serde(transparent)]
@@ -229,10 +251,20 @@ pub mod parameter {
             /// [`Name`] unique to a [`Parameter`].
             pub name: Name,
         }
-    }
 
-    model! {
-        #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Constructor, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            IdEqOrdHash,
+            Getters,
+            Constructor,
+            Decode,
+            Encode,
+            DeserializeFromStr,
+            SerializeDisplay,
+            IntoSchema,
+        )]
         #[display(fmt = "?{id}={val}")]
         /// A chain-wide configuration parameter and its value.
         #[ffi_type]
@@ -418,9 +450,27 @@ pub mod parameter {
     }
 }
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Sized container for all possible identifications.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[allow(clippy::enum_variant_names)]
     #[ffi_type]
     pub enum IdBox {
@@ -448,7 +498,20 @@ model! {
     }
 
     /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
-    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
     pub enum RegistrableBox {
         /// [`Peer`](`peer::Peer`) variant.
@@ -477,7 +540,22 @@ model! {
     }
 
     /// Sized container for all possible entities.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Hash, Ord, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Hash,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
     pub enum IdentifiableBox {
         /// [`NewDomain`](`domain::NewDomain`) variant.
@@ -509,11 +587,26 @@ model! {
     }
 
     /// Sized container for triggers with different executables.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Hash, Ord, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Hash,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
     pub enum TriggerBox {
         /// Un-optimized [`Trigger`](`trigger::Trigger`) submitted from client to Iroha.
-        #[display(fmt  = "{_0}")]
+        #[display(fmt = "{_0}")]
         Raw(Box<trigger::Trigger<FilterBox, Executable>>),
         /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
         #[display(fmt = "{_0} (optimised)")]
@@ -521,7 +614,20 @@ model! {
     }
 
     /// Sized container for all possible upgradable entities.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     // SAFETY: `UpgradableBox` has no trap representations in `validator::Validator`
     #[ffi_type(unsafe {robust})]
     #[serde(untagged)]
@@ -530,6 +636,186 @@ model! {
         /// [`Validator`](`validator::Validator`) variant.
         #[display(fmt = "Validator")]
         Validator(validator::Validator),
+    }
+
+    /// Sized container for all possible values.
+    #[derive(
+        DebugCustom,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        FromVariant,
+        EnumDiscriminants,
+        Decode,
+        Encode,
+        PartiallyTaggedDeserialize,
+        PartiallyTaggedSerialize,
+        IntoSchema,
+    )]
+    #[strum_discriminants(
+        name(ValueKind),
+        derive(Display, Decode, Encode, Deserialize, Serialize, IntoSchema),
+        cfg_attr(
+            any(feature = "ffi_import", feature = "ffi_export"),
+            derive(iroha_ffi::FfiType)
+        ),
+        allow(missing_docs),
+        repr(u8)
+    )]
+    #[allow(clippy::enum_variant_names, missing_docs)]
+    #[ffi_type(opaque)]
+    pub enum Value {
+        Bool(bool),
+        String(String),
+        Name(Name),
+        Vec(
+            #[skip_from]
+            #[skip_try_from]
+            Vec<Value>,
+        ),
+        LimitedMetadata(metadata::Metadata),
+        MetadataLimits(metadata::Limits),
+        TransactionLimits(transaction::TransactionLimits),
+        LengthLimits(LengthLimits),
+        #[serde_partially_tagged(untagged)]
+        Id(IdBox),
+        #[serde_partially_tagged(untagged)]
+        Identifiable(IdentifiableBox),
+        PublicKey(PublicKey),
+        SignatureCheckCondition(SignatureCheckCondition),
+        TransactionValue(TransactionValue),
+        TransactionQueryResult(TransactionQueryResult),
+        PermissionToken(permission::PermissionToken),
+        Hash(Hash),
+        Block(VersionedCommittedBlockWrapper),
+        BlockHeader(block::BlockHeader),
+        Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
+        Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
+        #[serde_partially_tagged(untagged)]
+        #[debug(fmt = "{_0:?}")]
+        Numeric(NumericValue),
+        Validator(validator::Validator),
+    }
+
+    /// Enum for all supported numeric values
+    #[derive(
+        DebugCustom,
+        Display,
+        Copy,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub enum NumericValue {
+        /// `u32` value
+        #[debug(fmt = "{_0}_u32")]
+        U32(u32),
+        /// `u64` value
+        #[debug(fmt = "{_0}_u64")]
+        U64(u64),
+        /// `u128` value
+        #[debug(fmt = "{_0}_u126")]
+        U128(u128),
+        /// `Fixed` value
+        #[debug(fmt = "{_0}_fx")]
+        Fixed(fixed::Fixed),
+    }
+
+    /// Cross-platform wrapper for [`VersionedCommittedBlock`].
+    #[cfg(not(target_arch = "aarch64"))]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        AsRef,
+        Deref,
+        From,
+        Into,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
+    #[schema(transparent = "VersionedCommittedBlock")]
+    #[ffi_type(unsafe {robust})]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct VersionedCommittedBlockWrapper(VersionedCommittedBlock);
+
+    /// Cross-platform wrapper for `BlockValue`.
+    #[cfg(target_arch = "aarch64")]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        AsRef,
+        Deref,
+        From,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[schema(transparent = "Box<VersionedCommittedBlock>")]
+    #[as_ref(forward)]
+    #[deref(forward)]
+    #[from(forward)]
+    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in Box<VersionedCommittedBlock>
+    #[ffi_type(unsafe {robust})]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct VersionedCommittedBlockWrapper(pub(super) Box<VersionedCommittedBlock>);
+
+    /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        PartialOrd,
+        Ord,
+        PartialEq,
+        Eq,
+        Hash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[display(fmt = "{min},{max}_LL")]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct LengthLimits {
+        /// Minimal length in number of chars (inclusive).
+        pub(super) min: u32,
+        /// Maximal length in number of chars (inclusive).
+        pub(super) max: u32,
     }
 }
 
@@ -599,60 +885,6 @@ macro_rules! val_vec {
 /// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 
-model! {
-    /// Sized container for all possible values.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, EnumDiscriminants, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
-    #[strum_discriminants(name(ValueKind), derive(Display, Decode, Encode, Deserialize, Serialize, IntoSchema), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
-    #[allow(clippy::enum_variant_names, missing_docs)]
-    #[ffi_type(opaque)]
-    pub enum Value {
-        Bool(bool),
-        String(String),
-        Name(Name),
-        Vec(#[skip_from] #[skip_try_from] Vec<Value>),
-        LimitedMetadata(metadata::Metadata),
-        MetadataLimits(metadata::Limits),
-        TransactionLimits(transaction::TransactionLimits),
-        LengthLimits(LengthLimits),
-        #[serde_partially_tagged(untagged)]
-        Id(IdBox),
-        #[serde_partially_tagged(untagged)]
-        Identifiable(IdentifiableBox),
-        PublicKey(PublicKey),
-        SignatureCheckCondition(SignatureCheckCondition),
-        TransactionValue(TransactionValue),
-        TransactionQueryResult(TransactionQueryResult),
-        PermissionToken(permission::PermissionToken),
-        Hash(Hash),
-        Block(VersionedCommittedBlockWrapper),
-        BlockHeader(block::BlockHeader),
-        Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
-        Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
-        #[serde_partially_tagged(untagged)]
-        #[debug(fmt = "{_0:?}")]
-        Numeric(NumericValue),
-        Validator(validator::Validator),
-    }
-
-    /// Enum for all supported numeric values
-    #[derive(DebugCustom, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[ffi_type]
-    pub enum NumericValue {
-        /// `u32` value
-        #[debug(fmt = "{_0}_u32")]
-        U32(u32),
-        /// `u64` value
-        #[debug(fmt = "{_0}_u64")]
-        U64(u64),
-        /// `u128` value
-        #[debug(fmt = "{_0}_u126")]
-        U128(u128),
-        /// `Fixed` value
-        #[debug(fmt = "{_0}_fx")]
-        Fixed(fixed::Fixed),
-    }
-}
-
 impl NumericValue {
     /// Return `true` if value is zero
     pub const fn is_zero_value(self) -> bool {
@@ -672,31 +904,6 @@ impl TryFrom<f64> for NumericValue {
     fn try_from(source: f64) -> Result<Self, Self::Error> {
         source.try_into().map(Self::Fixed)
     }
-}
-
-model! {
-    /// Cross-platform wrapper for [`VersionedCommittedBlock`].
-    #[cfg(not(target_arch = "aarch64"))]
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Into, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
-    #[schema(transparent = "VersionedCommittedBlock")]
-    #[ffi_type(unsafe {robust})]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct VersionedCommittedBlockWrapper(VersionedCommittedBlock);
-
-    /// Cross-platform wrapper for `BlockValue`.
-    #[cfg(target_arch = "aarch64")]
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, AsRef, Deref, From, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[schema(transparent = "Box<VersionedCommittedBlock>")]
-    #[as_ref(forward)]
-    #[deref(forward)]
-    #[from(forward)]
-    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in Box<VersionedCommittedBlock>
-    #[ffi_type(unsafe {robust})]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct VersionedCommittedBlockWrapper(Box<VersionedCommittedBlock>);
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -1220,20 +1427,6 @@ pub trait Registered: Identifiable {
     /// would be empty, to save space you create a builder for it, and
     /// set `With` to the builder's type.
     type With: Into<RegistrableBox>;
-}
-
-model! {
-    /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
-    #[derive(Debug, Display, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[display(fmt = "{min},{max}_LL")]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct LengthLimits {
-        /// Minimal length in number of chars (inclusive).
-        min: u32,
-        /// Maximal length in number of chars (inclusive).
-        max: u32,
-    }
 }
 
 impl LengthLimits {

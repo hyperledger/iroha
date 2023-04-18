@@ -7,23 +7,44 @@ use alloc::{format, string::String, vec::Vec};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
+pub use self::model::*;
 use crate::{
     account::{Account, AccountsMap},
     asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap, AssetTotalQuantityMap},
     ipfs::IpfsPath,
     metadata::Metadata,
-    model, HasMetadata, Identifiable, Name, NumericValue, Registered,
+    HasMetadata, Identifiable, Name, NumericValue, Registered,
 };
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Identification of a [`Domain`].
-    #[derive(Debug, Display, FromStr, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, Getters, Decode, Encode, DeserializeFromStr, SerializeDisplay, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        FromStr,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        Getters,
+        Decode,
+        Encode,
+        DeserializeFromStr,
+        SerializeDisplay,
+        IntoSchema,
+    )]
     #[display(fmt = "{name}")]
     #[getset(get = "pub")]
     #[repr(transparent)]
@@ -34,7 +55,18 @@ model! {
     }
 
     /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        IdEqOrdHash,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "[{id}]")]
     #[ffi_type]
@@ -55,7 +87,9 @@ model! {
     }
 
     /// Builder which can be submitted in a transaction to create a new [`Domain`]
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[display(fmt = "[{id}]")]
     #[ffi_type]
     pub struct NewDomain {
