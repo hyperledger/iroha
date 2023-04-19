@@ -6,8 +6,8 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
-use getset::Getters;
 use derive_more::{Constructor, DebugCustom, Display};
+use getset::Getters;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};

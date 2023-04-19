@@ -30,9 +30,8 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
+use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::span;
-use iroha_p2p::OnlinePeers;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},

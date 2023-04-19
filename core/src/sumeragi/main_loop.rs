@@ -858,13 +858,10 @@ pub(crate) fn run(
     mut state: State,
     mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
-<<<<<<< HEAD
     // Connect peers with initial topology
     sumeragi.connect_peers(&state.current_topology);
 
-=======
     let span = span!(tracing::Level::TRACE, "genesis").entered();
->>>>>>> 1871f37a ([refactor]: improve tracing spans)
     let is_genesis_peer = if state.latest_block_height == 0 || state.latest_block_hash.is_none() {
         if let Some(genesis_network) = genesis_network {
             sumeragi_init_commit_genesis(sumeragi, &mut state, genesis_network);
