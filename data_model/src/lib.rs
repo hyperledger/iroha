@@ -35,7 +35,7 @@ use std::borrow::Cow;
 use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
-use derive_more::{AsRef, Deref, Display, From, FromStr};
+use derive_more::{AsRef, Deref, Display, From, FromStr, DebugCustom};
 use events::FilterBox;
 use getset::Getters;
 pub use iroha_crypto::SignatureOf;
@@ -427,10 +427,13 @@ model! {
         /// [`DomainId`](`domain::DomainId`) variant.
         DomainId(<domain::Domain as Identifiable>::Id),
         /// [`AccountId`](`account::AccountId`) variant.
+        #[display(fmt = "{_0}")]
         AccountId(<account::Account as Identifiable>::Id),
         /// [`AssetDefinitionId`](`asset::AssetDefinitionId`) variant.
+        #[display(fmt = "{_0}")]
         AssetDefinitionId(<asset::AssetDefinition as Identifiable>::Id),
         /// [`AssetId`](`asset::AssetId`) variant.
+        #[display(fmt = "{_0}")]
         AssetId(<asset::Asset as Identifiable>::Id),
         /// [`PeerId`](`peer::PeerId`) variant.
         PeerId(<peer::Peer as Identifiable>::Id),
@@ -445,22 +448,29 @@ model! {
     }
 
     /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type]
     pub enum RegistrableBox {
         /// [`Peer`](`peer::Peer`) variant.
+        #[display(fmt = "Peer {_0}")]
         Peer(Box<<peer::Peer as Registered>::With>),
         /// [`Domain`](`domain::Domain`) variant.
+        #[display(fmt = "Domain {_0}")]
         Domain(Box<<domain::Domain as Registered>::With>),
         /// [`Account`](`account::Account`) variant.
+        #[display(fmt = "Account {_0}")]
         Account(Box<<account::Account as Registered>::With>),
         /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
+        #[display(fmt = "AssetDefinition {_0}")]
         AssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
         /// [`Asset`](`asset::Asset`) variant.
+        #[display(fmt = "Asset {_0}")]
         Asset(Box<<asset::Asset as Registered>::With>),
         /// [`Trigger`](`trigger::Trigger`) variant.
+        #[display(fmt = "Trigger {_0}")]
         Trigger(Box<<trigger::Trigger<FilterBox, Executable> as Registered>::With>),
         /// [`Role`](`role::Role`) variant.
+        #[display(fmt = "Role {_0}")]
         Role(Box<<role::Role as Registered>::With>),
         /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
         PermissionTokenDefinition(Box<<permission::PermissionTokenDefinition as Registered>::With>),
@@ -503,8 +513,10 @@ model! {
     #[ffi_type]
     pub enum TriggerBox {
         /// Un-optimized [`Trigger`](`trigger::Trigger`) submitted from client to Iroha.
+        #[display(fmt  = "{_0}")]
         Raw(Box<trigger::Trigger<FilterBox, Executable>>),
         /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
+        #[display(fmt = "{_0} (optimised)")]
         Optimized(Box<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>>),
     }
 
@@ -518,24 +530,6 @@ model! {
         /// [`Validator`](`validator::Validator`) variant.
         #[display(fmt = "Validator")]
         Validator(validator::Validator),
-    }
-}
-
-impl core::fmt::Display for RegistrableBox {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RegistrableBox::Peer(p) => write!(f, "Peer: {p}"),
-            RegistrableBox::Domain(d) => write!(f, "Domain {d}"),
-            RegistrableBox::Account(a) => write!(f, "Account: {a}"),
-            RegistrableBox::AssetDefinition(ad) => write!(f, "AssetDefinition: {ad}"),
-            RegistrableBox::Asset(a) => write!(f, "Asset: {a}"),
-            RegistrableBox::Trigger(_) => f.write_str("Trigger"),
-            RegistrableBox::Role(r) => write!(f, "Role: {r}"),
-            RegistrableBox::PermissionTokenDefinition(pd) => {
-                write!(f, "PermissionTokenDefinition: {pd}")
-            }
-            RegistrableBox::Validator(_) => f.write_str("Validator"),
-        }
     }
 }
 
@@ -607,7 +601,7 @@ pub type ValueBox = Box<Value>;
 
 model! {
     /// Sized container for all possible values.
-    #[derive(derive_more::DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, EnumDiscriminants, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
+    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, EnumDiscriminants, Decode, Encode, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, IntoSchema)]
     #[strum_discriminants(name(ValueKind), derive(Display, Decode, Encode, Deserialize, Serialize, IntoSchema), cfg_attr(any(feature = "ffi_import", feature = "ffi_export"), derive(iroha_ffi::FfiType)), allow(missing_docs), repr(u8))]
     #[allow(clippy::enum_variant_names, missing_docs)]
     #[ffi_type(opaque)]
@@ -641,20 +635,24 @@ model! {
     }
 
     /// Enum for all supported numeric values
-    #[derive(derive_more::DebugCustom, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(DebugCustom, Display, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type]
     pub enum NumericValue {
         /// `u32` value
         #[debug(fmt = "{_0}_u32")]
+        #[display(fmt = "{_0}_u32")]
         U32(u32),
         /// `u64` value
         #[debug(fmt = "{_0}_u64")]
+        #[display(fmt = "{_0}_u64")]
         U64(u64),
         /// `u128` value
         #[debug(fmt = "{_0}_u126")]
+        #[display(fmt = "{_0}_u126")]
         U128(u128),
         /// `Fixed` value
         #[debug(fmt = "{_0}_fx")]
+        #[display(fmt = "{_0}_fx")]
         Fixed(fixed::Fixed),
     }
 }
