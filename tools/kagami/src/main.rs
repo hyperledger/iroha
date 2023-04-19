@@ -57,6 +57,8 @@ pub enum Args {
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
+    /// Generate an example instruction based on the chosen usecase
+    Examples(examples::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -70,6 +72,7 @@ impl<T: Write> RunArgs<T> for Args {
             Client(args) => args.run(writer),
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
+            Examples(args) => args.run(writer),
         }
     }
 }
@@ -644,5 +647,118 @@ mod tokens {
             )
             .wrap_err("Failed to write.")
         }
+    }
+}
+
+mod examples {
+    use clap::{Parser, Subcommand};
+    use color_eyre::Result;
+    use iroha_crypto::{KeyPair, PublicKey};
+
+    use super::*;
+
+    #[derive(Parser, Debug, Clone)]
+    pub struct Args {
+        #[clap(subcommand)]
+        usecase: Usecase,
+    }
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            let instructions = match self.usecase {
+                Usecase::CreateAccount {
+                    account_id,
+                    public_key,
+                } => create_account(account_id, public_key)?,
+                Usecase::MintPublicKey {
+                    account_id,
+                    public_key,
+                } => mint_public_key(account_id, public_key)?,
+                Usecase::BurnPublicKey {
+                    account_id,
+                    public_key,
+                } => burn_public_key(account_id, public_key)?,
+            };
+            write!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(&instructions).wrap_err("Serialization error")?
+            )
+            .wrap_err("Failed to write.")
+        }
+    }
+
+    #[derive(Subcommand, Debug, Clone)]
+    pub enum Usecase {
+        /// Generate an instruction that creates a new account.
+        CreateAccount {
+            /// A new account id.
+            #[clap(long)]
+            account_id: Option<String>,
+            /// A default public key of a new account.
+            /// If this flag isn't provided, will generate a new key pair.
+            #[clap(long)]
+            public_key: Option<String>,
+        },
+        /// Generate an instruction that mints public key.
+        MintPublicKey {
+            /// Mint on behalf of this account.
+            #[clap(long)]
+            account_id: Option<String>,
+            /// Mint this public key. If this flag isn't provided, will generate a new key pair.
+            #[clap(long)]
+            public_key: Option<String>,
+        },
+        /// Generate an instruction that burns the given public key.
+        BurnPublicKey {
+            /// Burn on behalf of this account.
+            #[clap(long)]
+            account_id: String,
+            /// Burn this public key.
+            #[clap(long)]
+            public_key: String,
+        },
+    }
+
+    fn create_account(
+        account_id: Option<String>,
+        public_key: Option<String>,
+    ) -> Result<Vec<Instruction>> {
+        let account_id: AccountId =
+            account_id.map_or_else(|| "bob@wonderland".parse(), |str| str.parse())?;
+        let public_key = match public_key {
+            Some(str) => PublicKey::from_str(str.as_str())?,
+            None => {
+                let (public_key, _) = KeyPair::generate()?.into();
+                public_key
+            }
+        };
+        Ok(vec![RegisterBox::new(Account::new(
+            account_id,
+            [public_key],
+        ))
+        .into()])
+    }
+
+    fn mint_public_key(
+        account_id: Option<String>,
+        public_key: Option<String>,
+    ) -> Result<Vec<Instruction>> {
+        let account_id: AccountId =
+            account_id.map_or_else(|| "bob@wonderland".parse(), |str| str.parse())?;
+        let public_key = match public_key {
+            Some(str) => PublicKey::from_str(str.as_str())?,
+            None => {
+                let (public_key, _) = KeyPair::generate()?.into();
+                public_key
+            }
+        };
+        Ok(vec![MintBox::new(public_key, account_id).into()])
+    }
+
+    fn burn_public_key(account_id: String, public_key: String) -> Result<Vec<Instruction>> {
+        let account_id: AccountId = account_id.parse()?;
+        let public_key = PublicKey::from_str(public_key.as_str())?;
+        Ok(vec![BurnBox::new(public_key, account_id).into()])
     }
 }
