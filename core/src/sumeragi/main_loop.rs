@@ -302,10 +302,10 @@ impl Sumeragi {
     }
 
     fn commit_block(&mut self, block: impl Into<VersionedCommittedBlock>) {
-        let committed_block = block.into();
+        let committed_block = Arc::new(block.into());
 
         self.finalized_wsv = self.wsv.clone();
-        self.update_state(&committed_block);
+        self.update_state(&Arc::clone(&committed_block), Kura::store_block);
         self.previous_block_hash = self.latest_block_hash;
 
         info!(
@@ -318,16 +318,14 @@ impl Sumeragi {
 
         self.update_topology(&committed_block);
 
-        self.kura.store_block(committed_block);
-
         self.cache_transaction();
     }
 
     fn replace_top_block(&mut self, block: impl Into<VersionedCommittedBlock>) {
-        let committed_block = block.into();
+        let committed_block = Arc::new(block.into());
 
         self.wsv = self.finalized_wsv.clone();
-        self.update_state(&committed_block);
+        self.update_state(&Arc::clone(&committed_block), Kura::replace_top_block);
         // state.previous_block_hash stays the same.
 
         info!(
@@ -339,8 +337,6 @@ impl Sumeragi {
         );
 
         self.update_topology(&committed_block);
-
-        self.kura.replace_top_block(committed_block);
 
         self.cache_transaction()
     }
@@ -367,9 +363,13 @@ impl Sumeragi {
         self.connect_peers(&self.current_topology);
     }
 
-    fn update_state(&mut self, committed_block: &VersionedCommittedBlock) {
+    fn update_state(
+        &mut self,
+        committed_block: &Arc<VersionedCommittedBlock>,
+        kura_store_block: fn(&Kura, Arc<VersionedCommittedBlock>),
+    ) {
         self.wsv
-            .apply(committed_block)
+            .apply(committed_block.as_ref())
             .expect("Failed to apply block on WSV. Bailing.");
 
         self.send_events(self.wsv.events_buffer.replace(Vec::new()));
@@ -377,12 +377,17 @@ impl Sumeragi {
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
 
+        // https://github.com/hyperledger/iroha/issues/3396
+        // Iroha should emit `BlockCommitted` event only after Kura stored the block.
+        // However, WSV update should happen first, in order to avoid storing a corrupted block
+        kura_store_block(&self.kura, Arc::clone(committed_block));
+
         // Update WSV copy that is public facing
         *self.public_wsv.lock() = self.wsv.clone();
 
         // This sends "Block committed" event, so it should be done
         // AFTER public facing WSV update
-        self.send_events(committed_block);
+        self.send_events(committed_block.as_ref());
 
         let header = &committed_block.as_v1().header;
         self.latest_block_height = header.height;
