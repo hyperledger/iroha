@@ -6,6 +6,8 @@
     clippy::arithmetic_side_effects
 )]
 
+use std::collections::HashSet;
+
 use derive_more::Display;
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model::prelude::PeerId;
@@ -128,22 +130,9 @@ impl Topology {
         &self.sorted_peers[self.min_votes_for_commit()]
     }
     /// Add or remove peers from the topology.
-    pub fn update_peer_list(&mut self, new_peer_list: &[PeerId]) {
-        let mut i = 0;
-        while i < self.sorted_peers.len() {
-            if new_peer_list.iter().any(|p| p == &self.sorted_peers[i]) {
-                i += 1;
-            } else {
-                self.sorted_peers.remove(i);
-            }
-        }
-        self.sorted_peers.extend(
-            new_peer_list
-                .iter()
-                .filter(|p| !self.sorted_peers.contains(p))
-                .cloned()
-                .collect::<Vec<PeerId>>(),
-        );
+    pub fn update_peer_list(&mut self, mut new_peers: HashSet<PeerId>) {
+        self.sorted_peers.retain(|peer| new_peers.remove(peer));
+        self.sorted_peers.extend(new_peers);
     }
     /// Rotate peers after each failed attempt to create a block.
     pub fn rotate_all(&mut self) {
@@ -151,24 +140,13 @@ impl Topology {
     }
     /// Re-arrange the set of peers after each successful block commit.
     pub fn rotate_set_a(&mut self) {
-        let top = self.sorted_peers.remove(0);
-        self.sorted_peers.insert(
-            self.min_votes_for_commit().min(self.sorted_peers.len()),
-            top,
-        );
+        let rotate_at = self.min_votes_for_commit().min(self.sorted_peers.len());
+        self.sorted_peers[..rotate_at].rotate_left(1);
     }
     /// Pull peers up in the topology to the top of the a set while preserving local order.
     pub fn lift_up_peers(&mut self, to_lift_up: &[PublicKey]) {
-        let mut observing = Vec::new();
-        let mut i = 0;
-        while i < self.sorted_peers.len() {
-            if to_lift_up.contains(&self.sorted_peers[i].public_key) {
-                i += 1;
-            } else {
-                observing.insert(0, self.sorted_peers.remove(i)); // This has to be insert(0) and not push in order to preserve order.
-            }
-        }
-        self.sorted_peers.extend(observing);
+        self.sorted_peers
+            .sort_by_cached_key(|peer| !to_lift_up.contains(&peer.public_key));
     }
 }
 
@@ -183,4 +161,86 @@ pub enum Role {
     ObservingPeer,
     /// Proxy Tail.
     ProxyTail,
+}
+
+#[cfg(test)]
+mod tests {
+    use iroha_crypto::KeyPair;
+
+    use super::*;
+
+    macro_rules! peers {
+        ($($id:literal),+$(,)?) => {
+            vec![
+                $(PeerId::new($id, KeyPair::generate().expect("Failed to generate key pair").public_key())),+
+            ]
+        };
+    }
+
+    fn topology() -> Topology {
+        let peers = peers!["A", "B", "C", "D", "E", "F", "G"];
+        Topology::new(peers)
+    }
+
+    fn extract_addresses(topology: &Topology) -> Vec<&str> {
+        topology
+            .sorted_peers
+            .iter()
+            .map(|peer| peer.address.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn rotate_all() {
+        let mut topology = topology();
+        topology.rotate_all();
+        assert_eq!(
+            extract_addresses(&topology),
+            vec!["B", "C", "D", "E", "F", "G", "A"]
+        )
+    }
+
+    #[test]
+    fn rotate_set_a() {
+        let mut topology = topology();
+        topology.rotate_set_a();
+        assert_eq!(
+            extract_addresses(&topology),
+            vec!["B", "C", "D", "E", "A", "F", "G"]
+        )
+    }
+
+    #[test]
+    fn lift_up_peers() {
+        let mut topology = topology();
+        // Will lift up "B", "C", "E", "G"
+        let to_lift_up = &[
+            topology.sorted_peers[1].public_key().clone(),
+            topology.sorted_peers[2].public_key().clone(),
+            topology.sorted_peers[4].public_key().clone(),
+            topology.sorted_peers[6].public_key().clone(),
+        ];
+        topology.lift_up_peers(to_lift_up);
+        assert_eq!(
+            extract_addresses(&topology),
+            vec!["B", "C", "E", "G", "A", "D", "F"]
+        )
+    }
+
+    #[test]
+    fn update_peer_list() {
+        let mut topology = topology();
+        // New peers will be "A", "C", "F", "H"
+        let new_peers = {
+            let mut peers = HashSet::from([
+                topology.sorted_peers[0].clone(),
+                topology.sorted_peers[5].clone(),
+                topology.sorted_peers[2].clone(),
+            ]);
+            peers.extend(peers!["H"]);
+            peers
+        };
+        topology.update_peer_list(new_peers);
+        assert_eq!(extract_addresses(&topology), vec!["A", "C", "F", "H"])
+    }
 }

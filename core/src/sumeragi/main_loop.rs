@@ -388,14 +388,7 @@ fn update_topology(
             .collect::<Vec<PublicKey>>(),
     );
     topology.rotate_set_a();
-    topology.update_peer_list(
-        &state
-            .wsv
-            .peers_ids()
-            .iter()
-            .map(|id| id.clone())
-            .collect::<Vec<PeerId>>(),
-    );
+    topology.update_peer_list(state.wsv.peers_ids().iter().map(|id| id.clone()).collect());
     state.current_topology = topology;
     sumeragi.connect_peers(&state.current_topology);
 }
