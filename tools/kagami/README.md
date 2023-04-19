@@ -22,15 +22,16 @@ kagami <SUBCOMMAND>
 
 ### Subcommands
 
-|        Command        |                             Description                              |
-| --------------------- | -------------------------------------------------------------------- |
-| [`crypto`](#crypto)   | Generate cryptographic key pairs                                     |
-| [`docs`](#docs)       | Generate a Markdown reference of configuration parameters            |
-| [`genesis`](#genesis) | Generate the default genesis block that is used in tests             |
-| [`schema`](#schema)   | Generate the schema used for code generation in Iroha SDKs           |
-| [`tokens`](#tokens)   | Generate a list of predefined permission tokens and their parameters |
-| [`config`](#config)   | Generate the default configuration for the client or the peer        |
-| `help`                | Print the help message for the tool or a subcommand                  |
+|        Command          |                             Description                              |
+| ----------------------- | -------------------------------------------------------------------- |
+| [`crypto`](#crypto)     | Generate cryptographic key pairs                                     |
+| [`docs`](#docs)         | Generate a Markdown reference of configuration parameters            |
+| [`genesis`](#genesis)   | Generate the default genesis block that is used in tests             |
+| [`schema`](#schema)     | Generate the schema used for code generation in Iroha SDKs           |
+| [`tokens`](#tokens)     | Generate a list of predefined permission tokens and their parameters |
+| [`config`](#config)     | Generate the default configuration for the client or the peer        |
+| [`examples`](#examples) | Generate an instruction by the chosen use case                       |
+| `help`                  | Print the help message for the tool or a subcommand                  |
 
 ## `crypto`
 
@@ -189,4 +190,23 @@ The output should be identical to the [reference configuration](../../docs/sourc
 
     ```bash
     kagami config client > client-config.json
+    ```
+
+## `examples`
+To see which use cases you can choose from, run the following command:
+```bash
+kagami examples --help
+```
+
+- Generate an instruction as JSON that creates a new account:
+    ```bash
+    kagami examples create-account
+    ```
+- Generate an instruction as JSON that mints a public key:
+    ```bash
+    kagami examples mint-public-key --account-id "bob@wonderland" --public-key "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+    ```
+- Generate an instruction as JSON that burns a public key:
+    ```bash
+    kagami examples burn-public-key --account-id "bob@wonderland" --public-key "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
     ```
