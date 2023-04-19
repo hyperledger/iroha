@@ -179,7 +179,7 @@ ffi::ffi_item! {
 }
 
 /// Error when dealing with cryptographic functions
-#[derive(Debug, Display, Deserialize)]
+#[derive(Debug, Display, serde::Deserialize)]
 pub enum Error {
     /// Returned when trying to create an algorithm which does not exist
     #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
