@@ -86,3 +86,32 @@ impl Checker {
         })
     }
 }
+
+#[test]
+fn committed_block_must_be_available_in_kura() {
+    let (_rt, peer, client) = <PeerBuilder>::new().with_port(10_985).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    let event_filter = PipelineEventFilter::new()
+        .entity_kind(PipelineEntityKind::Block)
+        .status_kind(PipelineStatusKind::Committed)
+        .into();
+    let mut event_iter = client
+        .listen_for_events(event_filter)
+        .expect("Failed to subscribe for events");
+
+    client
+        .submit(FailBox::new("Dummy instruction"))
+        .expect("Failed to submit transaction");
+
+    let event = event_iter.next().expect("Block must be committed");
+    let Ok(Event::Pipeline(PipelineEvent { entity_kind: PipelineEntityKind::Block, status: PipelineStatus::Committed, hash })) = event else { panic!("Received unexpected event") };
+    let hash = hash.typed();
+
+    peer.iroha
+        .as_ref()
+        .expect("Must be some")
+        .kura
+        .get_block_height_by_hash(&hash)
+        .expect("Block committed event was received earlier");
+}

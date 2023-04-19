@@ -321,7 +321,10 @@ impl Sumeragi {
 }
 
 fn commit_block(sumeragi: &Sumeragi, state: &mut State, block: impl Into<VersionedCommittedBlock>) {
-    let committed_block = block.into();
+    let committed_block = Arc::new(block.into());
+
+    // Block must be stored by kura before updating WSV and emitting BlockCommitted event
+    sumeragi.kura.store_block(Arc::clone(&committed_block));
 
     state.finalized_wsv = state.wsv.clone();
     update_state(state, sumeragi, &committed_block);
@@ -337,8 +340,6 @@ fn commit_block(sumeragi: &Sumeragi, state: &mut State, block: impl Into<Version
 
     update_topology(state, sumeragi, &committed_block);
 
-    sumeragi.kura.store_block(committed_block);
-
     cache_transaction(state, sumeragi);
 }
 
@@ -347,7 +348,12 @@ fn replace_top_block(
     state: &mut State,
     block: impl Into<VersionedCommittedBlock>,
 ) {
-    let committed_block = block.into();
+    let committed_block = Arc::new(block.into());
+
+    // Block must be stored by kura before updating WSV and emitting BlockCommitted event
+    sumeragi
+        .kura
+        .replace_top_block(Arc::clone(&committed_block));
 
     state.wsv = state.finalized_wsv.clone();
     update_state(state, sumeragi, &committed_block);
@@ -362,8 +368,6 @@ fn replace_top_block(
     );
 
     update_topology(state, sumeragi, &committed_block);
-
-    sumeragi.kura.replace_top_block(committed_block);
 
     cache_transaction(state, sumeragi)
 }
