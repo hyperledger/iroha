@@ -640,19 +640,15 @@ model! {
     pub enum NumericValue {
         /// `u32` value
         #[debug(fmt = "{_0}_u32")]
-        #[display(fmt = "{_0}_u32")]
         U32(u32),
         /// `u64` value
         #[debug(fmt = "{_0}_u64")]
-        #[display(fmt = "{_0}_u64")]
         U64(u64),
         /// `u128` value
         #[debug(fmt = "{_0}_u126")]
-        #[display(fmt = "{_0}_u126")]
         U128(u128),
         /// `Fixed` value
         #[debug(fmt = "{_0}_fx")]
-        #[display(fmt = "{_0}_fx")]
         Fixed(fixed::Fixed),
     }
 }
