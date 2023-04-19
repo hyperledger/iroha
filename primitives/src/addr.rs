@@ -475,6 +475,15 @@ impl SocketAddr {
         }
     }
 
+    /// Extracts port from [`Self`]
+    pub fn port(&self) -> u16 {
+        match self {
+            SocketAddr::Ipv4(addr) => addr.port,
+            SocketAddr::Ipv6(addr) => addr.port,
+            SocketAddr::Host(addr) => addr.port,
+        }
+    }
+
     /// Serialize the data contained in this [`SocketAddr`] for use in hashing.
     pub fn payload(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
