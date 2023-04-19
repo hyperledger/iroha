@@ -76,9 +76,9 @@ impl Config {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let event_counter_handles = units
+        let block_counter_handles = units
             .iter()
-            .map(MeasurerUnit::spawn_event_counter)
+            .map(MeasurerUnit::spawn_block_counter)
             .collect::<Vec<_>>();
 
         // START
@@ -93,7 +93,7 @@ impl Config {
             .collect::<Vec<_>>();
 
         // Wait for slowest peer to commit required number of blocks
-        for handle in event_counter_handles {
+        for handle in block_counter_handles {
             handle.join().expect("Event counter panicked")?;
         }
 
@@ -192,29 +192,23 @@ impl MeasurerUnit {
 
     /// Spawn who checks if all the expected blocks are committed
     #[allow(clippy::expect_used)]
-    fn spawn_event_counter(&self) -> thread::JoinHandle<Result<()>> {
+    fn spawn_block_counter(&self) -> thread::JoinHandle<Result<()>> {
         let listener = self.client.clone();
-        let (init_sender, init_receiver) = mpsc::channel();
-        let event_filter = PipelineEventFilter::new()
-            .entity_kind(PipelineEntityKind::Block)
-            .status_kind(PipelineStatusKind::Committed)
-            .into();
-        let blocks_expected = self.config.blocks as usize;
+        let expected_blocks = u64::from(self.config.blocks);
+        let preparation_blocks_height =
+            u64::from(1 + self.config.peers * Self::PREPARATION_BLOCKS_NUMBER);
+        let expected_blocks_height = preparation_blocks_height + expected_blocks + 1; // +1 because we want to wait until all expected blocks will be finalized
         let name = self.name;
-        let handle = thread::spawn(move || -> Result<()> {
-            let mut event_iterator = listener.listen_for_events(event_filter)?;
-            init_sender.send(())?;
-            for i in 1..=blocks_expected {
-                let _event = event_iterator.next().expect("Event stream closed")?;
-                iroha_logger::info!(name, block = i, "Received block committed event");
+        thread::spawn(move || -> Result<()> {
+            let mut blocks_iterator = listener.listen_for_blocks(preparation_blocks_height + 1)?;
+            let mut height = 0;
+            while height != expected_blocks_height {
+                let block = blocks_iterator.next().expect("Block stream closed")?;
+                height = block.header().height;
+                iroha_logger::info!(name, block = height, "Received block with height");
             }
             Ok(())
-        });
-        init_receiver
-            .recv()
-            .expect("Failed to initialize an event counter");
-
-        handle
+        })
     }
 
     /// Spawn who periodically submits transactions
