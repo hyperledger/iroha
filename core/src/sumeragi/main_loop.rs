@@ -362,14 +362,7 @@ impl Sumeragi {
                 .collect::<Vec<PublicKey>>(),
         );
         topology.rotate_set_a();
-        topology.update_peer_list(
-            &self
-                .wsv
-                .peers_ids()
-                .iter()
-                .map(|id| id.clone())
-                .collect::<Vec<PeerId>>(),
-        );
+        topology.update_peer_list(self.wsv.peers_ids().iter().map(|id| id.clone()).collect());
         self.current_topology = topology;
         self.connect_peers(&self.current_topology);
     }
