@@ -252,16 +252,11 @@ impl Sumeragi {
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
 
-        let latest_block_view_change_index = wsv.latest_block_view_change_index();
-        let latest_block_height = wsv.height();
-        let latest_block_hash = wsv.latest_block_hash();
-        let previous_block_hash = wsv.previous_block_hash();
-
-        let current_topology = if latest_block_height == 0 {
+        let current_topology = if wsv.height() == 0 {
             assert!(!sumeragi.config.trusted_peers.peers.is_empty());
             Topology::new(sumeragi.config.trusted_peers.peers.clone())
         } else {
-            let block_ref = sumeragi.internal.kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+            let block_ref = sumeragi.internal.kura.get_block_by_height(wsv.height()).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
             let mut topology = Topology {
                 sorted_peers: block_ref.header().committed_with_topology.clone(),
             };
@@ -270,10 +265,6 @@ impl Sumeragi {
         };
 
         let sumeragi_state_machine_data = State {
-            previous_block_hash,
-            latest_block_hash,
-            latest_block_height,
-            latest_block_view_change_index,
             current_topology,
             wsv,
             finalized_wsv,

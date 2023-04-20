@@ -105,15 +105,9 @@ impl BlockCreated {
         self,
         transaction_validator: &TransactionValidator,
         wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
     ) -> Result<PendingBlock, eyre::Report> {
-        self.block.revalidate::<IS_GENESIS>(
-            transaction_validator,
-            wsv,
-            latest_block,
-            block_height,
-        )?;
+        self.block
+            .revalidate::<IS_GENESIS>(transaction_validator, wsv)?;
         Ok(self.block)
     }
     /// Get hash of block.
@@ -183,20 +177,20 @@ impl BlockSyncUpdate {
         self,
         transaction_validator: &TransactionValidator,
         wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
     ) -> Result<VersionedCommittedBlock, eyre::Report> {
-        self.block.revalidate::<IS_GENESIS>(
-            transaction_validator,
-            wsv,
-            latest_block,
-            block_height,
-        )?;
+        self.block
+            .revalidate::<IS_GENESIS>(transaction_validator, wsv)?;
         Ok(self.block)
     }
+
     /// Get hash of block.
     pub fn hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.block.hash()
+    }
+
+    /// Get height of block.
+    pub fn height(&self) -> u64 {
+        self.block.header().height
     }
 }
 

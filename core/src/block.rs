@@ -263,8 +263,6 @@ pub trait Revalidate: Sized {
         &self,
         transaction_validator: &TransactionValidator,
         wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
     ) -> Result<(), eyre::Report>;
 
     /// Return whether or not the block contains transactions already committed.
@@ -286,9 +284,10 @@ impl Revalidate for PendingBlock {
         &self,
         transaction_validator: &TransactionValidator,
         wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
     ) -> Result<(), eyre::Report> {
+        let latest_block = wsv.latest_block_hash();
+        let block_height = wsv.height();
+
         if self.transactions.is_empty() && self.rejected_transactions.is_empty() {
             bail!("Block is empty");
         }
@@ -429,12 +428,12 @@ impl Revalidate for VersionedCommittedBlock {
         &self,
         transaction_validator: &TransactionValidator,
         wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
     ) -> Result<(), eyre::Report> {
         if self.has_committed_transactions(&wsv) {
             bail!("Block has committed transactions");
         }
+        let latest_block = wsv.latest_block_hash();
+        let block_height = wsv.height();
         match self {
             VersionedCommittedBlock::V1(block) => {
                 if block.transactions.is_empty() && block.rejected_transactions.is_empty() {
