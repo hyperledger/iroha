@@ -104,10 +104,10 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// Panics if something is wrong with the configuration.
 /// Configuration is hardcoded and tested, so this function should never panic.
 pub fn create_engine() -> Engine {
-    create_config()
-        .and_then(|config| {
-            Engine::new(&config).map_err(|err| Error::Initialization(eyre!(Box::new(err))))
-        })
+    let config = create_config();
+
+    Engine::new(&config)
+        .map_err(|err| Error::Initialization(eyre!(Box::new(err))))
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
@@ -122,13 +122,10 @@ pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime:
     Module::new(engine, bytes).map_err(|err| Error::Instantiation(eyre!(Box::new(err))))
 }
 
-fn create_config() -> Result<Config> {
+fn create_config() -> Config {
     let mut config = Config::new();
+    config.consume_fuel(true);
     config
-        .consume_fuel(true)
-        .cache_config_load_default()
-        .map_err(|err| Error::Initialization(eyre!(Box::new(err))))?;
-    Ok(config)
 }
 
 #[derive(Clone)]
