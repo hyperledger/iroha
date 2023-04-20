@@ -524,7 +524,6 @@ mod test {
     use isi::RegisterBox;
 
     use super::*;
-    use crate::domain::NewDomain;
 
     #[test]
     fn deserialize_u128() {

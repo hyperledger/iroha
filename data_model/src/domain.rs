@@ -7,7 +7,7 @@
 #![allow(clippy::std_instead_of_alloc)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::str::FromStr;
 
 use derive_more::{Display, FromStr};
