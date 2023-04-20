@@ -1,15 +1,10 @@
-#![allow(
-    unsafe_code,
-    clippy::restriction,
-    clippy::pedantic,
-    clippy::let_unit_value
-)]
+#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
 use std::{alloc, collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
     def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, FfiConvert, FfiOutPtrRead, FfiReturn,
-    FfiTuple1, FfiType, LocalRef,
+    FfiTuple1, FfiTuple2, FfiType, LocalRef,
 };
 
 iroha_ffi::def_ffi_fn! { dealloc }
@@ -131,6 +126,24 @@ impl OpaqueStruct {
 
 #[ffi_export]
 /// Take and return byte
+pub fn freestanding_with_option(item: Option<u8>) -> Option<u8> {
+    item
+}
+
+#[ffi_export]
+/// Take and return byte
+pub fn freestanding_with_option_with_niche_ref(item: &Option<bool>) -> &Option<bool> {
+    item
+}
+
+#[ffi_export]
+/// Take and return byte
+pub fn freestanding_with_option_without_niche_ref(item: &Option<u8>) -> &Option<u8> {
+    item
+}
+
+#[ffi_export]
+/// Take and return byte
 pub fn freestanding_with_primitive(byte: u8) -> u8 {
     byte
 }
@@ -150,6 +163,12 @@ pub fn freestanding_with_data_carrying_enum(enum_: DataCarryingEnum) -> DataCarr
 /// Return array as pointer
 #[ffi_export]
 pub fn freestanding_with_array(arr: [u8; 1]) -> [u8; 1] {
+    arr
+}
+
+/// Take and return array reference
+#[ffi_export]
+pub fn freestanding_with_array_ref(arr: &[u8; 1]) -> &[u8; 1] {
     arr
 }
 
@@ -391,8 +410,7 @@ fn return_option() {
     });
     let param1 = unsafe { param1.assume_init() };
     assert!(param1.is_null());
-    let mut store = ();
-    let param1: Option<&Value> = unsafe { FfiConvert::try_from_ffi(param1, &mut store).unwrap() };
+    let param1: Option<&Value> = unsafe { FfiConvert::try_from_ffi(param1, &mut ()).unwrap() };
     assert!(param1.is_none());
 
     let name2 = Name(String::from("Nomen"));
@@ -407,9 +425,67 @@ fn return_option() {
     unsafe {
         let param2 = param2.assume_init();
         assert!(!param2.is_null());
-        let mut store = ();
-        let param2: Option<&Value> = FfiConvert::try_from_ffi(param2, &mut store).unwrap();
+        let param2: Option<&Value> = FfiConvert::try_from_ffi(param2, &mut ()).unwrap();
         assert_eq!(Some(&Value(String::from("Omen"))), param2);
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_option_without_niche() {
+    let input = Some(42);
+    let mut output = MaybeUninit::new(FfiTuple2(0, unsafe { core::mem::zeroed() }));
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_option(FfiConvert::into_ffi(input, &mut ()), output.as_mut_ptr())
+        );
+
+        let output = output.assume_init();
+        assert_eq!(input, FfiOutPtrRead::try_read_out(output).expect("Valid"));
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_option_with_niche_ref() {
+    let input = Some(true);
+    let mut output = MaybeUninit::new(0);
+    let mut in_store = Default::default();
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_option_with_niche_ref(
+                FfiConvert::into_ffi(&input, &mut in_store),
+                output.as_mut_ptr()
+            )
+        );
+
+        let output = output.assume_init();
+        assert_eq!(input, *LocalRef::try_read_out(output).expect("Valid"));
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_option_without_niche_ref() {
+    let input = Some(42u8);
+    let mut output = MaybeUninit::new(FfiTuple2(0, 0));
+    let mut in_store = Default::default();
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_option_without_niche_ref(
+                FfiConvert::into_ffi(&input, &mut in_store),
+                output.as_mut_ptr()
+            )
+        );
+
+        let output = output.assume_init();
+        assert_eq!(input, *LocalRef::try_read_out(output).expect("Valid"));
     }
 }
 
@@ -446,12 +522,12 @@ fn return_result() {
     unsafe {
         assert_eq!(
             FfiReturn::ExecutionFail,
-            OpaqueStruct__fallible_int_output(From::from(false), output.as_mut_ptr())
+            OpaqueStruct__fallible_int_output(false.into_ffi(&mut ()), output.as_mut_ptr())
         );
         assert_eq!(0, output.assume_init());
         assert_eq!(
             FfiReturn::Ok,
-            OpaqueStruct__fallible_int_output(From::from(true), output.as_mut_ptr())
+            OpaqueStruct__fallible_int_output(true.into_ffi(&mut ()), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
     }
@@ -474,6 +550,26 @@ fn array_to_pointer() {
         assert_eq!(
             [1_u8],
             <[u8; 1]>::try_from_ffi(output.assume_init(), &mut ()).unwrap()
+        );
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_array_ref() {
+    let array = [1_u8];
+    let ptr: *const [u8; 1] = (&array).into_ffi(&mut ());
+    let mut output = MaybeUninit::new(core::ptr::null());
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_array_ref(ptr, output.as_mut_ptr())
+        );
+
+        assert_eq!(
+            &[1_u8; 1],
+            <&[u8; 1]>::try_from_ffi(output.assume_init(), &mut ()).unwrap()
         );
     }
 }
@@ -712,13 +808,12 @@ fn borrow_vec() {
 fn return_reference_from_slice() {
     let a = vec![1, 2];
 
-    let mut in_store = Default::default();
     let mut output = MaybeUninit::new(core::ptr::null());
 
     unsafe {
         assert_eq!(
             FfiReturn::Ok,
-            __reference_from_slice(<&[u8]>::into_ffi(&a, &mut in_store), output.as_mut_ptr())
+            __reference_from_slice(<&[u8]>::into_ffi(&a, &mut ()), output.as_mut_ptr())
         );
 
         let output = <&u8>::try_read_out(output.assume_init()).unwrap();
@@ -733,7 +828,7 @@ fn borrow_local() {
 
     let b: LocalRef<(u8, u8)> = {
         let mut store = Default::default();
-        let mut output = MaybeUninit::new(iroha_ffi::FfiTuple2(0, 0));
+        let mut output = MaybeUninit::new(FfiTuple2(0, 0));
 
         unsafe {
             assert_eq!(

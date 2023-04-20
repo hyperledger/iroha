@@ -40,11 +40,13 @@ ffi::ffi_item! {
 }
 
 // NOTE: Hash is FFI serialized as an array (a pointer in a function call, by value when part of a struct)
-iroha_ffi::ffi_type! {unsafe impl Transparent for Hash[[u8; Hash::LENGTH]] validated with {Hash::is_lsb_1} }
+iroha_ffi::ffi_type! {
+    unsafe impl Transparent for Hash {
+        type Target = [u8; Hash::LENGTH];
 
-impl iroha_ffi::option::Niche for Hash {
-    // NOTE: Any value that has lsb=0 is a niche value
-    const NICHE_VALUE: Self::ReprC = [0; Hash::LENGTH];
+        validation_fn=unsafe {Hash::is_lsb_1},
+        niche_value = [0; Hash::LENGTH]
+    }
 }
 
 impl Hash {

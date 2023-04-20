@@ -33,27 +33,8 @@ mod wasm {
             // SAFETY: Even if it is not used in `wasm` API it is still a `ReprC` type
             unsafe impl $crate::ReprC for $src {}
 
-            impl $crate::option::Niche for $src {
+            impl $crate::option::Niche<'_> for $src {
                 const NICHE_VALUE: $dst = <$src>::MAX as $dst + 1;
-            }
-
-            // SAFETY: References coerce into pointers of the same type
-            unsafe impl<'itm> $crate::ir::Transmute for &'itm $src {
-                type Target = *const $src;
-
-                #[inline]
-                unsafe fn is_valid(target: &Self::Target) -> bool {
-                    !target.is_null()
-                }
-            }
-            // SAFETY: References coerce into pointers of the same type
-            unsafe impl<'itm> $crate::ir::Transmute for &'itm mut $src {
-                type Target = *mut $src;
-
-                #[inline]
-                unsafe fn is_valid(target: &Self::Target) -> bool {
-                    !target.is_null()
-                }
             }
 
             // SAFETY: Idempotent transmute is always infallible
@@ -114,15 +95,28 @@ mod wasm {
 /// * validity function must not return false positives
 macro_rules! fieldless_enum_derive {
     ( $src:ty => $dst:ty: {$niche_val:expr}: $validity_fn:expr ) => {
-        impl $crate::option::Niche for $src {
-            const NICHE_VALUE: <$dst as $crate::FfiType>::ReprC = $niche_val;
-        }
+        $crate::ffi_type! {
+            unsafe impl Transparent for $src {
+                type Target = $dst;
 
-        $crate::ffi_type! {unsafe impl Transparent for $src[$dst] validated with {$validity_fn} }
+                validation_fn=unsafe {$validity_fn},
+                niche_value=$niche_val
+            }
+        }
 
         impl $crate::WrapperTypeOf<$src> for $dst {
             type Type = $src;
         }
+    };
+}
+
+/// # Safety
+///
+/// Type must be a robust #[repr(C)]
+macro_rules! primitive_derive {
+    ( $($primitive:ty),* $(,)? ) => { $(
+        unsafe impl $crate::ReprC for $primitive {}
+        ffi_type! { impl Robust for $primitive {} } )*
     };
 }
 
@@ -135,20 +129,9 @@ fieldless_enum_derive! {
     |i: &i8| *i == -1 || *i == 0 || *i == 1
 }
 
-ffi_type! {unsafe impl Robust for u32 }
-ffi_type! {unsafe impl Robust for i32 }
-ffi_type! {unsafe impl Robust for u64 }
-ffi_type! {unsafe impl Robust for i64 }
-
+primitive_derive! { u32, i32, u64, i64 }
 #[cfg(not(target_family = "wasm"))]
-ffi_type! {unsafe impl Robust for u8 }
-#[cfg(not(target_family = "wasm"))]
-ffi_type! {unsafe impl Robust for i8 }
-#[cfg(not(target_family = "wasm"))]
-ffi_type! {unsafe impl Robust for u16 }
-#[cfg(not(target_family = "wasm"))]
-ffi_type! {unsafe impl Robust for i16 }
+primitive_derive! { u8, i8, u16, i16 }
 
 // TODO: u128/i128 is not FFI-safe. Must be properly serialized!
-ffi_type! {unsafe impl Robust for u128 }
-ffi_type! {unsafe impl Robust for i128 }
+primitive_derive! { u128, i128 }

@@ -245,7 +245,7 @@ pub enum FfiReturn {
     Ok = 0,
 }
 
-/// Macro for defining FFI types of a known category ([`Opaque`], [`Robust`] or [`Transmute`]).
+/// Macro for defining FFI types of a known category ([`Robust`] or [`Transmute`]).
 /// The implementation for an FFI type of one of the categories incurs a lot of bloat that
 /// is reduced by the use of this macro
 ///
@@ -257,108 +257,113 @@ pub enum FfiReturn {
 /// # Example
 ///
 /// ```
-/// use iroha_ffi::ffi_type;
+/// use iroha_ffi::{ffi_type, ReprC};
 ///
-/// struct OpaqueStruct<T>(T);
+/// // Always use a type alias for inner types of transparent items so that if you make
+/// // a change the unsafe code in [`ffi_type!`] will not compile, thus preventing UB
+/// type NonNullInner<T> = *mut T;
+/// type WrapperInner = u32;
+///
+/// #[repr(transparent)]
+/// struct NonNull<T>(NonNullInner<T>);
+///
+/// #[repr(transparent)]
+/// struct Wrapper(WrapperInner);
 ///
 /// #[derive(Clone, Copy)]
 /// #[repr(C)]
 /// struct RobustStruct(u64, i32);
 ///
-/// #[repr(transparent)]
-/// struct NonNull<T>(*mut T);
+/// // SAFETY: Type is robust #[repr(C)]
+/// unsafe impl ReprC for RobustStruct {}
+/// ffi_type! { impl Robust for RobustStruct {} }
 ///
-/// ffi_type! {impl<T> Opaque for OpaqueStruct<T>}
-/// ffi_type! {unsafe impl Robust for RobustStruct}
-/// ffi_type! {unsafe impl<T> Transparent for NonNull<T>[*mut T] validated with {
-///     |target: &*mut T| !target.is_null()
-/// }}
+/// ffi_type! {
+///     unsafe impl<T> Transparent for NonNull<T> {
+///         type Target = NonNullInner<T>;
 ///
-/// #[repr(C)]
-/// struct NonRobustStruct(String, u32);
+///         validation_fn=unsafe {|target: &NonNullInner<T>| !target.is_null()},
+///         niche_value=core::ptr::null_mut(),
+///     }
+/// }
 ///
-/// // CAUTION: Struct is not robust albeit it's `#[repr(C)]`
-/// // ffi_type! {unsafe impl Robust for NonRobustStruct}
+/// // Validation function is `|_| true` implicitly indicating
+/// // this type is robust with respect to the wrapped type
+/// ffi_type! {
+///     unsafe impl Transparent for Wrapper {
+///         type Target = WrapperInner;
+///     }
+/// }
 /// ```
 #[macro_export]
 macro_rules! ffi_type {
-    (impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Opaque for $ty: ty $(where $where_clause: tt )? ) => {
-        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
-            type Type = $crate::ir::Opaque;
-        }
-
-        // SAFETY: Transmuting reference to a pointer of the same type
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Transmute for &$ty where $($where_clause)? {
-            type Target = *const $ty;
-
-            #[inline]
-            unsafe fn is_valid(target: &Self::Target) -> bool {
-                !target.is_null()
-            }
-        }
-        // SAFETY: Transmuting reference to a pointer of the same type
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Transmute for &mut $ty where $($where_clause)? {
-            type Target = *mut $ty;
-
-            #[inline]
-            unsafe fn is_valid(target: &Self::Target) -> bool {
-                !target.is_null()
-            }
-        }
-
-        // SAFETY: Opaque types are never dereferenced and therefore &mut T is considered to be transmutable
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::InfallibleTransmute for $ty where $($where_clause)? {}
-
-        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::option::Niche for $ty where $($where_clause)? {
-            const NICHE_VALUE: *mut Self = core::ptr::null_mut();
-        }
-    };
-    (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Robust for $ty: ty $(where $where_clause: tt )? ) => {
-        // SAFETY: Type must be a robust #[repr(C)] type
-        unsafe impl$(<$($impl_generics: $crate::ReprC + $($bounds)?),*>)? $crate::ReprC for $ty where $($where_clause)? {}
-
-        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where $($where_clause)? {
+    (impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Robust for $ty: ty $(where $($where_ty:ty: $where_bound:path),* )? {} ) => {
+        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Ir for $ty where Self: $crate::ReprC, $($($where_ty: $where_bound),*)? {
             type Type = $crate::ir::Robust;
-        }
-        // SAFETY: References of robust types are always transmutable into pointers of the same type
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Transmute for &$ty where $($where_clause)? {
-            type Target = *const $ty;
-
-            #[inline]
-            unsafe fn is_valid(target: &Self::Target) -> bool {
-                !target.is_null()
-            }
-        }
-        // SAFETY: References of robust types are always transmutable into pointers of the same type
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::Transmute for &mut $ty where $($where_clause)? {
-            type Target = *mut $ty;
-
-            #[inline]
-            unsafe fn is_valid(target: &Self::Target) -> bool {
-                !target.is_null()
-            }
         }
 
         // SAFETY: Robust type with a defined C representation by definition
-        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::InfallibleTransmute for $ty where $($where_clause)? {}
+        unsafe impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::ir::InfallibleTransmute for $ty where Self: $crate::ReprC, $($($where_ty: $where_bound),*)? {}
 
-        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::WrapperTypeOf<Self> for $ty where $($where_clause)? {
+        impl$(<$($impl_generics $(: $bounds)?),*>)? $crate::option::OptionIr for $ty where $($($where_ty: $where_bound),*)? {
+            type Type = Option<$crate::option::WithoutNiche>;
+        }
+
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::WrapperTypeOf<Self> for $ty where $($($where_ty: $where_bound),*)? {
             type Type = Self;
         }
     };
-    (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Transparent for $ty: ty[$target: ty] $(where $where_clause: tt )? validated with {$validity_fn: expr}) => {
-        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for $ty where $($where_clause)? {
+    (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Transparent for $ty: ty $(where $($where_ty:ty: $where_bound:path),* )? {
+        type Target = $target:ty;
+
+        validation_fn=unsafe {$validity_fn: expr},
+        niche_value=$niche_value: expr
+        $(,)?
+    }) => {
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for $ty where $($($where_ty: $where_bound),*)? {
             type Type = $crate::ir::Transparent;
         }
 
-        // SAFETY: Type must be `#[repr(transparent)]` with respect to the target type
-        unsafe impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Transmute for $ty where $($where_clause)? {
+        // SAFETY: `$ty` is transmutable into `$target` and `is_valid` doesn't return false positives
+        unsafe impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Transmute for $ty where $($($where_ty: $where_bound),*)? {
             type Target = $target;
 
             #[inline]
             unsafe fn is_valid(target: &Self::Target) -> bool {
                 $validity_fn(target)
             }
+        }
+
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::option::Niche<'_> for $ty where $($($where_ty: $where_bound),*)? {
+            const NICHE_VALUE: <$target as $crate::FfiType>::ReprC = $niche_value;
+        }
+    };
+    (unsafe impl $(<$($impl_generics: tt $(: $bounds: path)?),*>)? Transparent for $ty: ty $(where $($where_ty:ty: $where_bound:path),* )? {
+        type Target = $target:ty;
+    } ) => {
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Ir for $ty where $($($where_ty: $where_bound),*)? {
+            type Type = $crate::ir::Transparent;
+        }
+
+        // SAFETY: `$ty` is transmutable into `$target` and `is_valid` doesn't return false positives
+        unsafe impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::Transmute for $ty where $($($where_ty: $where_bound),*)? {
+            type Target = $target;
+
+            #[inline]
+            unsafe fn is_valid(_: &Self::Target) -> bool {
+                true
+            }
+        }
+
+        // SAFETY: `$t` is robust with respect to `$target`
+        unsafe impl<$($($impl_generics $(: $bounds)?),*)?> $crate::ir::InfallibleTransmute for $ty where $($($where_ty: $where_bound),*)? {}
+
+        impl<'dummy, $($($impl_generics $(: $bounds)?),*)?> $crate::option::Niche<'dummy> for $ty where $target: $crate::option::Niche<'dummy>, $($($where_ty: $where_bound),*)? {
+            const NICHE_VALUE: <$target as $crate::FfiType>::ReprC = <$target as $crate::option::Niche<'dummy>>::NICHE_VALUE;
+        }
+
+        impl<$($($impl_generics $(: $bounds)?),*)?> $crate::WrapperTypeOf<$ty> for $target where $($($where_ty: $where_bound),*)? {
+            type Type = $ty;
         }
     };
 }
