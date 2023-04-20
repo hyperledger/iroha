@@ -6,8 +6,6 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
-#[cfg(feature = "std")]
-use core::iter;
 use core::{cmp::Ordering, fmt::Display};
 
 use derive_more::Display;
@@ -83,7 +81,10 @@ mod committed {
 
     use super::*;
 
-    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, FromVariant, IntoSchema, Serialize, Deserialize, PartialEq, Eq, Hash);
+    #[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
+    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, iroha_ffi::FfiType, IntoSchema);
+    #[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
+    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, IntoSchema);
 
     model! {
         /// The `CommittedBlock` struct represents a block accepted by consensus
@@ -221,7 +222,7 @@ mod committed {
                 }
                 .into()
             });
-            let current_block: iter::Once<Event> = iter::once(
+            let current_block = core::iter::once(
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Block,
                     status: PipelineStatus::Committed,
@@ -346,9 +347,7 @@ pub mod error {
         #[display(fmt = "Block was rejected during consensus")]
         #[serde(untagged)]
         #[repr(transparent)]
-        // NOTE: Single variant enums have representation of ()
-        // Make it #[ffi_type] if more variants are added
-        #[ffi_type(opaque)]
+        #[ffi_type]
         pub enum BlockRejectionReason {
             /// Block was rejected during consensus.
             ConsensusBlockRejection,

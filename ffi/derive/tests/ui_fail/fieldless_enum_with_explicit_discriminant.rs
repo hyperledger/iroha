@@ -1,7 +1,8 @@
 use iroha_ffi::FfiType;
 
 #[derive(FfiType)]
-enum EnumWithExplicitDiscriminant { 
+#[repr(u8)]
+enum EnumWithExplicitDiscriminant {
     A = 1,
     B,
     C,

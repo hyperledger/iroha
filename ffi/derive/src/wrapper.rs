@@ -124,6 +124,9 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
     let ref_mut_name = gen_ref_mut_name(name);
     let impl_ffi = gen_impl_ffi(name);
 
+    let ref_inner = quote!(*const iroha_ffi::Extern);
+    let ref_mut_inner = quote!(*mut iroha_ffi::Extern);
+
     let item_type = match input.data {
         syn::Data::Enum(_) => quote! {enum},
         syn::Data::Struct(_) => quote! {struct},
@@ -144,10 +147,10 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
 
                 #[derive(Clone, Copy)]
                 #[repr(transparent)]
-                #vis #item_type #ref_name<'itm>(*const iroha_ffi::Extern, core::marker::PhantomData<&'itm ()>);
+                #vis #item_type #ref_name<'itm>(#ref_inner, core::marker::PhantomData<&'itm ()>);
 
                 #[repr(transparent)]
-                #vis #item_type #ref_mut_name<'itm>(*mut iroha_ffi::Extern, core::marker::PhantomData<&'itm mut ()>);
+                #vis #item_type #ref_mut_name<'itm>(#ref_mut_inner, core::marker::PhantomData<&'itm mut ()>);
 
                 impl Drop for #name {
                     fn drop(&mut self) {
@@ -164,7 +167,7 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
                     type Target = #name;
 
                     fn deref(&self) -> &Self::Target {
-                        unsafe {&*(&self.0 as *const *const iroha_ffi::Extern).cast()}
+                        unsafe {&*(&self.0 as *const #ref_inner).cast()}
                     }
                 }
 
@@ -172,13 +175,13 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
                     type Target = #name;
 
                     fn deref(&self) -> &Self::Target {
-                        unsafe {&*(&self.0 as *const *mut iroha_ffi::Extern).cast()}
+                        unsafe {&*(&self.0 as *const #ref_mut_inner).cast()}
                     }
                 }
 
                 impl core::ops::DerefMut for #ref_mut_name<'_> {
                     fn deref_mut(&mut self) -> &mut Self::Target {
-                        unsafe {&mut *(&mut self.0 as *mut *mut iroha_ffi::Extern).cast()}
+                        unsafe {&mut *(&mut self.0 as *mut #ref_mut_inner).cast()}
                     }
                 }
 
@@ -194,6 +197,8 @@ pub fn wrap_as_opaque(input: &syn::DeriveInput) -> TokenStream {
 fn gen_impl_ffi(name: &Ident) -> TokenStream {
     let ref_name = gen_ref_name(name);
     let ref_mut_name = gen_ref_mut_name(name);
+    let ref_inner = quote!(*const iroha_ffi::Extern);
+    let ref_mut_inner = quote!(*mut iroha_ffi::Extern);
 
     quote! {
         // SAFETY: Type is a wrapper for `*mut Extern`
@@ -201,10 +206,10 @@ fn gen_impl_ffi(name: &Ident) -> TokenStream {
             type RefType<'itm> = #ref_name<'itm>;
             type RefMutType<'itm> = #ref_mut_name<'itm>;
 
-            fn as_extern_ptr(&self) -> *const iroha_ffi::Extern {
+            fn as_extern_ptr(&self) -> #ref_inner {
                 self.__opaque_ptr
             }
-            fn as_extern_ptr_mut(&mut self) -> *mut iroha_ffi::Extern {
+            fn as_extern_ptr_mut(&mut self) -> #ref_mut_inner {
                 self.__opaque_ptr
             }
             unsafe fn from_extern_ptr(__opaque_ptr: *mut iroha_ffi::Extern) -> Self {
@@ -272,8 +277,22 @@ fn gen_impl_ffi(name: &Ident) -> TokenStream {
         // SAFETY: Type doesn't use store during conversion
         unsafe impl iroha_ffi::repr_c::NonLocal<Self> for #name {}
 
-        iroha_ffi::ffi_type! {unsafe impl<'itm> Transparent for #ref_name<'itm>[*const iroha_ffi::Extern] validated with {|target: &*const iroha_ffi::Extern| !target.is_null()} }
-        iroha_ffi::ffi_type! {unsafe impl<'itm> Transparent for #ref_mut_name<'itm>[*mut iroha_ffi::Extern] validated with {|target: &*mut iroha_ffi::Extern| !target.is_null()} }
+        iroha_ffi::ffi_type! {
+            unsafe impl<'itm> Transparent for #ref_name<'itm> {
+                type Target = #ref_inner;
+
+                validation_fn=unsafe {|target: &#ref_inner| !target.is_null()},
+                niche_value=core::ptr::null()
+            }
+        }
+        iroha_ffi::ffi_type! {
+            unsafe impl<'itm> Transparent for #ref_mut_name<'itm> {
+                type Target = #ref_mut_inner;
+
+                validation_fn=unsafe {|target: &#ref_mut_inner| !target.is_null()},
+                niche_value=core::ptr::null_mut()
+            }
+        }
 
         // SAFETY: Opaque pointer must never be dereferenced
         unsafe impl iroha_ffi::ir::InfallibleTransmute for #name {}
@@ -292,13 +311,7 @@ fn gen_impl_ffi(name: &Ident) -> TokenStream {
             type Type = Self;
         }
 
-        impl iroha_ffi::option::Niche for #name {
-            const NICHE_VALUE: *mut iroha_ffi::Extern = core::ptr::null_mut();
-        }
-        impl iroha_ffi::option::Niche for #ref_name<'_> {
-            const NICHE_VALUE: *const iroha_ffi::Extern = core::ptr::null();
-        }
-        impl iroha_ffi::option::Niche for #ref_mut_name<'_> {
+        impl iroha_ffi::option::Niche<'_> for #name {
             const NICHE_VALUE: *mut iroha_ffi::Extern = core::ptr::null_mut();
         }
     }
