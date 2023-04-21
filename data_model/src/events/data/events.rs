@@ -160,7 +160,7 @@ mod role {
 }
 
 mod permission {
-    //! This module contains [`PermissionTokenEvent`], [`PermissionValidatorEvent`] and their impls
+    //! This module contains [`PermissionTokenEvent`]
 
     use super::*;
 
@@ -306,16 +306,14 @@ mod validator {
         #[derive(serde::Deserialize, serde::Serialize)]
         #[derive(iroha_schema::IntoSchema)]
         #[non_exhaustive]
-        // NOTE: Single variant enums have representation of ()
-        // Make it #[ffi_type] if more variants are added
-        #[ffi_type(opaque)]
+        #[ffi_type]
         #[serde(untagged)]
         #[repr(transparent)]
-        pub enum PermissionValidatorEvent {
+        pub enum ValidatorEvent {
             Upgraded
         }
 
-        /// Filter for [`PermissionValidatorEvent`].
+        /// Filter for [`ValidatorEvent`].
         pub enum ValidatorFilter {
             Upgraded,
         }
@@ -324,7 +322,7 @@ mod validator {
 
     #[cfg(feature = "transparent_api")]
     impl Filter for ValidatorFilter {
-        type Event = PermissionValidatorEvent;
+        type Event = ValidatorEvent;
 
         fn matches(&self, event: &Self::Event) -> bool {
             match (self, event) {
@@ -354,7 +352,7 @@ model! {
         Trigger(trigger::TriggerEvent),
         PermissionToken(permission::PermissionTokenEvent),
         Configuration(config::ConfigurationEvent),
-        Validator(validator::PermissionValidatorEvent),
+        Validator(validator::ValidatorEvent),
     }
 }
 
@@ -396,7 +394,7 @@ impl WorldEvent {
                 events.push(DataEvent::Configuration(config_event));
             }
             WorldEvent::Validator(validator_event) => {
-                events.push(DataEvent::PermissionValidator(validator_event));
+                events.push(DataEvent::Validator(validator_event));
             }
         }
 
@@ -428,7 +426,7 @@ model! {
         /// Configuration event
         Configuration(config::ConfigurationEvent),
         /// Validator event
-        PermissionValidator(validator::PermissionValidatorEvent),
+        Validator(validator::ValidatorEvent),
     }
 }
 
@@ -445,7 +443,7 @@ impl DataEvent {
             | Self::Configuration(_)
             | Self::Role(_)
             | Self::PermissionToken(_)
-            | Self::PermissionValidator(_) => None,
+            | Self::Validator(_) => None,
         }
     }
 }
@@ -469,7 +467,7 @@ pub mod prelude {
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
-        validator::{PermissionValidatorEvent, ValidatorFilter},
+        validator::{ValidatorEvent, ValidatorFilter},
         DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
 }

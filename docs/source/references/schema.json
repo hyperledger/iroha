@@ -822,8 +822,8 @@
         "type": "ConfigurationEvent"
       },
       {
-        "name": "PermissionValidator",
-        "type": "PermissionValidatorEvent"
+        "name": "Validator",
+        "type": "ValidatorEvent"
       }
     ]
   },
@@ -2646,13 +2646,6 @@
       }
     ]
   },
-  "PermissionValidatorEvent": {
-    "Enum": [
-      {
-        "name": "Upgraded"
-      }
-    ]
-  },
   "PipelineEntityKind": {
     "Enum": [
       {
@@ -3669,6 +3662,13 @@
       {
         "name": "wasm",
         "type": "WasmSmartContract"
+      }
+    ]
+  },
+  "ValidatorEvent": {
+    "Enum": [
+      {
+        "name": "Upgraded"
       }
     ]
   },

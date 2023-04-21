@@ -1,6 +1,14 @@
 //! Structures, traits and impls related to *runtime* `Validator`s.
 
-use super::*;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
+
+use derive_more::{Constructor, Display};
+use getset::Getters;
+use iroha_schema::IntoSchema;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
+
 use crate::{
     isi::InstructionBox,
     model,
@@ -10,7 +18,7 @@ use crate::{
 };
 
 model! {
-    /// Permission validator that checks if an operation satisfies some conditions.
+    /// validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
     /// [`InstructionBox`]s, etc.
@@ -33,7 +41,7 @@ model! {
     /// Boxed version of [`NeedsPermission`]
     #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize)]
     #[ffi_type]
-    pub enum NeedsPermissionBox {
+    pub enum NeedsValidationBox {
         /// [`Transaction`] application operation
         Transaction(SignedTransaction),
         /// [`InstructionBox`] execution operation
@@ -117,3 +125,8 @@ impl From<Verdict> for Result<(), DenialReason> {
 
 /// Reason for denying the execution of a particular instruction.
 pub type DenialReason = String;
+
+pub mod prelude {
+    //! The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub use super::{NeedsValidationBox, Validator, Verdict};
+}

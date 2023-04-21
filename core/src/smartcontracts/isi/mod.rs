@@ -22,7 +22,6 @@ use iroha_data_model::{
         error::{EvaluationError, InstructionExecutionFailure as Error},
         *,
     },
-    permission,
     prelude::*,
 };
 use iroha_logger::prelude::*;
@@ -449,7 +448,7 @@ impl Execute for UpgradeBox {
         let object = self.object.evaluate(&context)?;
         match object {
             UpgradableBox::Validator(validator) => {
-                Upgrade::<permission::Validator>::new(validator).execute(authority, wsv)
+                Upgrade::<Validator>::new(validator).execute(authority, wsv)
             }
         }
     }

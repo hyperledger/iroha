@@ -1,4 +1,4 @@
-//! API for *Runtime Permission Validators*.
+//! API for *Runtime Validators*.
 
 #![no_std]
 
@@ -6,7 +6,7 @@ extern crate alloc;
 
 use alloc::string::String;
 
-use iroha_wasm::data_model::{permission::validator::Verdict, prelude::*};
+use iroha_wasm::data_model::{prelude::*, validator::Verdict};
 pub use iroha_wasm::{self, data_model, ExecuteOnHost};
 
 pub mod prelude {
@@ -14,7 +14,7 @@ pub mod prelude {
 
     pub use iroha_validator_derive::{entrypoint, Token, ValidateGrantRevoke};
     pub use iroha_wasm::{
-        data_model::{permission::validator::Verdict, prelude::*},
+        data_model::{prelude::*, validator::Verdict},
         prelude::*,
         Context,
     };
@@ -30,11 +30,11 @@ mod macros {
     #[macro_export]
     macro_rules! pass {
         () => {
-            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Pass
+            return $crate::iroha_wasm::data_model::validator::Verdict::Pass
         };
     }
 
-    /// Macro to return [`Verdict::Pass`](crate::data_model::permission::validator::Verdict::Pass)
+    /// Macro to return [`Verdict::Pass`](crate::data_model::validator::Verdict::Pass)
     /// if the expression is `true`.
     ///
     /// # Example
@@ -46,7 +46,7 @@ mod macros {
     macro_rules! pass_if {
         ($e:expr) => {
             if $e {
-                return $crate::iroha_wasm::data_model::permission::validator::Verdict::Pass;
+                return $crate::iroha_wasm::data_model::validator::Verdict::Pass;
             }
         };
     }
@@ -66,21 +66,21 @@ mod macros {
     #[macro_export]
     macro_rules! deny {
         ($l:literal $(,)?) => {
-            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Deny(
+            return $crate::iroha_wasm::data_model::validator::Verdict::Deny(
                 ::alloc::fmt::format(::core::format_args!($l))
             )
         };
         ($e:expr $(,)?) =>{
-            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Deny($e)
+            return $crate::iroha_wasm::data_model::validator::Verdict::Deny($e)
         };
         ($fmt:expr, $($arg:tt)*) => {
-            return $crate::iroha_wasm::data_model::permission::validator::Verdict::Deny(
+            return $crate::iroha_wasm::data_model::validator::Verdict::Deny(
                 ::alloc::format!($fmt, $($arg)*)
             )
         };
     }
 
-    /// Macro to return [`Verdict::Deny`](crate::data_model::permission::validator::Verdict::Deny)
+    /// Macro to return [`Verdict::Deny`](crate::data_model::validator::Verdict::Deny)
     /// if the expression is `true`.
     ///
     /// # Example
@@ -168,9 +168,7 @@ mod macros {
 
         use webassembly_test::webassembly_test;
 
-        use crate::{
-            alloc::borrow::ToOwned as _, data_model::permission::validator::Verdict, deny,
-        };
+        use crate::{alloc::borrow::ToOwned as _, data_model::validator::Verdict, deny};
 
         #[webassembly_test]
         fn test_deny() {

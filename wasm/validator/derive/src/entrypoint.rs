@@ -101,11 +101,11 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         /// # Memory safety
         ///
         /// This function transfers the ownership of allocated
-        /// [`Verdict`](::iroha_validator::iroha_wasm::data_model::permission::validator::Verdict)
+        /// [`Verdict`](::iroha_validator::iroha_wasm::data_model::validator::Verdict)
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn _iroha_wasm_main() -> *const u8 {
-            let verdict: ::iroha_validator::iroha_wasm::data_model::permission::validator::Verdict = #fn_name(#args);
+            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Verdict = #fn_name(#args);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
 
             bytes_box.as_ptr()

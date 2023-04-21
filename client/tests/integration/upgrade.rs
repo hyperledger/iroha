@@ -37,7 +37,7 @@ fn validator_upgrade_should_work() -> Result<()> {
         .submit_transaction_blocking(transfer_rose_tx)
         .expect_err("Should fail");
 
-    // Upgrade Permission Validator
+    // Upgrade Validator
 
     info!("Building validator");
     let temp_out_dir =

@@ -39,19 +39,19 @@ pub(crate) use map_all_crate_tokens;
 #[cfg_attr(feature = "entrypoint", entrypoint(params = "[authority, operation]"))]
 pub fn validate(
     authority: <Account as Identifiable>::Id,
-    operation: NeedsPermissionBox,
+    operation: NeedsValidationBox,
 ) -> Verdict {
     match operation {
-        NeedsPermissionBox::Transaction(transaction) => validate_and_execute_transaction(
+        NeedsValidationBox::Transaction(transaction) => validate_and_execute_transaction(
             &authority,
             &transaction,
             validate_and_execute_instruction,
             validate_query,
         ),
-        NeedsPermissionBox::Instruction(instruction) => {
+        NeedsValidationBox::Instruction(instruction) => {
             validate_and_execute_instruction(&authority, &instruction, validate_query)
         }
-        NeedsPermissionBox::Query(query) => validate_query(&authority, query),
+        NeedsValidationBox::Query(query) => validate_query(&authority, query),
     }
 }
 
@@ -87,7 +87,7 @@ where
 
 /// WASM validation is automatically done by execution on Iroha side.
 /// All instructions executed by WASM will be passed as
-/// [`NeedsPermissionBox::Instruction`] to this validator.
+/// [`NeedsValidationBox::Instruction`] to this validator.
 ///
 /// That said, this function always returns [`Pass`](Verdict::Pass).
 pub fn validate_wasm(_wasm: &WasmSmartContract) -> Verdict {

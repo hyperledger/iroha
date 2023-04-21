@@ -1,8 +1,28 @@
 //! Permission Token and related impls
-use iroha_data_model_derive::IdEqOrdHash;
+#[cfg(not(feature = "std"))]
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    format,
+    string::String,
+    vec::Vec,
+};
+#[cfg(feature = "std")]
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::*;
-use crate::{model, utils::format_comma_separated};
+use derive_more::{Constructor, Display, FromStr};
+use getset::Getters;
+use iroha_data_model_derive::IdEqOrdHash;
+use iroha_schema::IntoSchema;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
+
+use crate::{
+    model, utils::format_comma_separated, IdBox, Identifiable, Name, Registered, Value, ValueKind,
+};
+
+/// Collection of [`Token`]s
+pub type Permissions = BTreeSet<PermissionToken>;
 
 /// Trait to identify [`ValueKind`] of a type which can be used as a [`Token`] parameter.
 ///
@@ -37,7 +57,7 @@ model! {
         /// Definition Id
         pub id: PermissionTokenId,
         /// Parameters and their types that every [`Token`] with this definition should have
-        pub params: btree_map::BTreeMap<Name, crate::ValueKind>,
+        pub params: BTreeMap<Name, ValueKind>,
     }
 
     /// Stored proof of the account having a permission for a certain action.
@@ -48,7 +68,7 @@ model! {
         #[getset(get = "pub")]
         pub definition_id: <PermissionTokenDefinition as Identifiable>::Id,
         /// Params identifying how this rule applies.
-        pub params: btree_map::BTreeMap<Name, Value>,
+        pub params: BTreeMap<Name, Value>,
     }
 }
 
@@ -58,17 +78,14 @@ impl PermissionTokenDefinition {
     pub const fn new(id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
         Self {
             id,
-            params: btree_map::BTreeMap::new(),
+            params: BTreeMap::new(),
         }
     }
 
     /// Add parameters to the [`Definition`] replacing any parameters previously defined
     #[inline]
     #[must_use]
-    pub fn with_params(
-        mut self,
-        params: impl IntoIterator<Item = (Name, crate::ValueKind)>,
-    ) -> Self {
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, ValueKind)>) -> Self {
         self.params = params.into_iter().collect();
         self
     }
@@ -77,7 +94,7 @@ impl PermissionTokenDefinition {
     ///
     /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]
-    pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &crate::ValueKind)> {
+    pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &ValueKind)> {
         self.params.iter()
     }
 }
@@ -88,7 +105,7 @@ impl PermissionToken {
     pub fn new(definition_id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
         Self {
             definition_id,
-            params: btree_map::BTreeMap::default(),
+            params: BTreeMap::default(),
         }
     }
 
@@ -147,4 +164,9 @@ macro_rules! impl_value_trait {
 impl_value_trait! {
     u32: ValueKind::Numeric,
     u128: ValueKind::Numeric
+}
+
+pub mod prelude {
+    //! The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub use super::{PermissionToken, PermissionTokenDefinition, PermissionTokenId};
 }

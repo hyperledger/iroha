@@ -192,8 +192,8 @@ mod genesis {
         asset::AssetValueType,
         isi::{MintBox, RegisterBox},
         metadata::Limits,
-        permission::Validator,
         prelude::AssetId,
+        validator::Validator,
         IdBox,
     };
     use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder};
@@ -685,7 +685,7 @@ mod tokens {
     pub struct Args;
 
     pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
-        // TODO: Not hardcode this. Instead get this info from validator it-self
+        // TODO: Not hardcode this. Instead get this info from validator itself
         Ok(vec![
             // Account
             token_with_account_id("can_unregister_account")?,
