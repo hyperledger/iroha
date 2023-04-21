@@ -1,4 +1,4 @@
-//! Runtime Permission Validator which allows any operation done by `admin@admin` account.
+//! Runtime Validator which allows any operation done by `admin@admin` account.
 //! If authority is not `admin@admin` then `iroha_default_validator` is used.
 
 #![no_std]
@@ -14,7 +14,7 @@ use iroha_validator::{parse, prelude::*};
 #[entrypoint(params = "[authority, operation]")]
 pub fn validate(
     authority: <Account as Identifiable>::Id,
-    operation: NeedsPermissionBox,
+    operation: NeedsValidationBox,
 ) -> Verdict {
     pass_if!(authority == parse!("admin@admin" as <Account as Identifiable>::Id));
     iroha_default_validator::validate(authority, operation)

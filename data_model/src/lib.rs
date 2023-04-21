@@ -80,6 +80,7 @@ pub mod role;
 pub mod sorting;
 pub mod transaction;
 pub mod trigger;
+pub mod validator;
 
 pub mod utils {
     //! Module with useful utilities shared between crates
@@ -437,8 +438,8 @@ model! {
         TriggerId(<trigger::Trigger<FilterBox, Executable> as Identifiable>::Id),
         /// [`RoleId`](`role::RoleId`) variant.
         RoleId(<role::Role as Identifiable>::Id),
-        /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
-        PermissionTokenDefinitionId(<permission::token::PermissionTokenDefinition as Identifiable>::Id),
+        /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
+        PermissionTokenDefinitionId(<permission::PermissionTokenDefinition as Identifiable>::Id),
         /// [`ParameterId`](`parameter::ParameterId`) variant.
         ParameterId(<parameter::Parameter as Identifiable>::Id),
     }
@@ -461,8 +462,8 @@ model! {
         Trigger(Box<<trigger::Trigger<FilterBox, Executable> as Registered>::With>),
         /// [`Role`](`role::Role`) variant.
         Role(Box<<role::Role as Registered>::With>),
-        /// [`PermissionTokenId`](`permission::token::PermissionTokenId`) variant.
-        PermissionTokenDefinition(Box<<permission::token::PermissionTokenDefinition as Registered>::With>),
+        /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
+        PermissionTokenDefinition(Box<<permission::PermissionTokenDefinition as Registered>::With>),
     }
 
     /// Sized container for all possible entities.
@@ -491,8 +492,8 @@ model! {
         Trigger(TriggerBox),
         /// [`Role`](`role::Role`) variant.
         Role(Box<role::Role>),
-        /// [`PermissionTokenDefinition`](`permission::token::PermissionTokenDefinition`) variant.
-        PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
+        /// [`PermissionTokenDefinition`](`permission::PermissionTokenDefinition`) variant.
+        PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
         /// [`Parameter`](`parameter::Parameter`) variant.
         Parameter(Box<parameter::Parameter>),
     }
@@ -509,14 +510,14 @@ model! {
 
     /// Sized container for all possible upgradable entities.
     #[derive(Debug, Display, Clone, PartialEq, Eq, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    // SAFETY: `UpgradableBox` has no trap representations in `permission::Validator`
+    // SAFETY: `UpgradableBox` has no trap representations in `validator::Validator`
     #[ffi_type(unsafe {robust})]
     #[serde(untagged)]
     #[repr(transparent)]
     pub enum UpgradableBox {
-        /// [`Validator`](`permission::Validator`) variant.
+        /// [`Validator`](`validator::Validator`) variant.
         #[display(fmt = "Validator")]
-        Validator(permission::Validator),
+        Validator(validator::Validator),
     }
 }
 
@@ -617,7 +618,7 @@ model! {
         Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
         #[serde_partially_tagged(untagged)]
         Numeric(NumericValue),
-        Validator(permission::Validator),
+        Validator(validator::Validator),
     }
 
     /// Enum for all supported numeric values
@@ -877,7 +878,7 @@ from_and_try_from_value_identifiablebox!(
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
     Parameter(Box<parameter::Parameter>),
 );
 
@@ -892,7 +893,7 @@ from_and_try_from_value_identifiable!(
     Asset(Box<asset::Asset>),
     Trigger(TriggerBox),
     Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permission::token::PermissionTokenDefinition>),
+    PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
     Parameter(Box<parameter::Parameter>),
 );
 
@@ -1564,9 +1565,9 @@ pub mod prelude {
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
         name::prelude::*, parameter::prelude::*, peer::prelude::*, permission::prelude::*,
         query::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
-        EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits,
-        NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut, TryAsRef,
-        TryToValue, UpgradableBox, ValidationError, Value,
+        validator::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
+        LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut,
+        TryAsRef, TryToValue, UpgradableBox, ValidationError, Value,
     };
     #[cfg(feature = "http")]
     pub use super::{pagination::prelude::*, sorting::prelude::*};

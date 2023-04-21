@@ -20,7 +20,7 @@ Iroha is a fully-featured blockchain ledger. With Iroha you can:
 
 Iroha offers:
 
-* Byzantine fault-tolerance with up to 33% fault rate  
+* Byzantine fault-tolerance with up to 33% fault rate
 * Efficient in-memory operations
 * Extensive telemetry support out of the box
 * Modular structure
@@ -140,7 +140,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_logger`](logger) uses `tracing` to provide logging facilities.
 * [`iroha_macro`](macro) provides the convenience macros.
 * [`iroha_p2p`](p2p) defines peer creation and handshake logic.
-* [`iroha_permissions_validators`](permissions_validators) defines permission validation logic.
+* [`iroha_default_validator`](default_validator) defines runtime validation logic.
 * [`iroha_substrate`](substrate) is the bridge substrate `XClaim` external module.
 * [`iroha_telemetry`](telemetry) is used for monitoring and analysis of telemetry data.
 * [`iroha_version`](version) provides message versioning for non-simultaneous system updates.
@@ -235,7 +235,7 @@ Iroha SDKs:
 
 # How to Contribute
 
-We welcome community contributions! Report bugs and suggest improvements via GitHub issues and pull requests. 
+We welcome community contributions! Report bugs and suggest improvements via GitHub issues and pull requests.
 
 Check out our [contributing guide](./CONTRIBUTING.md) to learn more.
 

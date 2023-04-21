@@ -55,7 +55,7 @@ macro_rules! impl_validate {
                     if let Ok(concrete_token) =
                         <$token_ty as ::core::convert::TryFrom<_>>::try_from(
                             <
-                                ::iroha_validator::data_model::permission::token::PermissionToken as
+                                ::iroha_validator::data_model::permission::PermissionToken as
                                 ::core::clone::Clone
                             >::clone(token)
                         )

@@ -9,7 +9,7 @@ use iroha_config::{
     torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_P2P_ADDR, DEFAULT_TORII_TELEMETRY_URL},
 };
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{peer::PeerId, permission::Validator, prelude::*};
+use iroha_data_model::{peer::PeerId, prelude::*};
 
 /// Get sample trusted peers. The public key must be the same as `configuration.public_key`
 ///

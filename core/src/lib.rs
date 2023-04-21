@@ -14,7 +14,7 @@ pub mod wsv;
 use core::time::Duration;
 
 use dashmap::{DashMap, DashSet};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{permission::Permissions, prelude::*};
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
 

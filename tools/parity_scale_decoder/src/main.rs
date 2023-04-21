@@ -41,6 +41,7 @@ use iroha_data_model::{
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
     transaction::error::{TransactionExpired, TransactionLimitError},
+    validator::Validator,
     ValueKind, VersionedCommittedBlockWrapper,
 };
 use iroha_primitives::{

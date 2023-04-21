@@ -1,5 +1,4 @@
-//! Crate with helper tool to build smartcontracts, triggers and permission
-//! validators for Iroha 2.
+//! Crate with helper tool to build smartcontracts (e.g. triggers and validators) for Iroha 2.
 //!
 //! See [`Builder`] for more details.
 
@@ -15,7 +14,7 @@ use eyre::{bail, eyre, Context as _, Result};
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2022-12-22";
 
-/// WASM Builder for smartcontracts, triggers and permission validators.
+/// WASM Builder for smartcontracts (e.g. triggers and validators).
 ///
 /// # Example
 ///
@@ -81,12 +80,11 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
         self
     }
 
-    /// Check if smartcontract is valid without building it using `cargo check`.
+    /// Apply `cargo check` to the smartcontract.
     ///
     /// # Errors
     ///
-    /// Can fail due to multiple reasons like invalid path, failed formatting,
-    /// failed build, etc.
+    /// Can fail due to multiple reasons like invalid path, failed formatting, failed build, etc.
     pub fn check(self) -> Result<()> {
         self.into_internal()?.check()
     }

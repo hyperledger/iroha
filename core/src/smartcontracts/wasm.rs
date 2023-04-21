@@ -13,7 +13,7 @@ use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
 };
-use iroha_data_model::{permission, prelude::*};
+use iroha_data_model::{prelude::*, validator};
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
@@ -22,7 +22,6 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::{Context, Evaluate};
 use crate::{
     smartcontracts::{Execute, ValidQuery as _},
     wsv::WorldStateView,
@@ -56,11 +55,8 @@ pub mod import {
     pub const QUERY_AUTHORITY_FN_NAME: &str = "query_authority";
     /// Name of the imported function to query event that triggered the smart contract execution
     pub const QUERY_TRIGGERING_EVENT_FN_NAME: &str = "query_triggering_event";
-    /// Name of the imported function to query operation
-    /// that needs to be validated with permission validator
+    /// Name of the imported function to query operation that is to be verified
     pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
-    /// Name of the imported function to evaluate the expression on the host side
-    pub const EVALUATE_ON_HOST_FN_NAME: &str = "evaluate_on_host";
     /// Name of the imported function to query max log level on host
     pub const QUERY_MAX_LOG_LEVEL: &str = "query_max_log_level";
     /// Name of the imported function to debug print objects
@@ -166,8 +162,8 @@ struct State<'wrld> {
     wsv: &'wrld WorldStateView,
     /// Event for triggers
     triggering_event: Option<Event>,
-    /// Operation to pass to a runtime permission validator
-    operation_to_validate: Option<permission::validator::NeedsPermissionBox>,
+    /// Operation to pass to a runtime validator
+    operation_to_validate: Option<validator::NeedsValidationBox>,
     /// Span inside of which all logs are recorded for this smart contract
     log_span: Span,
 }
@@ -213,10 +209,7 @@ impl<'wrld> State<'wrld> {
         self
     }
 
-    fn with_operation_to_validate(
-        mut self,
-        operation: &permission::validator::NeedsPermissionBox,
-    ) -> Self {
+    fn with_operation_to_validate(mut self, operation: &validator::NeedsValidationBox) -> Self {
         self.operation_to_validate = Some(operation.clone());
         self
     }
@@ -324,9 +317,9 @@ impl<'wrld> Runtime<'wrld> {
             ..
         } = caller.data_mut();
 
-        let is_permission_validator = operation_to_validate.is_some();
-        if is_permission_validator {
-            // If permission validator wants to execute instruction,
+        let is_validator = operation_to_validate.is_some();
+        if is_validator {
+            // If validator wants to execute instruction,
             // we allow this without additional validation.
             // Otherwise it would be infinite recursion.
             instruction
@@ -388,24 +381,6 @@ impl<'wrld> Runtime<'wrld> {
         let operation_offset =
             Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
         Ok(operation_offset)
-    }
-
-    fn evaluate_on_host(
-        mut caller: Caller<State>,
-        offset: WasmUsize,
-        len: WasmUsize,
-    ) -> Result<WasmUsize, Trap> {
-        let memory = Self::get_memory(&mut caller)?;
-        let expression: ExpressionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
-        let value = expression
-            .evaluate(&Context::new(caller.data().wsv))
-            .map_err(|err| Trap::new(format!("Failure during expression evaluation: {err}")))?;
-
-        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
-        let bytes = Self::encode_with_length_prefix(&value)?;
-        let value_offset = Self::encode_bytes_into_memory(&bytes, &memory, &alloc_fn, &mut caller)?;
-
-        Ok(value_offset)
     }
 
     fn query_max_log_level() -> u32 {
@@ -521,13 +496,6 @@ impl<'wrld> Runtime<'wrld> {
             .and_then(|l| {
                 l.func_wrap(
                     import::MODULE_NAME,
-                    import::EVALUATE_ON_HOST_FN_NAME,
-                    Self::evaluate_on_host,
-                )
-            })
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
                     import::QUERY_MAX_LOG_LEVEL,
                     Self::query_max_log_level,
                 )
@@ -603,20 +571,20 @@ impl<'wrld> Runtime<'wrld> {
         Self::execute_main_with_store(&instance, &mut store)
     }
 
-    /// Execute the given module of runtime permission validator
+    /// Execute the given module of runtime validator
     ///
     /// # Errors
     ///
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
-    pub fn execute_permission_validator_module(
+    pub fn execute_validator_module(
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
         module: &wasmtime::Module,
-        operation: &permission::validator::NeedsPermissionBox,
-    ) -> Result<permission::validator::Verdict> {
-        let span = wasm_log_span!("Permission validation");
+        operation: &validator::NeedsValidationBox,
+    ) -> Result<validator::Verdict> {
+        let span = wasm_log_span!("Runtime validation");
         let state = State::new(wsv, authority.clone(), self.config, span)
             .with_operation_to_validate(operation);
 
