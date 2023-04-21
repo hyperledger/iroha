@@ -157,7 +157,6 @@ types!(
     EvaluatesTo<RoleId>,
     EvaluatesTo<TriggerId>,
     EvaluatesTo<UpgradableBox>,
-    UpgradableBox,
     EvaluatesTo<Value>,
     EvaluatesTo<Vec<Value>>,
     EvaluatesTo<bool>,
@@ -313,7 +312,6 @@ types!(
     PermissionTokenDefinition,
     PermissionTokenEvent,
     PermissionTokenId,
-    PermissionValidatorEvent,
     PipelineEntityKind,
     PipelineEvent,
     PipelineEventFilter,
@@ -379,8 +377,10 @@ types!(
     TriggerNumberOfExecutionsChanged,
     UnregisterBox,
     UnsatisfiedSignatureConditionFail,
+    UpgradableBox,
     ValidTransaction,
     Validator,
+    ValidatorEvent,
     Value,
     ValueKind,
     ValueOfKey,
@@ -444,7 +444,6 @@ mod tests {
         },
         domain::NewDomain,
         ipfs::IpfsPath,
-        permission::validator::Validator,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
             numerical::{Interval, SemiInterval, SemiRange},
@@ -455,6 +454,7 @@ mod tests {
         prelude::*,
         query::error::{FindError, QueryExecutionFailure},
         transaction::error::{TransactionExpired, TransactionLimitError},
+        validator::Validator,
         ValueKind, VersionedCommittedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;

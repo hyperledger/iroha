@@ -41,7 +41,7 @@ mod validate;
 /// ## Operation
 ///
 /// A real function parameter type corresponding to the `transaction` should have
-/// `iroha_validator::data_model::prelude::NeedsPermissionBox` type.
+/// `iroha_validator::data_model::prelude::NeedsValidationBox` type.
 ///
 /// # Panics
 ///
@@ -58,8 +58,8 @@ mod validate;
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[operation]")]
-/// pub fn validate(operation: NeedsPermissionBox) -> Verdict {
-///     if let NeedsPermissionBox::Query(_) = operation {
+/// pub fn validate(operation: NeedsValidationBox) -> Verdict {
+///     if let NeedsValidationBox::Query(_) = operation {
 ///         deny!("No queries are allowed")
 ///     }
 ///
@@ -73,7 +73,7 @@ mod validate;
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[authority, operation]")]
-/// pub fn validate(authority: AccountId, _: NeedsPermissionBox) -> Verdict {
+/// pub fn validate(authority: AccountId, _: NeedsValidationBox) -> Verdict {
 ///     let admin_domain = parse!("admin_domain" as AccountId);
 ///
 ///     if authority.domain_id != admin_domain {
@@ -104,8 +104,8 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[entrypoint(params = "[authority, operation]")]
-/// fn validate(authority: <Account as Identifiable>::Id, operation: NeedsPermissionBox) -> Verdict {
-///     let NeedsPermissionBox::Instruction(instruction) = operation else {
+/// fn validate(authority: <Account as Identifiable>::Id, operation: NeedsValidationBox) -> Verdict {
+///     let NeedsValidationBox::Instruction(instruction) = operation else {
 ///         pass!();
 ///     };
 ///

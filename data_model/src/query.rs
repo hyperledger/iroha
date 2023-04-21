@@ -14,7 +14,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use self::{
-    account::*, asset::*, block::*, domain::*, peer::*, permissions::*, role::*, transaction::*,
+    account::*, asset::*, block::*, domain::*, peer::*, permission::*, role::*, transaction::*,
     trigger::*,
 };
 use crate::{account::Account, model, Identifiable, Value};
@@ -226,7 +226,7 @@ pub mod role {
     }
 }
 
-pub mod permissions {
+pub mod permission {
     //! Queries related to [`PermissionToken`].
 
     #[cfg(not(feature = "std"))]
@@ -238,7 +238,7 @@ pub mod permissions {
 
     query! {
         /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-        /// [`PermissionTokenDefinition`][crate::permission::token::PermissionTokenDefinition]s
+        /// [`PermissionTokenDefinition`][crate::permission::PermissionTokenDefinition]s
         #[derive(Copy, Display)]
         #[ffi_type]
         pub struct FindAllPermissionTokenDefinitions;
@@ -1400,7 +1400,7 @@ pub mod error {
     use parity_scale_codec::{Decode, Encode};
 
     use super::*;
-    use crate::{block::VersionedCommittedBlock, permission, prelude::*};
+    use crate::{block::VersionedCommittedBlock, permission, prelude::*, validator};
 
     model! {
         /// Query errors.
@@ -1412,7 +1412,7 @@ pub mod error {
             Signature(#[skip_from] #[skip_try_from] String),
             /// Query is not allowed.
             #[display(fmt = "Query is not allowed: {_0}")]
-            Permission(permission::validator::DenialReason),
+            Permission(validator::DenialReason),
             /// Query has wrong expression.
             #[display(fmt = "Query has a malformed expression: {_0}")]
             Evaluate(#[skip_from] #[skip_try_from] String),
@@ -1481,7 +1481,7 @@ pub mod prelude {
     pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        peer::prelude::*, permissions::prelude::*, role::prelude::*, transaction::*,
+        peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
         trigger::prelude::*, Query, QueryBox,
     };
 }

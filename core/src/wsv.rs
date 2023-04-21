@@ -65,7 +65,7 @@ pub struct World {
     pub(crate) permission_token_definitions: crate::PermissionTokenDefinitionsMap,
     /// Triggers
     pub(crate) triggers: TriggerSet,
-    /// Runtime Permission Validator
+    /// Runtime Validator
     pub(crate) validator: RwLock<Option<Validator>>,
     /// New version of Validator, which will replace `validator` on the next
     /// [`validator_view()`}(WorldStateView::validator_view call.
@@ -1109,7 +1109,7 @@ impl WorldStateView {
         self.events_buffer.borrow_mut().push(event.into());
     }
 
-    /// Get constant view to a *Runtime Permission Validator*.
+    /// Get constant view to a *Runtime Validator*.
     ///
     /// Performs lazy upgrade of the validator if [`Upgrade`] instruction was executed.
     ///

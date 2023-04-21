@@ -1567,7 +1567,7 @@ pub mod trigger {
     }
 }
 
-pub mod permissions {
+pub mod permission {
     //! Module with queries for permission tokens
     use super::*;
 

@@ -15,7 +15,7 @@ use eyre::{bail, eyre, Result, WrapErr};
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
 #[cfg(not(test))]
-use iroha_data_model::permission::Validator;
+use iroha_data_model::validator::Validator;
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
@@ -100,7 +100,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
     }
 }
 
-/// Mock of [`Validator`](iroha_data_model::permission::Validator) for unit tests
+/// Mock of [`Validator`](iroha_data_model::validator::Validator) for unit tests
 ///
 /// Aliased to `Validator` when `cfg(test)`.
 #[cfg(test)]
@@ -113,7 +113,7 @@ pub struct MockValidator;
 pub struct RawGenesisBlock {
     /// Transactions
     pub transactions: SmallVec<[GenesisTransaction; 2]>,
-    /// Runtime Permission Validator
+    /// Runtime Validator
     pub validator: Validator,
 }
 

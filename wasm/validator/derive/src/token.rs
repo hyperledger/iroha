@@ -56,10 +56,10 @@ fn impl_token(
         impl #impl_generics ::iroha_validator::traits::Token for #ident #ty_generics
         #where_clause
         {
-            fn definition_id() -> ::iroha_validator::data_model::permission::token::PermissionTokenId {
+            fn definition_id() -> ::iroha_validator::data_model::permission::PermissionTokenId {
                 ::iroha_validator::parse!(
                     #definition_id as <
-                        ::iroha_validator::data_model::permission::token::PermissionTokenDefinition
+                        ::iroha_validator::data_model::permission::PermissionTokenDefinition
                         as
                         ::iroha_validator::data_model::prelude::Identifiable
                     >::Id

@@ -3,11 +3,9 @@
 use derive_more::DebugCustom;
 #[cfg(test)]
 use iroha_data_model::{
-    isi::InstructionBox, permission::validator::NeedsPermissionBox, transaction::Executable,
+    isi::InstructionBox, transaction::Executable, validator::NeedsValidationBox,
 };
-use iroha_data_model::{
-    permission::validator as data_model_validator, prelude::Account, Identifiable,
-};
+use iroha_data_model::{prelude::Account, validator as data_model_validator, Identifiable};
 use iroha_logger::trace;
 
 use super::wsv::WorldStateView;
@@ -25,14 +23,14 @@ pub enum Error {
         /// Denial reason.
         reason: data_model_validator::DenialReason,
         /// Denied operation.
-        operation: data_model_validator::NeedsPermissionBox,
+        operation: data_model_validator::NeedsValidationBox,
     },
 }
 
 /// Result type for [`Validator`] operations.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-/// Validator that checks if user has permission to perform some operation.
+/// Validator that verifies the operation is valid.
 ///
 /// Can be upgraded with [`Upgrade`](iroha_data_model::isi::Upgrade) instruction.
 #[derive(DebugCustom, Clone)]
@@ -73,7 +71,7 @@ impl Validator {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<data_model_validator::NeedsPermissionBox>,
+        operation: impl Into<data_model_validator::NeedsValidationBox>,
     ) -> Result<()> {
         let operation = operation.into();
 
@@ -83,7 +81,7 @@ impl Validator {
             .build()?;
 
         trace!("Running validator");
-        let verdict = runtime.execute_permission_validator_module(
+        let verdict = runtime.execute_validator_module(
             wsv,
             authority,
             &self.loaded_validator.module,
@@ -142,13 +140,13 @@ impl MockValidator {
         &self,
         wsv: &WorldStateView,
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<data_model_validator::NeedsPermissionBox>,
+        operation: impl Into<data_model_validator::NeedsValidationBox>,
     ) -> Result<()> {
         match operation.into() {
-            NeedsPermissionBox::Instruction(isi) => {
+            NeedsValidationBox::Instruction(isi) => {
                 Self::execute_instruction(wsv, authority.clone(), isi)
             }
-            NeedsPermissionBox::Transaction(tx) => {
+            NeedsValidationBox::Transaction(tx) => {
                 let Executable::Instructions(instructions) = tx.payload.instructions else {
                     return Ok(());
                 };
@@ -157,7 +155,7 @@ impl MockValidator {
                 }
                 Ok(())
             }
-            NeedsPermissionBox::Query(_) => Ok(()),
+            NeedsValidationBox::Query(_) => Ok(()),
         }
     }
 

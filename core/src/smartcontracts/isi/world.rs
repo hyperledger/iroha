@@ -381,7 +381,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Upgrade<permission::Validator> {
+    impl Execute for Upgrade<Validator> {
         type Error = Error;
 
         #[metrics(+"upgrade_validator")]
@@ -401,7 +401,7 @@ pub mod isi {
                     ValidationError::new(format!("Failed to load wasm blob: {err}"))
                 })?;
                 let _ = world.upgraded_validator.write().insert(new_validator);
-                Ok(PermissionValidatorEvent::Upgraded.into())
+                Ok(ValidatorEvent::Upgraded.into())
             })
         }
     }
@@ -413,7 +413,7 @@ pub mod query {
         prelude::*,
         query::{
             error::{FindError, QueryExecutionFailure as Error},
-            permissions::DoesAccountHavePermissionToken,
+            permission::DoesAccountHavePermissionToken,
         },
     };
 
