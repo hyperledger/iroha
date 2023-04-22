@@ -10,14 +10,17 @@ use std::{
     },
 };
 
-use futures::{prelude::*, stream::FuturesUnordered};
+use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
 use iroha_config_base::proxy::Builder;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::{prelude::*, Configuration, ConfigurationProxy, Level};
 use iroha_p2p::{network::message::*, NetworkHandle};
 use parity_scale_codec::{Decode, Encode};
-use tokio::{sync::mpsc, time::Duration};
+use tokio::{
+    sync::{mpsc, Barrier},
+    time::Duration,
+};
 
 #[derive(Clone, Debug, Decode, Encode)]
 struct TestMessage(String);
@@ -78,14 +81,65 @@ async fn network_create() {
     tokio::time::sleep(delay).await;
 }
 
+#[derive(Clone, Debug)]
+struct WaitForN(Arc<Inner>);
+
+#[derive(Debug)]
+struct Inner {
+    counter: AtomicU32,
+    n: u32,
+    waker: AtomicWaker,
+}
+
+impl WaitForN {
+    fn new(n: u32) -> Self {
+        Self(Arc::new(Inner {
+            counter: AtomicU32::new(0),
+            n,
+            waker: AtomicWaker::new(),
+        }))
+    }
+
+    fn inc(&self) {
+        self.0.counter.fetch_add(1, Ordering::Relaxed);
+        self.0.waker.wake();
+    }
+
+    fn current(&self) -> u32 {
+        self.0.counter.load(Ordering::Relaxed)
+    }
+}
+
+impl Future for WaitForN {
+    type Output = ();
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        // Check if condition is already satisfied
+        if self.0.counter.load(Ordering::Relaxed) >= self.0.n {
+            return std::task::Poll::Ready(());
+        }
+
+        self.0.waker.register(cx.waker());
+
+        if self.0.counter.load(Ordering::Relaxed) >= self.0.n {
+            return std::task::Poll::Ready(());
+        }
+
+        std::task::Poll::Pending
+    }
+}
+
 #[derive(Debug)]
 pub struct TestActor {
-    messages: Arc<AtomicU32>,
+    messages: WaitForN,
     receiver: mpsc::Receiver<TestMessage>,
 }
 
 impl TestActor {
-    fn start(messages: Arc<AtomicU32>) -> mpsc::Sender<TestMessage> {
+    fn start(messages: WaitForN) -> mpsc::Sender<TestMessage> {
         let (sender, receiver) = mpsc::channel(10);
         let mut test_actor = Self { messages, receiver };
         tokio::task::spawn(async move {
@@ -93,7 +147,7 @@ impl TestActor {
                 tokio::select! {
                     Some(msg) = test_actor.receiver.recv() => {
                         info!(?msg, "Actor received message");
-                        test_actor.messages.fetch_add(1, Ordering::SeqCst);
+                        test_actor.messages.inc();
                     },
                     else => break,
                 }
@@ -119,23 +173,19 @@ async fn two_networks() {
     .unwrap();
     info!("Starting first network...");
     let address1 = gen_address_with_port(12_005);
-
-    let network1 = NetworkHandle::start(address1.clone(), public_key1.clone())
+    let mut network1 = NetworkHandle::start(address1.clone(), public_key1.clone())
         .await
         .unwrap();
-    tokio::time::sleep(delay).await;
 
     info!("Starting second network...");
     let address2 = gen_address_with_port(12_010);
     let network2 = NetworkHandle::start(address2.clone(), public_key2.clone())
         .await
         .unwrap();
-    tokio::time::sleep(delay).await;
 
-    let messages2 = Arc::new(AtomicU32::new(0));
-    let actor2 = TestActor::start(Arc::clone(&messages2));
+    let mut messages2 = WaitForN::new(1);
+    let actor2 = TestActor::start(messages2.clone());
     network2.subscribe_to_peers_messages(actor2);
-    tokio::time::sleep(delay).await;
 
     info!("Connecting peers...");
     let peer1 = PeerId {
@@ -151,7 +201,15 @@ async fn two_networks() {
     // Connect peers with each other
     network1.update_topology(UpdateTopology(topology1.clone()));
     network2.update_topology(UpdateTopology(topology2));
-    tokio::time::sleep(delay).await;
+
+    tokio::time::timeout(Duration::from_millis(2000), async {
+        let mut connections = network1.wait_online_peers_update(HashSet::len).await;
+        while connections != 1 {
+            connections = network1.wait_online_peers_update(HashSet::len).await;
+        }
+    })
+    .await
+    .expect("Failed to get all connections");
 
     info!("Posting message...");
     network1.post(Post {
@@ -159,8 +217,14 @@ async fn two_networks() {
         peer_id: peer2,
     });
 
-    tokio::time::sleep(delay).await;
-    assert_eq!(messages2.load(Ordering::SeqCst), 1);
+    tokio::time::timeout(delay, &mut messages2)
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to get all messages in given time (received {} out of 1)",
+                messages2.current()
+            )
+        });
 
     let connected_peers1 = network1.online_peers(HashSet::len);
     assert_eq!(connected_peers1, 1);
@@ -192,8 +256,6 @@ async fn multiple_networks() {
     }
     info!("Starting...");
 
-    let delay = Duration::from_millis(200);
-
     let mut peers = Vec::new();
     for i in 0_u16..10_u16 {
         let address = gen_address_with_port(12_015 + (i * 5));
@@ -206,10 +268,21 @@ async fn multiple_networks() {
 
     let mut networks = Vec::new();
     let mut peer_ids = Vec::new();
-    let msgs = Arc::new(AtomicU32::new(0));
+    let expected_msgs = (peers.len() * (peers.len() - 1))
+        .try_into()
+        .expect("Failed to convert to u32");
+    let mut msgs = WaitForN::new(expected_msgs);
+    let barrier = Arc::new(Barrier::new(peers.len()));
     peers
         .iter()
-        .map(|peer| start_network(peer.clone(), peers.clone(), Arc::clone(&msgs)))
+        .map(|peer| {
+            start_network(
+                peer.clone(),
+                peers.clone(),
+                msgs.clone(),
+                Arc::clone(&barrier),
+            )
+        })
         .collect::<FuturesUnordered<_>>()
         .collect::<Vec<_>>()
         .await
@@ -218,8 +291,6 @@ async fn multiple_networks() {
             networks.push(handle);
             peer_ids.push(peer_id);
         });
-
-    tokio::time::sleep(delay * 3).await;
 
     info!("Sending posts...");
     for network in &networks {
@@ -232,15 +303,24 @@ async fn multiple_networks() {
         }
     }
     info!("Posts sent");
-    tokio::time::sleep(delay * 5).await;
-
-    assert_eq!(msgs.load(Ordering::SeqCst), 90);
+    let timeout = Duration::from_millis(10_000);
+    tokio::time::timeout(timeout, &mut msgs)
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to get all messages in given time {}ms (received {} out of {})",
+                timeout.as_millis(),
+                msgs.current(),
+                expected_msgs,
+            )
+        });
 }
 
 async fn start_network(
     peer: PeerId,
     peers: Vec<PeerId>,
-    messages: Arc<AtomicU32>,
+    messages: WaitForN,
+    barrier: Arc<Barrier>,
 ) -> (PeerId, NetworkHandle<TestMessage>) {
     info!(peer_addr = %peer.address, "Starting network");
 
@@ -253,10 +333,8 @@ async fn start_network(
     } = peer.clone();
     let mut network = NetworkHandle::start(address, public_key).await.unwrap();
     network.subscribe_to_peers_messages(actor);
-    // The most needed delay!!!
-    let delay: u64 = rand::random();
-    tokio::time::sleep(Duration::from_millis(250 + (delay % 500))).await;
 
+    let _ = barrier.wait().await;
     let topology = peers
         .into_iter()
         .filter(|p| p != &peer)
@@ -264,7 +342,8 @@ async fn start_network(
     let conn_count = topology.len();
     network.update_topology(UpdateTopology(topology));
 
-    tokio::time::timeout(Duration::from_millis(1000), async {
+    let _ = barrier.wait().await;
+    tokio::time::timeout(Duration::from_millis(10_000), async {
         let mut connections = network.wait_online_peers_update(HashSet::len).await;
         while conn_count != connections {
             info!(peer_addr = %peer.address, %connections);

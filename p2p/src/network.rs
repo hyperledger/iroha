@@ -14,10 +14,11 @@ use iroha_logger::prelude::*;
 use message::*;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{mpsc, oneshot, watch},
+    sync::{mpsc, watch},
 };
 
 use crate::{
+    blake2b_hash,
     boilerplate::*,
     peer::{
         handles::{connected_from, connecting, PeerHandle},
@@ -77,11 +78,12 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         let (network_message_sender, network_message_receiver) =
             unbounded_with_len::unbounded_channel();
         let (peer_message_sender, peer_message_receiver) = mpsc::channel(1);
+        let (service_message_sender, service_message_receiver) = mpsc::channel(1);
         let network = NetworkBase {
             listen_addr,
             listener,
             peers: HashMap::new(),
-            untrusted_peers: HashSet::new(),
+            connecting_peers: HashMap::new(),
             public_key,
             subscribers_to_peers_messages: Vec::new(),
             subscribe_to_peers_messages_receiver,
@@ -90,10 +92,10 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             network_message_receiver,
             peer_message_receiver,
             peer_message_sender,
-            connected_receivers: FuturesUnordered::new(),
-            terminated_receivers: FuturesUnordered::new(),
+            service_message_receiver,
+            service_message_sender,
             current_conn_id: 0,
-            current_topology: HashSet::new(),
+            current_topology: HashMap::new(),
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         };
@@ -162,10 +164,8 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     listen_addr: String,
     /// Current [`Peer`]s in [`Peer::Ready`] state.
     peers: HashMap<PublicKey, RefPeer<T>>,
-    /// Map from [`std::net::IpAddr`] of the untrusted remote [`Peer`]:
-    /// inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi.
-    /// In case the [`String`] represents an unresolved hostname, the first reconnection is not refused
-    untrusted_peers: HashSet<String>,
+    /// [`Peer`]s in process of being connected.
+    connecting_peers: HashMap<ConnectionId, PublicKey>,
     /// [`TcpListener`] that is accepting [`Peer`]s' connections
     listener: TcpListener,
     /// Our app-level public key
@@ -184,14 +184,15 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     peer_message_receiver: mpsc::Receiver<PeerMessage<T>>,
     /// Sender for peer messages to provide clone of sender inside peer
     peer_message_sender: mpsc::Sender<PeerMessage<T>>,
-    /// Receivers of [`Connected`] peer message
-    connected_receivers: FuturesUnordered<oneshot::Receiver<Connected<T>>>,
-    /// Receivers of [`Terminated`] peer message
-    terminated_receivers: FuturesUnordered<oneshot::Receiver<Terminated>>,
+    /// Channel to gather service messages from all peers
+    service_message_receiver: mpsc::Receiver<ServiceMessage<T>>,
+    /// Sender for service peer messages to provide clone of sender inside peer
+    service_message_sender: mpsc::Sender<ServiceMessage<T>>,
     /// Current available connection id
     current_conn_id: ConnectionId,
     /// Current topology
-    current_topology: HashSet<PeerId>,
+    /// Bool determines who is responsible for initiating connection
+    current_topology: HashMap<PeerId, bool>,
     /// Key exchange used by network
     _key_exchange: core::marker::PhantomData<K>,
     /// Encryptor used by the network
@@ -200,40 +201,40 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
 
 impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     /// [`Self`] task.
+    #[log(skip(self), fields(listen_addr=self.listen_addr, public_key=%self.public_key))]
     async fn run(mut self) {
         // TODO: probably should be configuration parameter
-        let mut update_topology_interval = tokio::time::interval(Duration::from_millis(1000));
+        let mut update_topology_interval = tokio::time::interval(Duration::from_millis(100));
         #[allow(clippy::arithmetic_side_effects)]
         loop {
             tokio::select! {
-                // Accept incoming peer connections
-                accept = self.listener.accept() => {
-                    match accept {
-                        Ok((stream, addr)) => {
-                            iroha_logger::debug!(listen_addr=%self.listen_addr, from_addr = %addr, "Accepted connection");
-                            // Handle creation of new peer
-                            self.accept_new_peer(stream, addr);
-                        },
-                        Err(error) => {
-                            iroha_logger::warn!(listen_addr=%self.listen_addr, %error, "Error accepting connection");
-                        }
-                    }
-                }
-                Some(Ok(connected)) = self.connected_receivers.next() => {
-                    self.peer_connected(connected);
-                }
-                Some(Ok(terminated)) = self.terminated_receivers.next() => {
-                    self.peer_terminated(terminated);
-                }
-                Some(peer_message) = self.peer_message_receiver.recv() => {
-                    self.peer_message(peer_message).await;
-                }
-                Some(update_topology) = self.update_topology_receiver.recv() => {
-                    self.set_current_topology(update_topology);
-                }
+                // Select is biased because we want to service messages to take priority over data messages.
+                biased;
+                // Subscribe messages is expected to exhaust at some point after starting network actor
                 Some(subscriber) = self.subscribe_to_peers_messages_receiver.recv() => {
                     self.subscribe_to_peers_messages(subscriber);
                 }
+                // Update topology is relative low rate message (at most once every block)
+                Some(update_topology) = self.update_topology_receiver.recv() => {
+                    self.set_current_topology(update_topology);
+                }
+                // Frequency of update is relatively low, so it won't block other tasks from execution
+                _ = update_topology_interval.tick() => {
+                    self.update_topology()
+                }
+                // Every peer produce small amount of service messages so this shouldn't starve other tasks
+                Some(service_message) = self.service_message_receiver.recv() => {
+                    match service_message {
+                        ServiceMessage::Terminated(terminated) => {
+                            self.peer_terminated(terminated);
+                        }
+                        ServiceMessage::Connected(connected) => {
+                            self.peer_connected(connected);
+                        }
+                    }
+                }
+                // Because network messages is responses to incoming messages or relatively low rate messages
+                // they will be exhaust at some point given opportunity for incoming message to being processed
                 network_message = self.network_message_receiver.recv() => {
                     let Some(network_message) = network_message else {
                         iroha_logger::info!("All handles to network actor are dropped. Shutting down...");
@@ -248,8 +249,22 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                         NetworkMessage::Broadcast(broadcast) => self.broadcast(broadcast),
                     }
                 }
-                _ = update_topology_interval.tick() => {
-                    self.update_topology()
+                // Accept incoming peer connections
+                accept = self.listener.accept() => {
+                    match accept {
+                        Ok((stream, addr)) => {
+                            iroha_logger::debug!(from_addr = %addr, "Accepted connection");
+                            // Handle creation of new peer
+                            self.accept_new_peer(stream, addr);
+                        },
+                        Err(error) => {
+                            iroha_logger::warn!(%error, "Error accepting connection");
+                        }
+                    }
+                }
+                // Messages from other peers has lowest priority because we can't control their frequency
+                Some(peer_message) = self.peer_message_receiver.recv() => {
+                    self.peer_message(peer_message).await;
                 }
                 else => break,
             }
@@ -258,27 +273,27 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     }
 
     fn accept_new_peer(&mut self, stream: TcpStream, addr: SocketAddr) {
-        if self.untrusted_peers.contains(&ip(&addr.to_string())) {
-            iroha_logger::warn!(%addr, "New peer is untrusted");
-            return;
-        }
-
         let conn_id = self.get_conn_id();
-        let (connected_sender, connected_receiver) = oneshot::channel();
-        let (terminated_sender, terminated_receiver) = oneshot::channel();
+        let service_message_sender = self.service_message_sender.clone();
         connected_from::<T, K, E>(
             PeerId::new(&addr.to_string(), &self.public_key),
             Connection::new(conn_id, stream),
-            connected_sender,
-            terminated_sender,
+            service_message_sender,
         );
-
-        self.connected_receivers.push(connected_receiver);
-        self.terminated_receivers.push(terminated_receiver);
     }
 
     fn set_current_topology(&mut self, UpdateTopology(topology): UpdateTopology) {
         iroha_logger::debug!(?topology, "Network receive new topology");
+        let self_public_key_hash = blake2b_hash(self.public_key.payload());
+        let topology = topology
+            .into_iter()
+            .map(|peer_id| {
+                // Determine who is responsible for connecting
+                let peer_public_key_hash = blake2b_hash(peer_id.public_key.payload());
+                let is_active = self_public_key_hash > peer_public_key_hash;
+                (peer_id, is_active)
+            })
+            .collect();
         self.current_topology = topology;
         self.update_topology()
     }
@@ -287,14 +302,18 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         let to_connect = self.current_topology
             .iter()
             // Peer is not connected but should
-            .filter(|peer| !self.peers.contains_key(&peer.public_key))
+            .filter_map(|(peer, is_active)| (
+                !self.peers.contains_key(&peer.public_key)
+                && !self.connecting_peers.values().any(|public_key| &peer.public_key == public_key)
+                && *is_active
+            ).then_some(peer))
             .cloned()
             .collect::<Vec<_>>();
 
         let to_disconnect = self.peers
             .keys()
             // Peer is connected but shouldn't
-            .filter(|public_key| !self.current_topology.contains(*public_key))
+            .filter(|public_key| !self.current_topology.contains_key(*public_key))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -308,30 +327,21 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     }
 
     fn connect_peer(&mut self, peer: &PeerId) {
-        if self.peers.contains_key(&peer.public_key) {
-            iroha_logger::debug!(peer = %peer, "Peer already connected");
-            return;
-        }
-
         iroha_logger::trace!(
             listen_addr = %self.listen_addr, peer.id.address = %peer.address,
             "Creating new peer actor",
         );
-        self.untrusted_peers.remove(&ip(&peer.address));
 
         let conn_id = self.get_conn_id();
-        let (connected_sender, connected_receiver) = oneshot::channel();
-        let (terminated_sender, terminated_receiver) = oneshot::channel();
+        self.connecting_peers
+            .insert(conn_id, peer.public_key.clone());
+        let service_message_sender = self.service_message_sender.clone();
         connecting::<T, K, E>(
             // NOTE: we intentionally use peer's address and our public key, it's used during handshake
             PeerId::new(&peer.address, &self.public_key),
             conn_id,
-            connected_sender,
-            terminated_sender,
+            service_message_sender,
         );
-
-        self.connected_receivers.push(connected_receiver);
-        self.terminated_receivers.push(terminated_receiver);
     }
 
     fn disconnect_peer(&mut self, public_key: &PublicKey) {
@@ -340,12 +350,12 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             _ => return iroha_logger::warn!(?public_key, "Not found peer to disconnect"),
         };
         iroha_logger::debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
-        self.untrusted_peers.insert(ip(&peer.p2p_addr));
 
         let peer_id = PeerId::new(&peer.p2p_addr, public_key);
         Self::remove_online_peer(&self.online_peers_sender, &peer_id);
     }
 
+    #[log(skip_all, fields(peer=%peer_id, conn_id=connection_id, disambiguator=disambiguator))]
     fn peer_connected(
         &mut self,
         Connected {
@@ -353,24 +363,44 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             connection_id,
             ready_peer_handle,
             peer_message_sender,
+            disambiguator,
         }: Connected<T>,
     ) {
-        if !self.current_topology.contains(&peer_id) {
-            iroha_logger::warn!(peer=%peer_id, topology=?self.current_topology, "Peer not present in topology is trying to connect");
+        if !self.current_topology.contains_key(&peer_id) {
+            iroha_logger::warn!(topology=?self.current_topology, "Peer not present in topology is trying to connect");
             return;
+        }
+
+        //  Insert peer if peer not in peers yet or replace peer if it's disambiguator value is smaller than new one (simultaneous connections resolution rule)
+        match self.peers.get(&peer_id.public_key) {
+            Some(peer) if peer.disambiguator > disambiguator => {
+                iroha_logger::debug!(
+                    "Peer is disconnected due to simultaneous connection resolution policy"
+                );
+                return;
+            }
+            Some(_) => {
+                iroha_logger::debug!("New peer will replace previous one due to simultaneous connection resolution policy");
+            }
+            None => {
+                iroha_logger::debug!("Peer isn't in the peer set, inserting");
+            }
         }
 
         let ref_peer = RefPeer {
             handle: ready_peer_handle,
             conn_id: connection_id,
             p2p_addr: peer_id.address.clone(),
+            disambiguator,
         };
         let _ = peer_message_sender.send(self.peer_message_sender.clone());
         self.peers.insert(peer_id.public_key.clone(), ref_peer);
+        self.connecting_peers.remove(&connection_id);
         Self::add_online_peer(&self.online_peers_sender, peer_id);
     }
 
     fn peer_terminated(&mut self, Terminated { peer_id, conn_id }: Terminated) {
+        self.connecting_peers.remove(&conn_id);
         if let Some(peer) = self.peers.get(&peer_id.public_key) {
             if peer.conn_id == conn_id {
                 iroha_logger::debug!(conn_id, peer=%peer_id, "Peer terminated");
@@ -420,6 +450,10 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     async fn peer_message(&mut self, PeerMessage(peer_id, msg): PeerMessage<T>) {
         // TODO: consider broadcast channel instead
         iroha_logger::trace!(peer=%peer_id, "Received peer message");
+        if self.subscribers_to_peers_messages.is_empty() {
+            iroha_logger::warn!("No subscribers to send message to");
+            return;
+        }
         self.subscribers_to_peers_messages = self
             .subscribers_to_peers_messages
             .drain(..)
@@ -438,6 +472,10 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
     fn subscribe_to_peers_messages(&mut self, subscriber: mpsc::Sender<T>) {
         self.subscribers_to_peers_messages.push(subscriber);
+        iroha_logger::trace!(
+            subscribers = self.subscribers_to_peers_messages.len(),
+            "Network receive new message subscriber"
+        );
     }
 
     fn add_online_peer(online_peers_sender: &watch::Sender<OnlinePeers>, peer_id: PeerId) {
@@ -490,14 +528,27 @@ pub mod message {
     }
 }
 
-/// Substitute for [`SocketAddr::ip`]
-fn ip(address: &str) -> String {
-    address.split(':').next().unwrap_or_default().to_owned()
-}
-
 /// Reference as a means of communication with a [`Peer`]
 struct RefPeer<T: Pload> {
     handle: PeerHandle<T>,
     conn_id: ConnectionId,
     p2p_addr: String,
+    /// Disambiguator serves purpose of resolving situation when both peers are tying to connect to each other at the same time.
+    /// Usually in iroha network only one peer is trying to connect to another peer, but if peer is misbehaving it could be useful.
+    ///
+    /// Consider timeline:
+    ///
+    /// ```text
+    /// [peer1 outgoing connection with peer2 completes first (A)] -> [peer1 incoming connection with peer2 completes second (B)]
+    ///
+    /// [peer2 outgoing connection with peer1 completes first (B)] -> [peer2 incoming connection with peer1 completes second (A)]
+    /// ```
+    ///
+    /// Because it's meaningless for peer to have more than one connection with the same peer, peer must have some way of selecting what connection to preserve.
+    ///
+    /// In this case native approach where new connections will replace old ones won't work because it will result in peers not being connect at all.
+    ///
+    /// To solve this situation disambiguator value is used.
+    /// It's equal for both peers and when peer receive connection for peer already present in peers set it just select connection with higher value.
+    disambiguator: u64,
 }
