@@ -26,6 +26,8 @@ pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 pub mod handles {
     //! Module with functions to start peer actor and handle to interact with it.
 
+    use iroha_logger::Instrument;
+
     use super::{run::RunPeerArgs, *};
     use crate::unbounded_with_len;
 
@@ -33,8 +35,7 @@ pub mod handles {
     pub fn connecting<T: Pload, K: Kex, E: Enc>(
         peer_id: PeerId,
         connection_id: ConnectionId,
-        connected_sender: oneshot::Sender<Connected<T>>,
-        terminated_sender: oneshot::Sender<Terminated>,
+        service_message_sender: mpsc::Sender<ServiceMessage<T>>,
     ) {
         let peer = state::Connecting {
             peer_id,
@@ -42,18 +43,16 @@ pub mod handles {
         };
         let peer = RunPeerArgs {
             peer,
-            connected_sender,
-            terminated_sender,
+            service_message_sender,
         };
-        tokio::task::spawn(run::run::<T, K, E, _>(peer));
+        tokio::task::spawn(run::run::<T, K, E, _>(peer).in_current_span());
     }
 
     /// Start Peer in [`state::ConnectedFrom`] state
     pub fn connected_from<T: Pload, K: Kex, E: Enc>(
         peer_id: PeerId,
         connection: Connection,
-        connected_sender: oneshot::Sender<Connected<T>>,
-        terminated_sender: oneshot::Sender<Terminated>,
+        service_message_sender: mpsc::Sender<ServiceMessage<T>>,
     ) {
         let peer = state::ConnectedFrom {
             peer_id,
@@ -61,10 +60,9 @@ pub mod handles {
         };
         let peer = RunPeerArgs {
             peer,
-            connected_sender,
-            terminated_sender,
+            service_message_sender,
         };
-        tokio::task::spawn(run::run::<T, K, E, _>(peer));
+        tokio::task::spawn(run::run::<T, K, E, _>(peer).in_current_span());
     }
 
     /// Peer actor handle.
@@ -88,24 +86,29 @@ pub mod handles {
 mod run {
     //! Module with peer [`run`] function.
 
+    use iroha_logger::prelude::*;
+
     use super::{
         cryptographer::Cryptographer,
         handshake::Handshake,
         state::{ConnectedFrom, Connecting, Ready},
         *,
     };
-    use crate::unbounded_with_len;
+    use crate::{blake2b_hash, unbounded_with_len};
 
     /// Peer task.
+    #[allow(clippy::too_many_lines)]
+    #[log(skip_all, fields(conn_id = peer.connection_id(), peer, disambiguator))]
     pub(super) async fn run<T: Pload, K: Kex, E: Enc, P: Entrypoint<K, E>>(
         RunPeerArgs {
             peer,
-            connected_sender,
-            terminated_sender,
+            service_message_sender,
         }: RunPeerArgs<T, P>,
     ) {
         let conn_id = peer.connection_id();
         let mut peer_id = peer.peer_id().clone();
+
+        iroha_logger::trace!("Peer created");
 
         // Insure proper termination from every execution path.
         async {
@@ -113,7 +116,7 @@ mod run {
             let peer = match peer.handshake().await {
                 Ok(ready) => ready,
                 Err(error) => {
-                    iroha_logger::error!(%error, peer=%peer_id, "Failure during handshake.");
+                    iroha_logger::error!(%error, "Failure during handshake.");
                     return;
                 }
             };
@@ -130,20 +133,26 @@ mod run {
             } = peer;
             peer_id = new_peer_id;
 
+            let disambiguator = blake2b_hash(&cryptographer.shared_key);
+
+            tracing::Span::current().record("peer", &peer_id.to_string());
+            tracing::Span::current().record("disambiguator", disambiguator);
+
             let (post_sender, mut post_receiver) = unbounded_with_len::unbounded_channel();
             let (peer_message_sender, peer_message_receiver) = oneshot::channel();
             let ready_peer_handle = handles::PeerHandle { post_sender };
-            if connected_sender
-                .send(Connected {
+            if service_message_sender
+                .send(ServiceMessage::Connected(Connected {
                     connection_id,
                     peer_id: peer_id.clone(),
                     ready_peer_handle,
                     peer_message_sender,
-                })
+                    disambiguator,
+                }))
+                .await
                 .is_err()
             {
                 iroha_logger::error!(
-                    peer=%peer_id,
                     "Peer is ready, but network dropped connection sender."
                 );
                 return;
@@ -151,11 +160,12 @@ mod run {
             let Ok(peer_message_sender) = peer_message_receiver.await else {
                 // NOTE: this is not considered as error, because network might decide not to connect peer.
                 iroha_logger::debug!(
-                    peer=%peer_id,
                     "Network decide not to connect peer."
                 );
                 return;
             };
+
+            iroha_logger::trace!("Peer connected");
 
             let mut message_reader = MessageReader::new(read, cryptographer.clone());
             let mut message_sender = MessageSender::new(write, cryptographer);
@@ -167,12 +177,13 @@ mod run {
                             iroha_logger::debug!("Peer handle dropped.");
                             break;
                         };
+                        iroha_logger::trace!("Post message");
                         let post_receiver_len = post_receiver.len();
                         if post_receiver_len > 100 {
-                            iroha_logger::warn!(size=post_receiver_len, peer=%peer_id, "Peer post messages are pilling up");
+                            iroha_logger::warn!(size=post_receiver_len, "Peer post messages are pilling up");
                         }
                         if let Err(error) = message_sender.send_message(msg).await {
-                            iroha_logger::error!(%error, peer=%peer_id, "Failed to send message to peer.");
+                            iroha_logger::error!(%error, "Failed to send message to peer.");
                             break;
                         }
                     }
@@ -182,17 +193,18 @@ mod run {
                                 msg
                             },
                             Ok(None) => {
-                                // NOTE: Peer send whole message and close connection
+                                iroha_logger::debug!("Peer send whole message and close connection");
                                 break;
                             }
                             Err(error) => {
-                                iroha_logger::error!(%error, peer=%peer_id, "Error while reading message from peer.");
+                                iroha_logger::error!(%error, "Error while reading message from peer.");
                                 break;
                             }
                         };
+                        iroha_logger::trace!("Received peer message");
                         let peer_message = PeerMessage(peer_id.clone(), msg);
                         if peer_message_sender.send(peer_message).await.is_err() {
-                            iroha_logger::error!(peer=%peer_id, "Network dropped peer message channel.");
+                            iroha_logger::error!("Network dropped peer message channel.");
                             break;
                         }
                     }
@@ -202,15 +214,16 @@ mod run {
             }
         }.await;
 
-        iroha_logger::debug!(peer=%peer_id, conn_id=conn_id, "Peer is terminated.");
-        let _ = terminated_sender.send(Terminated { conn_id, peer_id });
+        iroha_logger::debug!("Peer is terminated.");
+        let _ = service_message_sender
+            .send(ServiceMessage::Terminated(Terminated { conn_id, peer_id }))
+            .await;
     }
 
     /// Args to pass inside [`run`] function.
     pub(super) struct RunPeerArgs<T: Pload, P> {
         pub peer: P,
-        pub connected_sender: oneshot::Sender<Connected<T>>,
-        pub terminated_sender: oneshot::Sender<Terminated>,
+        pub service_message_sender: mpsc::Sender<ServiceMessage<T>>,
     }
 
     /// Trait for peer stages that might be used as starting point for peer's [`run`] function.
@@ -638,6 +651,8 @@ pub mod message {
         pub ready_peer_handle: handles::PeerHandle<T>,
         /// Channel to send peer messages channel
         pub peer_message_sender: oneshot::Sender<mpsc::Sender<PeerMessage<T>>>,
+        /// Disambiguator of connection (equal for both peers)
+        pub disambiguator: u64,
     }
 
     /// Messages received from Peer
@@ -650,6 +665,14 @@ pub mod message {
         /// Connection Id
         pub conn_id: ConnectionId,
     }
+
+    /// Messages sent by peer during connection process
+    pub enum ServiceMessage<T: Pload> {
+        /// Connection and Handshake was successful
+        Connected(Connected<T>),
+        /// Peer faced error or `Terminate` message, send to indicate that it is terminated
+        Terminated(Terminated),
+    }
 }
 
 mod cryptographer {
@@ -661,7 +684,7 @@ mod cryptographer {
     /// Peer's cryptographic primitives
     pub struct Cryptographer<E: Enc> {
         /// Shared key
-        shared_key: SessionKey,
+        pub shared_key: SessionKey,
         /// Encryptor created from session key, that we got by Diffie-Hellman scheme
         pub encryptor: SymmetricEncryptor<E>,
     }
