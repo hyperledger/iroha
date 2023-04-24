@@ -1,0 +1,69 @@
+diff --git a/ports/prometheus-cpp/Add-CivetCallbacks-to-Exposer.patch b/ports/prometheus-cpp/Add-CivetCallbacks-to-Exposer.patch
+new file mode 100644
+index 000000000..0a237dd54
+--- /dev/null
++++ b/ports/prometheus-cpp/Add-CivetCallbacks-to-Exposer.patch
+@@ -0,0 +1,51 @@
++diff --git a/pull/include/prometheus/exposer.h b/pull/include/prometheus/exposer.h
++index 3e4e01c..6a9c3ff 100644
++--- a/pull/include/prometheus/exposer.h
+++++ b/pull/include/prometheus/exposer.h
++@@ -10,6 +10,7 @@
++ #include "prometheus/detail/pull_export.h"
++ 
++ class CivetServer;
+++class CivetCallbacks;
++ 
++ namespace prometheus {
++ 
++@@ -20,8 +21,9 @@ class Endpoint;
++ class PROMETHEUS_CPP_PULL_EXPORT Exposer {
++  public:
++   explicit Exposer(const std::string& bind_address,
++-                   const std::size_t num_threads = 2);
++-  explicit Exposer(std::vector<std::string> options);
+++                   const std::size_t num_threads = 2,
+++                   const CivetCallbacks *callbacks = nullptr);
+++  explicit Exposer(std::vector<std::string> options, const CivetCallbacks *callbacks = nullptr);
++   ~Exposer();
++   void RegisterCollectable(const std::weak_ptr<Collectable>& collectable,
++                            const std::string& uri = std::string("/metrics"));
++diff --git a/pull/src/exposer.cc b/pull/src/exposer.cc
++index ac53bc8..df1dbaa 100644
++--- a/pull/src/exposer.cc
+++++ b/pull/src/exposer.cc
++@@ -11,13 +11,18 @@
++ 
++ namespace prometheus {
++ 
++-Exposer::Exposer(const std::string& bind_address, const std::size_t num_threads)
+++Exposer::Exposer(const std::string& bind_address, 
+++                 const std::size_t num_threads, 
+++                 const CivetCallbacks *callbacks)
++     : Exposer(std::vector<std::string>{"listening_ports", bind_address,
++                                        "num_threads",
++-                                       std::to_string(num_threads)}) {}
+++                                       std::to_string(num_threads)},
+++              callbacks) {}
++ 
++-Exposer::Exposer(std::vector<std::string> options)
++-    : server_(detail::make_unique<CivetServer>(std::move(options))) {}
+++Exposer::Exposer(std::vector<std::string> options, 
+++                 const CivetCallbacks *callbacks)
+++    : server_(detail::make_unique<CivetServer>(std::move(options),
+++                                               callbacks)) {}
++ 
++ Exposer::~Exposer() = default;
++ 
+diff --git a/ports/prometheus-cpp/portfile.cmake b/ports/prometheus-cpp/portfile.cmake
+index c6048af18..4a9a749d5 100644
+--- a/ports/prometheus-cpp/portfile.cmake
++++ b/ports/prometheus-cpp/portfile.cmake
+@@ -8,6 +8,7 @@ vcpkg_from_github(
+     REF 2412990ee9ad89245e7d1df9ec85ab19b24674d3 # v0.12.2
+     SHA512 52ecf1984c709dab749f2b4b0010796be49b9db5416678baf77f645054f85b1cae4d67f06ffb1643c0fbcfbf2e65c81f2157a22c0b75a346f9b1feba6537b87d
+     HEAD_REF master
++    PATCHES Add-CivetCallbacks-to-Exposer.patch
+ )
+ 
+ macro(feature FEATURENAME OPTIONNAME)
