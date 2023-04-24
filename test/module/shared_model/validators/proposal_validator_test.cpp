@@ -61,6 +61,22 @@ class ProposalValidatorTest : public ValidatorsTest {
         .build();
   }
 
+  /**
+   * Get value of Result<unique_ptr<_>, _>; throws exception, if there's error
+   * inside of result
+   * @tparam ResultType - type of result value inside a unique_ptr
+   * @tparam ErrorType - type of result error
+   * @param res - result to be unwrapped
+   * @return shared_ptr to result value
+   */
+  template <typename ResultType, typename ErrorType>
+  std::unique_ptr<ResultType> unwrapResult(
+      Result<std::unique_ptr<ResultType>, ErrorType> &&res) {
+    return boost::get<iroha::expected::Value<std::unique_ptr<ResultType>>>(
+               std::move(res))
+        .value;
+  }
+
  protected:
   shared_model::crypto::Keypair keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
