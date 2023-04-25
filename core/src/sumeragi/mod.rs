@@ -7,6 +7,7 @@
     clippy::std_instead_of_alloc
 )]
 use std::{
+    collections::HashSet,
     fmt::{self, Debug, Formatter},
     sync::{mpsc, Arc},
     time::{Duration, Instant},
@@ -22,7 +23,7 @@ use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 use tokio::sync::watch;
 
-use crate::handler::ThreadHandler;
+use crate::{handler::ThreadHandler, IrohaNetwork};
 
 pub mod main_loop;
 pub mod message;
@@ -35,9 +36,11 @@ use self::{
     message::{Message, *},
     view_change::{Proof, ProofChain},
 };
-use crate::{
-    block::*, kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage,
-};
+use crate::{block::*, kura::Kura, prelude::*, queue::Queue, EventsSender, NetworkMessage};
+
+type SumeragiMessagePostProcedure = Arc<(dyn Fn(MessagePacket, &PeerId) + Send + Sync)>;
+type SumeragiUpdateNetworkTopologyProcedure = Arc<(dyn Fn(HashSet<PeerId>) + Send + Sync)>;
+type SumeragiGetCurrentlyConnectedProcedure = Arc<(dyn Fn() -> HashSet<PeerId> + Send + Sync)>;
 
 /*
 The values in the following struct are not atomics because the code that
@@ -55,13 +58,13 @@ struct LastUpdateMetricsData {
 #[derive(Clone)]
 pub struct SumeragiHandle {
     public_wsv_receiver: watch::Receiver<WorldStateView>,
-    message_sender: mpsc::SyncSender<MessagePacket>,
     metrics: Metrics,
     last_update_metrics_mutex: Arc<Mutex<LastUpdateMetricsData>>,
-    network: IrohaNetwork,
+    get_connected_peers_procedure: SumeragiGetCurrentlyConnectedProcedure,
     kura: Arc<Kura>,
     queue: Arc<Queue>,
     _thread_handle: Arc<ThreadHandler>,
+    message_sender: mpsc::SyncSender<MessagePacket>, // This must be kept alive until the thread exits, ergo it's after _thread_handle.
 }
 
 impl SumeragiHandle {
@@ -94,9 +97,8 @@ impl SumeragiHandle {
     /// - If either mutex is poisoned
     #[allow(clippy::cast_precision_loss)]
     pub fn update_metrics(&self) -> Result<()> {
-        let online_peers_count: u64 = self
-            .network
-            .online_peers(std::collections::HashSet::len)
+        let online_peers_count: u64 = (self.get_connected_peers_procedure)()
+            .len()
             .try_into()
             .expect("casting usize to u64");
 
@@ -192,13 +194,58 @@ impl SumeragiHandle {
         SumeragiStartArgs {
             configuration,
             events_sender,
+            wsv,
+            queue,
+            kura,
+            genesis_network,
+            block_hashes,
+            network,
+        }: SumeragiStartArgs,
+    ) -> SumeragiHandle {
+        let network2 = network.clone();
+        let network3 = network.clone();
+        SumeragiHandle::start_closure(SumeragiStartClosureArgs {
+            configuration,
+            events_sender,
+            wsv,
+            queue,
+            kura,
+            genesis_network,
+            block_hashes,
+            post_procedure: Arc::new(move |packet, peer_id| {
+                let post = iroha_p2p::Post {
+                    data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
+                    peer_id: peer_id.clone(),
+                };
+                network.post(post);
+            }),
+            update_topology_procedure: Arc::new(move |network_topology| {
+                network2.update_topology(iroha_p2p::UpdateTopology(network_topology));
+            }),
+            get_connected_peers_procedure: Arc::new(move || {
+                network3.online_peers(std::collections::HashSet::clone)
+            }),
+        })
+    }
+
+    /// Start [`Sumeragi`] actor and return handle to it. Takes network closures
+    /// as parameters. If you want to pass `IrohaNetwork` handle use `start`.
+    ///
+    /// # Panics
+    /// May panic if something is of during initialization which is bug.
+    pub fn start_closure(
+        SumeragiStartClosureArgs {
+            configuration,
+            events_sender,
             mut wsv,
             queue,
             kura,
-            network,
             genesis_network,
             block_hashes,
-        }: SumeragiStartArgs,
+            post_procedure,
+            update_topology_procedure,
+            get_connected_peers_procedure,
+        }: SumeragiStartClosureArgs,
     ) -> SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
@@ -261,7 +308,9 @@ impl SumeragiHandle {
             block_time: Duration::from_millis(configuration.block_time_ms),
             max_txs_in_block: configuration.max_transactions_in_block as usize,
             kura: Arc::clone(&kura),
-            network: network.clone(),
+            post_procedure,
+            update_topology_procedure,
+            get_connected_peers_procedure: Arc::clone(&get_connected_peers_procedure),
             message_receiver,
             debug_force_soft_fork,
             current_topology,
@@ -288,7 +337,6 @@ impl SumeragiHandle {
 
         let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
         SumeragiHandle {
-            network,
             queue,
             kura,
             message_sender,
@@ -299,6 +347,7 @@ impl SumeragiHandle {
                 metric_tx_amounts: 0.0_f64,
                 metric_tx_amounts_counter: 0,
             })),
+            get_connected_peers_procedure,
             _thread_handle: Arc::new(thread_handle),
         }
     }
@@ -337,6 +386,21 @@ impl VotingBlock {
     }
 }
 
+/// Arguments for [`SumeragiHandle::start_closure`] function
+#[allow(missing_docs)]
+pub struct SumeragiStartClosureArgs<'args> {
+    pub configuration: &'args Configuration,
+    pub events_sender: EventsSender,
+    pub wsv: WorldStateView,
+    pub queue: Arc<Queue>,
+    pub kura: Arc<Kura>,
+    pub genesis_network: Option<GenesisNetwork>,
+    pub block_hashes: &'args [HashOf<VersionedCommittedBlock>],
+    pub post_procedure: SumeragiMessagePostProcedure,
+    pub update_topology_procedure: SumeragiUpdateNetworkTopologyProcedure,
+    pub get_connected_peers_procedure: SumeragiGetCurrentlyConnectedProcedure,
+}
+
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
 pub struct SumeragiStartArgs<'args> {
@@ -345,7 +409,7 @@ pub struct SumeragiStartArgs<'args> {
     pub wsv: WorldStateView,
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
-    pub network: IrohaNetwork,
     pub genesis_network: Option<GenesisNetwork>,
     pub block_hashes: &'args [HashOf<VersionedCommittedBlock>],
+    pub network: IrohaNetwork,
 }

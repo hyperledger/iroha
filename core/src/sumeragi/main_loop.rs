@@ -3,11 +3,10 @@
 use std::sync::mpsc;
 
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
-use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
 
 use super::*;
-use crate::{block::*, sumeragi::tracing::instrument};
+use crate::block::*;
 
 /// `Sumeragi` is the implementation of the consensus.
 pub struct Sumeragi {
@@ -31,8 +30,12 @@ pub struct Sumeragi {
     pub max_txs_in_block: usize,
     /// Kura instance used for IO
     pub kura: Arc<Kura>,
-    /// [`iroha_p2p::Network`] actor address
-    pub network: IrohaNetwork,
+    /// A function pointer used when posting sumeragi packets to the network.
+    pub post_procedure: SumeragiMessagePostProcedure,
+    /// A function pointer used when sending the new network topology to the network subsystem.
+    pub update_topology_procedure: SumeragiUpdateNetworkTopologyProcedure,
+    /// A function pointer used to query the currently connected peers.
+    pub get_connected_peers_procedure: SumeragiGetCurrentlyConnectedProcedure,
     /// Receiver channel.
     pub message_receiver: mpsc::Receiver<MessagePacket>,
     /// Only used in testing. Causes the genesis peer to withhold blocks when it
@@ -69,19 +72,6 @@ impl Debug for Sumeragi {
 }
 
 impl Sumeragi {
-    /// Send a sumeragi packet over the network to the specified `peer`.
-    /// # Errors
-    /// Fails if network sending fails
-    #[instrument(skip(self, packet))]
-    #[allow(clippy::needless_pass_by_value)] // TODO: Fix.
-    fn post_packet_to(&self, packet: MessagePacket, peer: &PeerId) {
-        let post = iroha_p2p::Post {
-            data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
-            peer_id: peer.clone(),
-        };
-        self.network.post(post);
-    }
-
     #[allow(clippy::needless_pass_by_value, single_use_lifetimes)] // TODO: uncomment when anonymous lifetimes are stable
     fn broadcast_packet_to<'peer_id>(
         &self,
@@ -89,22 +79,26 @@ impl Sumeragi {
         ids: impl IntoIterator<Item = &'peer_id PeerId> + Send,
     ) {
         for peer_id in ids {
-            self.post_packet_to(msg.clone(), peer_id);
+            (self.post_procedure)(msg.clone(), peer_id);
         }
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn broadcast_packet(&self, msg: MessagePacket) {
-        let broadcast = iroha_p2p::Broadcast {
-            data: NetworkMessage::SumeragiPacket(Box::new(msg.into())),
-        };
-        self.network.broadcast(broadcast);
+        for peer_id in self
+            .current_topology
+            .sorted_peers
+            .iter()
+            .filter(|p| **p != self.peer_id)
+        {
+            (self.post_procedure)(msg.clone(), peer_id);
+        }
     }
 
     /// Connect or disconnect peers according to the current network topology.
     fn connect_peers(&self, topology: &Topology) {
         let peers = topology.sorted_peers.clone().into_iter().collect();
-        self.network.update_topology(UpdateTopology(peers));
+        (self.update_topology_procedure)(peers);
     }
 
     /// The maximum time a sumeragi round can take to produce a block when
@@ -230,8 +224,6 @@ impl Sumeragi {
     }
 
     fn sumeragi_init_commit_genesis(&mut self, genesis_network: GenesisNetwork) {
-        std::thread::sleep(Duration::from_millis(250));
-
         info!("Initializing iroha using the genesis block.");
 
         assert_eq!(self.wsv.height(), 0);

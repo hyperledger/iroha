@@ -2927,6 +2927,7 @@ dependencies = [
  "eyre",
  "futures",
  "hex",
+ "iroha",
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",

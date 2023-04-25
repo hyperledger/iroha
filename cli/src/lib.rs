@@ -277,9 +277,9 @@ impl Iroha {
             wsv,
             queue: Arc::clone(&queue),
             kura: Arc::clone(&kura),
-            network: network.clone(),
             genesis_network: genesis,
             block_hashes: &block_hashes,
+            network: network.clone(),
         });
 
         let block_sync = BlockSynchronizer::from_configuration(
