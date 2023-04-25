@@ -516,15 +516,8 @@ impl<'de> Deserialize<'de> for PrivateKey {
     }
 }
 
-/// Shim for decoding hexadecimal strings that can have spaces
+/// Shim for decoding hexadecimal strings
 pub(crate) fn hex_decode<T: AsRef<[u8]> + ?Sized>(payload: &T) -> Result<Vec<u8>, Error> {
-    let payload: Vec<u8> = payload
-        .as_ref()
-        .iter()
-        .filter(|&e| *e as char != ' ')
-        .copied()
-        .collect();
-
     hex::decode(payload).map_err(|err| Error::Parse(err.to_string()))
 }
 
