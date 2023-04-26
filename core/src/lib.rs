@@ -2,6 +2,7 @@
 
 pub mod block;
 pub mod block_sync;
+pub mod gossiper;
 pub mod kura;
 pub mod modules;
 pub mod queue;
@@ -14,6 +15,7 @@ pub mod wsv;
 use core::time::Duration;
 
 use dashmap::{DashMap, DashSet};
+use gossiper::TransactionGossip;
 use iroha_data_model::{permission::Permissions, prelude::*};
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
@@ -58,6 +60,8 @@ pub enum NetworkMessage {
     SumeragiPacket(Box<SumeragiPacket>),
     /// Block sync message
     BlockSync(Box<BlockSyncMessage>),
+    /// Transaction gossiper message
+    TransactionGossiper(Box<TransactionGossip>),
     /// Health check message
     Health,
 }

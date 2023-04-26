@@ -40,8 +40,8 @@ pub struct NetworkBaseHandle<T: Pload, K: Kex, E: Enc> {
     online_peers_receiver: watch::Receiver<OnlinePeers>,
     /// [`UpdateTopology`] message sender
     update_topology_sender: mpsc::UnboundedSender<UpdateTopology>,
-    /// Sender of [`Post`] message
-    post_sender: unbounded_with_len::Sender<Post<T>>,
+    /// Sender of [`NetworkMessage`] message
+    network_message_sender: unbounded_with_len::Sender<NetworkMessage<T>>,
     /// Key exchange used by network
     _key_exchange: core::marker::PhantomData<K>,
     /// Encryptor used by the network
@@ -54,7 +54,7 @@ impl<T: Pload, K: Kex, E: Enc> Clone for NetworkBaseHandle<T, K, E> {
             subscribe_to_peers_messages_sender: self.subscribe_to_peers_messages_sender.clone(),
             online_peers_receiver: self.online_peers_receiver.clone(),
             update_topology_sender: self.update_topology_sender.clone(),
-            post_sender: self.post_sender.clone(),
+            network_message_sender: self.network_message_sender.clone(),
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         }
@@ -74,7 +74,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         let (subscribe_to_peers_messages_sender, subscribe_to_peers_messages_receiver) =
             mpsc::unbounded_channel();
         let (update_topology_sender, update_topology_receiver) = mpsc::unbounded_channel();
-        let (post_sender, post_receiver) = unbounded_with_len::unbounded_channel();
+        let (network_message_sender, network_message_receiver) =
+            unbounded_with_len::unbounded_channel();
         let (peer_message_sender, peer_message_receiver) = mpsc::channel(1);
         let network = NetworkBase {
             listen_addr,
@@ -86,7 +87,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             subscribe_to_peers_messages_receiver,
             online_peers_sender,
             update_topology_receiver,
-            post_receiver,
+            network_message_receiver,
             peer_message_receiver,
             peer_message_sender,
             connected_receivers: FuturesUnordered::new(),
@@ -101,7 +102,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             subscribe_to_peers_messages_sender,
             online_peers_receiver,
             update_topology_sender,
-            post_sender,
+            network_message_sender,
             _key_exchange: core::marker::PhantomData,
             _encryptor: core::marker::PhantomData,
         })
@@ -116,8 +117,16 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
 
     /// Send [`Post<T>`] message on network actor.
     pub fn post(&self, msg: Post<T>) {
-        self.post_sender
-            .send(msg)
+        self.network_message_sender
+            .send(NetworkMessage::Post(msg))
+            .map_err(|_| ())
+            .expect("NetworkBase must accept messages until there is at least one handle to it")
+    }
+
+    /// Send [`Broadcast<T>`] message on network actor.
+    pub fn broadcast(&self, msg: Broadcast<T>) {
+        self.network_message_sender
+            .send(NetworkMessage::Broadcast(msg))
             .map_err(|_| ())
             .expect("NetworkBase must accept messages until there is at least one handle to it")
     }
@@ -170,7 +179,7 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// [`UpdateTopology`] message receiver
     update_topology_receiver: mpsc::UnboundedReceiver<UpdateTopology>,
     /// Receiver of [`Post`] message
-    post_receiver: unbounded_with_len::Receiver<Post<T>>,
+    network_message_receiver: unbounded_with_len::Receiver<NetworkMessage<T>>,
     /// Channel to gather messages from all peers
     peer_message_receiver: mpsc::Receiver<PeerMessage<T>>,
     /// Sender for peer messages to provide clone of sender inside peer
@@ -225,16 +234,19 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                 Some(subscriber) = self.subscribe_to_peers_messages_receiver.recv() => {
                     self.subscribe_to_peers_messages(subscriber);
                 }
-                post = self.post_receiver.recv() => {
-                    let Some(post) = post else {
+                network_message = self.network_message_receiver.recv() => {
+                    let Some(network_message) = network_message else {
                         iroha_logger::info!("All handles to network actor are dropped. Shutting down...");
                         break;
                     };
-                    let post_receiver_len = self.post_receiver.len();
-                    if post_receiver_len > 100 {
-                        iroha_logger::warn!(size=post_receiver_len, "Network post messages are pilling up in the queue");
+                    let network_message_receiver_len = self.network_message_receiver.len();
+                    if network_message_receiver_len > 100 {
+                        iroha_logger::warn!(size=network_message_receiver_len, "Network post messages are pilling up in the queue");
                     }
-                    self.post(post)
+                    match network_message {
+                        NetworkMessage::Post(post) => self.post(post),
+                        NetworkMessage::Broadcast(broadcast) => self.broadcast(broadcast),
+                    }
                 }
                 _ = update_topology_interval.tick() => {
                     self.update_topology()
@@ -331,7 +343,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         self.untrusted_peers.insert(ip(&peer.p2p_addr));
 
         let peer_id = PeerId::new(&peer.p2p_addr, public_key);
-        self.remove_online_peer(&peer_id);
+        Self::remove_online_peer(&self.online_peers_sender, &peer_id);
     }
 
     fn peer_connected(
@@ -355,7 +367,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         };
         let _ = peer_message_sender.send(self.peer_message_sender.clone());
         self.peers.insert(peer_id.public_key.clone(), ref_peer);
-        self.add_online_peer(peer_id);
+        Self::add_online_peer(&self.online_peers_sender, peer_id);
     }
 
     fn peer_terminated(&mut self, Terminated { peer_id, conn_id }: Terminated) {
@@ -363,7 +375,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             if peer.conn_id == conn_id {
                 iroha_logger::debug!(conn_id, peer=%peer_id, "Peer terminated");
                 self.peers.remove(&peer_id.public_key);
-                self.remove_online_peer(&peer_id);
+                Self::remove_online_peer(&self.online_peers_sender, &peer_id);
             }
         }
     }
@@ -375,7 +387,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                 if peer.handle.post(data).is_err() {
                     iroha_logger::error!(peer=%peer_id, "Failed to send message to peer");
                     self.peers.remove(&peer_id.public_key);
-                    self.remove_online_peer(&peer_id);
+                    Self::remove_online_peer(&self.online_peers_sender, &peer_id);
                 }
             }
             None if peer_id.public_key == self.public_key => {
@@ -384,6 +396,25 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             }
             _ => iroha_logger::warn!(peer=%peer_id, "Peer not found. Message not sent."),
         }
+    }
+
+    fn broadcast(&mut self, Broadcast { data }: Broadcast<T>) {
+        iroha_logger::trace!("Broadcast message");
+        let Self {
+            peers,
+            online_peers_sender,
+            ..
+        } = self;
+        peers.retain(|public_key, ref_peer| {
+            if ref_peer.handle.post(data.clone()).is_err() {
+                let peer_id = PeerId::new(&ref_peer.p2p_addr, public_key);
+                iroha_logger::error!(peer=%peer_id, "Failed to send message to peer");
+                Self::remove_online_peer(online_peers_sender, &peer_id);
+                false
+            } else {
+                true
+            }
+        });
     }
 
     async fn peer_message(&mut self, PeerMessage(peer_id, msg): PeerMessage<T>) {
@@ -409,14 +440,12 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         self.subscribers_to_peers_messages.push(subscriber);
     }
 
-    fn add_online_peer(&mut self, peer_id: PeerId) {
-        self.online_peers_sender
-            .send_if_modified(|online_peers| online_peers.insert(peer_id));
+    fn add_online_peer(online_peers_sender: &watch::Sender<OnlinePeers>, peer_id: PeerId) {
+        online_peers_sender.send_if_modified(|online_peers| online_peers.insert(peer_id));
     }
 
-    fn remove_online_peer(&mut self, peer_id: &PeerId) {
-        self.online_peers_sender
-            .send_if_modified(|online_peers| online_peers.remove(peer_id));
+    fn remove_online_peer(online_peers_sender: &watch::Sender<OnlinePeers>, peer_id: &PeerId) {
+        online_peers_sender.send_if_modified(|online_peers| online_peers.remove(peer_id));
     }
 
     fn get_conn_id(&mut self) -> ConnectionId {
@@ -445,6 +474,19 @@ pub mod message {
         pub data: T,
         /// Destination peer
         pub peer_id: PeerId,
+    }
+
+    /// The message to be send to the all connected [`Peer`]s.
+    #[derive(Clone, Debug)]
+    pub struct Broadcast<T> {
+        /// Data to be send
+        pub data: T,
+    }
+
+    /// Message send to network by other actors.
+    pub(crate) enum NetworkMessage<T> {
+        Post(Post<T>),
+        Broadcast(Broadcast<T>),
     }
 }
 
