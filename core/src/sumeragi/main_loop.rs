@@ -38,9 +38,6 @@ pub struct Sumeragi {
     /// Time by which a new block should be created regardless if there were enough transactions or not.
     /// Used to force block commits when there is a small influx of new transactions.
     pub block_time: Duration,
-    /// Limits that all transactions need to obey, in terms of size
-    /// of WASM blob and number of instructions.
-    pub transaction_limits: TransactionLimits,
     /// The maximum number of transactions in the block
     pub max_txs_in_block: usize,
     /// [`TransactionValidator`] instance that we use
@@ -49,12 +46,6 @@ pub struct Sumeragi {
     pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
     pub network: IrohaNetwork,
-    /// The size of batch that is being gossiped. Smaller size leads
-    /// to longer time to synchronise, useful if you have high packet loss.
-    pub gossip_batch_size: u32,
-    /// The time between gossiping. More frequent gossiping shortens
-    /// the time to sync, but can overload the network.
-    pub gossip_period: Duration,
     /// Receiver channel.
     // TODO: Mutex shouldn't be required and must be removed
     pub message_receiver: Mutex<mpsc::Receiver<MessagePacket>>,
@@ -128,12 +119,9 @@ impl Sumeragi {
             wsv: Mutex::new(wsv),
             commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
-            transaction_limits: configuration.transaction_limits,
             transaction_validator,
             kura,
             network,
-            gossip_batch_size: configuration.gossip_batch_size,
-            gossip_period: Duration::from_millis(configuration.gossip_period_ms),
             message_receiver: Mutex::new(message_receiver),
             max_txs_in_block: configuration.max_transactions_in_block as usize,
             debug_force_soft_fork: soft_fork,
@@ -165,28 +153,11 @@ impl Sumeragi {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn broadcast_packet(&self, msg: MessagePacket, topology: &Topology) {
-        self.broadcast_packet_to(msg, &topology.sorted_peers);
-    }
-
-    fn gossip_transactions(&self, state: &State, view_change_proof_chain: &ProofChain) {
-        let current_topology = &state.current_topology;
-        let role = current_topology.role(&self.peer_id);
-
-        // Transactions are intentionally taken from the queue instead of the cache
-        // to gossip multisignature transactions too
-        let txs = self
-            .queue
-            .n_random_transactions(self.gossip_batch_size, &state.wsv);
-
-        if !txs.is_empty() {
-            debug!(%role, tx_count = txs.len(), "Gossiping transactions");
-
-            let msg =
-                MessagePacket::new(view_change_proof_chain.clone(), TransactionGossip::new(txs));
-
-            self.broadcast_packet(msg, current_topology);
-        }
+    fn broadcast_packet(&self, msg: MessagePacket) {
+        let broadcast = iroha_p2p::Broadcast {
+            data: NetworkMessage::SumeragiPacket(Box::new(msg.into())),
+        };
+        self.network.broadcast(broadcast);
     }
 
     /// Connect or disconnect peers according to the current network topology.
@@ -460,7 +431,7 @@ fn suggest_view_change(
         view_change_proof_chain.clone(),
         Message::ViewChangeSuggested,
     );
-    sumeragi.broadcast_packet(msg, &state.current_topology);
+    sumeragi.broadcast_packet(msg);
 }
 
 fn prune_view_change_proofs_and_calculate_current_index(
@@ -473,27 +444,6 @@ fn prune_view_change_proofs_and_calculate_current_index(
         state.current_topology.max_faults(),
         state.latest_block_hash,
     ) as u64
-}
-
-fn enqueue_transaction(sumeragi: &Sumeragi, wsv: &WorldStateView, tx: VersionedSignedTransaction) {
-    let tx = tx.into_v1();
-
-    let addr = &sumeragi.peer_id.address;
-    match AcceptedTransaction::accept::<false>(tx, &sumeragi.transaction_limits) {
-        Ok(tx) => match sumeragi.queue.push(tx.into(), wsv) {
-            Ok(_) => {}
-            Err(crate::queue::Failure {
-                tx,
-                err: crate::queue::Error::InBlockchain,
-            }) => {
-                debug!(tx_hash = %tx.hash(), "Transaction already in blockchain, ignoring...")
-            }
-            Err(crate::queue::Failure { tx, err }) => {
-                error!(%addr, ?err, tx_hash = %tx.hash(), "Failed to enqueue transaction.")
-            }
-        },
-        Err(err) => error!(%addr, %err, "Transaction rejected"),
-    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -511,11 +461,6 @@ fn handle_message(
     let addr = &sumeragi.peer_id.address;
 
     match (message, role) {
-        (Message::TransactionGossip(tx_gossip), _) => {
-            for transaction in tx_gossip.txs {
-                enqueue_transaction(sumeragi, &state.wsv, transaction);
-            }
-        }
         (Message::ViewChangeSuggested, _) => {
             trace!("Received view change suggestion.");
         }
@@ -736,7 +681,7 @@ fn process_message_independent(
                             view_change_proof_chain.clone(),
                             BlockCreated::from(new_block),
                         );
-                        sumeragi.broadcast_packet(msg, current_topology);
+                        sumeragi.broadcast_packet(msg);
                     } else {
                         match new_block.commit(current_topology) {
                             Ok(committed_block) => {
@@ -747,7 +692,7 @@ fn process_message_independent(
                                     )),
                                 );
 
-                                sumeragi.broadcast_packet(msg, current_topology);
+                                sumeragi.broadcast_packet(msg);
                                 commit_block(sumeragi, state, committed_block);
                             }
                             Err(err) => error!(%addr, role=%Role::Leader, ?err),
@@ -775,12 +720,12 @@ fn process_message_independent(
                         if is_genesis_peer && sumeragi.debug_force_soft_fork {
                             std::thread::sleep(sumeragi.pipeline_time() * 2);
                         } else {
-                            sumeragi.broadcast_packet(msg, current_topology);
+                            sumeragi.broadcast_packet(msg);
                         }
 
                         #[cfg(not(debug_assertions))]
                         {
-                            sumeragi.broadcast_packet(msg, current_topology);
+                            sumeragi.broadcast_packet(msg);
                         }
                         commit_block(sumeragi, state, committed_block);
                     }
@@ -892,7 +837,6 @@ pub(crate) fn run(
     // Proxy tail collection of voting block signatures
     let mut voting_signatures = Vec::new();
     let mut should_sleep = false;
-    let mut last_sent_transaction_gossip_time = Instant::now();
     let mut view_change_proof_chain = ProofChain::default();
     let mut old_view_change_index = 0;
     let mut old_latest_block_height = 0;
@@ -938,11 +882,6 @@ pub(crate) fn run(
                 .map(expired_event)
                 .collect::<Vec<_>>(),
         );
-
-        if last_sent_transaction_gossip_time.elapsed() > sumeragi.gossip_period {
-            sumeragi.gossip_transactions(&state, &view_change_proof_chain);
-            last_sent_transaction_gossip_time = Instant::now();
-        }
 
         let current_view_change_index = prune_view_change_proofs_and_calculate_current_index(
             &state,
@@ -1152,7 +1091,7 @@ fn sumeragi_init_commit_genesis(
 
         sumeragi.send_events(&block);
         let msg = MessagePacket::new(ProofChain::default(), BlockCreated::from(block.clone()));
-        sumeragi.broadcast_packet(msg, &state.current_topology);
+        sumeragi.broadcast_packet(msg);
         // Omit signature verification during genesis round
         commit_block(sumeragi, state, block.commit_unchecked());
     }
