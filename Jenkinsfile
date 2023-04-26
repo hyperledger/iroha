@@ -1,6 +1,6 @@
 @Library('jenkins-library@feature/DOPS-2261/iroha2-pr-deploy') _
 
-def pipeline = new org.iroha2.AppPipeline(steps: this,
+def pipeline = new org.argoPRDeploy.AppPipeline(steps: this,
     k8sPrDeploy: true,
     vaultPrPath: "argocd-cc/src/charts/iroha2/environments/tachi/",
     vaultUser: "iroha2-rw",
