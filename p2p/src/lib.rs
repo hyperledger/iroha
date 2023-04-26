@@ -119,10 +119,18 @@ pub(crate) mod unbounded_with_len {
         len: Arc<AtomicUsize>,
     }
 
-    #[derive(Clone)]
     pub struct Sender<T> {
         sender: mpsc::UnboundedSender<T>,
         len: Arc<AtomicUsize>,
+    }
+
+    impl<T> Clone for Sender<T> {
+        fn clone(&self) -> Self {
+            Self {
+                sender: self.sender.clone(),
+                len: self.len.clone(),
+            }
+        }
     }
 
     impl<T> Receiver<T> {

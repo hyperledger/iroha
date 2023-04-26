@@ -20,6 +20,7 @@ use iroha_config::{
 };
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
+    gossiper::{TransactionGossiper, TransactionGossiperHandle},
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
@@ -116,6 +117,7 @@ impl Drop for Iroha {
 struct NetworkRelay {
     sumeragi: Arc<Sumeragi>,
     block_sync: BlockSynchronizerHandle,
+    gossiper: TransactionGossiperHandle,
     network: IrohaNetwork,
     shutdown_notify: Arc<Notify>,
     #[cfg(debug_assertions)]
@@ -158,6 +160,7 @@ impl NetworkRelay {
                 self.sumeragi.incoming_message(data.into_v1());
             }
             BlockSync(data) => self.block_sync.message(data.into_v1()).await,
+            TransactionGossiper(data) => self.gossiper.gossip(*data).await,
             Health => {}
         }
     }
@@ -293,11 +296,20 @@ impl Iroha {
         )
         .start();
 
+        let gossiper = TransactionGossiper::from_configuration(
+            &config.sumeragi,
+            network.clone(),
+            Arc::clone(&queue),
+            Arc::clone(&sumeragi),
+        )
+        .start();
+
         let freeze_status = Arc::new(AtomicBool::new(false));
 
         NetworkRelay {
             sumeragi: Arc::clone(&sumeragi),
             block_sync,
+            gossiper,
             network: network.clone(),
             shutdown_notify: Arc::clone(&notify_shutdown),
             #[cfg(debug_assertions)]

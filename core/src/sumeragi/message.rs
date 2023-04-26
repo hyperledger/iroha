@@ -7,7 +7,7 @@
 )]
 
 use iroha_crypto::{HashOf, SignaturesOf};
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
+use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_macro::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -16,7 +16,7 @@ use super::view_change;
 use crate::{
     block::{PendingBlock, Revalidate},
     tx::TransactionValidator,
-    VersionedAcceptedTransaction, WorldStateView,
+    WorldStateView,
 };
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant);
@@ -78,8 +78,6 @@ pub enum Message {
     BlockSyncUpdate(BlockSyncUpdate),
     /// View change is suggested due to some faulty peer or general fault in consensus.
     ViewChangeSuggested,
-    /// This message is sent by all peers during gossiping.
-    TransactionGossip(TransactionGossip),
 }
 
 /// `BlockCreated` message structure.
@@ -197,24 +195,5 @@ impl BlockSyncUpdate {
     /// Get hash of block.
     pub fn hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.block.hash()
-    }
-}
-
-/// Message for gossiping batches of transactions.
-#[derive(Decode, Encode, Debug, Clone)]
-pub struct TransactionGossip {
-    /// Batch of transactions.
-    pub txs: Vec<VersionedSignedTransaction>,
-}
-
-impl TransactionGossip {
-    #![allow(clippy::unused_async)]
-    /// Constructor.
-    pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
-        Self {
-            // Converting into non-accepted transaction because it's not possible
-            // to guarantee that the sending peer checked transaction limits
-            txs: txs.into_iter().map(Into::into).collect(),
-        }
     }
 }
