@@ -2,6 +2,7 @@
 
 def pipeline = new org.argoPRDeploy.AppPipeline(steps: this,
     k8sPrDeploy: true,
+    buildEnvironment: buildEnvironment,
     vaultPrPath: "argocd-cc/src/charts/iroha2/environments/tachi/",
     vaultUser: "iroha2-rw",
     vaultCredId: "iroha2VaultCreds",
