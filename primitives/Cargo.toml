@@ -32,6 +32,7 @@ parity-scale-codec = { version = "3.2.1", default-features = false, features = [
 fixnum = { version = "0.9.1", default-features = false, features = ["serde", "parity", "i64"] }
 derive_more = { version = "0.99.17", default-features = false, features = ["display", "from", "as_ref", "as_mut", "deref", "constructor", "into_iterator"] }
 serde = { version = "1.0.151", default-features = false, features = ["derive"] }
+serde_with = {version = "2.2.0", default-features = false, features = ["macros"]}
 smallvec = { version = "1.10.0", default-features = false, features = ["serde", "union"] }
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { version = "1.0.38", optional = true }
