@@ -633,9 +633,9 @@ Has type `Option<torii::ConfigurationProxy>`[^1]. Can be configured via environm
 
 ### `torii.api_url`
 
-Torii URL for client API.
+Torii address for client API.
 
-Has type `Option<String>`[^1]. Can be configured via environment variable `TORII_API_URL`
+Has type `Option<SocketAddr>`[^1]. Can be configured via environment variable `TORII_API_URL`
 
 ```json
 null
@@ -663,9 +663,9 @@ Has type `Option<u32>`[^1]. Can be configured via environment variable `TORII_MA
 
 ### `torii.p2p_addr`
 
-Torii URL for p2p communication for consensus and block synchronization purposes.
+Torii address for p2p communication for consensus and block synchronization purposes.
 
-Has type `Option<String>`[^1]. Can be configured via environment variable `TORII_P2P_ADDR`
+Has type `Option<SocketAddr>`[^1]. Can be configured via environment variable `TORII_P2P_ADDR`
 
 ```json
 null
@@ -673,9 +673,9 @@ null
 
 ### `torii.telemetry_url`
 
-Torii URL for reporting internal status and metrics for administration.
+Torii address for reporting internal status and metrics for administration.
 
-Has type `Option<String>`[^1]. Can be configured via environment variable `TORII_TELEMETRY_URL`
+Has type `Option<SocketAddr>`[^1]. Can be configured via environment variable `TORII_TELEMETRY_URL`
 
 ```json
 null

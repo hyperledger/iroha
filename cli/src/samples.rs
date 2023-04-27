@@ -6,7 +6,7 @@ use eyre::WrapErr as _;
 use iroha_config::{
     iroha::{Configuration, ConfigurationProxy},
     sumeragi::TrustedPeers,
-    torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_P2P_ADDR, DEFAULT_TORII_TELEMETRY_URL},
+    torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_P2P_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*};
@@ -32,13 +32,13 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
     ]
     .iter()
     .map(|(a, k)| PeerId {
-        address: (*a).to_string(),
+        address: a.parse().expect("Valid"),
         public_key: PublicKey::from_str(k).unwrap(),
     })
     .collect();
     if let Some(pubkey) = public_key {
         trusted_peers.insert(PeerId {
-            address: DEFAULT_TORII_P2P_ADDR.to_owned(),
+            address: DEFAULT_TORII_P2P_ADDR.clone(),
             public_key: pubkey.clone(),
         });
     }
@@ -67,9 +67,9 @@ pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Co
             ..iroha_config::sumeragi::ConfigurationProxy::default()
         }),
         torii: Some(iroha_config::torii::ConfigurationProxy {
-            p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.to_owned()),
-            api_url: Some(DEFAULT_API_URL.to_owned()),
-            telemetry_url: Some(DEFAULT_TORII_TELEMETRY_URL.to_owned()),
+            p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.clone()),
+            api_url: Some(DEFAULT_API_ADDR.clone()),
+            telemetry_url: Some(DEFAULT_TORII_TELEMETRY_ADDR.clone()),
             ..iroha_config::torii::ConfigurationProxy::default()
         }),
         block_sync: Some(iroha_config::block_sync::ConfigurationProxy {

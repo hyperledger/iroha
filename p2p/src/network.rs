@@ -3,7 +3,6 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    net::SocketAddr,
     time::Duration,
 };
 
@@ -11,7 +10,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_crypto::PublicKey;
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::prelude::*;
-use message::*;
+use iroha_primitives::addr::SocketAddr;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{mpsc, watch},
@@ -25,7 +24,7 @@ use crate::{
         message::*,
         Connection, ConnectionId,
     },
-    unbounded_with_len, Error,
+    unbounded_with_len, Broadcast, Error, NetworkMessage, OnlinePeers, Post, UpdateTopology,
 };
 
 /// [`NetworkBase`] actor handle.
@@ -68,8 +67,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
     /// # Errors
     /// - If binding to address fail
     #[log(skip(public_key))]
-    pub async fn start(listen_addr: String, public_key: PublicKey) -> Result<Self, Error> {
-        let listener = TcpListener::bind(&listen_addr).await?;
+    pub async fn start(listen_addr: SocketAddr, public_key: PublicKey) -> Result<Self, Error> {
+        let listener = TcpListener::bind(&listen_addr.to_string()).await?;
         iroha_logger::info!("Network bound to listener");
         let (online_peers_sender, online_peers_receiver) = watch::channel(HashSet::new());
         let (subscribe_to_peers_messages_sender, subscribe_to_peers_messages_receiver) =
@@ -161,7 +160,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
 /// Base network layer structure, holding connections interacting with peers.
 struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     /// Listening address for incoming connections. Must parse into [`std::net::SocketAddr`]
-    listen_addr: String,
+    listen_addr: SocketAddr,
     /// Current [`Peer`]s in [`Peer::Ready`] state.
     peers: HashMap<PublicKey, RefPeer<T>>,
     /// [`Peer`]s in process of being connected.
@@ -201,7 +200,7 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
 
 impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     /// [`Self`] task.
-    #[log(skip(self), fields(listen_addr=self.listen_addr, public_key=%self.public_key))]
+    #[log(skip(self), fields(listen_addr=%self.listen_addr, public_key=%self.public_key))]
     async fn run(mut self) {
         // TODO: probably should be configuration parameter
         let mut update_topology_interval = tokio::time::interval(Duration::from_millis(100));
@@ -255,7 +254,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                         Ok((stream, addr)) => {
                             iroha_logger::debug!(from_addr = %addr, "Accepted connection");
                             // Handle creation of new peer
-                            self.accept_new_peer(stream, addr);
+                            self.accept_new_peer(stream, &addr.into());
                         },
                         Err(error) => {
                             iroha_logger::warn!(%error, "Error accepting connection");
@@ -272,11 +271,11 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }
     }
 
-    fn accept_new_peer(&mut self, stream: TcpStream, addr: SocketAddr) {
+    fn accept_new_peer(&mut self, stream: TcpStream, addr: &SocketAddr) {
         let conn_id = self.get_conn_id();
         let service_message_sender = self.service_message_sender.clone();
         connected_from::<T, K, E>(
-            PeerId::new(&addr.to_string(), &self.public_key),
+            PeerId::new(addr, &self.public_key),
             Connection::new(conn_id, stream),
             service_message_sender,
         );
@@ -532,7 +531,7 @@ pub mod message {
 struct RefPeer<T: Pload> {
     handle: PeerHandle<T>,
     conn_id: ConnectionId,
-    p2p_addr: String,
+    p2p_addr: SocketAddr,
     /// Disambiguator serves purpose of resolving situation when both peers are tying to connect to each other at the same time.
     /// Usually in iroha network only one peer is trying to connect to another peer, but if peer is misbehaving it could be useful.
     ///

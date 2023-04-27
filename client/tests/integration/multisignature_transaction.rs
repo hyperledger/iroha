@@ -12,7 +12,6 @@ use iroha_data_model::{
     prelude::*,
     val_vec,
 };
-use iroha_primitives::small::SmallStr;
 use test_network::*;
 
 use super::Configuration;
@@ -71,9 +70,12 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     thread::sleep(pipeline_time);
 
     //Then
-    client_configuration.torii_api_url = SmallStr::from_string(
-        "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
-    );
+    client_configuration.torii_api_url = format!(
+        "http://{}",
+        &network.peers.values().last().unwrap().api_address,
+    )
+    .parse()
+    .unwrap();
     let client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
     let request = client::asset::by_account_id(alice_id);
     assert_eq!(
