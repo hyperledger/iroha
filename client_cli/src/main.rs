@@ -30,6 +30,7 @@ use iroha_client::client::Client;
 use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
+use iroha_primitives::addr::SocketAddr;
 
 /// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
 #[derive(Debug, Clone)]
@@ -799,7 +800,7 @@ mod peer {
     pub struct Register {
         /// P2P address of the peer e.g. `127.0.0.1:1337`
         #[structopt(short, long)]
-        pub address: String,
+        pub address: SocketAddr,
         /// Public key of the peer
         #[structopt(short, long)]
         pub key: PublicKey,
@@ -825,7 +826,7 @@ mod peer {
     pub struct Unregister {
         /// P2P address of the peer e.g. `127.0.0.1:1337`
         #[structopt(short, long)]
-        pub address: String,
+        pub address: SocketAddr,
         /// Public key of the peer
         #[structopt(short, long)]
         pub key: PublicKey,

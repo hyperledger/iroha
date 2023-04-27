@@ -10,10 +10,9 @@ mod http_default;
 pub mod samples {
     use iroha_config::{
         client::{Configuration, ConfigurationProxy},
-        torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
+        torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
     };
     use iroha_crypto::KeyPair;
-    use iroha_primitives::small::SmallStr;
 
     /// Get sample client configuration.
     #[allow(clippy::expect_used)]
@@ -27,8 +26,16 @@ pub mod samples {
                     .parse()
                     .expect("This account ID should be valid"),
             ),
-            torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
-            torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+            torii_api_url: Some(
+                format!("http://{DEFAULT_API_ADDR}")
+                    .parse()
+                    .expect("Should be a valid url"),
+            ),
+            torii_telemetry_url: Some(
+                format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}")
+                    .parse()
+                    .expect("Should be a valid url"),
+            ),
             ..ConfigurationProxy::default()
         }
         .build()

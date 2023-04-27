@@ -2573,7 +2573,7 @@
     "Struct": [
       {
         "name": "address",
-        "type": "String"
+        "type": "SocketAddr"
       },
       {
         "name": "public_key",
@@ -3244,6 +3244,58 @@
       {
         "name": "signatures",
         "type": "SortedVec<SignatureOf<TransactionPayload>>"
+      }
+    ]
+  },
+  "SocketAddr": {
+    "Enum": [
+      {
+        "name": "Ipv4",
+        "type": "SocketAddrV4"
+      },
+      {
+        "name": "Ipv6",
+        "type": "SocketAddrV6"
+      },
+      {
+        "name": "Host",
+        "type": "SocketAddrHost"
+      }
+    ]
+  },
+  "SocketAddrHost": {
+    "Struct": [
+      {
+        "name": "host",
+        "type": "String"
+      },
+      {
+        "name": "port",
+        "type": "u16"
+      }
+    ]
+  },
+  "SocketAddrV4": {
+    "Struct": [
+      {
+        "name": "ip",
+        "type": "Ipv4Addr"
+      },
+      {
+        "name": "port",
+        "type": "u16"
+      }
+    ]
+  },
+  "SocketAddrV6": {
+    "Struct": [
+      {
+        "name": "ip",
+        "type": "Ipv6Addr"
+      },
+      {
+        "name": "port",
+        "type": "u16"
       }
     ]
   },

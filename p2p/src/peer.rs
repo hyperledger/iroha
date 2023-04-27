@@ -393,7 +393,7 @@ mod state {
                 connection_id,
             }: Self,
         ) -> Result<ConnectedTo, crate::Error> {
-            let stream = TcpStream::connect(peer_id.address.clone()).await?;
+            let stream = TcpStream::connect(peer_id.address.to_string()).await?;
             let connection = Connection::new(connection_id, stream);
             Ok(ConnectedTo {
                 peer_id,

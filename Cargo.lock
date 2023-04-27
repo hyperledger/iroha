@@ -2721,6 +2721,7 @@ dependencies = [
  "tracing-flame",
  "tracing-subscriber",
  "tungstenite 0.16.0",
+ "url",
 ]
 
 [[package]]
@@ -2735,6 +2736,7 @@ dependencies = [
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_primitives",
  "json5",
  "once_cell",
  "serde_json",
@@ -3025,6 +3027,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_data_model_derive",
  "iroha_logger",
+ "iroha_primitives",
  "parity-scale-codec",
  "rand 0.8.5",
  "test_network",
@@ -3044,6 +3047,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "serde_with",
  "smallstr",
  "smallvec",
  "thiserror",

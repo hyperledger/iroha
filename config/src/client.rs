@@ -9,6 +9,7 @@ use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 15_000;
@@ -74,9 +75,9 @@ pub struct Configuration {
     /// Basic Authentication credentials
     pub basic_auth: Option<BasicAuth>,
     /// Torii URL.
-    pub torii_api_url: SmallStr,
+    pub torii_api_url: Url,
     /// Status URL.
-    pub torii_telemetry_url: SmallStr,
+    pub torii_telemetry_url: Url,
     /// Proposed transaction TTL in milliseconds.
     pub transaction_time_to_live_ms: u64,
     /// Transaction status wait timeout in milliseconds.
@@ -148,57 +149,28 @@ impl ConfigurationProxy {
             }
         }
         if let Some(api_url) = &self.torii_api_url {
-            let api_url = api_url.clone().to_string();
-            let split = api_url.rsplit_once("://");
-            match split {
-                Some((protocol, _)) => {
-                    // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
-                    if protocol != "http" {
-                        eyre::bail!(ConfigError::InsaneValue {
-                            field: "TORII_API_URL",
-                            value: api_url.to_string(),
-                            message: ", because we only support HTTP".to_owned(),
-                        });
-                    }
-                }
-                _ => {
-                    eyre::bail!(ConfigError::InsaneValue {
-                        field: "TORII_API_URL",
-                        value: api_url.to_string(),
-                        message: ", because it's missing the connection protocol (e.g. `http://`)"
-                            .to_owned(),
-                    });
-                }
+            if api_url.scheme() != "http" {
+                eyre::bail!(ConfigError::InsaneValue {
+                    field: "TORII_API_URL",
+                    value: api_url.to_string(),
+                    message: ", because we only support HTTP".to_owned(),
+                });
             }
         }
         if let Some(telemetry_url) = &self.torii_telemetry_url {
-            let telemetry_url = telemetry_url.clone().to_string();
-            let split = telemetry_url.rsplit_once("://");
-            match split {
-                Some((protocol, endpoint)) => {
-                    if protocol != "http" {
-                        eyre::bail!(ConfigError::InsaneValue {
-                            value: telemetry_url.to_string(),
-                            field: "TORII_TELEMETRY_URL",
-                            message: ", because we only support HTTP".to_owned(),
-                        });
-                    }
-                    if endpoint.split(':').count() != 2 {
-                        eyre::bail!(ConfigError::InsaneValue{
+            if telemetry_url.scheme() != "http" {
+                eyre::bail!(ConfigError::InsaneValue {
+                    value: telemetry_url.to_string(),
+                    field: "TORII_TELEMETRY_URL",
+                    message: ", because we only support HTTP".to_owned(),
+                });
+            }
+            if telemetry_url.port().is_none() {
+                eyre::bail!(ConfigError::InsaneValue{
                             value: telemetry_url.to_string(),
                             field: "TORII_TELEMETRY_URL",
                             message: ". You haven't provided a connection port, e.g. `8180` in `http://127.0.0.1:8180`".to_owned(),
                         });
-                    }
-                }
-                _ => {
-                    eyre::bail!(ConfigError::InsaneValue {
-                        value: telemetry_url.to_string(),
-                        field: "TORII_TELEMETRY_URL",
-                        message: ", because it's missing the connection protocol (e.g. `http://`)"
-                            .to_owned()
-                    });
-                }
             }
         }
         Ok(())
@@ -228,7 +200,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL};
+    use crate::torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR};
 
     const CONFIGURATION_PATH: &str = "../configs/client/config.json";
 
@@ -263,8 +235,8 @@ mod tests {
                 (public_key, private_key) in arb_keys_with_option(),
                 account_id in prop::option::of(Just(placeholder_account())),
                 basic_auth in prop::option::of(Just(None)),
-                torii_api_url in prop::option::of(Just(SmallStr::from_str(DEFAULT_API_URL))),
-                torii_telemetry_url in prop::option::of(Just(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL))),
+                torii_api_url in prop::option::of(Just(format!("http://{DEFAULT_API_ADDR}").parse().unwrap())),
+                torii_telemetry_url in prop::option::of(Just(format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}").parse().unwrap())),
                 transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
                 transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
                 transaction_limits in prop::option::of(Just(transaction::DEFAULT_TRANSACTION_LIMITS)),

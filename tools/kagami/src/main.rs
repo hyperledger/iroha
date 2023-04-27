@@ -508,7 +508,7 @@ mod config {
     mod client {
         use iroha_config::{
             client::{BasicAuth, ConfigurationProxy, WebLogin},
-            torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
+            torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
         };
 
         use super::*;
@@ -519,8 +519,8 @@ mod config {
         impl<T: Write> RunArgs<T> for Args {
             fn run(self, writer: &mut BufWriter<T>) -> Outcome {
                 let config = ConfigurationProxy {
-                    torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
-                    torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+                    torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse()?),
+                    torii_telemetry_url: Some(format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}").parse()?),
                     account_id: Some("alice@wonderland".parse()?),
                     basic_auth: Some(Some(BasicAuth {
                         web_login: WebLogin::new("mad_hatter")?,
