@@ -64,9 +64,8 @@ tracing-flame = "0.2.0"
 once_cell = "1.16.0"
 
 [build-dependencies]
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
-
 eyre = "0.6.8"
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
 
 [[bench]]
 name = "torii"

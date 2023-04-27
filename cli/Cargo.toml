@@ -75,9 +75,9 @@ tempfile = "3.3.0"
 
 [build-dependencies]
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
-
 eyre = "0.6.8"
-vergen = { version = "7.4.2", default-features = false, features = ["cargo"] }
+
+vergen = { version = "8.1.1", default-features = false, features = ["cargo"] }
 
 [package.metadata.cargo-all-features]
 denylist = [

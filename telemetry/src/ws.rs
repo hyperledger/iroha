@@ -204,8 +204,8 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
             "version".into(),
             format!(
                 "{}-{}-{}",
-                env!("VERGEN_GIT_SEMVER"),
-                env!("VERGEN_GIT_SHA_SHORT"),
+                env!("CARGO_PKG_VERSION"),
+                env!("VERGEN_GIT_SHA"),
                 env!("VERGEN_CARGO_TARGET_TRIPLE")
             )
             .into(),
