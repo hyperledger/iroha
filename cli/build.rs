@@ -1,7 +1,6 @@
 //! Build script to extract git hash of iroha build and to check runtime validator
 
-use eyre::{eyre, Result};
-use vergen::{vergen, Config};
+use eyre::{eyre, Result, WrapErr};
 
 const DEFAULT_VALIDATOR_PATH: &str = "../default_validator";
 
@@ -10,21 +9,29 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={}", DEFAULT_VALIDATOR_PATH);
 
     extract_git_hash()?;
-    check_default_validator()
+
+    // HACK: used by Nix, since at the moment
+    // the checks are a process that's hard to accomodate
+    // in Nix environment
+    if std::option_env!("IROHA_SKIP_WASM_CHECKS").is_none() {
+        check_default_validator()?;
+    }
+
+    Ok(())
 }
 
 fn extract_git_hash() -> Result<()> {
-    let mut config = Config::default();
-    *config.git_mut().branch_mut() = false;
-    *config.git_mut().commit_timestamp_mut() = false;
-    *config.git_mut().semver_mut() = false;
-    vergen(config).map_err(|err| eyre!(Box::new(err)))
+    vergen::EmitBuilder::builder()
+        .git_sha(true)
+        .cargo_features()
+        .emit()
+        .map_err(|err| eyre!(Box::new(err)))
+        .wrap_err("Failed to extract git hash")
 }
 
 /// Apply `cargo check` to the smartcontract.
 fn check_default_validator() -> Result<()> {
     iroha_wasm_builder::Builder::new(DEFAULT_VALIDATOR_PATH)
         .format()
-        .check()?;
-    Ok(())
+        .check()
 }
