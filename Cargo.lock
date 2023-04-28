@@ -4345,7 +4345,6 @@ dependencies = [
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
- "json5",
  "rand 0.8.5",
  "tempfile",
  "tokio",

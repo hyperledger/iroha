@@ -171,7 +171,6 @@ pub mod model {
         PartialOrd,
         Ord,
         Hash,
-        Constructor,
         Decode,
         Encode,
         Deserialize,
@@ -392,6 +391,14 @@ impl From<WasmSmartContract> for Executable {
 impl AsRef<[u8]> for WasmSmartContract {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+impl WasmSmartContract {
+    /// Create [`Self`] from raw wasm bytes
+    #[inline]
+    pub const fn from_compiled(blob: Vec<u8>) -> Self {
+        Self(blob)
     }
 }
 
@@ -1289,7 +1296,7 @@ mod tests {
 
     #[test]
     fn wasm_smart_contract_debug_repr_should_contain_just_len() {
-        let contract = WasmSmartContract::new(vec![0, 1, 2, 3, 4]);
+        let contract = WasmSmartContract::from_compiled(vec![0, 1, 2, 3, 4]);
         assert_eq!(format!("{contract:?}"), "WASM binary(len = 5)");
     }
 }

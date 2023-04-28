@@ -8,23 +8,26 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::{fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
+use std::{
+    fmt::Debug,
+    fs::{self, File},
+    io::BufReader,
+    ops::Deref,
+    path::{Path, PathBuf},
+};
 
-use derive_more::Deref;
-use eyre::{bail, eyre, Result, WrapErr};
+use derive_more::{Deref, From};
+use eyre::{bail, eyre, ErrReport, Result, WrapErr};
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
-#[cfg(not(test))]
-use iroha_data_model::validator::Validator;
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
+    validator::Validator,
 };
 use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::IntoSchema;
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use MockValidator as Validator;
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -77,7 +80,10 @@ impl GenesisNetworkTrait for GenesisNetwork {
         let transactions_iter = raw_block.transactions.into_iter();
         #[cfg(not(test))]
         let transactions_iter = transactions_iter.chain(std::iter::once(GenesisTransaction {
-            isi: SmallVec(smallvec![UpgradeBox::new(raw_block.validator).into()]),
+            isi: SmallVec(smallvec![UpgradeBox::new(Validator::try_from(
+                raw_block.validator
+            )?)
+            .into()]),
         }));
 
         let transactions = transactions_iter
@@ -100,21 +106,93 @@ impl GenesisNetworkTrait for GenesisNetwork {
     }
 }
 
-/// Mock of [`Validator`](iroha_data_model::validator::Validator) for unit tests
-///
-/// Aliased to `Validator` when `cfg(test)`.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, IntoSchema)]
-#[repr(transparent)]
-pub struct MockValidator;
-
 /// [`RawGenesisBlock`] is an initial block of the network
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 pub struct RawGenesisBlock {
     /// Transactions
     pub transactions: SmallVec<[GenesisTransaction; 2]>,
     /// Runtime Validator
-    pub validator: Validator,
+    pub validator: ValidatorMode,
+}
+
+/// Ways to provide validator either directly as base64 encoded string or as path to wasm file
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, From)]
+#[serde(untagged)]
+pub enum ValidatorMode {
+    /// Path to validator wasm file
+    // In the first place to initially try to parse path
+    Path(ValidatorPath),
+    /// Validator encoded as base64 string
+    Inline(Validator),
+}
+
+impl ValidatorMode {
+    fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
+        if let Self::Path(path) = self {
+            path.set_genesis_path(genesis_path);
+        }
+    }
+}
+
+impl TryFrom<ValidatorMode> for Validator {
+    type Error = ErrReport;
+
+    fn try_from(value: ValidatorMode) -> Result<Self> {
+        match value {
+            ValidatorMode::Inline(validator) => Ok(validator),
+            ValidatorMode::Path(ValidatorPath {
+                validator_path: relative_validator_path,
+            }) => {
+                let wasm = fs::read(&relative_validator_path)
+                    .wrap_err(format!("Failed to open {:?}", &relative_validator_path))?;
+                Ok(Validator::new(WasmSmartContract::from_compiled(wasm)))
+            }
+        }
+    }
+}
+
+/// Path to the validator relative to genesis location
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorPath {
+    /// Path to validator.
+    /// If path is absolute it will be used directly otherwise it will be treated as relative to genesis location.
+    pub validator_path: PathBuf,
+}
+
+// Manual implementation because we want `PathBuf` appear as `String` in schema
+impl iroha_schema::TypeId for ValidatorPath {
+    fn id() -> String {
+        "ValidatorPath".to_string()
+    }
+}
+impl iroha_schema::IntoSchema for ValidatorPath {
+    fn type_name() -> String {
+        "ValidatorPath".to_string()
+    }
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(iroha_schema::Metadata::Struct(
+                iroha_schema::NamedFieldsMeta {
+                    declarations: vec![iroha_schema::Declaration {
+                        name: String::from(stringify!(validator_relative_path)),
+                        ty: core::any::TypeId::of::<String>(),
+                    }],
+                },
+            ));
+            <String as iroha_schema::IntoSchema>::update_schema_map(map);
+        }
+    }
+}
+
+impl ValidatorPath {
+    fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
+        let path_to_validator = genesis_path
+            .as_ref()
+            .parent()
+            .expect("Genesis must be in some directory")
+            .join(&self.validator_path);
+        self.validator_path = path_to_validator;
+    }
 }
 
 impl RawGenesisBlock {
@@ -135,10 +213,12 @@ impl RawGenesisBlock {
             iroha_logger::warn!(%size, threshold = %Self::WARN_ON_GENESIS_GTE, "Genesis is quite large, it will take some time to apply it");
         }
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader).wrap_err(format!(
+        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err(format!(
             "Failed to deserialize raw genesis block from {:?}",
             &path
-        ))
+        ))?;
+        raw_genesis_block.validator.set_genesis_path(path);
+        Ok(raw_genesis_block)
     }
 }
 
@@ -192,10 +272,10 @@ pub struct RawGenesisDomainBuilder<S> {
 }
 
 mod validator_state {
-    use super::Validator;
+    use super::ValidatorMode;
 
-    #[cfg_attr(test, derive(Clone, Copy))]
-    pub struct Set(pub Validator);
+    #[cfg_attr(test, derive(Clone))]
+    pub struct Set(pub ValidatorMode);
 
     #[derive(Clone, Copy)]
     pub struct Unset;
@@ -217,10 +297,13 @@ impl RawGenesisBlockBuilder<validator_state::Unset> {
     }
 
     /// Set the validator.
-    pub fn validator(self, validator: Validator) -> RawGenesisBlockBuilder<validator_state::Set> {
+    pub fn validator(
+        self,
+        validator: impl Into<ValidatorMode>,
+    ) -> RawGenesisBlockBuilder<validator_state::Set> {
         RawGenesisBlockBuilder {
             transaction: self.transaction,
-            state: validator_state::Set(validator),
+            state: validator_state::Set(validator.into()),
         }
     }
 }
@@ -323,6 +406,12 @@ mod tests {
 
     use super::*;
 
+    fn dummy_validator() -> ValidatorMode {
+        ValidatorMode::Path(ValidatorPath {
+            validator_path: "./validator.wasm".into(),
+        })
+    }
+
     #[test]
     #[allow(clippy::expect_used)]
     fn load_new_genesis_block() -> Result<()> {
@@ -338,7 +427,7 @@ mod tests {
                 .domain("wonderland".parse()?)
                 .account("alice".parse()?, alice_public_key)
                 .finish_domain()
-                .validator(MockValidator)
+                .validator(dummy_validator())
                 .build(),
             Some(
                 &ConfigurationProxy {
@@ -373,7 +462,7 @@ mod tests {
             .finish_domain();
 
         // In real cases validator should be constructed from a wasm blob
-        let finished_genesis_block = genesis_builder.validator(MockValidator).build();
+        let finished_genesis_block = genesis_builder.validator(dummy_validator()).build();
         {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(

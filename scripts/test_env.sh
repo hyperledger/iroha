@@ -76,7 +76,7 @@ function generate_trusted_peers {
 function set_up_peers_common {
     PEERS="$TEST/peers"
     mkdir -p "$PEERS"
-    cp ./configs/peer/{config.json,genesis.json} "$PEERS"
+    cp ./configs/peer/{config.json,genesis.json,validator.wasm} "$PEERS"
     cp ./target/debug/iroha "$PEERS" || {
         # TODO this can fail for other reasons as well.
         echo 'Please build the `iroha` binary, by running:'

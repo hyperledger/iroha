@@ -85,7 +85,10 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         isi_calls = isi_calls
     );
 
-    transaction_execution_should_produce_events(WasmSmartContract::new(wat.into_bytes()), 10_615)
+    transaction_execution_should_produce_events(
+        WasmSmartContract::from_compiled(wat.into_bytes()),
+        10_615,
+    )
 }
 
 fn transaction_execution_should_produce_events(

@@ -57,6 +57,8 @@ pub enum Args {
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
+    /// Generate validator
+    Validator(validator::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -70,6 +72,7 @@ impl<T: Write> RunArgs<T> for Args {
             Config(args) => args.run(writer),
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
+            Validator(args) => args.run(writer),
         }
     }
 }
@@ -187,6 +190,8 @@ mod schema {
 }
 
 mod genesis {
+    use std::path::PathBuf;
+
     use clap::{Parser, Subcommand};
     use iroha_data_model::{
         asset::AssetValueType,
@@ -196,17 +201,26 @@ mod genesis {
         validator::Validator,
         IdBox,
     };
-    use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder};
+    use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder, ValidatorMode, ValidatorPath};
 
     use super::*;
 
-    #[derive(Parser, Debug, Clone, Copy)]
+    #[derive(Parser, Debug, Clone)]
+    #[clap(group = ArgGroup::new("validator").required(true))]
     pub struct Args {
+        /// If this option provided validator will be inlined in the genesis.
+        #[clap(long, group = "validator")]
+        inlined_validator: bool,
+        /// If this option provided validator won't be included in the genesis and only path to the validator will be included.
+        /// Path is either absolute path to validator or relative to genesis location.
+        /// Validator can be generated using `kagami validator` command.
+        #[clap(long, group = "validator")]
+        compiled_validator_path: Option<PathBuf>,
         #[clap(subcommand)]
         mode: Option<Mode>,
     }
 
-    #[derive(Subcommand, Debug, Clone, Copy, Default)]
+    #[derive(Subcommand, Debug, Clone, Default)]
     pub enum Mode {
         /// Generate default genesis
         #[default]
@@ -233,13 +247,26 @@ mod genesis {
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            if self.inlined_validator {
+                eprintln!("WARN: You're using genesis with inlined validator.");
+                eprintln!("Consider providing validator in separate file `--compiled-validator-path PATH`.");
+                eprintln!("Use `--help` to get more information.");
+            }
+            let validator_path = self
+                .compiled_validator_path
+                .and_then(|validator_path| (!self.inlined_validator).then_some(validator_path));
             let genesis = match self.mode.unwrap_or_default() {
-                Mode::Default => generate_default(),
+                Mode::Default => generate_default(validator_path),
                 Mode::Synthetic {
                     domains,
                     accounts_per_domain,
                     assets_per_domain,
-                } => generate_synthetic(domains, accounts_per_domain, assets_per_domain),
+                } => generate_synthetic(
+                    validator_path,
+                    domains,
+                    accounts_per_domain,
+                    assets_per_domain,
+                ),
             }?;
             writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
                 .wrap_err("Failed to write serialized genesis to the buffer.")
@@ -247,13 +274,20 @@ mod genesis {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn generate_default() -> color_eyre::Result<RawGenesisBlock> {
+    pub fn generate_default(
+        validator_path: Option<PathBuf>,
+    ) -> color_eyre::Result<RawGenesisBlock> {
         let mut meta = Metadata::new();
         meta.insert_with_limits(
             "key".parse()?,
             "value".to_owned().into(),
             Limits::new(1024, 1024),
         )?;
+
+        let validator = match validator_path {
+            Some(validator_path) => ValidatorMode::Path(ValidatorPath { validator_path }),
+            None => ValidatorMode::Inline(construct_validator()?),
+        };
 
         let mut genesis = RawGenesisBlockBuilder::new()
             .domain_with_metadata("wonderland".parse()?, meta.clone())
@@ -269,7 +303,7 @@ mod genesis {
             .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
             .asset("cabbage".parse()?, AssetValueType::Quantity)
             .finish_domain()
-            .validator(construct_validator()?)
+            .validator(validator)
             .build();
 
         let mint = MintBox::new(
@@ -381,23 +415,21 @@ mod genesis {
     }
 
     fn construct_validator() -> color_eyre::Result<Validator> {
-        let build_dir = tempfile::tempdir()
-            .wrap_err("Failed to create temp dir for runtime validator output")?;
-
-        let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
-            .out_dir(build_dir.path())
-            .build()?
-            .optimize()?
-            .into_bytes();
-
-        Ok(Validator::new(WasmSmartContract::new(wasm_blob)))
+        let wasm_blob = crate::validator::construct_validator()?;
+        Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
     }
 
     fn generate_synthetic(
+        validator_path: Option<PathBuf>,
         domains: u64,
         accounts_per_domain: u64,
         assets_per_domain: u64,
     ) -> color_eyre::Result<RawGenesisBlock> {
+        let validator = match validator_path {
+            Some(validator_path) => ValidatorMode::Path(ValidatorPath { validator_path }),
+            None => ValidatorMode::Inline(construct_validator()?),
+        };
+
         // Add default `Domain` and `Account` to still be able to query
         let mut builder = RawGenesisBlockBuilder::new()
             .domain("wonderland".parse()?)
@@ -420,7 +452,7 @@ mod genesis {
 
             builder = domain_builder.finish_domain();
         }
-        let mut genesis = builder.validator(construct_validator()?).build();
+        let mut genesis = builder.validator(validator).build();
 
         let mints = {
             let mut acc = Vec::new();
@@ -772,5 +804,33 @@ mod tokens {
             )
             .wrap_err("Failed to write serialized token map into the buffer.")
         }
+    }
+}
+
+mod validator {
+    use super::*;
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            writer
+                .write_all(&construct_validator()?)
+                .wrap_err("Failed to write wasm validator into the buffer.")
+        }
+    }
+
+    pub fn construct_validator() -> color_eyre::Result<Vec<u8>> {
+        let build_dir = tempfile::tempdir()
+            .wrap_err("Failed to create temp dir for runtime validator output")?;
+
+        let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
+            .out_dir(build_dir.path())
+            .build()?
+            .optimize()?
+            .into_bytes();
+
+        Ok(wasm_blob)
     }
 }
