@@ -839,7 +839,7 @@ mod wasm {
             };
 
             submit(
-                WasmSmartContract::new(raw_data),
+                WasmSmartContract::from_compiled(raw_data),
                 cfg,
                 UnlimitedMetadata::new(),
             )

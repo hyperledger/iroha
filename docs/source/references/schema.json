@@ -2979,7 +2979,7 @@
       },
       {
         "name": "validator",
-        "type": "Validator"
+        "type": "ValidatorMode"
       }
     ]
   },
@@ -3669,6 +3669,26 @@
     "Enum": [
       {
         "name": "Upgraded"
+      }
+    ]
+  },
+  "ValidatorMode": {
+    "Enum": [
+      {
+        "name": "Path",
+        "type": "ValidatorPath"
+      },
+      {
+        "name": "Inline",
+        "type": "Validator"
+      }
+    ]
+  },
+  "ValidatorPath": {
+    "Struct": [
+      {
+        "name": "validator_relative_path",
+        "type": "String"
       }
     ]
   },

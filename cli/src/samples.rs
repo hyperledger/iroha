@@ -123,5 +123,5 @@ where
         .optimize()?
         .into_bytes();
 
-    Ok(Validator::new(WasmSmartContract::new(wasm_blob)))
+    Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
 }

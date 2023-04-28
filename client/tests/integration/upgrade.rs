@@ -56,7 +56,7 @@ fn validator_upgrade_should_work() -> Result<()> {
 
     info!("WASM size is {} bytes", wasm.len());
 
-    let upgrade_validator = UpgradeBox::new(Validator::new(WasmSmartContract::new(wasm)));
+    let upgrade_validator = UpgradeBox::new(Validator::new(WasmSmartContract::from_compiled(wasm)));
     client.submit_blocking(upgrade_validator)?;
 
     // Check that admin can transfer alice's rose now

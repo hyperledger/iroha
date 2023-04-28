@@ -8,7 +8,7 @@ case $1 in
             exit 1
         };;
     "genesis")
-        cargo run --release --bin kagami -- genesis | diff - configs/peer/genesis.json || {
+        cargo run --release --bin kagami -- genesis --compiled-validator-path ./validator.wasm | diff - configs/peer/genesis.json || {
             echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis > configs/peer/genesis.json`'
             exit 1
         };;
