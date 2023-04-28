@@ -28,4 +28,3 @@ rand = "0.8.5"
 tempfile = "3.3.0"
 tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread", "macros"] }
 unique_port = "0.2.1"
-json5 = "0.4.1"

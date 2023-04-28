@@ -75,10 +75,9 @@ impl TestGenesis for GenesisNetwork {
 
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let content = std::fs::read_to_string(manifest_dir.join("../../configs/peer/genesis.json"))
-            .expect("Failed to read data from configs/peer/genesis.json");
-        let mut genesis: RawGenesisBlock =
-            json5::from_str(&content).expect("Failed to deserialize genesis block from config");
+        let mut genesis =
+            RawGenesisBlock::from_path(manifest_dir.join("../../configs/peer/genesis.json"))
+                .expect("Failed to deserialize genesis block from file");
 
         let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
             .expect("valid names");

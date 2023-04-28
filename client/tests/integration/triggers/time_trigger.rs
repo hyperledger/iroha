@@ -225,7 +225,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
-            WasmSmartContract::new(wasm),
+            WasmSmartContract::from_compiled(wasm),
             Repeats::Indefinitely,
             alice_id.clone(),
             FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
