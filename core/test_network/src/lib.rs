@@ -169,7 +169,7 @@ impl Network {
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
+        configuration.log.max_level = iroha_logger::Level::INFO.into();
         let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers,
@@ -402,8 +402,8 @@ impl Peer {
                 telemetry_url: self.telemetry_address.clone(),
                 ..configuration.torii
             },
-            logger: LoggerConfiguration {
-                ..configuration.logger
+            log: LoggerConfiguration {
+                ..configuration.log
             },
             public_key: self.key_pair.public_key().clone(),
             private_key: self.key_pair.private_key().clone(),
@@ -431,7 +431,7 @@ impl Peer {
             telemetry_addr = %self.telemetry_address
         );
         let telemetry =
-            iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
+            iroha_logger::init(&configuration.log).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
         let handle = task::spawn(

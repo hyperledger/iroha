@@ -113,7 +113,7 @@ mod utils {
     }
 }
 
-mod sealed {
+mod seal {
     use crate::{isi::prelude::*, query::prelude::*};
 
     pub trait Sealed {}

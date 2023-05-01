@@ -400,7 +400,7 @@ impl<'wrld> Runtime<'wrld> {
     }
 
     fn query_max_log_level() -> u32 {
-        iroha_logger::layer::max_log_level() as u32
+        iroha_logger::layer::max_level() as u32
     }
 
     /// Log the given string at the given log level. When this function

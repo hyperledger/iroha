@@ -31,7 +31,7 @@ static INIT: Once = Once::new();
 fn setup_logger() {
     INIT.call_once(|| {
         let log_config = Configuration {
-            max_log_level: Level::TRACE.into(),
+            max_level: Level::TRACE.into(),
             compact_mode: false,
             ..ConfigurationProxy::default()
                 .build()
@@ -240,7 +240,7 @@ async fn two_networks() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multiple_networks() {
     let log_config = Configuration {
-        max_log_level: Level::TRACE.into(),
+        max_level: Level::TRACE.into(),
         compact_mode: false,
         ..ConfigurationProxy::default()
             .build()

@@ -39,9 +39,9 @@ view! {
         /// `Queue` configuration
         #[config(inner)]
         pub queue: queue::Configuration,
-        /// `Logger` configuration
+        /// `Log` configuration
         #[config(inner)]
-        pub logger: logger::Configuration,
+        pub log: log::Configuration,
         /// `GenesisBlock` configuration
         #[config(inner)]
         #[view(into = genesis::ConfigurationView)]
@@ -69,7 +69,7 @@ impl Default for ConfigurationProxy {
             torii: Some(torii::ConfigurationProxy::default()),
             block_sync: Some(block_sync::ConfigurationProxy::default()),
             queue: Some(queue::ConfigurationProxy::default()),
-            logger: Some(logger::ConfigurationProxy::default()),
+            log: Some(log::ConfigurationProxy::default()),
             genesis: Some(genesis::ConfigurationProxy::default()),
             wsv: Some(wsv::ConfigurationProxy::default()),
             network: Some(network::ConfigurationProxy::default()),
@@ -210,14 +210,14 @@ mod tests {
             torii in prop::option::of(torii::tests::arb_proxy()),
             block_sync in prop::option::of(block_sync::tests::arb_proxy()),
             queue in prop::option::of(queue::tests::arb_proxy()),
-            logger in prop::option::of(logger::tests::arb_proxy()),
+            log in prop::option::of(log::tests::arb_proxy()),
             genesis in prop::option::of(genesis::tests::arb_proxy()),
             wsv in prop::option::of(wsv::tests::arb_proxy()),
             network in prop::option::of(network::tests::arb_proxy()),
             telemetry in prop::option::of(telemetry::tests::arb_proxy()),
             ) -> ConfigurationProxy {
             ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
-                                 logger, genesis, wsv, network, telemetry }
+                                 log, genesis, wsv, network, telemetry }
         }
     }
 

@@ -122,15 +122,15 @@ pub trait Reload<T> {
 ///
 /// #[derive(Clone, Deserialize, Serialize, Debug, Documented)]
 /// struct Configuration {
-///     pub max_log_level: handle::SyncValue<Level, handle::Singleton<Level>>,
-///     pub log_file_path: Option<std::path::PathBuf>,
+///     pub max_level: handle::SyncValue<Level, handle::Singleton<Level>>,
+///     pub file_path: Option<std::path::PathBuf>,
 /// }
 ///
 /// fn init(config: &Configuration) -> Logger {
-///     let level = config.max_log_level.value();
+///     let level = config.max_level.value();
 ///     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
 ///     let (filter, handle) = reload::Layer::new(level_filter);
-///     config.max_log_level.set_handle(handle).unwrap();
+///     config.max_level.set_handle(handle).unwrap();
 /// }
 ///
 /// impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {

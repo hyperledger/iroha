@@ -275,7 +275,7 @@ async fn handle_post_configuration(
     iroha_logger::debug!(?cfg);
     match cfg {
         LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level)?;
+            iroha_cfg.log.max_level.reload(level)?;
         }
     };
 

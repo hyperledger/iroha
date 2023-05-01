@@ -87,7 +87,7 @@ function set_up_peers_common {
 function bulk_export {
     export KURA_BLOCK_STORE_PATH
     export LOG_FILE_PATH
-    export MAX_LOG_LEVEL
+    export LOG_MAX_LEVEL
     export TORII_P2P_ADDR
     export TORII_API_URL
     export TORII_TELEMETRY_URL
@@ -109,7 +109,7 @@ function run_peer () {
     mkdir -p "$STORAGE"
     KURA_BLOCK_STORE_PATH="$STORAGE"
     LOG_FILE_PATH="$PEER/log.json"
-    MAX_LOG_LEVEL="TRACE"
+    LOG_MAX_LEVEL="TRACE"
     TORII_P2P_ADDR="$HOST:${p2p_ports[$1]}"
     TORII_API_URL="$HOST:${api_ports[$1]}"
     TORII_TELEMETRY_URL="$HOST:${telemetry_ports[$1]}"

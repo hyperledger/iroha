@@ -113,7 +113,7 @@ static CURRENT_LEVEL: AtomicU8 = AtomicU8::new(0);
 
 /// Return max log level
 #[allow(unsafe_code)]
-pub fn max_log_level() -> iroha_config::logger::Level {
+pub fn max_level() -> iroha_config::log::Level {
     // SAFETY: `u8` and `logger::Level` have the same representation
     unsafe { core::mem::transmute(CURRENT_LEVEL.load(Ordering::Relaxed)) }
 }
@@ -132,12 +132,12 @@ impl<S: Subscriber> LevelFilter<S> {
     /// Constructor of level filter
     #[allow(clippy::new_ret_no_self)]
     pub fn new(level: Level, subscriber: S) -> impl Subscriber {
-        Self::update_max_log_level(level);
+        Self::update_max_level(level);
         EventSubscriber(Self { subscriber })
     }
 
     /// Updater of max level
-    fn update_max_log_level(level: Level) {
+    fn update_max_level(level: Level) {
         CURRENT_LEVEL.store(Self::level_as_u8(level), Ordering::SeqCst);
     }
 }
@@ -151,7 +151,7 @@ impl<S: Subscriber> EventInspectorTrait for LevelFilter<S> {
 
     fn event(&self, event: &Event<'_>) {
         let level = Self::level_as_u8(*event.metadata().level());
-        if level >= max_log_level() as u8 {
+        if level >= max_level() as u8 {
             self.subscriber.event(event)
         }
     }

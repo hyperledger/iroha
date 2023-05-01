@@ -38,11 +38,11 @@
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
-  "LOGGER": {
-    "MAX_LOG_LEVEL": "INFO",
+  "LOG": {
+    "MAX_LEVEL": "INFO",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null,
+    "FILE_PATH": null,
     "TERMINAL_COLORS": true
   },
   "GENESIS": {

@@ -69,11 +69,11 @@ The following is the default configuration used by Iroha.
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
-  "LOGGER": {
-    "MAX_LOG_LEVEL": "INFO",
+  "LOG": {
+    "MAX_LEVEL": "INFO",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null,
+    "FILE_PATH": null,
     "TERMINAL_COLORS": true
   },
   "GENESIS": {
@@ -276,33 +276,33 @@ Has type `Option<Mode>`[^1]. Can be configured via environment variable `KURA_IN
 "strict"
 ```
 
-## `logger`
+## `log`
 
-`Logger` configuration
+`Log` configuration
 
-Has type `Option<logger::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_LOGGER`
+Has type `Option<log::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_LOG`
 
 ```json
 {
   "COMPACT_MODE": false,
-  "LOG_FILE_PATH": null,
-  "MAX_LOG_LEVEL": "INFO",
+  "FILE_PATH": null,
+  "MAX_LEVEL": "INFO",
   "TELEMETRY_CAPACITY": 1000,
   "TERMINAL_COLORS": true
 }
 ```
 
-### `logger.compact_mode`
+### `log.compact_mode`
 
 Compact mode (no spans from telemetry)
 
-Has type `Option<bool>`[^1]. Can be configured via environment variable `COMPACT_MODE`
+Has type `Option<bool>`[^1]. Can be configured via environment variable `LOG_COMPACT_MODE`
 
 ```json
 false
 ```
 
-### `logger.log_file_path`
+### `log.file_path`
 
 If provided, logs will be copied to said file in the
 
@@ -312,31 +312,31 @@ Has type `Option<Option<std::path::PathBuf>>`[^1]. Can be configured via environ
 null
 ```
 
-### `logger.max_log_level`
+### `log.max_level`
 
 Maximum log level
 
-Has type `Option<SyncLevel>`[^1]. Can be configured via environment variable `MAX_LOG_LEVEL`
+Has type `Option<SyncLevel>`[^1]. Can be configured via environment variable `LOG_MAX_LEVEL`
 
 ```json
 "INFO"
 ```
 
-### `logger.telemetry_capacity`
+### `log.telemetry_capacity`
 
 Capacity (or batch size) for telemetry channel
 
-Has type `Option<u32>`[^1]. Can be configured via environment variable `TELEMETRY_CAPACITY`
+Has type `Option<u32>`[^1]. Can be configured via environment variable `LOG_TELEMETRY_CAPACITY`
 
 ```json
 1000
 ```
 
-### `logger.terminal_colors`
+### `log.terminal_colors`
 
 Enable ANSI terminal colors for formatted output.
 
-Has type `Option<bool>`[^1]. Can be configured via environment variable `TERMINAL_COLORS`
+Has type `Option<bool>`[^1]. Can be configured via environment variable `LOG_TERMINAL_COLORS`
 
 ```json
 true

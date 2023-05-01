@@ -88,10 +88,11 @@ impl Eq for SyncLevel {}
 /// 'Logger' configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
 #[serde(rename_all = "UPPERCASE")]
+#[config(env_prefix = "LOG_")]
 pub struct Configuration {
     /// Maximum log level
     #[config(serde_as_str)]
-    pub max_log_level: SyncLevel,
+    pub max_level: SyncLevel,
     /// Capacity (or batch size) for telemetry channel
     pub telemetry_capacity: u32,
     /// Compact mode (no spans from telemetry)
@@ -99,7 +100,7 @@ pub struct Configuration {
     /// If provided, logs will be copied to said file in the
     /// format readable by [bunyan](https://lib.rs/crates/bunyan)
     #[config(serde_as_str)]
-    pub log_file_path: Option<std::path::PathBuf>,
+    pub file_path: Option<std::path::PathBuf>,
     /// Enable ANSI terminal colors for formatted output.
     pub terminal_colors: bool,
     #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
@@ -110,10 +111,10 @@ pub struct Configuration {
 impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            max_log_level: Some(SyncLevel::default()),
+            max_level: Some(SyncLevel::default()),
             telemetry_capacity: Some(TELEMETRY_CAPACITY),
             compact_mode: Some(DEFAULT_COMPACT_MODE),
-            log_file_path: Some(None),
+            file_path: Some(None),
             terminal_colors: Some(DEFAULT_TERMINAL_COLORS),
             #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
             tokio_console_addr: Some(DEFAULT_TOKIO_CONSOLE_ADDR.into()),
@@ -139,10 +140,10 @@ pub mod tests {
             (prop::option::of(Just(DEFAULT_TOKIO_CONSOLE_ADDR.to_string()))),
         );
         proptest::strategy::Strategy::prop_map(strat, move |strat| ConfigurationProxy {
-            max_log_level: strat.0,
+            max_level: strat.0,
             telemetry_capacity: strat.1,
             compact_mode: strat.2,
-            log_file_path: strat.3,
+            file_path: strat.3,
             terminal_colors: strat.4,
             #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
             tokio_console_addr: strat.5,

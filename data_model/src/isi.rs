@@ -16,10 +16,10 @@ use strum::EnumDiscriminants;
 
 pub use self::model::*;
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
-use crate::{sealed, Registered};
+use crate::{seal, Registered};
 
 /// Marker trait designating instruction
-pub trait Instruction: Into<InstructionBox> + sealed::Sealed {
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {
     /// Length of contained instructions and queries.
     fn len(&self) -> usize;
 }

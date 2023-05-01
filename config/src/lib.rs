@@ -7,7 +7,7 @@ pub mod client;
 pub mod genesis;
 pub mod iroha;
 pub mod kura;
-pub mod logger;
+pub mod log;
 pub mod network;
 pub mod path;
 pub mod queue;
@@ -30,8 +30,8 @@ pub enum GetConfiguration {
     /// To get the top-level configuration docs for `iroha_core::Torii`
     /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i`
     ///
-    /// To get the documentation on the [`Logger::config::Configuration.max_log_level`]
-    /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["logger", "max_log_level"]}' -i`
+    /// To get the documentation on the [`Log::config::Configuration.max_level`]
+    /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["log", "max_level"]}' -i`
     Docs(Vec<String>),
     /// Get the original Value of the full configuration.
     Value,
@@ -40,11 +40,11 @@ pub enum GetConfiguration {
 /// Message acceptable for `POST` requests to the configuration endpoint.
 #[derive(Clone, Debug, Deserialize, Serialize, Copy)]
 pub enum PostConfiguration {
-    /// Change the maximum logging level of logger.
+    /// Change the maximum log level
     ///
     /// # Examples
     ///
     /// To silence all logging events that aren't `ERROR`s
     /// `curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "ERROR"}' -i`
-    LogLevel(logger::Level),
+    LogLevel(log::Level),
 }
