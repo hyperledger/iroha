@@ -498,20 +498,14 @@ mod tests {
             .build(alice_id);
             alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )),
                 )
                 .into(),
             );
@@ -584,20 +578,14 @@ mod tests {
             .build(alice_id);
             alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )),
                 )
                 .into(),
             );
@@ -664,7 +652,7 @@ mod tests {
                 Account::new(account_id.clone(), [key_pair.public_key().clone()]).build(account_id);
             // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
             account.signature_check_condition =
-                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32.into()));
+                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32));
             assert!(domain.add_account(account).is_none());
 
             let kura = Kura::blank_kura_for_testing();
@@ -707,20 +695,14 @@ mod tests {
             .build(account_id);
             account.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )),
                 )
                 .into(),
             );

@@ -4,77 +4,22 @@ use std::str::FromStr as _;
 
 use iroha_data_model::{prelude::*, ParseError};
 
-fn asset_id_new(
-    definition_name: &str,
-    definition_domain: &str,
-    account_name: &str,
-    account_domain: &str,
-) -> AssetId {
-    AssetId::new(
-        AssetDefinitionId::new(
-            definition_name.parse().expect("Valid"),
-            definition_domain.parse().expect("Valid"),
-        ),
-        AccountId::new(
-            account_name.parse().expect("Valid"),
-            account_domain.parse().expect("Valid"),
-        ),
-    )
-}
-
 #[test]
-fn find_rate_and_make_exchange_isi_should_be_valid() {
-    let _instruction = Pair::new(
-        TransferBox::new(
-            IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
-            EvaluatesTo::new_evaluates_to_value(
-                Expression::Query(
-                    FindAssetQuantityById::new(asset_id_new(
-                        "btc2eth_rate",
-                        "exchange",
-                        "dex",
-                        "exchange",
-                    ))
-                    .into(),
-                )
-                .into(),
-            ),
-            IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
-        ),
-        TransferBox::new(
-            IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
-            EvaluatesTo::new_evaluates_to_value(
-                Expression::Query(
-                    FindAssetQuantityById::new(asset_id_new(
-                        "btc2eth_rate",
-                        "exchange",
-                        "dex",
-                        "exchange",
-                    ))
-                    .into(),
-                )
-                .into(),
-            ),
-            IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
-        ),
+fn transfer_isi_should_be_valid() {
+    let _instruction = TransferBox::new(
+        IdBox::AssetId("btc##seller@crypto".parse().expect("Valid")),
+        12_u32,
+        IdBox::AccountId("buyer@crypto".parse().expect("Valid")),
     );
 }
 
 #[test]
-fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
+fn find_quantity_and_check_it_greater_than_value_isi_should_be_valid() {
+    let asset_id: AssetId = "rose##alice@wonderland".parse().expect("Valid");
+    let find_asset = QueryBox::from(FindAssetQuantityById::new(asset_id));
+
     let _instruction = Conditional::new(
-        Not::new(Greater::new(
-            EvaluatesTo::new_unchecked(
-                QueryBox::from(FindAssetQuantityById::new(asset_id_new(
-                    "btc2eth_rate",
-                    "exchange",
-                    "dex",
-                    "exchange",
-                )))
-                .into(),
-            ),
-            10_u32,
-        )),
+        Not::new(Greater::new(EvaluatesTo::new_unchecked(find_asset), 10_u32)),
         FailBox::new("rate is less or equal to value"),
     );
 }
@@ -97,15 +42,14 @@ impl FindRateAndCheckItGreaterThanValue {
     pub fn into_isi(self) -> Conditional {
         Conditional::new(
             Not::new(Greater::new(
-                EvaluatesTo::new_unchecked(
-                    QueryBox::from(FindAssetQuantityById::new(AssetId::new(
+                EvaluatesTo::new_unchecked(QueryBox::from(FindAssetQuantityById::new(
+                    AssetId::new(
                         format!("{}2{}_rate#exchange", self.from_currency, self.to_currency)
                             .parse()
                             .expect("Valid"),
                         AccountId::from_str("dex@exchange").expect("Valid"),
-                    )))
-                    .into(),
-                ),
+                    ),
+                ))),
                 self.value,
             )),
             FailBox::new("rate is less or equal to value"),

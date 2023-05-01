@@ -263,9 +263,9 @@ impl MeasurerUnit {
 
     fn mint_or_burn(&self) -> InstructionBox {
         let is_running_out = Less::new(
-            EvaluatesTo::new_unchecked(
-                Expression::Query(FindAssetQuantityById::new(asset_id(self.name)).into()).into(),
-            ),
+            EvaluatesTo::new_unchecked(Expression::Query(
+                FindAssetQuantityById::new(asset_id(self.name)).into(),
+            )),
             100_u32,
         );
         let supply_roses = MintBox::new(100_u32.to_value(), asset_id(self.name));
@@ -279,9 +279,9 @@ impl MeasurerUnit {
         // because if asset value hits 0 it's automatically deleted from account
         // and query `FindAssetQuantityById` return error
         let enough_to_transfer = Greater::new(
-            EvaluatesTo::new_unchecked(
-                Expression::Query(FindAssetQuantityById::new(asset_id(self.name)).into()).into(),
-            ),
+            EvaluatesTo::new_unchecked(Expression::Query(
+                FindAssetQuantityById::new(asset_id(self.name)).into(),
+            )),
             1_u32,
         );
         let transfer_rose = TransferBox::new(

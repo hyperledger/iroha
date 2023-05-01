@@ -257,7 +257,7 @@ impl DefaultValidate for TransferBox {
     {
         let object = evaluate_field!(authority, validate_query, <self as TransferBox>::object);
 
-        let (IdBox::AssetId(source_asset_id), IdBox::AssetId(destination_asset_id)) = (
+        let (IdBox::AssetId(source_asset_id), IdBox::AccountId(destination_account_id)) = (
             evaluate_field!(authority, validate_query, <self as TransferBox>::source_id),
             evaluate_field!(authority, validate_query, <self as TransferBox>::destination_id),
         ) else {
@@ -268,7 +268,7 @@ impl DefaultValidate for TransferBox {
             (Value::Numeric(NumericValue::U32(quantity)))
             | (Value::Numeric(NumericValue::U128(quantity)))
             | (Value::Numeric(NumericValue::Fixed(quantity))) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id).default_validate(authority, validate_query)
+                Transfer::new(source_asset_id, quantity, destination_account_id).default_validate(authority, validate_query)
             }
             _ => deny_unsupported_instruction!(Transfer)
         })

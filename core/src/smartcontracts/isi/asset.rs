@@ -168,7 +168,7 @@ pub mod isi {
         ($ty:ty, $metrics:literal) => {
             impl InnerTransfer for $ty {}
 
-            impl Execute for Transfer<Asset, $ty, Asset> {
+            impl Execute for Transfer<Asset, $ty, Account> {
                 type Error = Error;
 
                 #[metrics(+$metrics)]
@@ -304,7 +304,7 @@ pub mod isi {
     /// Trait for blanket transfer implementation.
     trait InnerTransfer {
         fn execute<Err>(
-            transfer: Transfer<Asset, Self, Asset>,
+            transfer: Transfer<Asset, Self, Account>,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Err>
@@ -315,18 +315,17 @@ pub mod isi {
             Value: From<Self>,
             Err: From<Error>,
         {
-            assert_matching_definitions(
-                &transfer.source_id,
-                &transfer.destination_id,
-                wsv,
-                <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
-            )?;
+            let source_id = &transfer.source_id;
+            let destination_id = AssetId::new(
+                source_id.definition_id.clone(),
+                transfer.destination_id.clone(),
+            );
 
             wsv.asset_or_insert(
-                &transfer.destination_id,
+                &destination_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
-            wsv.modify_asset(&transfer.source_id, |asset| {
+            wsv.modify_asset(source_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -336,11 +335,12 @@ pub mod isi {
                     .ok_or(MathError::NotEnoughQuantity)?;
 
                 Ok(AssetEvent::Removed(AssetChanged {
-                    asset_id: transfer.source_id.clone(),
+                    asset_id: source_id.clone(),
                     amount: transfer.object.into(),
                 }))
             })?;
-            wsv.modify_asset(&transfer.destination_id, |asset| {
+            let destination_id_clone = destination_id.clone();
+            wsv.modify_asset(&destination_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -355,7 +355,7 @@ pub mod isi {
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
                 Ok(AssetEvent::Added(AssetChanged {
-                    asset_id: transfer.destination_id.clone(),
+                    asset_id: destination_id_clone,
                     amount: transfer.object.into(),
                 }))
             })?;
@@ -419,26 +419,6 @@ pub mod isi {
                 ))
             }),
         }
-    }
-
-    /// Assert that the two assets have the same asset `definition_id`.
-    fn assert_matching_definitions(
-        source: &<Asset as Identifiable>::Id,
-        destination: &<Asset as Identifiable>::Id,
-        wsv: &WorldStateView,
-        value_type: AssetValueType,
-    ) -> Result<(), Error> {
-        if destination.definition_id != source.definition_id {
-            let expected = wsv
-                .asset_definition(&destination.definition_id)?
-                .id()
-                .clone();
-            let actual = wsv.asset_definition(&source.definition_id)?.id().clone();
-            return Err(TypeError::from(Mismatch { expected, actual }).into());
-        }
-        assert_asset_type(&source.definition_id, wsv, value_type)?;
-        assert_asset_type(&destination.definition_id, wsv, value_type)?;
-        Ok(())
     }
 }
 

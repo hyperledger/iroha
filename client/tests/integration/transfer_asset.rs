@@ -82,7 +82,7 @@ fn simulate_transfer<
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
         amount_to_transfer.clone().to_value(),
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), mouse_id.clone())),
+        IdBox::AccountId(mouse_id.clone()),
     );
     iroha_client
         .submit_till(

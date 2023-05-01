@@ -24,21 +24,15 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
-        SignatureCheckCondition::new(EvaluatesTo::new_unchecked(
-            ContainsAll::new(
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(
-                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE).expect("Can't fail."),
-                    )
-                    .into(),
-                ),
-                val_vec![
-                    alice_key_pair.public_key().clone(),
-                    key_pair_2.public_key().clone(),
-                ],
-            )
-            .into(),
-        )),
+        SignatureCheckCondition::new(EvaluatesTo::new_unchecked(ContainsAll::new(
+            EvaluatesTo::new_unchecked(ContextValue::new(
+                Name::from_str(TRANSACTION_SIGNATORIES_VALUE).expect("Can't fail."),
+            )),
+            val_vec![
+                alice_key_pair.public_key().clone(),
+                key_pair_2.public_key().clone(),
+            ],
+        ))),
         IdBox::AccountId(alice_id.clone()),
     );
 

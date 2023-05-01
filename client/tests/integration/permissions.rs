@@ -80,9 +80,9 @@ fn permissions_disallow_asset_transfer() {
 
     //When
     let transfer_asset = TransferBox::new(
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id)),
+        IdBox::AssetId(AssetId::new(asset_definition_id, bob_id)),
         quantity.to_value(),
-        IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
+        IdBox::AccountId(alice_id.clone()),
     );
     let err = iroha_client
         .submit_blocking(transfer_asset)
