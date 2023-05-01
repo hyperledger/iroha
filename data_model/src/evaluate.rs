@@ -540,87 +540,74 @@ mod tests {
         let condition = If::new(
             And::new(
                 Greater::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail."))
-                            .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str("usd_quantity").expect("Can't fail."),
+                    )),
                     500_u32,
                 ),
                 Less::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(Name::from_str("usd_quantity").expect("Can't fail."))
-                            .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str("usd_quantity").expect("Can't fail."),
+                    )),
                     1000_u32,
                 ),
             ),
-            EvaluatesTo::new_evaluates_to_value(
-                Or::new(
-                    ContainsAll::new(
-                        EvaluatesTo::new_unchecked(
-                            ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
-                                .into(),
-                        ),
-                        teller_signatory_set.clone(),
-                    ),
-                    Contains::new(
-                        EvaluatesTo::new_unchecked(
-                            ContextValue::new(Name::from_str("signatories").expect("Can't fail."))
-                                .into(),
-                        ),
-                        manager_signatory,
-                    ),
-                )
-                .into(),
-            ),
+            EvaluatesTo::new_evaluates_to_value(Or::new(
+                ContainsAll::new(
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str("signatories").expect("Can't fail."),
+                    )),
+                    teller_signatory_set.clone(),
+                ),
+                Contains::new(
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str("signatories").expect("Can't fail."),
+                    )),
+                    manager_signatory,
+                ),
+            )),
             true,
         );
         // Signed by all tellers
-        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(
-            condition.clone().into(),
-        ))
-        .with_value(
-            //TODO: use query to get the actual quantity of an asset from WSV
-            // in that case this test should be moved to iroha_core
-            Name::from_str("usd_quantity").expect("Can't fail."),
-            asset_quantity_high.clone(),
-        )
-        .with_value(
-            Name::from_str("signatories").expect("Can't fail."),
-            teller_signatory_set,
-        );
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(condition.clone()))
+            .with_value(
+                //TODO: use query to get the actual quantity of an asset from WSV
+                // in that case this test should be moved to iroha_core
+                Name::from_str("usd_quantity").expect("Can't fail."),
+                asset_quantity_high.clone(),
+            )
+            .with_value(
+                Name::from_str("signatories").expect("Can't fail."),
+                teller_signatory_set,
+            );
         assert_eq!(expression.evaluate(&TestContext::new())?, Value::Bool(true));
         // Signed by manager
-        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(
-            condition.clone().into(),
-        ))
-        .with_value(
-            Name::from_str("usd_quantity").expect("Can't fail."),
-            asset_quantity_high.clone(),
-        )
-        .with_value(
-            Name::from_str("signatories").expect("Can't fail."),
-            manager_signatory_set,
-        );
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(condition.clone()))
+            .with_value(
+                Name::from_str("usd_quantity").expect("Can't fail."),
+                asset_quantity_high.clone(),
+            )
+            .with_value(
+                Name::from_str("signatories").expect("Can't fail."),
+                manager_signatory_set,
+            );
         assert_eq!(expression.evaluate(&TestContext::new())?, Value::Bool(true));
         // Signed by one teller
-        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(
-            condition.clone().into(),
-        ))
-        .with_value(
-            Name::from_str("usd_quantity").expect("Can't fail."),
-            asset_quantity_high,
-        )
-        .with_value(
-            Name::from_str("signatories").expect("Can't fail."),
-            one_teller_set.clone(),
-        );
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(condition.clone()))
+            .with_value(
+                Name::from_str("usd_quantity").expect("Can't fail."),
+                asset_quantity_high,
+            )
+            .with_value(
+                Name::from_str("signatories").expect("Can't fail."),
+                one_teller_set.clone(),
+            );
         assert_eq!(
             expression.evaluate(&TestContext::new())?,
             Value::Bool(false)
         );
         // Signed by one teller with less value
-        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(condition.into()))
+        let expression = Where::new(EvaluatesTo::new_evaluates_to_value(condition))
             .with_value(
                 Name::from_str("usd_quantity").expect("Can't fail."),
                 asset_quantity_low,
@@ -636,12 +623,12 @@ mod tests {
     #[test]
     fn where_expression() -> Result<(), Error> {
         assert_eq!(
-            Where::new(EvaluatesTo::new_unchecked(
-                ContextValue::new(Name::from_str("test_value").expect("Can't fail.")).into()
-            ))
+            Where::new(EvaluatesTo::new_unchecked(ContextValue::new(
+                Name::from_str("test_value").expect("Can't fail.")
+            )))
             .with_value(
                 Name::from_str("test_value").expect("Can't fail."),
-                EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32).into())
+                EvaluatesTo::new_evaluates_to_value(Add::new(2_u32, 3_u32))
             )
             .evaluate(&TestContext::new())?,
             5_u32.to_value()
@@ -651,21 +638,17 @@ mod tests {
 
     #[test]
     fn nested_where_expression() -> Result<(), Error> {
-        let expression = Where::new(EvaluatesTo::new_unchecked(
-            ContextValue::new(Name::from_str("a").expect("Can't fail.")).into(),
-        ))
+        let expression = Where::new(EvaluatesTo::new_unchecked(ContextValue::new(
+            Name::from_str("a").expect("Can't fail."),
+        )))
         .with_value(Name::from_str("a").expect("Can't fail."), 2_u32);
-        let outer_expression: ExpressionBox = Where::new(EvaluatesTo::new_evaluates_to_value(
-            Add::new(
-                EvaluatesTo::new_unchecked(expression.into()),
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(Name::from_str("b").expect("Can't fail.")).into(),
-                ),
-            )
-            .into(),
-        ))
-        .with_value(Name::from_str("b").expect("Can't fail."), 4_u32)
-        .into();
+        let outer_expression = Where::new(EvaluatesTo::new_evaluates_to_value(Add::new(
+            EvaluatesTo::new_unchecked(expression),
+            EvaluatesTo::new_unchecked(ContextValue::new(
+                Name::from_str("b").expect("Can't fail."),
+            )),
+        )))
+        .with_value(Name::from_str("b").expect("Can't fail."), 4_u32);
         assert_eq!(
             outer_expression.evaluate(&TestContext::new())?,
             6_u32.to_value()
@@ -700,34 +683,34 @@ mod tests {
 
         assert_eval(
             &And::new(
-                EvaluatesTo::new_unchecked(1_u32.into()),
-                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+                EvaluatesTo::new_unchecked(1_u32),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new()),
             ),
             "Should not be possible to apply logical and to int and vec.",
         );
         assert_eval(
             &Or::new(
-                EvaluatesTo::new_unchecked(1_u32.into()),
-                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+                EvaluatesTo::new_unchecked(1_u32),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new()),
             ),
             "Should not be possible to apply logical or to int and vec.",
         );
         assert_eval(
             &Greater::new(
-                EvaluatesTo::new_unchecked(1_u32.into()),
-                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+                EvaluatesTo::new_unchecked(1_u32),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new()),
             ),
             "Should not be possible to apply greater sign to int and vec.",
         );
         assert_eval(
             &Less::new(
-                EvaluatesTo::new_unchecked(1_u32.into()),
-                EvaluatesTo::new_unchecked(Vec::<Value>::new().into()),
+                EvaluatesTo::new_unchecked(1_u32),
+                EvaluatesTo::new_unchecked(Vec::<Value>::new()),
             ),
             "Should not be possible to apply greater sign to int and vec.",
         );
         assert_eval(
-            &If::new(EvaluatesTo::new_unchecked(1_u32.into()), 2_u32, 3_u32),
+            &If::new(EvaluatesTo::new_unchecked(1_u32), 2_u32, 3_u32),
             "If condition should be bool",
         );
         assert_eval(

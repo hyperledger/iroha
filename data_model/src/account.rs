@@ -308,20 +308,14 @@ impl Default for SignatureCheckCondition {
     fn default() -> Self {
         Self(
             ContainsAny::new(
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(
-                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                    )
-                    .into(),
-                ),
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(
-                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                    )
-                    .into(),
-                ),
+                EvaluatesTo::new_unchecked(ContextValue::new(
+                    Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                        .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                )),
+                EvaluatesTo::new_unchecked(ContextValue::new(
+                    Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                        .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                )),
             )
             .into(),
         )
