@@ -278,6 +278,13 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             ));
     };
 
+    let buyer_account_id = account_id_new("buyer", "company");
+    let seller_account_id = account_id_new("seller", "company");
+    let asset_id = asset_id_new(
+        "btc2eth_rate",
+        "exchange",
+        account_id_new("dex", "exchange"),
+    );
     test_client
         .submit_all_blocking(vec![
             register::domain("exchange").into(),
@@ -291,19 +298,15 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             register::asset_definition("btc2eth_rate", "exchange").into(),
             MintBox::new(
                 200_u32.to_value(),
-                IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
+                IdBox::AssetId(asset_id_new("eth", "crypto", buyer_account_id.clone())),
             )
             .into(),
             MintBox::new(
                 20_u32.to_value(),
-                IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
+                IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
             )
             .into(),
-            MintBox::new(
-                20_u32.to_value(),
-                IdBox::AssetId(asset_id_new("btc2eth_rate", "exchange", "dex", "exchange")),
-            )
-            .into(),
+            MintBox::new(20_u32.to_value(), IdBox::AssetId(asset_id.clone())).into(),
         ])
         .expect("Failed to prepare accounts.");
 
@@ -313,36 +316,18 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     test_client
         .submit_all_blocking(vec![Pair::new(
             TransferBox::new(
-                IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
-                EvaluatesTo::new_evaluates_to_value(
-                    Expression::Query(
-                        FindAssetQuantityById::new(asset_id_new(
-                            "btc2eth_rate",
-                            "exchange",
-                            "dex",
-                            "exchange",
-                        ))
-                        .into(),
-                    )
-                    .into(),
-                ),
-                IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
+                IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
+                EvaluatesTo::new_evaluates_to_value(Expression::Query(
+                    FindAssetQuantityById::new(asset_id.clone()).into(),
+                )),
+                IdBox::AccountId(buyer_account_id.clone()),
             ),
             TransferBox::new(
-                IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
-                EvaluatesTo::new_evaluates_to_value(
-                    Expression::Query(
-                        FindAssetQuantityById::new(asset_id_new(
-                            "btc2eth_rate",
-                            "exchange",
-                            "dex",
-                            "exchange",
-                        ))
-                        .into(),
-                    )
-                    .into(),
-                ),
-                IdBox::AssetId(asset_id_new("eth", "crypto", "seller", "company")),
+                IdBox::AssetId(asset_id_new("eth", "crypto", buyer_account_id)),
+                EvaluatesTo::new_evaluates_to_value(Expression::Query(
+                    FindAssetQuantityById::new(asset_id).into(),
+                )),
+                IdBox::AccountId(seller_account_id),
             ),
         )
         .into()])
@@ -354,7 +339,9 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let eth_quantity = test_client
         .request(FindAssetQuantityById::new(asset_id_new(
-            "eth", "crypto", "seller", "company",
+            "eth",
+            "crypto",
+            account_id_new("seller", "company"),
         )))
         .expect("Failed to execute Iroha Query");
     assert_eq!(expected_seller_eth, eth_quantity);
@@ -362,40 +349,45 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     // For the btc amount we expect an error, as zero assets are purged from accounts
     test_client
         .request(FindAssetQuantityById::new(asset_id_new(
-            "btc", "crypto", "seller", "company",
+            "btc",
+            "crypto",
+            account_id_new("seller", "company"),
         )))
         .expect_err("Query must fail");
 
     let buyer_eth_quantity = test_client
         .request(FindAssetQuantityById::new(asset_id_new(
-            "eth", "crypto", "buyer", "company",
+            "eth",
+            "crypto",
+            account_id_new("buyer", "company"),
         )))
         .expect("Failed to execute Iroha Query");
     assert_eq!(expected_buyer_eth, buyer_eth_quantity);
 
     let buyer_btc_quantity = test_client
         .request(FindAssetQuantityById::new(asset_id_new(
-            "btc", "crypto", "buyer", "company",
+            "btc",
+            "crypto",
+            account_id_new("buyer", "company"),
         )))
         .expect("Failed to execute Iroha Query");
     assert_eq!(expected_buyer_btc, buyer_btc_quantity);
 }
 
-fn asset_id_new(
-    definition_name: &str,
-    definition_domain: &str,
-    account_name: &str,
-    account_domain: &str,
-) -> AssetId {
+fn account_id_new(account_name: &str, account_domain: &str) -> AccountId {
+    AccountId::new(
+        account_name.parse().expect("Valid"),
+        account_domain.parse().expect("Valid"),
+    )
+}
+
+fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: AccountId) -> AssetId {
     AssetId::new(
         AssetDefinitionId::new(
             definition_name.parse().expect("Valid"),
             definition_domain.parse().expect("Valid"),
         ),
-        AccountId::new(
-            account_name.parse().expect("Valid"),
-            account_domain.parse().expect("Valid"),
-        ),
+        account_id,
     )
 }
 

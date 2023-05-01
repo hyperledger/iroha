@@ -278,7 +278,8 @@ fn check_signature_condition(
             .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
         signatories.into_iter().collect::<Vec<_>>(),
     );
-    EvaluatesTo::new_unchecked(where_expr.into())
+
+    EvaluatesTo::new_unchecked(where_expr)
 }
 
 impl IsInBlockchain for VersionedSignedTransaction {

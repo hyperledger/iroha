@@ -226,7 +226,7 @@ impl Execute for TransferBox {
         wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
-        let (IdBox::AssetId(source_asset_id), IdBox::AssetId(destination_asset_id)) = (
+        let (IdBox::AssetId(source_asset_id), IdBox::AccountId(destination_account_id)) = (
             self.source_id.evaluate(&context)?,
             self.destination_id.evaluate(&context)?,
         ) else {
@@ -235,20 +235,20 @@ impl Execute for TransferBox {
 
         let value = self.object.evaluate(&context)?;
         Span::current().record("from", source_asset_id.to_string());
-        Span::current().record("to", destination_asset_id.to_string());
+        Span::current().record("to", destination_account_id.to_string());
         iroha_logger::trace!(%value, %authority);
 
         match value {
             Value::Numeric(NumericValue::U32(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                Transfer::new(source_asset_id, quantity, destination_account_id)
                     .execute(authority, wsv)
             }
             Value::Numeric(NumericValue::U128(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                Transfer::new(source_asset_id, quantity, destination_account_id)
                     .execute(authority, wsv)
             }
             Value::Numeric(NumericValue::Fixed(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                Transfer::new(source_asset_id, quantity, destination_account_id)
                     .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::Transfer.into())),

@@ -14,13 +14,12 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let alice_id = AccountId::from_str("alice@test").expect("tested");
     let bob_id = AccountId::from_str("bob@test").expect("tested");
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
-    let alice_xor_id = <Asset as Identifiable>::Id::new(xor_id.clone(), alice_id);
-    let bob_xor_id = <Asset as Identifiable>::Id::new(xor_id, bob_id);
-    let transfer = TransferBox {
-        source_id: IdBox::AssetId(alice_xor_id).into(),
-        object: 10_u32.to_value().into(),
-        destination_id: IdBox::AssetId(bob_xor_id).into(),
-    }
+    let alice_xor_id = <Asset as Identifiable>::Id::new(xor_id, alice_id);
+    let transfer = TransferBox::new(
+        IdBox::AssetId(alice_xor_id),
+        10_u32.to_value(),
+        IdBox::AccountId(bob_id),
+    )
     .into();
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let tx = TransactionBuilder::new(

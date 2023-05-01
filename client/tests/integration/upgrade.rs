@@ -12,7 +12,6 @@ fn validator_upgrade_should_work() -> Result<()> {
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Register `admin` domain and account
-
     let admin_domain = Domain::new("admin".parse()?);
     let register_admin_domain = RegisterBox::new(admin_domain);
     client.submit_blocking(register_admin_domain)?;
@@ -25,7 +24,7 @@ fn validator_upgrade_should_work() -> Result<()> {
 
     // Check that admin isn't allowed to transfer alice's rose by default
     let alice_rose: <Asset as Identifiable>::Id = "rose##alice@wonderland".parse()?;
-    let admin_rose: <Asset as Identifiable>::Id = "rose#wonderland#admin@admin".parse()?;
+    let admin_rose: <Account as Identifiable>::Id = "admin@admin".parse()?;
     let transfer_alice_rose = TransferBox::new(alice_rose, NumericValue::U32(1), admin_rose);
     let transfer_rose_tx = TransactionBuilder::new(
         admin_id.clone(),
@@ -38,7 +37,6 @@ fn validator_upgrade_should_work() -> Result<()> {
         .expect_err("Should fail");
 
     // Upgrade Validator
-
     info!("Building validator");
     let temp_out_dir =
         tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
@@ -60,7 +58,6 @@ fn validator_upgrade_should_work() -> Result<()> {
     client.submit_blocking(upgrade_validator)?;
 
     // Check that admin can transfer alice's rose now
-
     // Creating new transaction instead of cloning, because we need to update it's creation time
     let transfer_rose_tx =
         TransactionBuilder::new(admin_id, vec![transfer_alice_rose.into()], 100_000)

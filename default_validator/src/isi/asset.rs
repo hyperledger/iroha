@@ -220,7 +220,7 @@ impl<V: AssetValueMarker> DefaultValidate for Mint<Asset, V> {
     }
 }
 
-impl<V: AssetValueMarker> DefaultValidate for Transfer<Asset, V, Asset> {
+impl<V: AssetValueMarker> DefaultValidate for Transfer<Asset, V, Account> {
     fn default_validate<Q>(
         &self,
         authority: &<Account as Identifiable>::Id,
