@@ -176,7 +176,7 @@ impl Network {
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.queue.maximum_transactions_in_block = max_txs_in_block;
+        configuration.sumeragi.max_transactions_in_block = max_txs_in_block;
         configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
         let network = Network::new_with_offline_peers(
             Some(configuration),
@@ -198,13 +198,13 @@ impl Network {
     /// to it.
     pub async fn start_test_with_offline(
         n_peers: u32,
-        maximum_transactions_in_block: u32,
+        max_txs_in_block: u32,
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> (Self, Client) {
         Self::start_test_with_offline_and_set_n_shifts(
             n_peers,
-            maximum_transactions_in_block,
+            max_txs_in_block,
             offline_peers,
             start_port,
         )

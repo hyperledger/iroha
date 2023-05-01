@@ -12,7 +12,7 @@ use tokio::runtime::Runtime;
 
 use super::Configuration;
 
-const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 5;
+const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
 #[test]
 fn unstable_network_4_peers_1_fault() {
@@ -55,7 +55,7 @@ fn unstable_network(
     // Given
     let (network, mut iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
-        configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
+        configuration.sumeragi.max_transactions_in_block = MAX_TRANSACTIONS_IN_BLOCK;
         configuration.logger.max_log_level = Level::INFO.into();
         #[cfg(debug_assertions)]
         {

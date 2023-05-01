@@ -15,6 +15,7 @@ pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
+const DEFAULT_MAX_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(9);
 
 /// Default estimation of consensus duration
 #[allow(clippy::integer_division)]
@@ -42,11 +43,13 @@ view! {
         pub trusted_peers: TrustedPeers,
         /// The period of time a peer waits for `CommitMessage` from the proxy tail.
         pub commit_time_limit_ms: u64,
+        /// The upper limit of the number of transactions per block.
+        pub max_transactions_in_block: u32,
         /// The limits to which transactions must adhere
         pub transaction_limits: TransactionLimits,
         /// Buffer capacity of actor's MPSC channel
         pub actor_channel_capacity: u32,
-        /// Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
+        /// max number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
         pub gossip_batch_size: u32,
         /// Period in milliseconds for pending transaction gossiping between peers.
         pub gossip_period_ms: u64,
@@ -72,6 +75,7 @@ impl Default for ConfigurationProxy {
             actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
             gossip_batch_size: Some(DEFAULT_GOSSIP_BATCH_SIZE),
             gossip_period_ms: Some(DEFAULT_GOSSIP_PERIOD_MS),
+            max_transactions_in_block: Some(DEFAULT_MAX_TRANSACTIONS_IN_BLOCK),
             #[cfg(debug_assertions)]
             debug_force_soft_fork: Some(false),
         }
@@ -203,6 +207,7 @@ pub mod tests {
              actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
              gossip_batch_size in prop::option::of(Just(DEFAULT_GOSSIP_BATCH_SIZE)),
              gossip_period_ms in prop::option::of(Just(DEFAULT_GOSSIP_PERIOD_MS)),
+            max_transactions_in_block in prop::option::of(Just(DEFAULT_MAX_TRANSACTIONS_IN_BLOCK)),
              debug_force_soft_fork in prop::option::of(Just(false)),
             )
             -> ConfigurationProxy {
@@ -216,6 +221,7 @@ pub mod tests {
                 actor_channel_capacity,
                 gossip_batch_size,
                 gossip_period_ms,
+                max_transactions_in_block,
                 #[cfg(debug_assertions)]
                 debug_force_soft_fork
             }
