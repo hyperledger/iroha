@@ -16,7 +16,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 pub use self::model::*;
 use crate::{
     account::{Account, AccountsMap},
-    asset::{AssetDefinition, AssetDefinitionEntry, AssetDefinitionsMap, AssetTotalQuantityMap},
+    asset::{AssetDefinition, AssetDefinitionsMap, AssetTotalQuantityMap},
     ipfs::IpfsPath,
     metadata::Metadata,
     HasMetadata, Identifiable, Name, NumericValue, Registered,
@@ -166,7 +166,7 @@ impl Domain {
     pub fn asset_definition(
         &self,
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&AssetDefinitionEntry> {
+    ) -> Option<&AssetDefinition> {
         self.asset_definitions.get(asset_definition_id)
     }
 
@@ -193,7 +193,7 @@ impl Domain {
 
     /// Get an iterator over asset definitions of the `Domain`
     #[inline]
-    pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinitionEntry> {
+    pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinition> {
         self.asset_definitions.values()
     }
 }
@@ -221,12 +221,9 @@ impl Domain {
     pub fn add_asset_definition(
         &mut self,
         asset_definition: AssetDefinition,
-        owned_by: <Account as Identifiable>::Id,
-    ) -> Option<AssetDefinitionEntry> {
-        let asset_definition = AssetDefinitionEntry::new(asset_definition, owned_by);
-
+    ) -> Option<AssetDefinition> {
         self.asset_definitions
-            .insert(asset_definition.definition.id().clone(), asset_definition)
+            .insert(asset_definition.id().clone(), asset_definition)
     }
 
     /// Remove asset definition from the [`Domain`] and return it
@@ -234,7 +231,7 @@ impl Domain {
     pub fn remove_asset_definition(
         &mut self,
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<AssetDefinitionEntry> {
+    ) -> Option<AssetDefinition> {
         self.asset_definitions.remove(asset_definition_id)
     }
 

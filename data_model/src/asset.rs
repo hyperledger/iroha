@@ -4,7 +4,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{collections::btree_map, format, string::String, vec::Vec};
-use core::{cmp::Ordering, fmt, str::FromStr};
+use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
@@ -31,7 +31,7 @@ pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
 /// [`AssetDefinitionsMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetDefinition`])
 /// pairs.
 pub type AssetDefinitionsMap =
-    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
+    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinition>;
 
 /// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
 /// pairs.
@@ -123,7 +123,6 @@ pub mod model {
     #[ffi_type]
     pub struct AssetDefinition {
         /// An Identification of the [`AssetDefinition`].
-        #[getset(skip)]
         pub id: AssetDefinitionId,
         /// Type of [`AssetValue`]
         #[getset(get_copy = "pub")]
@@ -134,31 +133,9 @@ pub mod model {
         #[getset(get = "pub")]
         pub logo: Option<IpfsPath>,
         /// Metadata of this asset definition as a key-value store.
-        #[getset(skip)]
         pub metadata: Metadata,
-    }
-
-    /// An entry in [`AssetDefinitionsMap`].
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Constructor,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[allow(clippy::multiple_inherent_impl)]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct AssetDefinitionEntry {
-        /// Asset definition.
-        pub definition: AssetDefinition,
-        /// The account that registered this asset.
+        /// The account that owns this asset. Usually the [`Account`] that registered it.
+        #[getset(get = "pub")]
         pub owned_by: <Account as Identifiable>::Id,
     }
 
@@ -391,20 +368,6 @@ impl NewAssetDefinition {
     }
 }
 
-impl PartialOrd for AssetDefinitionEntry {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for AssetDefinitionEntry {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.definition.cmp(&other.definition)
-    }
-}
-
 impl HasMetadata for AssetDefinition {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -614,7 +577,7 @@ impl FromIterator<AssetDefinition> for Value {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Asset, AssetDefinition, AssetDefinitionEntry, AssetDefinitionId, AssetId, AssetValue,
-        AssetValueType, Mintable, NewAssetDefinition,
+        Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue, AssetValueType, Mintable,
+        NewAssetDefinition,
     };
 }

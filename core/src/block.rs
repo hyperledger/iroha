@@ -627,9 +627,10 @@ mod tests {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
-        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build();
+        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()])
+            .build(alice_id.clone());
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build();
+        let mut domain = Domain::new(domain_id).build(alice_id.clone());
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();

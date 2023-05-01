@@ -36,7 +36,7 @@ pub trait Registrable {
     type Target;
 
     /// Construct [`Self::Target`]
-    fn build(self) -> Self::Target;
+    fn build(self, authority: AccountId) -> Self::Target;
 }
 
 impl Execute for InstructionBox {
@@ -573,8 +573,7 @@ mod tests {
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
-            .asset_definition_entry(&definition_id)?
-            .definition
+            .asset_definition(&definition_id)?
             .metadata()
             .get(&Name::from_str("Bytes")?)
             .cloned();
