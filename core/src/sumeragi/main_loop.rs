@@ -421,8 +421,7 @@ fn update_state(state: &mut State, sumeragi: &Sumeragi, committed_block: &Versio
 }
 
 fn cache_transaction(state: &mut State, sumeragi: &Sumeragi) {
-    let transaction_cache = &mut state.transaction_cache;
-    transaction_cache.retain(|tx| {
+    state.transaction_cache.retain(|tx| {
         !tx.is_in_blockchain(&state.wsv) && !tx.is_expired(sumeragi.queue.tx_time_to_live)
     });
 }
@@ -704,8 +703,9 @@ fn process_message_independent(
             if voting_block.is_none() {
                 let cache_full = state.transaction_cache.len() >= sumeragi.queue.txs_in_block;
                 let deadline_reached = round_start_time.elapsed() > sumeragi.block_time;
+                let cache_non_empty = !state.transaction_cache.is_empty();
 
-                if cache_full || (deadline_reached && !state.transaction_cache.is_empty()) {
+                if cache_full || (deadline_reached && cache_non_empty) {
                     let transactions = state.transaction_cache.clone();
                     info!(txns=%transactions.len(), "Creating block...");
 
@@ -913,7 +913,13 @@ pub(crate) fn run(
         state
             .transaction_cache
             // Checking if transactions are in the blockchain is costly
-            .retain(|tx| !tx.is_expired(sumeragi.queue.tx_time_to_live));
+            .retain(|tx| {
+                let expired = tx.is_expired(sumeragi.queue.tx_time_to_live);
+                if expired {
+                    debug!(?tx, "Transaction expired")
+                }
+                expired
+            });
 
         let mut expired_transactions = Vec::new();
         sumeragi.queue.get_transactions_for_block(
@@ -921,6 +927,7 @@ pub(crate) fn run(
             &mut state.transaction_cache,
             &mut expired_transactions,
         );
+        debug!("Transaction cache: {:?}", state.transaction_cache);
         sumeragi.send_events(
             expired_transactions
                 .iter()

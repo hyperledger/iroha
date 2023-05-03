@@ -15,6 +15,7 @@ use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
+use iroha_logger::{debug, info, trace, warn};
 use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
 use thiserror::Error;
@@ -162,50 +163,67 @@ impl Queue {
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<(), Failure> {
-        match self.check_tx(&tx, wsv) {
-            Err(err) => Err(Failure { tx, err }),
-            Ok(MustUse(signature_check)) => {
-                // Get `txs_len` before entry to avoid deadlock
-                let txs_len = self.txs.len();
-                let hash = tx.hash();
-                let entry = match self.txs.entry(hash) {
-                    Entry::Occupied(mut old_tx) => {
-                        // MST case
-                        old_tx
-                            .get_mut()
-                            .as_mut_v1()
-                            .signatures
-                            .extend(tx.as_v1().signatures.clone());
-                        return Ok(());
-                    }
-                    Entry::Vacant(entry) => entry,
-                };
-                if txs_len >= self.max_txs {
-                    return Err(Failure {
-                        tx,
-                        err: Error::Full,
-                    });
-                }
-
-                // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
-                entry.insert(tx);
-                let queue_to_push = if signature_check {
-                    &self.queue
-                } else {
-                    &self.signature_buffer
-                };
-                queue_to_push.push(hash).map_err(|err_hash| {
-                    let (_, err_tx) = self
-                        .txs
-                        .remove(&err_hash)
-                        .expect("Inserted just before match");
-                    Failure {
-                        tx: err_tx,
-                        err: Error::Full,
-                    }
-                })
+        trace!(?tx, "Pushing to the queue");
+        let signature_check_succeed = match self.check_tx(&tx, wsv) {
+            Err(err) => {
+                warn!("Failed to evaluate signature check");
+                return Err(Failure { tx, err });
             }
+            Ok(MustUse(signature_check)) => signature_check,
+        };
+
+        // Get `txs_len` before entry to avoid deadlock
+        let txs_len = self.txs.len();
+        let hash = tx.hash();
+        let entry = match self.txs.entry(hash) {
+            Entry::Occupied(mut old_tx) => {
+                // MST case
+                old_tx
+                    .get_mut()
+                    .as_mut_v1()
+                    .signatures
+                    .extend(tx.as_v1().signatures.clone());
+                info!("Signature added to existing multisignature transaction");
+                return Ok(());
+            }
+            Entry::Vacant(entry) => entry,
+        };
+        if txs_len >= self.max_txs {
+            warn!(
+                max = self.max_txs,
+                "Achieved maximum amount of transactions"
+            );
+            return Err(Failure {
+                tx,
+                err: Error::Full,
+            });
         }
+
+        // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
+        entry.insert(tx);
+        let queue_to_push = if signature_check_succeed {
+            &self.queue
+        } else {
+            info!("New multisignature transaction detected");
+            &self.signature_buffer
+        };
+        let res = queue_to_push.push(hash).map_err(|err_hash| {
+            warn!("Concrete sub-queue to push is full");
+            let (_, err_tx) = self
+                .txs
+                .remove(&err_hash)
+                .expect("Inserted just before match");
+            Failure {
+                tx: err_tx,
+                err: Error::Full,
+            }
+        });
+        trace!(
+            "Transaction queue length = {}, multisig transaction queue length = {}",
+            self.queue.len(),
+            self.signature_buffer.len()
+        );
+        res
     }
 
     /// Pop single transaction from the signature buffer. Record all visited and not removed transactions in `seen`.
@@ -240,21 +258,29 @@ impl Queue {
         expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
-            let hash = queue.pop()?;
+            let Some(hash) = queue.pop() else {
+                trace!("Queue is empty");
+                return None;
+            };
             let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
                 // FIXME: Reachable under high load. Investigate, see if it's a problem.
                 // As practice shows this code is not `unreachable!()`.
                 // When transactions are submitted quickly it can be reached.
-                Entry::Vacant(_) => continue,
+                Entry::Vacant(_) => {
+                    warn!("Looks like we're experiencing a high load");
+                    continue;
+                }
             };
 
             let tx = entry.get();
             if tx.is_in_blockchain(wsv) {
+                debug!("Transaction is already in blockchain");
                 entry.remove_entry();
                 continue;
             }
             if tx.is_expired(self.tx_time_to_live) {
+                debug!("Transaction is expired");
                 let (_, tx) = entry.remove_entry();
                 expired_transactions.push(tx);
                 continue;
