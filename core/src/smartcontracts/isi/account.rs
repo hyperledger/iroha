@@ -12,7 +12,7 @@ impl Registrable for iroha_data_model::account::NewAccount {
 
     #[must_use]
     #[inline]
-    fn build(self) -> Self::Target {
+    fn build(self, _authority: AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             signatories: self.signatories,
@@ -427,8 +427,8 @@ pub mod isi {
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
                 if !value.is_zero_value() {
-                    wsv.modify_asset_definition_entry(definition_id, |entry| {
-                        forbid_minting(&mut entry.definition)?;
+                    wsv.modify_asset_definition(definition_id, |entry| {
+                        forbid_minting(entry)?;
                         Ok(AssetDefinitionEvent::MintabilityChanged(
                             definition_id.clone(),
                         ))
@@ -461,7 +461,8 @@ pub mod isi {
 
         #[test]
         fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
-            let mut definition = AssetDefinition::quantity("test#hello".parse()?).build();
+            let mut definition =
+                AssetDefinition::quantity("test#hello".parse()?).build("alice@wonderland".parse()?);
             assert!(super::forbid_minting(&mut definition).is_err());
             Ok(())
         }

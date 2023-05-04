@@ -10,7 +10,7 @@ impl Registrable for NewRole {
 
     #[must_use]
     #[inline]
-    fn build(self) -> Self::Target {
+    fn build(self, _authority: AccountId) -> Self::Target {
         self.inner
     }
 }
@@ -72,10 +72,10 @@ pub mod isi {
         #[metrics("register_domain")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let domain: Domain = self.object.build();
+            let domain: Domain = self.object.build(authority);
             let domain_id = domain.id().clone();
 
             domain_id
@@ -128,10 +128,10 @@ pub mod isi {
         #[metrics(+"register_role")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let role = self.object.build();
+            let role = self.object.build(authority);
 
             for permission in &role.permissions {
                 let definition = wsv

@@ -797,36 +797,33 @@ impl WorldStateView {
     /// The same as [`Self::modify_asset_definition_multiple_events`] except closure `f` returns a single [`AssetDefinitionEvent`].
     ///
     /// # Errors
-    /// Forward errors from [`Self::modify_asset_definition_entry_multiple_events`]
-    pub fn modify_asset_definition_entry(
+    /// Forward errors from [`Self::modify_asset_definition_multiple_events`]
+    pub fn modify_asset_definition(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<AssetDefinitionEvent, Error>,
+        f: impl FnOnce(&mut AssetDefinition) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
-        self.modify_asset_definition_entry_multiple_events(id, move |asset_definition| {
+        self.modify_asset_definition_multiple_events(id, move |asset_definition| {
             f(asset_definition).map(std::iter::once)
         })
     }
 
-    /// Get [`AssetDefinitionEntry`] and pass it to `closure` to modify it
+    /// Get [`AssetDefinition`] and pass it to `closure` to modify it
     ///
     /// # Errors
     /// - If asset definition entry does not exist
     /// - Forward errors from `f`
-    pub fn modify_asset_definition_entry_multiple_events<
-        I: IntoIterator<Item = AssetDefinitionEvent>,
-    >(
+    pub fn modify_asset_definition_multiple_events<I: IntoIterator<Item = AssetDefinitionEvent>>(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<I, Error>,
+        f: impl FnOnce(&mut AssetDefinition) -> Result<I, Error>,
     ) -> Result<(), Error> {
         self.modify_domain_multiple_events(&id.domain_id, |domain| {
-            let asset_definition_entry = domain
+            let asset_definition = domain
                 .asset_definitions
                 .get_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-            f(asset_definition_entry)
-                .map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
+            f(asset_definition).map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
         })
     }
 
@@ -851,14 +848,14 @@ impl WorldStateView {
             .collect::<Vec<Parameter>>()
     }
 
-    /// Get `AssetDefinitionEntry` immutable view.
+    /// Get `AssetDefinition` immutable view.
     ///
     /// # Errors
     /// - Asset definition entry not found
-    pub fn asset_definition_entry(
+    pub fn asset_definition(
         &self,
         asset_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Result<AssetDefinitionEntry, FindError> {
+    ) -> Result<AssetDefinition, FindError> {
         self.domain(&asset_id.domain_id)?
             .asset_definitions
             .get(asset_id)
