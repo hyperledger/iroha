@@ -47,10 +47,6 @@ The following is the default configuration used by Iroha.
     "TRUSTED_PEERS": null,
     "COMMIT_TIME_LIMIT_MS": 4000,
     "MAX_TRANSACTIONS_IN_BLOCK": 512,
-    "TRANSACTION_LIMITS": {
-      "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 4194304
-    },
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
@@ -104,6 +100,10 @@ The following is the default configuration used by Iroha.
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
+    },
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 4194304
     },
     "WASM_RUNTIME_CONFIG": {
       "FUEL_LIMIT": 23000000,
@@ -455,10 +455,6 @@ Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via envir
   "KEY_PAIR": null,
   "MAX_TRANSACTIONS_IN_BLOCK": 512,
   "PEER_ID": null,
-  "TRANSACTION_LIMITS": {
-    "max_instruction_number": 4096,
-    "max_wasm_size_bytes": 4194304
-  },
   "TRUSTED_PEERS": null
 }
 ```
@@ -541,19 +537,6 @@ Has type `Option<PeerId>`[^1]. Can be configured via environment variable `SUMER
 
 ```json
 null
-```
-
-### `sumeragi.transaction_limits`
-
-The limits to which transactions must adhere
-
-Has type `Option<TransactionLimits>`[^1]. Can be configured via environment variable `SUMERAGI_TRANSACTION_LIMITS`
-
-```json
-{
-  "max_instruction_number": 4096,
-  "max_wasm_size_bytes": 4194304
-}
 ```
 
 ### `sumeragi.trusted_peers`
@@ -726,6 +709,10 @@ Has type `Option<wsv::ConfigurationProxy>`[^1]. Can be configured via environmen
     "max": 128,
     "min": 1
   },
+  "TRANSACTION_LIMITS": {
+    "max_instruction_number": 4096,
+    "max_wasm_size_bytes": 4194304
+  },
   "WASM_RUNTIME_CONFIG": {
     "FUEL_LIMIT": 23000000,
     "MAX_MEMORY": 524288000
@@ -795,6 +782,19 @@ Has type `Option<LengthLimits>`[^1]. Can be configured via environment variable 
 {
   "max": 128,
   "min": 1
+}
+```
+
+### `wsv.transaction_limits`
+
+Limits that all transactions need to obey, in terms of size
+
+Has type `Option<TransactionLimits>`[^1]. Can be configured via environment variable `WSV_TRANSACTION_LIMITS`
+
+```json
+{
+  "max_instruction_number": 4096,
+  "max_wasm_size_bytes": 4194304
 }
 ```
 

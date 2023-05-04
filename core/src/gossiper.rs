@@ -4,8 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use iroha_config::sumeragi::Configuration;
 use iroha_data_model::transaction::{
-    AcceptedTransaction, Transaction, TransactionLimits, VersionedAcceptedTransaction,
-    VersionedSignedTransaction,
+    AcceptedTransaction, Transaction, VersionedAcceptedTransaction, VersionedSignedTransaction,
 };
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
@@ -43,9 +42,6 @@ pub struct TransactionGossiper {
     network: IrohaNetwork,
     /// Sumearagi
     sumeragi: SumeragiHandle,
-    /// Limits that all transactions need to obey, in terms of size
-    /// of WASM blob and number of instructions.
-    transaction_limits: TransactionLimits,
 }
 
 impl TransactionGossiper {
@@ -68,7 +64,6 @@ impl TransactionGossiper {
             queue,
             sumeragi,
             network,
-            transaction_limits: configuartion.transaction_limits,
             gossip_batch_size: configuartion.gossip_batch_size,
             gossip_period: Duration::from_millis(configuartion.gossip_period_ms),
         }
@@ -111,8 +106,13 @@ impl TransactionGossiper {
 
     fn handle_transaction_gossip(&self, TransactionGossip { txs }: TransactionGossip) {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
+
+        let transaction_limits = self
+            .sumeragi
+            .wsv(|wsv| wsv.config.borrow().transaction_limits);
+
         for tx in txs {
-            match AcceptedTransaction::accept::<false>(tx.into_v1(), &self.transaction_limits) {
+            match AcceptedTransaction::accept::<false>(tx.into_v1(), &transaction_limits) {
                 Ok(tx) => match self.sumeragi.wsv(|wsv| self.queue.push(tx.into(), wsv)) {
                     Ok(_) => {}
                     Err(crate::queue::Failure {

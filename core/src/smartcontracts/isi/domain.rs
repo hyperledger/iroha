@@ -52,7 +52,7 @@ pub mod isi {
 
             account_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.borrow().ident_length_limits)
                 .map_err(Error::from)?;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
@@ -103,7 +103,7 @@ pub mod isi {
             asset_definition
                 .id()
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.borrow().ident_length_limits)
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
@@ -210,7 +210,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
-            let metadata_limits = wsv.config.asset_definition_metadata_limits;
+            let metadata_limits = wsv.config.borrow().asset_definition_metadata_limits;
             wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
                 asset_definition.metadata.insert_with_limits(
                     self.key.clone(),
@@ -264,7 +264,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.domain_metadata_limits;
+            let limits = wsv.config.borrow().domain_metadata_limits;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
                 domain

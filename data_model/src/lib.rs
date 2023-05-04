@@ -215,10 +215,28 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
 pub mod parameter {
     //! Structures, traits and impls related to `Paramater`s.
 
+    use core::borrow::Borrow;
+
     use derive_more::Constructor;
 
     pub use self::model::*;
     use super::*;
+
+    /// Set of parameter names currently used by iroha
+    #[allow(missing_docs)]
+    pub mod default {
+        pub const MAX_TRANSACTIONS_IN_BLOCK: &str = "MaxTransactionsInBlock";
+        pub const BLOCK_TIME: &str = "BlockTime";
+        pub const COMMIT_TIME_LIMIT: &str = "CommitTimeLimit";
+        pub const TRANSACTION_LIMITS: &str = "TransactionLimits";
+        pub const WSV_ASSET_METADATA_LIMITS: &str = "WSVAssetMetadataLimits";
+        pub const WSV_ASSET_DEFINITION_METADATA_LIMITS: &str = "WSVAssetDefinitionMetadataLimits";
+        pub const WSV_ACCOUNT_METADATA_LIMITS: &str = "WSVAccountMetadataLimits";
+        pub const WSV_DOMAIN_METADATA_LIMITS: &str = "WSVDomainMetadataLimits";
+        pub const WSV_IDENT_LENGTH_LIMITS: &str = "WSVIdentLengthLimits";
+        pub const WASM_FUEL_LIMIT: &str = "WASMFuelLimit";
+        pub const WASM_MAX_MEMORY: &str = "WASMMaxMemory";
+    }
 
     #[model]
     pub mod model {
@@ -274,6 +292,18 @@ pub mod parameter {
             /// Current value of the [`Parameter`].
             #[getset(get = "pub")]
             pub val: Value,
+        }
+    }
+
+    impl Borrow<str> for ParameterId {
+        fn borrow(&self) -> &str {
+            self.name.borrow()
+        }
+    }
+
+    impl Borrow<str> for Parameter {
+        fn borrow(&self) -> &str {
+            self.id.borrow()
         }
     }
 
@@ -368,6 +398,70 @@ pub mod parameter {
         }
     }
 
+    /// Convenience tool for setting parameters
+    #[derive(Default)]
+    pub struct ParametersBuilder {
+        parameters: Vec<Parameter>,
+    }
+
+    /// Error associated with parameters builder
+    #[derive(From, Debug, Display, Copy, Clone)]
+    pub enum ParametersBuilderError {
+        /// Error emerged during parsing of parameter id
+        Parse(ParseError),
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for ParametersBuilderError {}
+
+    impl ParametersBuilder {
+        /// Construct [`Self`]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Add [`Parameter`] to self
+        ///
+        /// # Errors
+        /// - [`ParameterId`] parsing failed
+        pub fn add_parameter(
+            mut self,
+            parameter_id: &str,
+            val: impl Into<Value>,
+        ) -> Result<Self, ParametersBuilderError> {
+            let parameter = Parameter {
+                id: parameter_id.parse()?,
+                val: val.into(),
+            };
+            self.parameters.push(parameter);
+            Ok(self)
+        }
+
+        /// Create sequence isi for setting parameters
+        pub fn into_set_parameters(self) -> isi::SequenceBox {
+            isi::SequenceBox {
+                instructions: self
+                    .parameters
+                    .into_iter()
+                    .map(isi::SetParameterBox::new)
+                    .map(Into::into)
+                    .collect(),
+            }
+        }
+
+        /// Create sequence isi for creating parameters
+        pub fn into_create_parameters(self) -> isi::SequenceBox {
+            isi::SequenceBox {
+                instructions: self
+                    .parameters
+                    .into_iter()
+                    .map(isi::NewParameterBox::new)
+                    .map(Into::into)
+                    .collect(),
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -404,27 +498,20 @@ pub mod parameter {
         fn test_parameter_serialize_deserialize_consistent() {
             let parameters = [
                 Parameter::new(
-                    ParameterId {
-                        name: Name::from_str("TransactionLimits").expect("Failed to parse `Name`"),
-                    },
+                    ParameterId::from_str("TransactionLimits")
+                        .expect("Failed to parse `ParameterId`"),
                     Value::TransactionLimits(TransactionLimits::new(42, 24)),
                 ),
                 Parameter::new(
-                    ParameterId {
-                        name: Name::from_str("MetadataLimits").expect("Failed to parse `Name`"),
-                    },
+                    ParameterId::from_str("MetadataLimits").expect("Failed to parse `ParameterId`"),
                     Value::MetadataLimits(MetadataLimits::new(42, 24)),
                 ),
                 Parameter::new(
-                    ParameterId {
-                        name: Name::from_str("LengthLimits").expect("Failed to parse `Name`"),
-                    },
+                    ParameterId::from_str("LengthLimits").expect("Failed to parse `ParameterId`"),
                     Value::LengthLimits(LengthLimits::new(24, 42)),
                 ),
                 Parameter::new(
-                    ParameterId {
-                        name: Name::from_str("Int").expect("Failed to parse `Name`"),
-                    },
+                    ParameterId::from_str("Int").expect("Failed to parse `ParameterId`"),
                     Value::Numeric(NumericValue::U64(42)),
                 ),
             ];

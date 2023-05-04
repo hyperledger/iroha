@@ -80,7 +80,7 @@ pub mod isi {
 
             domain_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.borrow().ident_length_limits)
                 .map_err(Error::from)?;
 
             wsv.modify_world(|world| {
@@ -335,7 +335,7 @@ pub mod isi {
         Ok(())
     }
 
-    impl Execute for SetParameter<Parameter> {
+    impl Execute for SetParameter {
         type Error = Error;
 
         #[metrics(+"set_parameter")]
@@ -357,7 +357,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for NewParameter<Parameter> {
+    impl Execute for NewParameter {
         type Error = Error;
 
         #[metrics(+"new_parameter")]

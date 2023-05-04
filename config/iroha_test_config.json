@@ -34,10 +34,6 @@
     ],
     "COMMIT_TIME_LIMIT_MS": 2000,
     "MAX_TRANSACTIONS_IN_BLOCK": 8192,
-    "TRANSACTION_LIMITS": {
-      "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 4194304
-    },
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000,
@@ -99,6 +95,10 @@
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
+    },
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 4194304
     },
     "WASM_RUNTIME_CONFIG": {
       "FUEL_LIMIT": 1000000,

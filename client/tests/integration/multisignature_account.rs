@@ -12,8 +12,8 @@ use super::Configuration;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
-    let (_rt, peer, iroha_client) = <PeerBuilder>::new().with_port(10_605).start_with_runtime();
-    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+    let (_rt, peer, client) = <PeerBuilder>::new().with_port(10_605).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -26,7 +26,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
         IdBox::AccountId(account_id.clone()),
     );
 
-    iroha_client.submit_all(vec![create_asset.into(), add_signatory.into()])?;
+    client.submit_all(vec![create_asset.into(), add_signatory.into()])?;
     thread::sleep(pipeline_time * 2);
     //When
     let quantity: u32 = 200;

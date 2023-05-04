@@ -2,6 +2,7 @@
 
 use std::{str::FromStr as _, thread};
 
+use eyre::Result;
 use iroha_client::client::transaction;
 use iroha_data_model::prelude::*;
 use test_network::*;
@@ -10,21 +11,17 @@ use super::Configuration;
 
 #[ignore = "ignore, more in #2851"]
 #[test]
-fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
-    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    iroha_client
-        .submit(create_asset)
-        .expect("Failed to prepare state.");
-
-    thread::sleep(pipeline_time * 2);
+    client.submit_blocking(create_asset)?;
 
     //When
     let quantity: u32 = 200;
@@ -33,7 +30,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let mint_not_existed_asset = MintBox::new(
         quantity.to_value(),
         IdBox::AssetId(AssetId::new(
-            AssetDefinitionId::from_str("foo#wonderland").expect("Valid"),
+            AssetDefinitionId::from_str("foo#wonderland")?,
             account_id.clone(),
         )),
     );
@@ -47,21 +44,16 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
             &mint_not_existed_asset
         };
         let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
-        let transaction = iroha_client
-            .build_transaction(instructions, UnlimitedMetadata::new())
-            .expect("Failed to create transaction");
-        iroha_client
-            .submit_transaction(transaction)
-            .expect("Failed to submit transaction");
+        let transaction = client.build_transaction(instructions, UnlimitedMetadata::new())?;
+        client.submit_transaction(transaction)?;
     }
     thread::sleep(pipeline_time * 5);
 
-    let transactions = iroha_client
+    let transactions = client
         .request_with_pagination(
             transaction::by_account_id(account_id.clone()),
             Pagination::new(Some(1), Some(50)),
-        )
-        .expect("Failed to get transaction history")
+        )?
         .only_output();
     assert_eq!(transactions.len(), 50);
 
@@ -72,4 +64,5 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
         assert!(tx.payload().creation_time >= prev_creation_time);
         prev_creation_time = tx.payload().creation_time;
     }
+    Ok(())
 }

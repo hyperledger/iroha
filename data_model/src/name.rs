@@ -2,7 +2,7 @@
 //! and related implementations and trait implementations.
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{ops::RangeInclusive, str::FromStr};
+use core::{borrow::Borrow, ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
 use iroha_data_model_derive::model;
@@ -92,6 +92,12 @@ impl Name {
 
 impl AsRef<str> for Name {
     fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl Borrow<str> for Name {
+    fn borrow(&self) -> &str {
         self.0.as_ref()
     }
 }

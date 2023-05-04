@@ -12,7 +12,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::{collections::btree_set, time::Duration};
 
-use derive_more::{Constructor, DebugCustom, Display};
+use derive_more::{DebugCustom, Display};
 use getset::Getters;
 use iroha_crypto::{Hash, SignatureOf, SignatureVerificationFail, SignaturesOf};
 use iroha_data_model_derive::model;
@@ -35,6 +35,10 @@ pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
+
+/// Default transaction limits
+pub const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
+    TransactionLimits::new(DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES);
 
 /// Trait for basic transaction operations
 pub trait Transaction {
@@ -227,7 +231,6 @@ pub mod model {
         Ord,
         Hash,
         Getters,
-        Constructor,
         Decode,
         Encode,
         Deserialize,
@@ -363,6 +366,16 @@ pub mod model {
         pub payload: TransactionPayload,
         /// Signatures for this transaction.
         pub signatures: SignaturesOf<TransactionPayload>,
+    }
+}
+
+impl TransactionLimits {
+    /// Construct [`Self`]
+    pub const fn new(max_instruction_number: u64, max_wasm_size_bytes: u64) -> Self {
+        Self {
+            max_instruction_number,
+            max_wasm_size_bytes,
+        }
     }
 }
 

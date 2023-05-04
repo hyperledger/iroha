@@ -101,13 +101,13 @@ impl TryFrom<SignedQuery> for VerifiedQuery {
 
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_instructions(
-    iroha_cfg: Configuration,
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction = AcceptedTransaction::accept::<false>(transaction, &iroha_cfg.sumeragi.transaction_limits)
+    let transaction_limits = sumeragi.wsv(|wsv| wsv.config.borrow().transaction_limits);
+    let transaction = AcceptedTransaction::accept::<false>(transaction, &transaction_limits)
         .map_err(Error::AcceptTransaction)?
         .into();
     sumeragi
@@ -550,10 +550,10 @@ impl Torii {
             .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
 
         let post_router = warp::post()
-            .and(endpoint4(
+            .and(endpoint3(
                 handle_instructions,
                 warp::path(uri::TRANSACTION)
-                    .and(add_state!(self.iroha_cfg, self.queue, self.sumeragi))
+                    .and(add_state!(self.queue, self.sumeragi))
                     .and(warp::body::content_length_limit(
                         self.iroha_cfg.torii.max_content_len.into(),
                     ))

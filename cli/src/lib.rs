@@ -26,8 +26,8 @@ use iroha_core::{
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::isi::Registrable as _,
-    sumeragi::SumeragiHandle,
-    tx::{PeerId, TransactionValidator},
+    sumeragi::{SumeragiHandle, SumeragiStartArgs},
+    tx::PeerId,
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
@@ -245,7 +245,7 @@ impl Iroha {
         )?;
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
-        let transaction_validator = TransactionValidator::new(config.sumeragi.transaction_limits);
+        let transaction_validator = wsv.transaction_validator();
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
@@ -271,18 +271,16 @@ impl Iroha {
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
-        // TODO: No function needs 10 parameters. It should accept one struct.
-        let sumeragi = SumeragiHandle::start(
-            &config.sumeragi,
-            events_sender.clone(),
+        let sumeragi = SumeragiHandle::start(SumeragiStartArgs {
+            configuration: &config.sumeragi,
+            events_sender: events_sender.clone(),
             wsv,
-            transaction_validator,
-            Arc::clone(&queue),
-            Arc::clone(&kura),
-            network.clone(),
-            genesis,
-            &block_hashes,
-        );
+            queue: Arc::clone(&queue),
+            kura: Arc::clone(&kura),
+            network: network.clone(),
+            genesis_network: genesis,
+            block_hashes: &block_hashes,
+        });
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,

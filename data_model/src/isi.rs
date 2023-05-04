@@ -275,23 +275,17 @@ pub mod model {
     /// Generic instruction for setting a chain-wide config parameter.
     #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
     #[getset(get = "pub")]
-    pub struct SetParameter<P>
-    where
-        P: Identifiable,
-    {
+    pub struct SetParameter {
         /// Parameter to be changed.
-        pub parameter: P,
+        pub parameter: Parameter,
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
     #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
     #[getset(get = "pub")]
-    pub struct NewParameter<P>
-    where
-        P: Identifiable,
-    {
+    pub struct NewParameter {
         /// Parameter to be changed.
-        pub parameter: P,
+        pub parameter: Parameter,
     }
 
     /// Generic instruction for upgrading runtime objects.

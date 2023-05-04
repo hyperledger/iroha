@@ -5,22 +5,31 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path}
 use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{view, Documented, Proxy};
 use iroha_crypto::prelude::*;
-use iroha_data_model::{prelude::*, transaction};
+use iroha_data_model::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// Default Amount of time peer waits for transactions before creating a block.
-pub const DEFAULT_BLOCK_TIME_MS: u64 = 2000;
-/// Default amount of time allocated for voting on a block before a peer can ask for a view change.
-pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
-const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
-const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
-const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
-const DEFAULT_MAX_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(9);
+use self::default::*;
 
-/// Default estimation of consensus duration
-#[allow(clippy::integer_division)]
-pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
-    DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
+/// Module with a set of default values.
+pub mod default {
+    /// Default number of miliseconds the peer waits for transactions before creating a block.
+    pub const DEFAULT_BLOCK_TIME_MS: u64 = 2000;
+    /// Default amount of time allocated for voting on a block before a peer can ask for a view change.
+    pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
+    /// Unused const. Should be removed in the future.
+    pub const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
+    /// Default duration in ms between every transaction gossip.
+    pub const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
+    /// Default maximum number of transactions sent in single gossip message.
+    pub const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
+    /// Default maximum number of transactions in block.
+    pub const DEFAULT_MAX_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(9);
+
+    /// Default estimation of consensus duration.
+    #[allow(clippy::integer_division)]
+    pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
+        DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
+}
 
 // Generate `ConfigurationView` without keys
 view! {
@@ -45,8 +54,6 @@ view! {
         pub commit_time_limit_ms: u64,
         /// The upper limit of the number of transactions per block.
         pub max_transactions_in_block: u32,
-        /// The limits to which transactions must adhere
-        pub transaction_limits: TransactionLimits,
         /// Buffer capacity of actor's MPSC channel
         pub actor_channel_capacity: u32,
         /// max number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
@@ -68,10 +75,6 @@ impl Default for ConfigurationProxy {
             trusted_peers: None,
             block_time_ms: Some(DEFAULT_BLOCK_TIME_MS),
             commit_time_limit_ms: Some(DEFAULT_COMMIT_TIME_LIMIT_MS),
-            transaction_limits: Some(TransactionLimits::new(
-                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-            )),
             actor_channel_capacity: Some(DEFAULT_ACTOR_CHANNEL_CAPACITY),
             gossip_batch_size: Some(DEFAULT_GOSSIP_BATCH_SIZE),
             gossip_period_ms: Some(DEFAULT_GOSSIP_PERIOD_MS),
@@ -200,10 +203,6 @@ pub mod tests {
              block_time_ms in prop::option::of(Just(DEFAULT_BLOCK_TIME_MS)),
              trusted_peers in Just(None),
              commit_time_limit_ms in prop::option::of(Just(DEFAULT_COMMIT_TIME_LIMIT_MS)),
-             transaction_limits in prop::option::of(Just(TransactionLimits::new(
-                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-            ))),
              actor_channel_capacity in prop::option::of(Just(DEFAULT_ACTOR_CHANNEL_CAPACITY)),
              gossip_batch_size in prop::option::of(Just(DEFAULT_GOSSIP_BATCH_SIZE)),
              gossip_period_ms in prop::option::of(Just(DEFAULT_GOSSIP_PERIOD_MS)),
@@ -217,7 +216,6 @@ pub mod tests {
                 block_time_ms,
                 trusted_peers,
                 commit_time_limit_ms,
-                transaction_limits,
                 actor_channel_capacity,
                 gossip_batch_size,
                 gossip_period_ms,

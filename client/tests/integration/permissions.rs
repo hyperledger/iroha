@@ -2,6 +2,7 @@
 
 use std::{str::FromStr as _, thread};
 
+use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use test_network::{PeerBuilder, *};
@@ -17,8 +18,8 @@ fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> 
 #[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_require_registration_before_grant() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
-    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Given
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
@@ -31,20 +32,18 @@ fn permissions_require_registration_before_grant() {
 
     // We shouldn't be able to grant unregistered permission tokens
     // or roles containing unregistered permission tokens
-    assert!(iroha_client
-        .submit_blocking(grant_permission.clone())
-        .is_err());
-    assert!(iroha_client.submit_blocking(register_role.clone()).is_err());
+    assert!(client.submit_blocking(grant_permission.clone()).is_err());
+    assert!(client.submit_blocking(register_role.clone()).is_err());
 
     let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
         token.definition_id().clone(),
     ));
 
-    iroha_client.submit_blocking(register_permission).unwrap();
+    client.submit_blocking(register_permission).unwrap();
 
     // Should be okay after registering the token id.
-    assert!(iroha_client.submit_blocking(grant_permission).is_ok());
-    assert!(iroha_client.submit_blocking(register_role).is_ok());
+    assert!(client.submit_blocking(grant_permission).is_ok());
+    assert!(client.submit_blocking(register_role).is_ok());
 }
 
 #[ignore = "ignore, more in #2851"]
@@ -160,33 +159,25 @@ fn permissions_disallow_asset_burn() {
 
 #[ignore = "ignore, more in #2851"]
 #[test]
-fn account_can_query_only_its_own_domain() {
-    let (_rt, _not_drop, iroha_client) =
-        <PeerBuilder>::new().with_port(10_740).start_with_runtime();
-    let pipeline_time = Configuration::pipeline_time();
+fn account_can_query_only_its_own_domain() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_740).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Given
-    thread::sleep(pipeline_time * 2);
-
-    let domain_id: DomainId = "wonderland".parse().expect("Valid");
-    let new_domain_id: DomainId = "wonderland2".parse().expect("Valid");
+    let domain_id: DomainId = "wonderland".parse()?;
+    let new_domain_id: DomainId = "wonderland2".parse()?;
     let register_domain = RegisterBox::new(Domain::new(new_domain_id.clone()));
 
-    iroha_client
-        .submit(register_domain)
-        .expect("Failed to prepare state.");
-
-    thread::sleep(pipeline_time * 2);
+    client.submit_blocking(register_domain)?;
 
     // Alice can query the domain in which her account exists.
-    assert!(iroha_client
-        .request(client::domain::by_id(domain_id))
-        .is_ok());
+    assert!(client.request(client::domain::by_id(domain_id)).is_ok());
 
     // Alice cannot query other domains.
-    assert!(iroha_client
+    assert!(client
         .request(client::domain::by_id(new_domain_id))
         .is_err());
+    Ok(())
 }
 
 #[ignore = "ignore, more in #2851"]
