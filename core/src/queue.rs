@@ -416,8 +416,8 @@ mod tests {
     ) -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build();
-        let account = Account::new(account_id, signatures).build();
+        let mut domain = Domain::new(domain_id).build(account_id.clone());
+        let account = Account::new(account_id.clone(), signatures).build(account_id);
         assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
@@ -493,14 +493,14 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build(alice_id.clone());
             let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
             let mut alice = Account::new(
-                alice_id,
+                alice_id.clone(),
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
-            .build();
+            .build(alice_id);
             alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
@@ -520,7 +520,8 @@ mod tests {
                 )
                 .into(),
             );
-            let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
+            let bob =
+                Account::new(bob_id.clone(), [bob_key_pair.public_key().clone()]).build(bob_id);
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
             Arc::new(WorldStateView::new(
@@ -579,14 +580,14 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build(alice_id.clone());
             let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
             let mut alice = Account::new(
-                alice_id,
+                alice_id.clone(),
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
-            .build();
+            .build(alice_id);
             alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(
@@ -606,7 +607,8 @@ mod tests {
                 )
                 .into(),
             );
-            let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
+            let bob =
+                Account::new(bob_id.clone(), [bob_key_pair.public_key().clone()]).build(bob_id);
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
             Arc::new(WorldStateView::new(
@@ -663,9 +665,10 @@ mod tests {
 
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-            let mut account = Account::new(account_id, [key_pair.public_key().clone()]).build();
+            let mut domain = Domain::new(domain_id.clone()).build(account_id.clone());
+            let mut account =
+                Account::new(account_id.clone(), [key_pair.public_key().clone()]).build(account_id);
             // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
             account.signature_check_condition =
                 SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32.into()));
@@ -702,13 +705,13 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build(account_id.clone());
             let mut account = Account::new(
-                account_id,
+                account_id.clone(),
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
-            .build();
+            .build(account_id);
             account.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
                     EvaluatesTo::new_unchecked(

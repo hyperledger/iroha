@@ -426,12 +426,14 @@ impl Iroha {
 }
 
 fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
-    Account::new(AccountId::genesis(), [public_key]).build()
+    let genesis_account_id = AccountId::genesis();
+    Account::new(genesis_account_id.clone(), [public_key]).build(genesis_account_id)
 }
 
 fn genesis_domain(configuration: &Configuration) -> Domain {
+    let genesis_account_id = AccountId::genesis();
     let account_public_key = &configuration.genesis.account_public_key;
-    let mut domain = Domain::new(DomainId::genesis()).build();
+    let mut domain = Domain::new(DomainId::genesis()).build(genesis_account_id);
 
     domain.accounts.insert(
         <Account as Identifiable>::Id::genesis(),

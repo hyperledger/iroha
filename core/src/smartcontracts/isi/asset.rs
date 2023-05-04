@@ -16,13 +16,14 @@ impl Registrable for NewAssetDefinition {
 
     #[must_use]
     #[inline]
-    fn build(self) -> Self::Target {
+    fn build(self, authority: AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             value_type: self.value_type,
             mintable: self.mintable,
             logo: self.logo,
             metadata: self.metadata,
+            owned_by: authority,
         }
     }
 }
@@ -112,7 +113,7 @@ pub mod isi {
         type Error = Error;
 
         fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-            wsv.modify_asset_definition_entry(self.object.id(), |entry| {
+            wsv.modify_asset_definition(self.object.id(), |entry| {
                 entry.owned_by = self.destination_id.clone();
 
                 Ok(AssetDefinitionEvent::OwnerChanged(
@@ -389,14 +390,13 @@ pub mod isi {
         wsv: &WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<AssetDefinition, Error> {
-        let asset_definition = wsv.asset_definition_entry(definition_id)?;
-        let definition = asset_definition.definition;
-        if definition.value_type == expected_value_type {
-            Ok(definition)
+        let asset_definition = wsv.asset_definition(definition_id)?;
+        if asset_definition.value_type == expected_value_type {
+            Ok(asset_definition)
         } else {
             Err(TypeError::from(Mismatch {
                 expected: expected_value_type,
-                actual: definition.value_type,
+                actual: asset_definition.value_type,
             })
             .into())
         }
@@ -408,12 +408,12 @@ pub mod isi {
         wsv: &WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
-        let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
-        match definition.mintable {
+        let asset_definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
+        match asset_definition.mintable {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
-            Mintable::Once => wsv.modify_asset_definition_entry(definition_id, |entry| {
-                forbid_minting(&mut entry.definition)?;
+            Mintable::Once => wsv.modify_asset_definition(definition_id, |entry| {
+                forbid_minting(entry)?;
                 Ok(AssetDefinitionEvent::MintabilityChanged(
                     definition_id.clone(),
                 ))
@@ -430,15 +430,10 @@ pub mod isi {
     ) -> Result<(), Error> {
         if destination.definition_id != source.definition_id {
             let expected = wsv
-                .asset_definition_entry(&destination.definition_id)?
-                .definition
+                .asset_definition(&destination.definition_id)?
                 .id()
                 .clone();
-            let actual = wsv
-                .asset_definition_entry(&source.definition_id)?
-                .definition
-                .id()
-                .clone();
+            let actual = wsv.asset_definition(&source.definition_id)?.id().clone();
             return Err(TypeError::from(Mismatch { expected, actual }).into());
         }
         assert_asset_type(&source.definition_id, wsv, value_type)?;
@@ -476,8 +471,8 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for asset_definition_entry in domain.asset_definitions.values() {
-                    vec.push(asset_definition_entry.definition.clone())
+                for asset_definition in domain.asset_definitions.values() {
+                    vec.push(asset_definition.clone())
                 }
             }
             Ok(vec)
@@ -494,7 +489,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
             wsv.asset(&id).map_err(|asset_err| {
-                if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                     definition_err.into()
                 } else {
                     asset_err
@@ -512,9 +507,9 @@ pub mod query {
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
-            let entry = wsv.asset_definition_entry(&id).map_err(Error::from)?;
+            let entry = wsv.asset_definition(&id).map_err(Error::from)?;
 
-            Ok(entry.definition)
+            Ok(entry)
         }
     }
 
@@ -641,7 +636,7 @@ pub mod query {
             let value = wsv
                 .asset(&id)
                 .map_err(|asset_err| {
-                    if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                    if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                         Error::Find(Box::new(definition_err))
                     } else {
                         asset_err
@@ -682,7 +677,7 @@ pub mod query {
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
-                if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                     Error::Find(Box::new(definition_err))
                 } else {
                     asset_err
@@ -715,8 +710,8 @@ pub mod query {
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
-            let entry = wsv.asset_definition_entry(&asset_definition_id)?;
-            Ok(entry.owned_by() == &account_id)
+            let entry = wsv.asset_definition(&asset_definition_id)?;
+            Ok(entry.owned_by == account_id)
         }
     }
 }
