@@ -194,11 +194,14 @@ mod genesis {
     use std::path::PathBuf;
 
     use clap::{Parser, Subcommand};
+    use iroha_config::{sumeragi::default::*, wasm::default::*, wsv::default::*};
     use iroha_data_model::{
         asset::AssetValueType,
         isi::{MintBox, RegisterBox},
         metadata::Limits,
+        parameter::{default::*, ParametersBuilder},
         prelude::AssetId,
+        transaction::DEFAULT_TRANSACTION_LIMITS,
         validator::Validator,
         IdBox,
     };
@@ -355,36 +358,23 @@ mod genesis {
         )
         .into();
 
-        let parameter_defaults: Vec<_> = [
-            Parameter::from_str("?BlockSyncGossipPeriod=10000")?,
-            Parameter::from_str("?NetworkActorChannelCapacity=100")?,
-            Parameter::from_str("?MaxTransactionsInBlock=512")?,
-            Parameter::from_str("?MaxTransactionsInQueue=65536")?,
-            Parameter::from_str("?TransactionTimeToLive=86400000")?,
-            Parameter::from_str("?FutureThreshold=1000")?,
-            Parameter::from_str("?BlockTime=1000")?,
-            Parameter::from_str("?BlockSyncActorChannelCapacity=100")?,
-            Parameter::from_str("?CommitTimeLimit=2000")?,
-            Parameter::from_str("?TransactionLimits=4096,4194304_TL")?,
-            Parameter::from_str("?GossipBatchSize=500")?,
-            Parameter::from_str("?SumeragiGossipPeriod=1000")?,
-            Parameter::from_str("?SumeragiActorChannelCapacity=100")?,
-            Parameter::from_str("?MaxTransactionSize=32768")?,
-            Parameter::from_str("?MaxContentLen=16384000")?,
-            Parameter::from_str("?WSVAssetMetadataLimits=1048576,4096_ML")?,
-            Parameter::from_str("?WSVAssetDefinitionMetadataLimits=1048576,4096_ML")?,
-            Parameter::from_str("?WSVAccountMetadataLimits=1048576,4096_ML")?,
-            Parameter::from_str("?WSVDomainMetadataLimits=1048576,4096_ML")?,
-            Parameter::from_str("?WSVIdentLengthLimits=1,128_LL")?,
-            Parameter::from_str("?WASMFuelLimit=1000000")?,
-            Parameter::from_str("?WASMMaxMemory=524288000")?,
-        ]
-        .into_iter()
-        .map(NewParameterBox::new)
-        .map(Into::into)
-        .collect();
+        let parameter_defaults = ParametersBuilder::new()
+            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, DEFAULT_MAX_TRANSACTIONS_IN_BLOCK)?
+            .add_parameter(BLOCK_TIME, DEFAULT_BLOCK_TIME_MS)?
+            .add_parameter(COMMIT_TIME_LIMIT, DEFAULT_COMMIT_TIME_LIMIT_MS)?
+            .add_parameter(TRANSACTION_LIMITS, DEFAULT_TRANSACTION_LIMITS)?
+            .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+            .add_parameter(
+                WSV_ASSET_DEFINITION_METADATA_LIMITS,
+                DEFAULT_METADATA_LIMITS.to_value(),
+            )?
+            .add_parameter(WSV_ACCOUNT_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+            .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+            .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
+            .add_parameter(WASM_FUEL_LIMIT, DEFAULT_FUEL_LIMIT)?
+            .add_parameter(WASM_MAX_MEMORY, DEFAULT_MAX_MEMORY)?
+            .into_create_parameters();
 
-        let param_seq = SequenceBox::new(parameter_defaults);
         let grant_role = GrantBox::new(role_id, alice_id);
 
         genesis.transactions[0].isi.push(mint.into());
@@ -399,7 +389,7 @@ mod genesis {
             .push(grant_permission_to_set_parameters.into());
         genesis.transactions[0].isi.push(register_role.into());
         genesis.transactions[0].isi.push(grant_role.into());
-        genesis.transactions[0].isi.push(param_seq.into());
+        genesis.transactions[0].isi.push(parameter_defaults.into());
         genesis.transactions[0]
             .isi
             .push(register_user_metadata_access);

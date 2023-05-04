@@ -216,7 +216,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
 
-            let account_metadata_limits = wsv.config.account_metadata_limits;
+            let account_metadata_limits = wsv.config.borrow().account_metadata_limits;
 
             wsv.modify_account(&account_id, |account| {
                 account.metadata.insert_with_limits(

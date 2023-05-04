@@ -57,7 +57,7 @@ pub mod isi {
             }
 
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
-            let asset_metadata_limits = wsv.config.asset_metadata_limits;
+            let asset_metadata_limits = wsv.config.borrow().asset_metadata_limits;
 
             wsv.modify_asset(&asset_id, |asset| {
                 let store: &mut Metadata = asset

@@ -132,7 +132,7 @@ async fn main() -> Result<(), color_eyre::Report> {
                     .as_ref(),
             )?,
             Some(&config.genesis),
-            &config.sumeragi.transaction_limits,
+            &config.wsv.transaction_limits,
         )
         .wrap_err("Failed to initialize genesis.")?
     } else {

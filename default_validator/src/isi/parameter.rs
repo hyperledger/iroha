@@ -69,7 +69,7 @@ pub mod tokens {
     }
 }
 
-impl DefaultValidate for NewParameter<Parameter> {
+impl DefaultValidate for NewParameter {
     fn default_validate<Q>(
         &self,
         authority: &<Account as Identifiable>::Id,
@@ -84,7 +84,7 @@ impl DefaultValidate for NewParameter<Parameter> {
     }
 }
 
-impl DefaultValidate for SetParameter<Parameter> {
+impl DefaultValidate for SetParameter {
     fn default_validate<Q>(
         &self,
         authority: &<Account as Identifiable>::Id,

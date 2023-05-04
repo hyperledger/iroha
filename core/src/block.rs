@@ -13,7 +13,7 @@
 use std::error::Error;
 
 use eyre::{bail, eyre, Context, Result};
-use iroha_config::sumeragi::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{block::*, events::prelude::*, transaction::prelude::*};
 use parity_scale_codec::{Decode, Encode};

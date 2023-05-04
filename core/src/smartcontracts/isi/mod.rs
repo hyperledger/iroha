@@ -442,7 +442,7 @@ impl Execute for SetParameterBox {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
         let parameter = self.parameter.evaluate(&context)?;
-        SetParameter::<Parameter>::new(parameter).execute(authority, wsv)
+        SetParameter::new(parameter).execute(authority, wsv)
     }
 }
 
@@ -452,7 +452,7 @@ impl Execute for NewParameterBox {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
         let parameter = self.parameter.evaluate(&context)?;
-        NewParameter::<Parameter>::new(parameter).execute(authority, wsv)
+        NewParameter::new(parameter).execute(authority, wsv)
     }
 }
 
