@@ -41,6 +41,8 @@ pub struct Sumeragi {
     /// Limits that all transactions need to obey, in terms of size
     /// of WASM blob and number of instructions.
     pub transaction_limits: TransactionLimits,
+    /// The maximum number of transactions in the block
+    pub max_txs_in_block: usize,
     /// [`TransactionValidator`] instance that we use
     pub transaction_validator: TransactionValidator,
     /// Kura instance used for IO
@@ -133,6 +135,7 @@ impl Sumeragi {
             gossip_batch_size: configuration.gossip_batch_size,
             gossip_period: Duration::from_millis(configuration.gossip_period_ms),
             message_receiver: Mutex::new(message_receiver),
+            max_txs_in_block: configuration.max_transactions_in_block as usize,
             debug_force_soft_fork: soft_fork,
         }
     }
@@ -701,7 +704,7 @@ fn process_message_independent(
     match role {
         Role::Leader => {
             if voting_block.is_none() {
-                let cache_full = state.transaction_cache.len() >= sumeragi.queue.txs_in_block;
+                let cache_full = state.transaction_cache.len() >= sumeragi.max_txs_in_block;
                 let deadline_reached = round_start_time.elapsed() > sumeragi.block_time;
                 let cache_non_empty = !state.transaction_cache.is_empty();
 
@@ -924,6 +927,7 @@ pub(crate) fn run(
         let mut expired_transactions = Vec::new();
         sumeragi.queue.get_transactions_for_block(
             &state.wsv,
+            sumeragi.max_txs_in_block,
             &mut state.transaction_cache,
             &mut expired_transactions,
         );
