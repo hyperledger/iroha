@@ -4,7 +4,7 @@ use std::{str::FromStr as _, time::Duration};
 
 use eyre::{Context, Result};
 use iroha_client::client::{self, Client};
-use iroha_config::sumeragi::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use iroha_logger::info;
 use test_network::*;

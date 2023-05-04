@@ -479,77 +479,22 @@
         "Sequence": [
           {
             "NewParameter": {
-              "Parameter": "?BlockSyncGossipPeriod=10000"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?NetworkActorChannelCapacity=100"
-            }
-          },
-          {
-            "NewParameter": {
               "Parameter": "?MaxTransactionsInBlock=512"
             }
           },
           {
             "NewParameter": {
-              "Parameter": "?MaxTransactionsInQueue=65536"
+              "Parameter": "?BlockTime=2000"
             }
           },
           {
             "NewParameter": {
-              "Parameter": "?TransactionTimeToLive=86400000"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?FutureThreshold=1000"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?BlockTime=1000"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?BlockSyncActorChannelCapacity=100"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?CommitTimeLimit=2000"
+              "Parameter": "?CommitTimeLimit=4000"
             }
           },
           {
             "NewParameter": {
               "Parameter": "?TransactionLimits=4096,4194304_TL"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?GossipBatchSize=500"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?SumeragiGossipPeriod=1000"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?SumeragiActorChannelCapacity=100"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?MaxTransactionSize=32768"
-            }
-          },
-          {
-            "NewParameter": {
-              "Parameter": "?MaxContentLen=16384000"
             }
           },
           {
@@ -579,7 +524,7 @@
           },
           {
             "NewParameter": {
-              "Parameter": "?WASMFuelLimit=1000000"
+              "Parameter": "?WASMFuelLimit=23000000"
             }
           },
           {

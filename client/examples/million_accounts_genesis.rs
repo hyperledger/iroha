@@ -46,7 +46,7 @@ fn main_genesis() {
         true,
         generate_genesis(1_000_000_u32),
         Some(&configuration.genesis),
-        &configuration.sumeragi.transaction_limits,
+        &configuration.wsv.transaction_limits,
     )
     .expect("genesis creation failed");
 

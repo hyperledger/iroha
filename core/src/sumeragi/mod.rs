@@ -35,8 +35,7 @@ use self::{
     view_change::{Proof, ProofChain},
 };
 use crate::{
-    block::*, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator, EventsSender,
-    IrohaNetwork, NetworkMessage,
+    block::*, kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage,
 };
 
 /*
@@ -87,7 +86,6 @@ impl SumeragiHandle {
 
         let (
             height,
-            domains,
             genesis_timestamp,
             metric_tx_amounts_counter,
             metric_tx_amounts,
@@ -95,11 +93,6 @@ impl SumeragiHandle {
         ) = self.wsv(|wsv| {
             (
                 wsv.height(),
-                // Not very nice to clone, but this way we don't hold lock
-                wsv.domains()
-                    .iter()
-                    .map(|domain_ref| (domain_ref.key().clone(), domain_ref.value().accounts.len()))
-                    .collect::<Vec<_>>(),
                 wsv.genesis_timestamp(),
                 wsv.metric_tx_amounts_counter.get(),
                 wsv.metric_tx_amounts.get(),
@@ -137,8 +130,6 @@ impl SumeragiHandle {
             last_guard.block_height = block_index;
         }
 
-        self.metrics.domains.set(domains.len() as u64);
-
         let diff_count = metric_tx_amounts_counter - last_guard.metric_tx_amounts_counter;
         let diff_amount_per_count =
             (metric_tx_amounts - last_guard.metric_tx_amounts) / (diff_count as f64);
@@ -157,15 +148,20 @@ impl SumeragiHandle {
                 .set((current_time().as_millis() - timestamp) as u64)
         };
 
-        self.metrics.domains.set(domains.len() as u64);
         self.metrics.connected_peers.set(online_peers_count);
-        for (domain_id, accounts_len) in domains {
-            self.metrics
-                .accounts
-                .get_metric_with_label_values(&[domain_id.name.as_ref()])
-                .wrap_err("Failed to compose domains")?
-                .set(accounts_len as u64);
-        }
+
+        self.wsv(|wsv| -> Result<()> {
+            let domains = wsv.domains();
+            self.metrics.domains.set(domains.len() as u64);
+            for domain_ref in domains {
+                self.metrics
+                    .accounts
+                    .get_metric_with_label_values(&[domain_ref.key().name.as_ref()])
+                    .wrap_err("Failed to compose domains")?
+                    .set(domain_ref.value().accounts.len() as u64);
+            }
+            Ok(())
+        })?;
 
         self.metrics
             .view_changes
@@ -182,7 +178,6 @@ impl SumeragiHandle {
     }
 
     /// Deposit a sumeragi network message.
-    #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
         if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
@@ -194,17 +189,17 @@ impl SumeragiHandle {
     ///
     /// # Panics
     /// May panic if something is of during initialization which is bug.
-    #[allow(clippy::too_many_arguments)]
     pub fn start(
-        configuration: &Configuration,
-        events_sender: EventsSender,
-        wsv: WorldStateView,
-        transaction_validator: TransactionValidator,
-        queue: Arc<Queue>,
-        kura: Arc<Kura>,
-        network: IrohaNetwork,
-        genesis_network: Option<GenesisNetwork>,
-        block_hashes: &[HashOf<VersionedCommittedBlock>],
+        SumeragiStartArgs {
+            configuration,
+            events_sender,
+            wsv,
+            queue,
+            kura,
+            network,
+            genesis_network,
+            block_hashes,
+        }: SumeragiStartArgs,
     ) -> SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
@@ -268,7 +263,6 @@ impl SumeragiHandle {
             commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
             max_txs_in_block: configuration.max_transactions_in_block as usize,
-            transaction_validator,
             kura: Arc::clone(&kura),
             network: network.clone(),
             message_receiver,
@@ -348,4 +342,17 @@ impl VotingBlock {
     pub(crate) fn voted_at(block: PendingBlock, voted_at: Instant) -> VotingBlock {
         VotingBlock { block, voted_at }
     }
+}
+
+/// Arguments for [`SumeragiHandle::start`] function
+#[allow(missing_docs)]
+pub struct SumeragiStartArgs<'args> {
+    pub configuration: &'args Configuration,
+    pub events_sender: EventsSender,
+    pub wsv: WorldStateView,
+    pub queue: Arc<Queue>,
+    pub kura: Arc<Kura>,
+    pub network: IrohaNetwork,
+    pub genesis_network: Option<GenesisNetwork>,
+    pub block_hashes: &'args [HashOf<VersionedCommittedBlock>],
 }

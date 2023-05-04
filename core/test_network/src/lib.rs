@@ -125,7 +125,7 @@ impl TestGenesis for GenesisNetwork {
             submit_genesis,
             genesis,
             Some(&cfg.genesis),
-            &cfg.sumeragi.transaction_limits,
+            &cfg.wsv.transaction_limits,
         )
         .expect("Failed to init genesis")
     }
@@ -146,24 +146,18 @@ impl Network {
     /// and client for connecting to it.
     pub fn start_test_with_runtime(
         n_peers: u32,
-        max_txs_in_block: u32,
         start_port: Option<u16>,
     ) -> (Runtime, Self, Client) {
         let rt = Runtime::test();
-        let (network, client) =
-            rt.block_on(Self::start_test(n_peers, max_txs_in_block, start_port));
+        let (network, client) = rt.block_on(Self::start_test(n_peers, start_port));
         (rt, network, client)
     }
 
     /// Starts network with peers with default configuration and
     /// specified options.  Returns its info and client for connecting
     /// to it.
-    pub async fn start_test(
-        n_peers: u32,
-        max_txs_in_block: u32,
-        start_port: Option<u16>,
-    ) -> (Self, Client) {
-        Self::start_test_with_offline(n_peers, max_txs_in_block, 0, start_port).await
+    pub async fn start_test(n_peers: u32, start_port: Option<u16>) -> (Self, Client) {
+        Self::start_test_with_offline(n_peers, 0, start_port).await
     }
 
     /// Starts network with peers with default configuration and
@@ -171,12 +165,10 @@ impl Network {
     /// to it.
     pub async fn start_test_with_offline_and_set_n_shifts(
         n_peers: u32,
-        max_txs_in_block: u32,
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.sumeragi.max_transactions_in_block = max_txs_in_block;
         configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
         let network = Network::new_with_offline_peers(
             Some(configuration),
@@ -198,17 +190,10 @@ impl Network {
     /// to it.
     pub async fn start_test_with_offline(
         n_peers: u32,
-        max_txs_in_block: u32,
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> (Self, Client) {
-        Self::start_test_with_offline_and_set_n_shifts(
-            n_peers,
-            max_txs_in_block,
-            offline_peers,
-            start_port,
-        )
-        .await
+        Self::start_test_with_offline_and_set_n_shifts(n_peers, offline_peers, start_port).await
     }
 
     /// Adds peer to network and waits for it to start block

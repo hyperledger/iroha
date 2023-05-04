@@ -16,7 +16,10 @@ use std::{
 
 use eyre::{Result, WrapErr};
 use iroha_client::client::Client;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+    prelude::*,
+};
 use serde::Deserialize;
 use test_network::*;
 
@@ -56,10 +59,15 @@ impl Config {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn measure(self) -> Result<Tps> {
         // READY
-        let (_rt, network, _genesis_client) =
-            <Network>::start_test_with_runtime(self.peers, self.max_txs_per_block, None);
+        let (_rt, network, client) = <Network>::start_test_with_runtime(self.peers, None);
         let clients = network.clients();
         wait_for_genesis_committed(&clients, 0);
+
+        client.submit_blocking(
+            ParametersBuilder::new()
+                .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, self.max_txs_per_block)?
+                .into_set_parameters(),
+        )?;
 
         let unit_names = (UnitName::MIN..).take(self.peers as usize);
         let units = clients
@@ -108,7 +116,7 @@ impl Config {
             handle.join().expect("Transaction submitter panicked");
         }
 
-        let blocks_out_of_measure = 1 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
+        let blocks_out_of_measure = 2 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
         let blocks_wsv = network
             .genesis
             .iroha

@@ -7,7 +7,10 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::{collections::BTreeSet, convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::Borrow, collections::BTreeSet, convert::Infallible, fmt::Debug, sync::Arc,
+    time::Duration,
+};
 
 use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
@@ -22,6 +25,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{CommittedBlock, VersionedCommittedBlock},
     isi::error::{InstructionExecutionFailure as Error, MathError},
+    parameter::Parameter,
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
     trigger::action::ActionTrait,
@@ -44,6 +48,7 @@ use crate::{
         },
         wasm, Execute,
     },
+    tx::TransactionValidator,
     DomainsMap, Parameters, PeersIds,
 };
 
@@ -119,7 +124,7 @@ pub struct WorldStateView {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
     /// Configuration of World State View.
-    pub config: Configuration,
+    pub config: std::cell::RefCell<Configuration>,
     /// Blockchain.
     pub block_hashes: std::cell::RefCell<Vec<HashOf<VersionedCommittedBlock>>>,
     /// Hashes of transactions
@@ -139,7 +144,7 @@ impl Clone for WorldStateView {
     fn clone(&self) -> Self {
         Self {
             world: Clone::clone(&self.world),
-            config: self.config,
+            config: self.config.clone(),
             block_hashes: self.block_hashes.clone(),
             transactions: self.transactions.clone(),
             events_buffer: std::cell::RefCell::new(Vec::new()),
@@ -265,7 +270,7 @@ impl WorldStateView {
             }
             Wasm(module) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_configuration(self.config.borrow().wasm_runtime_config)
                     .with_engine(engine)
                     .build()?;
                 wasm_runtime
@@ -282,7 +287,7 @@ impl WorldStateView {
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_configuration(self.config.borrow().wasm_runtime_config)
                     .build()?;
                 wasm_runtime
                     .execute(self, authority, bytes)
@@ -349,7 +354,38 @@ impl WorldStateView {
 
         self.block_hashes.borrow_mut().push(hash);
 
+        self.apply_parameters();
+
         Ok(())
+    }
+
+    fn apply_parameters(&self) {
+        use iroha_data_model::parameter::default::*;
+        macro_rules! update_params {
+            ($ident:ident, $($param:expr => $config:expr),+ $(,)?) => {
+                let mut $ident = self.config.borrow_mut();
+                $(if let Some(param) = self.query_param($param) {
+                    $config = param;
+                })+
+
+            };
+        }
+        update_params! {
+            config,
+            WSV_ASSET_METADATA_LIMITS => config.asset_metadata_limits,
+            WSV_ASSET_DEFINITION_METADATA_LIMITS => config.asset_definition_metadata_limits,
+            WSV_ACCOUNT_METADATA_LIMITS => config.account_metadata_limits,
+            WSV_DOMAIN_METADATA_LIMITS => config.domain_metadata_limits,
+            WSV_IDENT_LENGTH_LIMITS => config.ident_length_limits,
+            WASM_FUEL_LIMIT => config.wasm_runtime_config.fuel_limit,
+            WASM_MAX_MEMORY => config.wasm_runtime_config.max_memory,
+            TRANSACTION_LIMITS => config.transaction_limits,
+        }
+    }
+
+    /// Get transaction validator
+    pub fn transaction_validator(&self) -> TransactionValidator {
+        TransactionValidator::new(self.config.borrow().transaction_limits)
     }
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
@@ -646,7 +682,7 @@ impl WorldStateView {
     pub fn from_configuration(config: Configuration, world: World, kura: Arc<Kura>) -> Self {
         Self {
             world,
-            config,
+            config: std::cell::RefCell::new(config),
             transactions: DashSet::new(),
             block_hashes: std::cell::RefCell::new(Vec::new()),
             events_buffer: std::cell::RefCell::new(Vec::new()),
@@ -845,6 +881,21 @@ impl WorldStateView {
             .iter()
             .map(|param| param.clone())
             .collect::<Vec<Parameter>>()
+    }
+
+    /// Query parameter and convert it to a proper type
+    pub fn query_param<T: TryFrom<Value>, P: core::hash::Hash + Eq + ?Sized>(
+        &self,
+        param: &P,
+    ) -> Option<T>
+    where
+        Parameter: Borrow<P>,
+    {
+        self.world
+            .parameters
+            .get(param)
+            .as_ref()
+            .and_then(|param| param.key().val.clone().try_into().ok())
     }
 
     /// Get `AssetDefinition` immutable view.

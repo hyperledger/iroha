@@ -3,7 +3,10 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+    prelude::*,
+};
 use test_network::*;
 
 use super::Configuration;
@@ -36,13 +39,20 @@ fn test_with_instruction_and_status_and_port(
     should_be: PipelineStatusKind,
     port: u16,
 ) -> Result<()> {
-    let (_rt, network, genesis_client) =
-        <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1, Some(port));
+    let (_rt, network, client) =
+        <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
     let clients = network.clients();
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Configuration::pipeline_time();
+
+    client.submit_blocking(
+        ParametersBuilder::new()
+            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
+            .into_set_parameters(),
+    )?;
+
     // Given
-    let submitter = genesis_client;
+    let submitter = client;
     let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new())?;
     let hash = transaction.hash();
     let mut handles = Vec::new();
