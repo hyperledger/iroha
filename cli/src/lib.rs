@@ -26,7 +26,7 @@ use iroha_core::{
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::isi::Registrable as _,
-    sumeragi::Sumeragi,
+    sumeragi::SumeragiHandle,
     tx::{PeerId, TransactionValidator},
     IrohaNetwork,
 };
@@ -91,7 +91,7 @@ pub struct Iroha {
     /// Queue of transactions
     pub queue: Arc<Queue>,
     /// Sumeragi consensus
-    pub sumeragi: Arc<Sumeragi>,
+    pub sumeragi: SumeragiHandle,
     /// Kura — block storage
     pub kura: Arc<Kura>,
     /// Torii web server
@@ -115,7 +115,7 @@ impl Drop for Iroha {
 }
 
 struct NetworkRelay {
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     block_sync: BlockSynchronizerHandle,
     gossiper: TransactionGossiperHandle,
     network: IrohaNetwork,
@@ -271,25 +271,22 @@ impl Iroha {
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
-        let sumeragi = Arc::new(
-            // TODO: No function needs 10 parameters. It should accept one struct.
-            Sumeragi::new(
-                &config.sumeragi,
-                events_sender.clone(),
-                wsv,
-                transaction_validator,
-                Arc::clone(&queue),
-                Arc::clone(&kura),
-                network.clone(),
-            ),
+        // TODO: No function needs 10 parameters. It should accept one struct.
+        let sumeragi = SumeragiHandle::start(
+            &config.sumeragi,
+            events_sender.clone(),
+            wsv,
+            transaction_validator,
+            Arc::clone(&queue),
+            Arc::clone(&kura),
+            network.clone(),
+            genesis,
+            &block_hashes,
         );
-
-        let sumeragi_thread_handler =
-            Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis, &block_hashes);
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
-            Arc::clone(&sumeragi),
+            sumeragi.clone(),
             Arc::clone(&kura),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
             network.clone(),
@@ -300,14 +297,14 @@ impl Iroha {
             &config.sumeragi,
             network.clone(),
             Arc::clone(&queue),
-            Arc::clone(&sumeragi),
+            sumeragi.clone(),
         )
         .start();
 
         let freeze_status = Arc::new(AtomicBool::new(false));
 
         NetworkRelay {
-            sumeragi: Arc::clone(&sumeragi),
+            sumeragi: sumeragi.clone(),
             block_sync,
             gossiper,
             network: network.clone(),
@@ -322,7 +319,7 @@ impl Iroha {
             Arc::clone(&queue),
             events_sender,
             Arc::clone(&notify_shutdown),
-            Arc::clone(&sumeragi),
+            sumeragi.clone(),
             Arc::clone(&kura),
         );
 
@@ -336,7 +333,7 @@ impl Iroha {
             sumeragi,
             kura,
             torii,
-            thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
+            thread_handlers: vec![kura_thread_handler],
             #[cfg(debug_assertions)]
             freeze_status,
         })
