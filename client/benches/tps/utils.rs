@@ -115,8 +115,7 @@ impl Config {
             .as_ref()
             .expect("Must be some")
             .sumeragi
-            .wsv_mutex_access()
-            .clone();
+            .wsv(Clone::clone);
         let mut blocks = blocks_wsv
             .all_blocks_by_value()
             .into_iter()

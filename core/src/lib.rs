@@ -80,7 +80,7 @@ pub mod handler {
     /// Call shutdown function and join thread on drop
     pub struct ThreadHandler {
         /// Shutdown function: after calling it, the thread must terminate in finite amount of time
-        shutdown: Option<Box<dyn FnOnce() + Send>>,
+        shutdown: Option<Box<dyn FnOnce() + Send + Sync>>,
         handle: Option<JoinHandle<()>>,
     }
 
@@ -88,7 +88,7 @@ pub mod handler {
         /// [`Self`] constructor
         #[must_use]
         #[inline]
-        pub fn new(shutdown: Box<dyn FnOnce() + Send>, handle: JoinHandle<()>) -> Self {
+        pub fn new(shutdown: Box<dyn FnOnce() + Send + Sync>, handle: JoinHandle<()>) -> Self {
             Self {
                 shutdown: Some(shutdown),
                 handle: Some(handle),
