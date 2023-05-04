@@ -11,7 +11,7 @@ use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
-use crate::{queue::Queue, sumeragi::Sumeragi, IrohaNetwork, NetworkMessage};
+use crate::{queue::Queue, sumeragi::SumeragiHandle, IrohaNetwork, NetworkMessage};
 
 /// [`Gossiper`] actor handle.
 #[derive(Clone)]
@@ -42,7 +42,7 @@ pub struct TransactionGossiper {
     /// [`iroha_p2p::Network`] actor handle
     network: IrohaNetwork,
     /// Sumearagi
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     /// Limits that all transactions need to obey, in terms of size
     /// of WASM blob and number of instructions.
     transaction_limits: TransactionLimits,
@@ -62,7 +62,7 @@ impl TransactionGossiper {
         configuartion: &Configuration,
         network: IrohaNetwork,
         queue: Arc<Queue>,
-        sumeragi: Arc<Sumeragi>,
+        sumeragi: SumeragiHandle,
     ) -> Self {
         Self {
             queue,
@@ -93,9 +93,10 @@ impl TransactionGossiper {
     }
 
     fn gossip_transactions(&self) {
-        let txs = self
-            .queue
-            .n_random_transactions(self.gossip_batch_size, &self.sumeragi.wsv_mutex_access());
+        let txs = self.sumeragi.wsv(|wsv| {
+            self.queue
+                .n_random_transactions(self.gossip_batch_size, wsv)
+        });
 
         if txs.is_empty() {
             iroha_logger::debug!("Nothing to gossip");
@@ -112,10 +113,7 @@ impl TransactionGossiper {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
         for tx in txs {
             match AcceptedTransaction::accept::<false>(tx.into_v1(), &self.transaction_limits) {
-                Ok(tx) => match self
-                    .queue
-                    .push(tx.into(), &self.sumeragi.wsv_mutex_access())
-                {
+                Ok(tx) => match self.sumeragi.wsv(|wsv| self.queue.push(tx.into(), wsv)) {
                     Ok(_) => {}
                     Err(crate::queue::Failure {
                         tx,

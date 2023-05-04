@@ -16,7 +16,7 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
-use crate::{kura::Kura, sumeragi::Sumeragi, IrohaNetwork, NetworkMessage};
+use crate::{kura::Kura, sumeragi::SumeragiHandle, IrohaNetwork, NetworkMessage};
 
 /// [`BlockSynchronizer`] actor handle.
 #[derive(Clone)]
@@ -37,9 +37,8 @@ impl BlockSynchronizerHandle {
 }
 
 /// Structure responsible for block synchronization between peers.
-#[derive(Debug)]
 pub struct BlockSynchronizer {
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     kura: Arc<Kura>,
     peer_id: PeerId,
     gossip_period: Duration,
@@ -91,10 +90,9 @@ impl BlockSynchronizer {
 
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
-        let (latest_hash, previous_hash) = {
-            let wsv = self.sumeragi.wsv_mutex_access();
-            (wsv.latest_block_hash(), wsv.previous_block_hash())
-        };
+        let (latest_hash, previous_hash) = self
+            .sumeragi
+            .wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
             latest_hash,
             previous_hash,
@@ -107,7 +105,7 @@ impl BlockSynchronizer {
     /// Create [`Self`] from [`Configuration`]
     pub fn from_configuration(
         config: &Configuration,
-        sumeragi: Arc<Sumeragi>,
+        sumeragi: SumeragiHandle,
         kura: Arc<Kura>,
         peer_id: PeerId,
         network: IrohaNetwork,
@@ -126,7 +124,7 @@ impl BlockSynchronizer {
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
     use super::*;
-    use crate::sumeragi::view_change::ProofChain;
+    use crate::{sumeragi::view_change::ProofChain, wsv::WorldStateView};
 
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 
@@ -220,7 +218,7 @@ pub mod message {
                         return;
                     }
                     let local_latest_block_hash =
-                        block_sync.sumeragi.wsv_mutex_access().latest_block_hash();
+                        block_sync.sumeragi.wsv(WorldStateView::latest_block_hash);
                     if *latest_hash == local_latest_block_hash
                         || *previous_hash == local_latest_block_hash
                     {
