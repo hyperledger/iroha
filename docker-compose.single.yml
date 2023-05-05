@@ -22,5 +22,4 @@ services:
     init: true
     command: iroha --submit-genesis
     volumes:
-      - './configs/peer/legacy_lts:/config'
-      - './:/app/soramitsu/iroha'
+      - './configs/peer/lts:/config'
