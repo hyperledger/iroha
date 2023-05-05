@@ -158,7 +158,7 @@ struct State<'wrld> {
     /// Ensures smartcontract adheres to limits
     validator: Option<Validator>,
     store_limits: StoreLimits,
-    wsv: &'wrld WorldStateView,
+    wsv: &'wrld mut WorldStateView,
     /// Event for triggers
     triggering_event: Option<Event>,
     /// Operation to pass to a runtime validator
@@ -169,7 +169,7 @@ struct State<'wrld> {
 
 impl<'wrld> State<'wrld> {
     fn new(
-        wsv: &'wrld WorldStateView,
+        wsv: &'wrld mut WorldStateView,
         account_id: AccountId,
         config: Configuration,
         log_span: Span,
@@ -272,7 +272,7 @@ impl<'wrld> Runtime<'wrld> {
             account_id,
             operation_to_validate,
             ..
-        } = caller.data();
+        } = caller.data_mut();
 
         let called_from_validator = operation_to_validate.is_some();
         if called_from_validator {
@@ -284,6 +284,7 @@ impl<'wrld> Runtime<'wrld> {
             // is validated and then it's executed. Here it's validating in both steps.
             // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
+                .clone() // Cloning validator is cheep operation
                 .validate(wsv, account_id, query.clone())
                 .map_err(|error| NotPermittedFail {
                     reason: error.to_string(),
@@ -348,6 +349,7 @@ impl<'wrld> Runtime<'wrld> {
             // is validated and then it's executed. Here it's validating in both steps.
             // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
+                .clone() // Cloning validator is cheep operation
                 .validate(wsv, account_id, isi)
                 .map_err(|error| NotPermittedFail {
                     reason: error.to_string(),
@@ -550,7 +552,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
         &mut self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
@@ -570,7 +572,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute_trigger_module(
         &mut self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         id: &TriggerId,
         account_id: AccountId,
         module: &wasmtime::Module,
@@ -593,7 +595,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute_validator_module(
         &self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         authority: &<Account as Identifiable>::Id,
         module: &wasmtime::Module,
         operation: &validator::NeedsValidationBox,
@@ -628,7 +630,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<()> {
@@ -921,7 +923,7 @@ mod tests {
     fn execute_instruction_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -949,7 +951,7 @@ mod tests {
         );
         let mut runtime = RuntimeBuilder::new().build()?;
         runtime
-            .execute(&wsv, account_id, wat)
+            .execute(&mut wsv, account_id, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -959,7 +961,7 @@ mod tests {
     fn execute_query_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
         let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
 
         let wat = format!(
@@ -986,7 +988,7 @@ mod tests {
 
         let mut runtime = RuntimeBuilder::new().build()?;
         runtime
-            .execute(&wsv, account_id, wat)
+            .execute(&mut wsv, account_id, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -997,7 +999,7 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
 
-        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1028,7 +1030,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&wsv, account_id, wat, 1);
+        let res = runtime.validate(&mut wsv, account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
@@ -1044,7 +1046,7 @@ mod tests {
     fn instructions_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1075,7 +1077,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&wsv, account_id, wat, 1);
+        let res = runtime.validate(&mut wsv, account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap
@@ -1091,7 +1093,7 @@ mod tests {
     fn queries_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
         let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
 
         let wat = format!(
@@ -1117,7 +1119,7 @@ mod tests {
         );
 
         let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&wsv, account_id, wat, 1);
+        let res = runtime.validate(&mut wsv, account_id, wat, 1);
 
         if let Error::ExportFnCall(trap) = res.expect_err("Execution should fail") {
             assert!(trap

@@ -814,10 +814,10 @@ mod tests {
     fn push_tx_already_in_blockchain() {
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
+        let mut wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
-        ));
+        );
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         wsv.transactions.insert(tx.hash());
         let queue = Queue::from_configuration(&Configuration {
@@ -842,10 +842,10 @@ mod tests {
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = Arc::new(WorldStateView::new(
+        let mut wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
-        ));
+        );
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -996,7 +996,7 @@ mod tests {
         // Spawn a thread where we get_transactions_for_block and add them to WSV
         let get_txs_handle = {
             let queue_arc_clone = Arc::clone(&queue);
-            let wsv_clone = wsv.clone();
+            let mut wsv_clone = wsv.clone();
 
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {

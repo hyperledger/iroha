@@ -200,7 +200,6 @@ pub mod action {
     //! Contains trigger action and common trait for all actions
 
     use iroha_data_model_derive::model;
-    use iroha_primitives::atomic::AtomicU32;
 
     pub use self::model::*;
     use super::*;
@@ -248,13 +247,12 @@ pub mod action {
         #[derive(
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
-        // TODO: It would not have to be opaque if AtomicU32 had FFI representation
-        #[ffi_type(opaque)]
+        #[ffi_type]
         pub enum Repeats {
             /// Repeat indefinitely, until the trigger is unregistered.
             Indefinitely,
             /// Repeat a set number of times
-            Exactly(AtomicU32), // If you need more, use `Indefinitely`.
+            Exactly(u32), // If you need more, use `Indefinitely`.
         }
     }
 
@@ -435,7 +433,7 @@ pub mod action {
 
     impl From<u32> for Repeats {
         fn from(num: u32) -> Self {
-            Repeats::Exactly(AtomicU32::new(num))
+            Repeats::Exactly(num)
         }
     }
 

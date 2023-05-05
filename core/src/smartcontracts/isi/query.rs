@@ -182,7 +182,7 @@ mod tests {
         invalid_tx_per_block: usize,
     ) -> Result<WorldStateView> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
+        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
         let limits = TransactionLimits {
             max_instruction_number: 1,
@@ -193,7 +193,7 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        wsv.config.borrow_mut().transaction_limits = limits;
+        wsv.config.transaction_limits = limits;
 
         let valid_tx = {
             let tx =
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn find_transaction() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
+        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
         let tx = TransactionBuilder::new(ALICE_ID.clone(), Vec::new(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;

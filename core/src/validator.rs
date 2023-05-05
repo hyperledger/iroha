@@ -42,8 +42,6 @@ pub struct Validator {
     /// Pre-loaded validator.
     /// Can be set with [`update()`](Validator::update).
     loaded_validator: LoadedValidator,
-    /// Engine for WASM [`Runtime`](wasm::Runtime) to execute validators.
-    engine: wasmtime::Engine,
 }
 
 impl Validator {
@@ -52,11 +50,12 @@ impl Validator {
     /// # Errors
     ///
     /// Fails if failed to load wasm blob.
-    pub fn new(raw_validator: data_model_validator::Validator) -> Result<Self> {
-        let engine = wasm::create_engine();
+    pub fn new(
+        raw_validator: data_model_validator::Validator,
+        engine: &wasmtime::Engine,
+    ) -> Result<Self> {
         Ok(Self {
-            loaded_validator: LoadedValidator::load(&engine, raw_validator)?,
-            engine,
+            loaded_validator: LoadedValidator::load(engine, raw_validator)?,
         })
     }
 
@@ -69,15 +68,15 @@ impl Validator {
     /// - Validator denied the operation
     pub fn validate(
         &self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         authority: &AccountId,
         operation: impl Into<data_model_validator::NeedsValidationBox>,
     ) -> Result<()> {
         let operation = operation.into();
 
         let runtime = wasm::RuntimeBuilder::new()
-            .with_engine(self.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-            .with_configuration(wsv.config.borrow().wasm_runtime_config)
+            .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+            .with_configuration(wsv.config.wasm_runtime_config)
             .build()?;
 
         trace!("Running validator");
@@ -114,7 +113,10 @@ impl MockValidator {
     ///
     /// Will immediately panic, because you shouldn't call it in tests.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(_raw_validator: data_model_validator::Validator) -> Result<Self> {
+    pub fn new(
+        _raw_validator: data_model_validator::Validator,
+        _engine: &wasmtime::Engine,
+    ) -> Result<Self> {
         panic!("You probably don't need this method in tests")
     }
 
@@ -136,7 +138,7 @@ impl MockValidator {
     )]
     pub fn validate(
         &self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         authority: &AccountId,
         operation: impl Into<data_model_validator::NeedsValidationBox>,
     ) -> Result<()> {
@@ -156,7 +158,7 @@ impl MockValidator {
     }
 
     fn execute_instruction(
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         authority: &AccountId,
         instruction: InstructionBox,
     ) -> Result<()> {
@@ -191,59 +193,5 @@ impl LoadedValidator {
         Ok(Self {
             module: wasm::load_module(engine, raw_validator.wasm)?,
         })
-    }
-}
-
-/// Constant view to a [`Validator`] used by [`WorldStateView`].
-///
-/// Serves to the same purpose as [`RwLockReadGuard`](parking_lot::RwLockReadGuard),
-/// but holds [`Option`] instead of [`Validator`].
-/// That is required because [`WorldStateView`] may have uninitialized [`Validator`].
-/// However we still want to provide direct access to [`Validator`] for users, so that they
-/// don't have to deal with [`Option`].
-///
-/// # Panic
-///
-/// That said, [`new()`](Self::new) and [`deref()`](std::ops::Deref::deref) will panic if option is [`None`].
-#[derive(Debug)]
-pub struct View<'validator>(
-    #[cfg(not(test))] parking_lot::RwLockReadGuard<'validator, Option<Validator>>,
-    #[cfg(test)] parking_lot::RwLockReadGuard<'validator, Option<MockValidator>>,
-);
-
-#[cfg_attr(test, allow(single_use_lifetimes))]
-impl<'validator> View<'validator> {
-    /// Construct new [`View`].
-    /// Make sure that Option is [`Some`] before calling this function.
-    ///
-    /// # Panic
-    ///
-    /// This function will panic if provided `rw_lock_guard` contains [`None`].
-    pub(crate) fn new(
-        #[cfg(not(test))] rw_lock_guard: parking_lot::RwLockReadGuard<
-            'validator,
-            Option<Validator>,
-        >,
-        #[cfg(test)] rw_lock_guard: parking_lot::RwLockReadGuard<'validator, Option<MockValidator>>,
-    ) -> Self {
-        assert!(
-            rw_lock_guard.is_some(),
-            "Validator must be initialized at that moment"
-        );
-        Self(rw_lock_guard)
-    }
-}
-
-impl std::ops::Deref for View<'_> {
-    #[cfg(not(test))]
-    type Target = Validator;
-
-    #[cfg(test)]
-    type Target = MockValidator;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-            .as_ref()
-            .expect("Validator must be initialized at that moment")
     }
 }

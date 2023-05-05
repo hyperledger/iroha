@@ -108,9 +108,7 @@ impl TransactionGossiper {
     fn handle_transaction_gossip(&self, TransactionGossip { txs }: TransactionGossip) {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
 
-        let transaction_limits = self
-            .sumeragi
-            .wsv(|wsv| wsv.config.borrow().transaction_limits);
+        let transaction_limits = self.sumeragi.wsv(|wsv| wsv.config.transaction_limits);
 
         for tx in txs {
             match <AcceptedTransaction as InBlock>::accept(tx.into_v1(), &transaction_limits) {

@@ -40,7 +40,7 @@ pub mod isi {
 
     impl Execute for SetKeyValue<Asset> {
         #[metrics(+"set_asset_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
@@ -51,7 +51,7 @@ pub mod isi {
             }
 
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
-            let asset_metadata_limits = wsv.config.borrow().asset_metadata_limits;
+            let asset_metadata_limits = wsv.config.asset_metadata_limits;
 
             wsv.modify_asset(&asset_id, |asset| {
                 let store: &mut Metadata = asset
@@ -75,7 +75,7 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<Asset> {
         #[metrics(+"remove_asset_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
@@ -98,7 +98,7 @@ pub mod isi {
     }
 
     impl Execute for Transfer<Account, AssetDefinition, Account> {
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             wsv.modify_asset_definition(self.object.id(), |entry| {
                 entry.owned_by = self.destination_id.clone();
 
@@ -118,7 +118,11 @@ pub mod isi {
 
             impl Execute for Mint<Asset, $ty> {
                 #[metrics(+$metrics)]
-                fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+                fn execute(
+                    self,
+                    authority: &AccountId,
+                    wsv: &mut WorldStateView,
+                ) -> Result<(), Error> {
                     <$ty as InnerMint>::execute(self, authority, wsv)
                 }
             }
@@ -131,7 +135,11 @@ pub mod isi {
 
             impl Execute for Burn<Asset, $ty> {
                 #[metrics(+$metrics)]
-                fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+                fn execute(
+                    self,
+                    authority: &AccountId,
+                    wsv: &mut WorldStateView,
+                ) -> Result<(), Error> {
                     <$ty as InnerBurn>::execute(self, authority, wsv)
                 }
             }
@@ -144,7 +152,11 @@ pub mod isi {
 
             impl Execute for Transfer<Asset, $ty, Account> {
                 #[metrics(+$metrics)]
-                fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+                fn execute(
+                    self,
+                    authority: &AccountId,
+                    wsv: &mut WorldStateView,
+                ) -> Result<(), Error> {
                     <$ty as InnerTransfer>::execute(self, authority, wsv)
                 }
             }
@@ -168,7 +180,7 @@ pub mod isi {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
             _authority: &AccountId,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -195,19 +207,16 @@ pub mod isi {
                 &asset_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
+            let mut new_quantity = <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE;
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                *quantity = quantity
+                new_quantity = quantity
                     .checked_add(mint.object)
                     .ok_or(MathError::Overflow)?;
-                #[allow(clippy::float_arithmetic)]
-                wsv.metric_tx_amounts
-                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
-                wsv.metric_tx_amounts_counter
-                    .set(wsv.metric_tx_amounts_counter.get() + 1);
+                *quantity = new_quantity;
 
                 Ok(AssetEvent::Added(AssetChanged {
                     asset_id: asset_id.clone(),
@@ -215,7 +224,13 @@ pub mod isi {
                 }))
             })?;
 
-            wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
+            // TODO: shouldn't we add only increment?
+            #[allow(clippy::float_arithmetic)]
+            {
+                wsv.metric_tx_amounts += new_quantity.into_metric();
+                wsv.metric_tx_amounts_counter += 1;
+                wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
+            }
             Ok(())
         }
     }
@@ -225,7 +240,7 @@ pub mod isi {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
             _authority: &AccountId,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -243,19 +258,16 @@ pub mod isi {
                 wsv,
                 <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
             )?;
+            let mut new_quantity = <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE;
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                *quantity = quantity
+                new_quantity = quantity
                     .checked_sub(burn.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                #[allow(clippy::float_arithmetic)]
-                wsv.metric_tx_amounts
-                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
-                wsv.metric_tx_amounts_counter
-                    .set(wsv.metric_tx_amounts_counter.get() + 1);
+                *quantity = new_quantity;
 
                 Ok(AssetEvent::Removed(AssetChanged {
                     asset_id: asset_id.clone(),
@@ -263,7 +275,13 @@ pub mod isi {
                 }))
             })?;
 
-            wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
+            // TODO: shouldn't we add only increment?
+            #[allow(clippy::float_arithmetic)]
+            {
+                wsv.metric_tx_amounts += new_quantity.into_metric();
+                wsv.metric_tx_amounts_counter += 1;
+                wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
+            }
 
             Ok(())
         }
@@ -274,7 +292,7 @@ pub mod isi {
         fn execute<Err>(
             transfer: Transfer<Asset, Self, Account>,
             _authority: &AccountId,
-            wsv: &WorldStateView,
+            wsv: &mut WorldStateView,
         ) -> Result<(), Err>
         where
             Self: AssetInstructionInfo + CheckedOp + IntoMetric + Copy,
@@ -308,25 +326,30 @@ pub mod isi {
                 }))
             })?;
             let destination_id_clone = destination_id.clone();
+            let mut new_quantity = <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE;
             wsv.modify_asset(&destination_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
-                *quantity = quantity
+                new_quantity = quantity
                     .checked_add(transfer.object)
                     .ok_or(MathError::Overflow)?;
-                #[allow(clippy::float_arithmetic)]
-                wsv.metric_tx_amounts
-                    .set(wsv.metric_tx_amounts.get() + (*quantity).into_metric());
-                wsv.metric_tx_amounts_counter
-                    .set(wsv.metric_tx_amounts_counter.get() + 1);
+                *quantity = new_quantity;
 
                 Ok(AssetEvent::Added(AssetChanged {
                     asset_id: destination_id_clone,
                     amount: transfer.object.into(),
                 }))
             })?;
+
+            // TODO: shouldn't we add anything here since total amount don't change?
+            #[allow(clippy::float_arithmetic)]
+            {
+                wsv.metric_tx_amounts += new_quantity.into_metric();
+                wsv.metric_tx_amounts_counter += 1;
+            }
+
             Ok(())
         }
     }
@@ -373,7 +396,7 @@ pub mod isi {
     /// Assert that this asset is `mintable`.
     fn assert_can_mint(
         definition_id: &AssetDefinitionId,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let asset_definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
@@ -403,7 +426,7 @@ pub mod query {
         #[metrics(+"find_all_assets")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for account in domain.accounts.values() {
                     for asset in account.assets.values() {
                         vec.push(asset.clone())
@@ -418,7 +441,7 @@ pub mod query {
         #[metrics(+"find_all_asset_definitions")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for asset_definition in domain.asset_definitions.values() {
                     vec.push(asset_definition.clone())
                 }
@@ -468,7 +491,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
             let mut vec = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for account in domain.accounts.values() {
                     for asset in account.assets.values() {
                         if asset.id().definition_id.name == name {
@@ -502,7 +525,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
             let mut vec = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for account in domain.accounts.values() {
                     for asset in account.assets.values() {
                         if asset.id().definition_id == id {

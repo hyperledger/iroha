@@ -129,7 +129,7 @@ fn build_wsv(
     key_pair: KeyPair,
 ) -> Result<WorldStateView> {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let wsv = WorldStateView::new(World::with([], BTreeSet::new()), kura);
+    let mut wsv = WorldStateView::new(World::with([], BTreeSet::new()), kura);
 
     let mut instructions: Vec<InstructionBox> = Vec::new();
     for i in 0..domains {
@@ -220,7 +220,7 @@ impl WsvApplyBlocks {
     /// If wsv doesn't one block ahead of finalized wsv.
     pub fn measure(Self { wsv, blocks }: &Self) -> Result<()> {
         let mut finalized_wsv = wsv.clone();
-        let wsv = finalized_wsv.clone();
+        let mut wsv = finalized_wsv.clone();
 
         for block in blocks {
             finalized_wsv = wsv.clone();
