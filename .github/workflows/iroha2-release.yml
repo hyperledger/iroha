@@ -52,10 +52,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  load-rs:
+  configs:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2022-12-22
+    steps:
+      - uses: actions/checkout@v3
+        ref: iroha2-dev
+      - name: Setup git config
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+      - name: Update configs
+        run: |
+          ./scripts/update_configs.sh lts
+          ./scripts/update_configs.sh stable
+      - name: Commit config changes
+        run: |
+          git commit -am "[documentation]: Update lts/stable configs following a release" --signoff
+          git push origin iroha2-dev
+
+  load-rs:
+    # TODO: Temporary workaround for failing CI job
+    continue-on-error: true
+    runs-on: ubuntu-latest
     steps:
       - name: Get tag from branch name
         run: |
@@ -67,7 +87,7 @@ jobs:
         run: |
           sleep 10s
           echo "wait to finish other workflow"
-      - uses: convictional/trigger-workflow-and-wait@v1.6.2
+      - uses: convictional/trigger-workflow-and-wait@v1.6.5
         with:
           owner: soramitsu
           repo: iroha2-longevity-load-rs
