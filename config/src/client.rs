@@ -233,7 +233,7 @@ mod tests {
     use super::*;
     use crate::torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL};
 
-    const CONFIGURATION_PATH: &str = "../configs/client_cli/config.json";
+    const CONFIGURATION_PATH: &str = "../configs/client/config.json";
 
     prop_compose! {
         // TODO: make tests to check generated key validity
