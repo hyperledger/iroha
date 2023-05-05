@@ -118,7 +118,7 @@ docker compose up
 With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
 
 ```bash
-cp configs/client_cli/config.json target/debug/config.json
+cp configs/client/config.json target/debug/config.json
 cd target/debug
 ./iroha_client_cli --help
 ```

@@ -12,12 +12,12 @@ use iroha_data_model::TryToValue;
 
 fn main() {
     // #region rust_config_load
-    let config_loc = "../configs/client_cli/config.json";
+    let config_loc = "../configs/client/config.json";
     let file = File::open(config_loc)
         .wrap_err("Unable to load the configuration file at `.....`")
         .expect("Config file is loading normally.");
     let config: Configuration = serde_json::from_reader(file)
-        .wrap_err("Failed to parse `../configs/client_cli/config.json`")
+        .wrap_err("Failed to parse `../configs/client/config.json`")
         .expect("Verified in tests");
     // #endregion rust_config_load
 

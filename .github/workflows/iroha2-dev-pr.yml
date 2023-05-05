@@ -33,7 +33,7 @@ jobs:
       - name: Check genesis.json
         if: always()
         run: ./scripts/check.sh genesis
-      - name: Check client_cli/config.json
+      - name: Check client/config.json
         if: always()
         run: ./scripts/check.sh client
       - name: Check peer/config.json
