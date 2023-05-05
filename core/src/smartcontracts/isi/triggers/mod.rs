@@ -23,37 +23,42 @@ pub mod isi {
     impl Execute for Register<Trigger<FilterBox, Executable>> {
         #[metrics(+"register_trigger")]
         #[allow(clippy::expect_used)]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let new_trigger = self.object;
 
             if !new_trigger.action.filter.mintable() {
                 match &new_trigger.action.repeats {
-                    Repeats::Exactly(action) if action.get() == 1 => (),
+                    Repeats::Exactly(action) if *action == 1 => (),
                     _ => {
                         return Err(MathError::Overflow.into());
                     }
                 }
             }
 
+            let engine = wsv.engine.clone(); // Cloning engine is cheep
             wsv.modify_triggers(|triggers| {
                 let trigger_id = new_trigger.id().clone();
                 let success = match &new_trigger.action.filter {
                     FilterBox::Data(_) => triggers.add_data_trigger(
+                        &engine,
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                     FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
+                        &engine,
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                     FilterBox::Time(_) => triggers.add_time_trigger(
+                        &engine,
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                     FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
+                        &engine,
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
@@ -74,7 +79,7 @@ pub mod isi {
 
     impl Execute for Unregister<Trigger<FilterBox, Executable>> {
         #[metrics(+"unregister_trigger")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
 
             wsv.modify_triggers(|triggers| {
@@ -92,7 +97,7 @@ pub mod isi {
 
     impl Execute for Mint<Trigger<FilterBox, Executable>, u32> {
         #[metrics(+"mint_trigger_repetitions")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
 
             wsv.modify_triggers(|triggers| {
@@ -120,7 +125,7 @@ pub mod isi {
 
     impl Execute for Burn<Trigger<FilterBox, Executable>, u32> {
         #[metrics(+"burn_trigger_repetitions")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
                 triggers.mod_repeats(&trigger, |n| {
@@ -139,7 +144,7 @@ pub mod isi {
 
     impl Execute for ExecuteTriggerBox {
         #[metrics(+"execute_trigger")]
-        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = wsv.evaluate(&self.trigger_id)?;
 
             wsv.triggers()
@@ -156,13 +161,17 @@ pub mod isi {
                             false
                         };
                     if allow_execute {
-                        wsv.execute_trigger(id.clone(), authority);
                         Ok(())
                     } else {
                         Err(ValidationError::new("Unauthorized trigger execution").into())
                     }
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))
+                .and_then(core::convert::identity)?;
+
+            wsv.execute_trigger(id, authority);
+
+            Ok(())
         }
     }
 }

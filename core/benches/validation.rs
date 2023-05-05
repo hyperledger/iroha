@@ -64,7 +64,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let (public_key, _) = keys.into();
 
-    let wsv = WorldStateView::new(
+    let mut wsv = WorldStateView::new(
         {
             let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
             let account_id = AccountId::new(
@@ -87,7 +87,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
         let validator = Validator::new(WasmSmartContract::from_compiled(wasm));
         let authority = "genesis@genesis".parse().expect("Valid");
         UpgradeBox::new(validator)
-            .execute(&authority, &wsv)
+            .execute(&authority, &mut wsv)
             .expect("Failed to load validator");
     }
 
@@ -139,8 +139,8 @@ fn validate_transaction(criterion: &mut Criterion) {
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
         b.iter(|| {
-            let wsv = wsv.clone();
-            match transaction_validator.validate(transaction.clone(), false, &wsv) {
+            let mut wsv = wsv.clone();
+            match transaction_validator.validate(transaction.clone(), false, &mut wsv) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }

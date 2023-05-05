@@ -250,10 +250,10 @@ impl Iroha {
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
             let span = span!(tracing::Level::TRACE, "genesis").entered();
-            let wsv_clone = wsv.clone();
+            let mut wsv_clone = wsv.clone();
 
             transaction_validator
-                .validate_every(genesis.iter().cloned(), &wsv_clone)
+                .validate_every(genesis.iter().cloned(), &mut wsv_clone)
                 .wrap_err("Transaction validation failed in genesis block")?;
             span.exit();
         }

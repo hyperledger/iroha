@@ -53,7 +53,7 @@ impl TransactionValidator {
         &self,
         tx: AcceptedTransaction,
         is_genesis: bool,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
         if let Err(rejection_reason) = self.validate_internal(tx.clone(), is_genesis, wsv) {
             return Err(RejectedTransaction {
@@ -83,7 +83,7 @@ impl TransactionValidator {
     pub fn validate_every(
         &self,
         txs: impl IntoIterator<Item = VersionedAcceptedTransaction>,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         for tx in txs {
             self.validate_internal(tx.into_v1(), true, wsv)?;
@@ -95,7 +95,7 @@ impl TransactionValidator {
         &self,
         tx: AcceptedTransaction,
         is_genesis: bool,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let account_id = &tx.payload.account_id;
         Self::validate_signatures(&tx, is_genesis, wsv)?;
@@ -171,7 +171,7 @@ impl TransactionValidator {
     fn validate_wasm(
         &self,
         account_id: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         wasm: WasmSmartContract,
     ) -> Result<(), TransactionRejectionReason> {
         debug!("Validating wasm");
@@ -200,7 +200,7 @@ impl TransactionValidator {
     fn validate_with_runtime_validator(
         authority: &<Account as Identifiable>::Id,
         tx: AcceptedTransaction,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let AcceptedTransaction {
             payload,
@@ -213,6 +213,7 @@ impl TransactionValidator {
         };
 
         wsv.validator_view()
+            .clone() // Cloning validator is cheep operation
             .validate(wsv, authority, signed_tx)
             .map_err(|err| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {

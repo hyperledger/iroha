@@ -46,7 +46,6 @@ use iroha_data_model::{
 };
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},
-    atomic::AtomicU32,
     conststr::ConstString,
     fixed::{FixNum, Fixed},
 };

@@ -13,8 +13,8 @@ pub mod validator;
 pub mod wsv;
 
 use core::time::Duration;
+use std::collections::{HashMap, HashSet};
 
-use dashmap::{DashMap, DashSet};
 use gossiper::TransactionGossip;
 use iroha_data_model::{permission::Permissions, prelude::*};
 use parity_scale_codec::{Decode, Encode};
@@ -32,23 +32,23 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 pub type IrohaNetwork = iroha_p2p::NetworkHandle<NetworkMessage>;
 
 /// Ids of peers.
-pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
+pub type PeersIds = HashSet<<Peer as Identifiable>::Id>;
 
 /// Parameters set.
-pub type Parameters = DashSet<Parameter>;
+pub type Parameters = HashSet<Parameter>;
 
 /// API to work with collections of [`DomainId`] : [`Domain`] mappings.
-pub type DomainsMap = DashMap<<Domain as Identifiable>::Id, Domain>;
+pub type DomainsMap = HashMap<<Domain as Identifiable>::Id, Domain>;
 
 /// API to work with a collections of [`RoleId`]: [`Role`] mappings.
-pub type RolesMap = DashMap<<Role as Identifiable>::Id, Role>;
+pub type RolesMap = HashMap<<Role as Identifiable>::Id, Role>;
 
 /// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
-pub type PermissionTokensMap = DashMap<<Account as Identifiable>::Id, Permissions>;
+pub type PermissionTokensMap = HashMap<<Account as Identifiable>::Id, Permissions>;
 
 /// API to work with a collections of [`PermissionTokenDefinitionId`] : [`PermissionTokenDefinition`] mappings.
 pub type PermissionTokenDefinitionsMap =
-    DashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
+    HashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;

@@ -59,7 +59,7 @@ pub struct BlockBuilder {
 
 impl BlockBuilder {
     /// Create a new [`PendingBlock`] from transactions.
-    pub fn build(self) -> PendingBlock {
+    pub fn build(mut self) -> PendingBlock {
         let timestamp = crate::current_time().as_millis();
         let height = self.wsv.height() + 1;
         let previous_block_hash = self.wsv.latest_block_hash();
@@ -81,7 +81,7 @@ impl BlockBuilder {
         let mut rejected = Vec::new();
 
         for tx in self.transactions {
-            match transaction_validator.validate(tx.into_v1(), header.is_genesis(), &self.wsv) {
+            match transaction_validator.validate(tx.into_v1(), header.is_genesis(), &mut self.wsv) {
                 Ok(tx) => txs.push(tx),
                 Err(tx) => {
                     iroha_logger::warn!(
@@ -289,7 +289,10 @@ impl Revalidate for PendingBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    fn revalidate<const IS_GENESIS: bool>(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+    fn revalidate<const IS_GENESIS: bool>(
+        &self,
+        mut wsv: WorldStateView,
+    ) -> Result<(), eyre::Report> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
@@ -359,7 +362,7 @@ impl Revalidate for PendingBlock {
             .map(|accepted_tx| {
                 accepted_tx.and_then(|tx| {
                     transaction_validator
-                        .validate(tx, self.header.is_genesis(), &wsv)
+                        .validate(tx, self.header.is_genesis(), &mut wsv)
                         .map_err(|rejected_tx| rejected_tx.into_v1().rejection_reason)
                         .wrap_err("Failed to validate transaction")
                 })
@@ -391,7 +394,7 @@ impl Revalidate for PendingBlock {
             })
             .map(|accepted_tx| {
                 accepted_tx.and_then(|tx| {
-                    match transaction_validator.validate(tx, self.header.is_genesis(), &wsv) {
+                    match transaction_validator.validate(tx, self.header.is_genesis(), &mut wsv) {
                         Err(rejected_transaction) => Ok(rejected_transaction),
                         Ok(_) => Err(eyre!("Transactions which supposed to be rejected is valid")),
                     }
@@ -435,7 +438,10 @@ impl Revalidate for VersionedCommittedBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    fn revalidate<const IS_GENESIS: bool>(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+    fn revalidate<const IS_GENESIS: bool>(
+        &self,
+        mut wsv: WorldStateView,
+    ) -> Result<(), eyre::Report> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
@@ -477,7 +483,7 @@ impl Revalidate for VersionedCommittedBlock {
                         let last_committed_block = wsv
                             .latest_block_ref()
                             .expect("Not in genesis round so must have at least genesis block");
-                        let new_peers = wsv.peers_ids().iter().map(|id| id.clone()).collect();
+                        let new_peers = wsv.peers_ids().iter().cloned().collect();
                         let view_change_index = block
                             .header
                             .view_change_index
@@ -544,7 +550,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|accepted_tx| {
                         accepted_tx.and_then(|tx| {
                             transaction_validator
-                                .validate(tx, block.header.is_genesis(), &wsv)
+                                .validate(tx, block.header.is_genesis(), &mut wsv)
                                 .map_err(|rejected_tx| rejected_tx.into_v1().rejection_reason)
                                 .wrap_err("Failed to validate transaction")
                         })
@@ -579,7 +585,7 @@ impl Revalidate for VersionedCommittedBlock {
                             match transaction_validator.validate(
                                 tx,
                                 block.header.is_genesis(),
-                                &wsv,
+                                &mut wsv,
                             ) {
                                 Err(rejected_transaction) => Ok(rejected_transaction),
                                 Ok(_) => Err(eyre!(

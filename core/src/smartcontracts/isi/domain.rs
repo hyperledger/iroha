@@ -40,13 +40,13 @@ pub mod isi {
 
     impl Execute for Register<Account> {
         #[metrics(+"register_account")]
-        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account: Account = self.object.build(authority);
             let account_id = account.id().clone();
 
             account_id
                 .name
-                .validate_len(wsv.config.borrow().ident_length_limits)
+                .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::from)?;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
@@ -65,7 +65,7 @@ pub mod isi {
 
     impl Execute for Unregister<Account> {
         #[metrics(+"unregister_account")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
@@ -80,12 +80,12 @@ pub mod isi {
 
     impl Execute for Register<AssetDefinition> {
         #[metrics(+"register_asset_definition")]
-        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_definition = self.object.build(authority);
             asset_definition
                 .id()
                 .name
-                .validate_len(wsv.config.borrow().ident_length_limits)
+                .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
@@ -123,11 +123,11 @@ pub mod isi {
 
     impl Execute for Unregister<AssetDefinition> {
         #[metrics(+"unregister_asset_definition")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
             let mut assets_to_remove = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for account in domain.accounts.values() {
                     assets_to_remove.extend(
                         account
@@ -177,10 +177,10 @@ pub mod isi {
 
     impl Execute for SetKeyValue<AssetDefinition> {
         #[metrics(+"set_key_value_asset_definition")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
-            let metadata_limits = wsv.config.borrow().asset_definition_metadata_limits;
+            let metadata_limits = wsv.config.asset_definition_metadata_limits;
             wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
                 asset_definition.metadata.insert_with_limits(
                     self.key.clone(),
@@ -199,7 +199,7 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<AssetDefinition> {
         #[metrics(+"remove_key_value_asset_definition")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
             wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
@@ -219,10 +219,10 @@ pub mod isi {
 
     impl Execute for SetKeyValue<Domain> {
         #[metrics(+"set_domain_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.borrow().domain_metadata_limits;
+            let limits = wsv.config.domain_metadata_limits;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
                 domain
@@ -240,7 +240,7 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<Domain> {
         #[metrics(+"remove_domain_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
@@ -269,11 +269,7 @@ pub mod query {
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv
-                .domains()
-                .iter()
-                .map(|guard| guard.value().clone())
-                .collect())
+            Ok(wsv.domains().values().cloned().collect())
         }
     }
 

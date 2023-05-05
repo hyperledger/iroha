@@ -41,7 +41,7 @@ pub mod isi {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
         #[metrics(+"register_asset")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.object.id;
 
             match wsv.asset(&asset_id) {
@@ -91,7 +91,7 @@ pub mod isi {
 
     impl Execute for Unregister<Asset> {
         #[metrics(+"unregister_asset")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
@@ -126,7 +126,7 @@ pub mod isi {
 
     impl Execute for Mint<Account, PublicKey> {
         #[metrics(+"mint_account_public_key")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
 
@@ -145,7 +145,7 @@ pub mod isi {
 
     impl Execute for Burn<Account, PublicKey> {
         #[metrics(+"burn_account_public_key")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
 
@@ -168,7 +168,7 @@ pub mod isi {
 
     impl Execute for Mint<Account, SignatureCheckCondition> {
         #[metrics(+"mint_account_signature_check_condition")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let signature_check_condition = self.object;
 
@@ -181,10 +181,10 @@ pub mod isi {
 
     impl Execute for SetKeyValue<Account> {
         #[metrics(+"set_account_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            let account_metadata_limits = wsv.config.borrow().account_metadata_limits;
+            let account_metadata_limits = wsv.config.account_metadata_limits;
 
             wsv.modify_account(&account_id, |account| {
                 account.metadata.insert_with_limits(
@@ -204,7 +204,7 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<Account> {
         #[metrics(+"remove_account_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
             wsv.modify_account(&account_id, |account| {
@@ -224,7 +224,7 @@ pub mod isi {
 
     impl Execute for Grant<Account, PermissionToken> {
         #[metrics(+"grant_account_permission")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
@@ -235,41 +235,45 @@ pub mod isi {
                     FindError::PermissionTokenDefinition(permission.definition_id.clone())
                 })?;
 
-            permissions::check_permission_token_parameters(&permission, definition.value())?;
+            permissions::check_permission_token_parameters(&permission, definition)?;
+
+            if wsv.account_contains_inherent_permission(&account_id, &permission) {
+                return Err(ValidationError::new("Permission already exists").into());
+            }
 
             wsv.modify_account(&account_id, |account| {
-                let id = account.id();
-                if wsv.account_contains_inherent_permission(id, &permission) {
-                    return Err(ValidationError::new("Permission already exists").into());
-                }
-
+                let account_id = account.id().clone();
                 let permission_id = permission.definition_id.clone();
 
-                wsv.add_account_permission(id, permission);
                 Ok(AccountEvent::PermissionAdded(AccountPermissionChanged {
-                    account_id: id.clone(),
+                    account_id,
                     permission_id,
                 }))
-            })
+            })?;
+
+            wsv.add_account_permission(&account_id, permission);
+
+            Ok(())
         }
     }
 
     impl Execute for Revoke<Account, PermissionToken> {
         #[metrics(+"revoke_account_permission")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
+            if !wsv
+                .permission_token_definitions()
+                .contains_key(&permission.definition_id)
+            {
+                error!(%permission, "Revoking non-existent token");
+            }
+            if !wsv.remove_account_permission(&account_id, &permission) {
+                return Err(ValidationError::new("Permission not found").into());
+            }
+
             wsv.modify_account(&account_id, |_| {
-                if !wsv
-                    .permission_token_definitions()
-                    .contains_key(&permission.definition_id)
-                {
-                    error!(%permission, "Revoking non-existent token");
-                }
-                if !wsv.remove_account_permission(&account_id, &permission) {
-                    return Err(ValidationError::new("Permission not found").into());
-                }
                 Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
                     account_id: account_id.clone(),
                     permission_id: permission.definition_id,
@@ -280,14 +284,19 @@ pub mod isi {
 
     impl Execute for Grant<Account, RoleId> {
         #[metrics(+"grant_account_role")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
-            wsv.world()
+            let permissions = wsv
+                .world()
                 .roles
                 .get(&role_id)
-                .ok_or_else(|| FindError::Role(role_id.clone()))?;
+                .ok_or_else(|| FindError::Role(role_id.clone()))?
+                .clone()
+                .permissions
+                .into_iter()
+                .map(|token| token.definition_id);
 
             wsv.modify_account_multiple_events(&account_id, |account| {
                 if !account.add_role(role_id.clone()) {
@@ -296,13 +305,7 @@ pub mod isi {
                         IdBox::RoleId(role_id),
                     ));
                 }
-                let events: Vec<_> = wsv
-                    .roles()
-                    .get(&role_id)
-                    .iter()
-                    .flat_map(|role| &role.permissions)
-                    .map(|token| &token.definition_id)
-                    .cloned()
+                let events: Vec<_> = permissions
                     .map(|permission_id| AccountPermissionChanged {
                         account_id: account_id.clone(),
                         permission_id,
@@ -323,26 +326,25 @@ pub mod isi {
 
     impl Execute for Revoke<Account, RoleId> {
         #[metrics(+"revoke_account_role")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
-            wsv.world()
+            let permissions = wsv
+                .world()
                 .roles
                 .get(&role_id)
-                .ok_or_else(|| FindError::Role(role_id.clone()))?;
+                .ok_or_else(|| FindError::Role(role_id.clone()))?
+                .clone()
+                .permissions
+                .into_iter()
+                .map(|token| token.definition_id);
 
             wsv.modify_account_multiple_events(&account_id, |account| {
                 if !account.remove_role(&role_id) {
                     return Err(FindError::Role(role_id).into());
                 }
-                let events: Vec<_> = wsv
-                    .roles()
-                    .get(&role_id)
-                    .iter()
-                    .flat_map(|role| &role.permissions)
-                    .map(|token| &token.definition_id)
-                    .cloned()
+                let events: Vec<_> = permissions
                     .map(|permission_id| AccountPermissionChanged {
                         account_id: account_id.clone(),
                         permission_id,
@@ -364,7 +366,7 @@ pub mod isi {
     /// Assert that this asset can be registered to an account.
     fn assert_can_register(
         definition_id: &AssetDefinitionId,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         value: &AssetValue,
     ) -> Result<(), Error> {
         let definition = asset::isi::assert_asset_type(definition_id, wsv, value.value_type())?;
@@ -459,7 +461,7 @@ pub mod query {
         #[metrics(+"find_all_accounts")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for account in domain.accounts.values() {
                     vec.push(account.clone())
                 }
@@ -489,7 +491,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
             let mut vec = Vec::new();
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 for account in domain.accounts.values() {
                     if account.id().name == name {
                         vec.push(account.clone())

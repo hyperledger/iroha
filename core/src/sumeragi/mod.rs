@@ -94,8 +94,8 @@ impl SumeragiHandle {
             (
                 wsv.height(),
                 wsv.genesis_timestamp(),
-                wsv.metric_tx_amounts_counter.get(),
-                wsv.metric_tx_amounts.get(),
+                wsv.metric_tx_amounts_counter,
+                wsv.metric_tx_amounts,
                 wsv.latest_block_view_change_index(),
             )
         });
@@ -153,12 +153,12 @@ impl SumeragiHandle {
         self.wsv(|wsv| -> Result<()> {
             let domains = wsv.domains();
             self.metrics.domains.set(domains.len() as u64);
-            for domain_ref in domains {
+            for domain in domains.values() {
                 self.metrics
                     .accounts
-                    .get_metric_with_label_values(&[domain_ref.key().name.as_ref()])
+                    .get_metric_with_label_values(&[domain.id().name.as_ref()])
                     .wrap_err("Failed to compose domains")?
-                    .set(domain_ref.value().accounts.len() as u64);
+                    .set(domain.accounts.len() as u64);
             }
             Ok(())
         })?;
@@ -193,7 +193,7 @@ impl SumeragiHandle {
         SumeragiStartArgs {
             configuration,
             events_sender,
-            wsv,
+            mut wsv,
             queue,
             kura,
             network,
