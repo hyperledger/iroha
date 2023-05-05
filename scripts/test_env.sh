@@ -147,16 +147,14 @@ function clean_up_peers {
 case $1 in
     setup)
         declare -i N_PEERS
-        if [ -z "$2" ]
-        then 
+        if [ -z "$2" ]; then
             echo "Number of peers is not provided, using default value of $IROHA2_PEER_COUNT"
             N_PEERS="$IROHA2_PEER_COUNT"
         else
             N_PEERS="$2"
         fi
 
-        if [ "$N_PEERS" -le 0 ]
-        then
+        if [ "$N_PEERS" -le 0 ]; then
             echo "Expected number of peers as non-zero positive number (> 0)."
             exit 1
         fi
@@ -171,7 +169,7 @@ case $1 in
             exit
         }
         echo '{"comment":{"String": "Hello Meta!"}}' >"$TEST/metadata.json"
-        cp ./configs/client_cli/config.json "$TEST"
+        cp ./configs/client/config.json "$TEST"
         cp ./target/debug/kagami "$TEST" || {
             echo 'Please build `kagami` by running'
             echo '`cargo build --bin kagami`'
