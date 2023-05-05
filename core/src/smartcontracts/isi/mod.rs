@@ -41,7 +41,7 @@ pub trait Registrable {
 }
 
 impl Execute for InstructionBox {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::debug!(isi=%self, "Executing");
 
         macro_rules! match_all {
@@ -77,7 +77,7 @@ impl Execute for InstructionBox {
 
 impl Execute for RegisterBox {
     #[iroha_logger::log(name = "register", skip_all, fields(id))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object_id = wsv.evaluate(&self.object)?;
         Span::current().record("id", &object_id.to_string());
         match object_id {
@@ -112,7 +112,7 @@ impl Execute for RegisterBox {
 
 impl Execute for UnregisterBox {
     #[iroha_logger::log(name = "unregister", skip_all, fields(id))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object_id = wsv.evaluate(&self.object_id)?;
         Span::current().record("id", &object_id.to_string());
         match object_id {
@@ -141,7 +141,7 @@ impl Execute for UnregisterBox {
 
 impl Execute for MintBox {
     #[iroha_logger::log(name = "Mint", skip_all, fields(destination))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
         let object = wsv.evaluate(&self.object)?;
         Span::current().record("destination", &destination_id.to_string());
@@ -196,7 +196,7 @@ impl Execute for MintBox {
 
 impl Execute for BurnBox {
     #[iroha_logger::log(name = "burn", skip_all, fields(destination))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
         let object = wsv.evaluate(&self.object)?;
         Span::current().record("destination", &destination_id.to_string());
@@ -235,7 +235,7 @@ impl Execute for BurnBox {
 
 impl Execute for TransferBox {
     #[iroha_logger::log(name = "transfer", skip_all, fields(from, to))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
             wsv.evaluate(&self.source_id)?,
             wsv.evaluate(&self.destination_id)?,
@@ -273,7 +273,7 @@ impl Execute for TransferBox {
 }
 
 impl Execute for SetKeyValueBox {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let key = wsv.evaluate(&self.key)?;
         let value = wsv.evaluate(&self.value)?;
         iroha_logger::trace!(?key, ?value, %authority);
@@ -308,7 +308,7 @@ impl Execute for SetKeyValueBox {
 }
 
 impl Execute for RemoveKeyValueBox {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let key = wsv.evaluate(&self.key)?;
         iroha_logger::trace!(?key, %authority);
         match wsv.evaluate(&self.object_id)? {
@@ -327,7 +327,7 @@ impl Execute for RemoveKeyValueBox {
 }
 
 impl Execute for Conditional {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
         if wsv.evaluate(&self.condition)? {
             self.then.execute(authority, wsv)?;
@@ -339,7 +339,7 @@ impl Execute for Conditional {
 }
 
 impl Execute for Pair {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
         self.left_instruction.execute(authority, wsv)?;
@@ -350,7 +350,7 @@ impl Execute for Pair {
 
 impl Execute for SequenceBox {
     #[iroha_logger::log(skip_all, name = "Sequence", fields(count))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         Span::current().record("count", self.instructions.len());
         for instruction in self.instructions {
             iroha_logger::trace!(%instruction);
@@ -361,7 +361,7 @@ impl Execute for SequenceBox {
 }
 
 impl Execute for FailBox {
-    fn execute(self, _authority: &AccountId, _wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, _authority: &AccountId, _wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
         Err(Error::Fail(self.message))
@@ -370,7 +370,7 @@ impl Execute for FailBox {
 
 impl Execute for GrantBox {
     #[iroha_logger::log(name = "grant", skip_all, fields(object))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
         let object = wsv.evaluate(&self.object)?;
         Span::current().record("object", &object.to_string());
@@ -397,7 +397,7 @@ impl Execute for GrantBox {
 
 impl Execute for RevokeBox {
     #[iroha_logger::log(name = "revoke", skip_all, fields(object))]
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
         let object = wsv.evaluate(&self.object)?;
         Span::current().record("object", &object.to_string());
@@ -423,21 +423,21 @@ impl Execute for RevokeBox {
 }
 
 impl Execute for SetParameterBox {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let parameter = wsv.evaluate(&self.parameter)?;
         SetParameter { parameter }.execute(authority, wsv)
     }
 }
 
 impl Execute for NewParameterBox {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let parameter = wsv.evaluate(&self.parameter)?;
         NewParameter { parameter }.execute(authority, wsv)
     }
 }
 
 impl Execute for UpgradeBox {
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object = wsv.evaluate(&self.object)?;
         match object {
             UpgradableBox::Validator(object) => {
@@ -466,24 +466,24 @@ mod tests {
 
     fn wsv_with_test_domains(kura: &Arc<Kura>) -> Result<WorldStateView> {
         let world = World::with([], PeersIds::new());
-        let wsv = WorldStateView::new(world, kura.clone());
+        let mut wsv = WorldStateView::new(world, kura.clone());
         let genesis_account_id = AccountId::from_str("genesis@genesis")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let (public_key, _) = KeyPair::generate()?.into();
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         RegisterBox::new(Domain::new(DomainId::from_str("wonderland")?))
-            .execute(&genesis_account_id, &wsv)?;
+            .execute(&genesis_account_id, &mut wsv)?;
         RegisterBox::new(Account::new(account_id, [public_key]))
-            .execute(&genesis_account_id, &wsv)?;
+            .execute(&genesis_account_id, &mut wsv)?;
         RegisterBox::new(AssetDefinition::store(asset_definition_id))
-            .execute(&genesis_account_id, &wsv)?;
+            .execute(&genesis_account_id, &mut wsv)?;
         Ok(wsv)
     }
 
     #[test]
     fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = wsv_with_test_domains(&kura)?;
+        let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
@@ -492,7 +492,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(&account_id, &wsv)?;
+        .execute(&account_id, &mut wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
         let bytes = metadata
@@ -512,14 +512,14 @@ mod tests {
     #[test]
     fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = wsv_with_test_domains(&kura)?;
+        let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(&account_id, &wsv)?;
+        .execute(&account_id, &mut wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
             account
                 .metadata()
@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn asset_definition_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = wsv_with_test_domains(&kura)?;
+        let mut wsv = wsv_with_test_domains(&kura)?;
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -548,7 +548,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(&account_id, &wsv)?;
+        .execute(&account_id, &mut wsv)?;
         let bytes = wsv
             .asset_definition(&definition_id)?
             .metadata()
@@ -568,7 +568,7 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = wsv_with_test_domains(&kura)?;
+        let mut wsv = wsv_with_test_domains(&kura)?;
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
@@ -576,7 +576,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(&account_id, &wsv)?;
+        .execute(&account_id, &mut wsv)?;
         let bytes = wsv
             .domain(&domain_id)?
             .metadata()
@@ -596,13 +596,13 @@ mod tests {
     #[test]
     fn executing_unregistered_trigger_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = wsv_with_test_domains(&kura)?;
+        let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
 
         assert!(matches!(
             ExecuteTriggerBox::new(trigger_id)
-                .execute(&account_id, &wsv)
+                .execute(&account_id, &mut wsv)
                 .expect_err("Error expected"),
             Error::Find(_)
         ));
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = wsv_with_test_domains(&kura)?;
+        let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let fake_account_id = AccountId::from_str("fake@wonderland")?;
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
@@ -624,7 +624,7 @@ mod tests {
             .into();
         let register_account =
             RegisterBox::new(Account::new(fake_account_id.clone(), [public_key]));
-        register_account.execute(&account_id, &wsv)?;
+        register_account.execute(&account_id, &mut wsv)?;
 
         // register the trigger
         let register_trigger = RegisterBox::new(Trigger::new(
@@ -640,15 +640,15 @@ mod tests {
             ),
         ));
 
-        register_trigger.execute(&account_id, &wsv)?;
+        register_trigger.execute(&account_id, &mut wsv)?;
 
         // execute with the valid account
-        ExecuteTriggerBox::new(trigger_id.clone()).execute(&account_id, &wsv)?;
+        ExecuteTriggerBox::new(trigger_id.clone()).execute(&account_id, &mut wsv)?;
 
         // execute with the fake account
         assert!(matches!(
             ExecuteTriggerBox::new(trigger_id)
-                .execute(&fake_account_id, &wsv)
+                .execute(&fake_account_id, &mut wsv)
                 .expect_err("Error expected"),
             Error::Validate(_)
         ));

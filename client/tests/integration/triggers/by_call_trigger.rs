@@ -383,6 +383,73 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_085).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = "rose#wonderland".parse()?;
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+    let trigger_id_unregister =
+        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("unregister_other_trigger")?;
+    let trigger_id_should_be_unregistered =
+        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str(
+            "should_be_unregistered_trigger",
+        )?;
+
+    let trigger_unregister_instructions =
+        vec![UnregisterBox::new(trigger_id_should_be_unregistered.clone()).into()];
+    let register_trigger = RegisterBox::new(Trigger::new(
+        trigger_id_unregister.clone(),
+        Action::new(
+            trigger_unregister_instructions,
+            Repeats::from(1_u32),
+            account_id.clone(),
+            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                trigger_id_unregister.clone(),
+                account_id.clone(),
+            )),
+        ),
+    ));
+    test_client.submit_blocking(register_trigger)?;
+
+    let trigger_should_be_unregistered_instructions =
+        vec![MintBox::new(1_u32, asset_id.clone()).into()];
+    let register_trigger = RegisterBox::new(Trigger::new(
+        trigger_id_should_be_unregistered.clone(),
+        Action::new(
+            trigger_should_be_unregistered_instructions,
+            Repeats::from(1_u32),
+            account_id.clone(),
+            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                trigger_id_should_be_unregistered.clone(),
+                account_id,
+            )),
+        ),
+    ));
+    test_client.submit_blocking(register_trigger)?;
+
+    // Saving current asset value
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+
+    // Executing triggers
+    let execute_trigger_unregister = ExecuteTriggerBox::new(trigger_id_unregister);
+    let execute_trigger_should_be_unregistered =
+        ExecuteTriggerBox::new(trigger_id_should_be_unregistered);
+    test_client.submit_all_blocking([
+        execute_trigger_unregister.into(),
+        execute_trigger_should_be_unregistered.into(),
+    ])?;
+
+    // Checking results
+    // First trigger should cancel second one, so value should stay the same
+    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    assert_eq!(new_asset_value, prev_asset_value);
+
+    Ok(())
+}
+
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)

@@ -23,7 +23,7 @@ pub trait Execute {
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error>;
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error>;
 }
 
 /// This trait should be implemented for all Iroha Queries.

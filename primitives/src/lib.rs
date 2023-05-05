@@ -12,7 +12,6 @@
 extern crate alloc;
 
 pub mod addr;
-pub mod atomic;
 #[cfg(not(feature = "ffi_import"))]
 pub mod conststr;
 pub mod fixed;

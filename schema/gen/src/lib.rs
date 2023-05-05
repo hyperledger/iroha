@@ -87,7 +87,6 @@ types!(
     AssetValue,
     AssetValueType,
     AtIndex,
-    AtomicU32,
     BTreeMap<AccountId, Account>,
     BTreeMap<AssetDefinitionId, AssetDefinition>,
     BTreeMap<AssetDefinitionId, NumericValue>,
@@ -461,7 +460,6 @@ mod tests {
     use iroha_genesis::RawGenesisBlock;
     use iroha_primitives::{
         addr::{Ipv4Addr, Ipv6Addr},
-        atomic::AtomicU32,
         conststr::ConstString,
         fixed::{FixNum, Fixed},
     };

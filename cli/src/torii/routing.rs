@@ -65,7 +65,7 @@ impl VerifiedQuery {
     /// - Account has incorrect permissions
     pub fn validate(
         self,
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(ValidQueryRequest, PredicateBox), QueryExecutionFailure> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.signatories.contains(self.signature.public_key())
@@ -76,6 +76,7 @@ impl VerifiedQuery {
             )));
         }
         wsv.validator_view()
+            .clone() // Cloning validator is cheep operation
             .validate(wsv, &self.payload.account_id, self.payload.query.clone())
             .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
         Ok((
@@ -107,7 +108,7 @@ pub(crate) async fn handle_instructions(
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction_limits = sumeragi.wsv(|wsv| wsv.config.borrow().transaction_limits);
+    let transaction_limits = sumeragi.wsv(|wsv| wsv.config.transaction_limits);
     let transaction = <AcceptedTransaction as InBlock>::accept(transaction, &transaction_limits)
         .map_err(Error::AcceptTransaction)?
         .into();
@@ -136,8 +137,8 @@ pub(crate) async fn handle_queries(
     let request: VerifiedQuery = request.try_into()?;
 
     let (result, filter) = {
-        let wsv = sumeragi.wsv(Clone::clone);
-        let (valid_request, filter) = request.validate(&wsv)?;
+        let mut wsv = sumeragi.wsv(Clone::clone);
+        let (valid_request, filter) = request.validate(&mut wsv)?;
         let original_result = valid_request.execute(&wsv)?;
         (filter.filter(original_result), filter)
     };

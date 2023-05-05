@@ -24,7 +24,7 @@ pub mod isi {
 
     impl Execute for Register<Peer> {
         #[metrics(+"register_peer")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let peer_id = self.object.id;
 
             wsv.modify_world(|world| {
@@ -42,10 +42,10 @@ pub mod isi {
 
     impl Execute for Unregister<Peer> {
         #[metrics(+"unregister_peer")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let peer_id = self.object_id;
             wsv.modify_world(|world| {
-                if world.trusted_peers_ids.remove(&peer_id).is_none() {
+                if !world.trusted_peers_ids.remove(&peer_id) {
                     return Err(FindError::Peer(peer_id).into());
                 }
 
@@ -56,13 +56,13 @@ pub mod isi {
 
     impl Execute for Register<Domain> {
         #[metrics("register_domain")]
-        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain: Domain = self.object.build(authority);
             let domain_id = domain.id().clone();
 
             domain_id
                 .name
-                .validate_len(wsv.config.borrow().ident_length_limits)
+                .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::from)?;
 
             wsv.modify_world(|world| {
@@ -83,7 +83,7 @@ pub mod isi {
 
     impl Execute for Unregister<Domain> {
         #[metrics("unregister_domain")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
             wsv.modify_world(|world| {
@@ -100,7 +100,7 @@ pub mod isi {
 
     impl Execute for Register<Role> {
         #[metrics(+"register_role")]
-        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let role = self.object.build(authority);
 
             for permission in &role.permissions {
@@ -111,7 +111,7 @@ pub mod isi {
                         FindError::PermissionTokenDefinition(permission.definition_id.clone())
                     })?;
 
-                permissions::check_permission_token_parameters(permission, definition.value())?;
+                permissions::check_permission_token_parameters(permission, definition)?;
             }
 
             if wsv.roles().contains_key(role.id()) {
@@ -131,11 +131,11 @@ pub mod isi {
 
     impl Execute for Unregister<Role> {
         #[metrics("unregister_role")]
-        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let role_id = self.object_id;
 
             let mut accounts_with_role = vec![];
-            for domain in wsv.domains().iter() {
+            for domain in wsv.domains().values() {
                 let account_ids = domain.accounts.values().filter_map(|account| {
                     if account.roles.contains(&role_id) {
                         return Some(account.id().clone());
@@ -167,7 +167,7 @@ pub mod isi {
 
     impl Execute for Register<PermissionTokenDefinition> {
         #[metrics(+"register_token")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let definition = self.object;
             let definition_id = definition.id().clone();
 
@@ -192,19 +192,20 @@ pub mod isi {
 
     impl Execute for Unregister<PermissionTokenDefinition> {
         #[metrics("unregister_permission_token")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let definition_id = self.object_id;
 
             remove_token_from_roles(wsv, &definition_id)?;
             remove_token_from_accounts(wsv, &definition_id)?;
 
             wsv.modify_world(|world| {
-                match world.permission_token_definitions.remove(&definition_id) {
-                    Some((_, definition)) => {
-                        Ok(PermissionTokenEvent::DefinitionDeleted(definition).into())
-                    }
-                    None => Err(FindError::PermissionTokenDefinition(definition_id).into()),
-                }
+                world
+                    .permission_token_definitions
+                    .remove(&definition_id)
+                    .map_or_else(
+                        || Err(FindError::PermissionTokenDefinition(definition_id).into()),
+                        |definition| Ok(PermissionTokenEvent::DefinitionDeleted(definition).into()),
+                    )
             })?;
 
             Ok(())
@@ -213,13 +214,12 @@ pub mod isi {
 
     /// Remove all tokens with specified definition id from all registered roles
     fn remove_token_from_roles(
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
     ) -> Result<(), Error> {
         let mut roles_containing_token = Vec::new();
 
-        for role_entry in wsv.roles().iter() {
-            let (role_id, role) = role_entry.pair();
+        for (role_id, role) in wsv.roles().iter() {
             if role
                 .permissions
                 .iter()
@@ -231,11 +231,11 @@ pub mod isi {
 
         for role_id in roles_containing_token {
             wsv.modify_world(|world| {
-                if let Some(mut role) = world.roles.get_mut(&role_id) {
+                if let Some(role) = world.roles.get_mut(&role_id) {
                     role.permissions
                         .retain(|token| token.definition_id != *target_definition_id);
                     Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
-                        role_id,
+                        role_id: role_id.clone(),
                         permission_definition_id: target_definition_id.clone(),
                     })
                     .into())
@@ -251,12 +251,12 @@ pub mod isi {
 
     /// Remove all tokens with specified definition id from all accounts in all domains
     fn remove_token_from_accounts(
-        wsv: &WorldStateView,
+        wsv: &mut WorldStateView,
         target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
     ) -> Result<(), Error> {
         let mut accounts_with_token = std::collections::HashMap::new();
 
-        for domain in wsv.domains().iter() {
+        for domain in wsv.domains().values() {
             let account_ids = domain.accounts.values().map(|account| {
                 (
                     account.id().clone(),
@@ -271,14 +271,12 @@ pub mod isi {
 
         for (account_id, tokens) in accounts_with_token {
             for token in tokens {
+                if !wsv.remove_account_permission(&account_id, &token) {
+                    error!(%token, "token not found. This is a bug");
+                }
                 wsv.modify_account(&account_id, |account| {
-                    let id = account.id();
-                    if !wsv.remove_account_permission(id, &token) {
-                        error!(%token, "token not found. This is a bug");
-                    }
-
                     Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
-                        account_id: id.clone(),
+                        account_id: account.id().clone(),
                         permission_id: token.definition_id,
                     }))
                 })?;
@@ -289,11 +287,11 @@ pub mod isi {
 
     impl Execute for SetParameter {
         #[metrics(+"set_parameter")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let parameter = self.parameter;
 
             wsv.modify_world(|world| {
-                if world.parameters.remove(&parameter).is_some() {
+                if world.parameters.remove(&parameter) {
                     world.parameters.insert(parameter.clone());
                     Ok(ConfigurationEvent::Changed(parameter.id).into())
                 } else {
@@ -305,7 +303,7 @@ pub mod isi {
 
     impl Execute for NewParameter {
         #[metrics(+"new_parameter")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let parameter = self.parameter;
 
             wsv.modify_world(|world| {
@@ -323,18 +321,19 @@ pub mod isi {
 
     impl Execute for Upgrade<Validator> {
         #[metrics(+"upgrade_validator")]
-        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             #[cfg(test)]
             use crate::validator::MockValidator as Validator;
             #[cfg(not(test))]
             use crate::validator::Validator;
 
             let raw_validator = self.object;
+            let engine = wsv.engine.clone(); // Cloning engine is cheep
             wsv.modify_world(|world| {
-                let new_validator = Validator::new(raw_validator).map_err(|err| {
+                let new_validator = Validator::new(raw_validator, &engine).map_err(|err| {
                     ValidationError::new(format!("Failed to load wasm blob: {err}"))
                 })?;
-                let _ = world.upgraded_validator.write().insert(new_validator);
+                let _ = world.upgraded_validator.insert(new_validator);
                 Ok(ValidatorEvent::Upgraded.into())
             })
         }
@@ -356,12 +355,7 @@ pub mod query {
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv
-                .world
-                .roles
-                .iter()
-                .map(|role| role.value().clone())
-                .collect())
+            Ok(wsv.world.roles.values().cloned().collect())
         }
     }
 
@@ -371,9 +365,10 @@ pub mod query {
             Ok(wsv
                .world
                .roles
-               .iter()
+               .values()
                // To me, this should probably be a method, not a field.
-               .map(|role| role.id().clone())
+               .map(Role::id)
+               .cloned()
                .collect())
         }
     }
@@ -405,10 +400,8 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             Ok(wsv
                 .permission_token_definitions()
-                .iter()
-                // Can't use `.cloned()` since `token_definition` here is a
-                // `dashmap::mapref::multiple::RefMulti`, not a vanilla Rust reference
-                .map(|token_definition| token_definition.clone())
+                .values()
+                .cloned()
                 .collect())
         }
     }

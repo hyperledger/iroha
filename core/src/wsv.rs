@@ -8,14 +8,14 @@
 )]
 
 use std::{
-    borrow::Borrow, collections::BTreeSet, convert::Infallible, fmt::Debug, sync::Arc,
+    borrow::Borrow,
+    collections::{BTreeSet, HashSet},
+    convert::Infallible,
+    fmt::Debug,
+    sync::Arc,
     time::Duration,
 };
 
-use dashmap::{
-    mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
-    DashSet,
-};
 use eyre::Result;
 use iroha_config::{
     base::proxy::Builder,
@@ -32,7 +32,6 @@ use iroha_data_model::{
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
-use parking_lot::RwLock;
 
 #[cfg(test)]
 use crate::validator::MockValidator as Validator;
@@ -54,7 +53,7 @@ use crate::{
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct World {
     /// Iroha config parameters.
     pub(crate) parameters: Parameters,
@@ -71,27 +70,10 @@ pub struct World {
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Runtime Validator
-    pub(crate) validator: RwLock<Option<Validator>>,
+    pub(crate) validator: Option<Validator>,
     /// New version of Validator, which will replace `validator` on the next
     /// [`validator_view()`}(WorldStateView::validator_view call.
-    pub(crate) upgraded_validator: RwLock<Option<Validator>>,
-}
-
-impl Clone for World {
-    #[cfg_attr(test, allow(clippy::clone_on_copy))]
-    fn clone(&self) -> Self {
-        Self {
-            parameters: self.parameters.clone(),
-            trusted_peers_ids: self.trusted_peers_ids.clone(),
-            domains: self.domains.clone(),
-            roles: self.roles.clone(),
-            account_permission_tokens: self.account_permission_tokens.clone(),
-            permission_token_definitions: self.permission_token_definitions.clone(),
-            triggers: self.triggers.clone(),
-            validator: RwLock::new(self.validator.read().clone()),
-            upgraded_validator: RwLock::new(self.upgraded_validator.read().clone()),
-        }
-    }
+    pub(crate) upgraded_validator: Option<Validator>,
 }
 
 impl World {
@@ -124,17 +106,19 @@ pub struct WorldStateView {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
     /// Configuration of World State View.
-    pub config: std::cell::RefCell<Configuration>,
+    pub config: Configuration,
     /// Blockchain.
-    pub block_hashes: std::cell::RefCell<Vec<HashOf<VersionedCommittedBlock>>>,
+    pub block_hashes: Vec<HashOf<VersionedCommittedBlock>>,
     /// Hashes of transactions
-    pub transactions: DashSet<HashOf<VersionedSignedTransaction>>,
+    pub transactions: HashSet<HashOf<VersionedSignedTransaction>>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
-    pub events_buffer: std::cell::RefCell<Vec<Event>>,
+    pub events_buffer: Vec<Event>,
     /// Accumulated amount of any asset that has been transacted.
-    pub metric_tx_amounts: std::cell::Cell<f64>,
+    pub metric_tx_amounts: f64,
     /// Count of how many mints, transfers and burns have happened.
-    pub metric_tx_amounts_counter: std::cell::Cell<u64>,
+    pub metric_tx_amounts_counter: u64,
+    /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
+    pub engine: wasmtime::Engine,
 
     /// Reference to Kura subsystem.
     kura: Arc<Kura>,
@@ -144,12 +128,13 @@ impl Clone for WorldStateView {
     fn clone(&self) -> Self {
         Self {
             world: Clone::clone(&self.world),
-            config: self.config.clone(),
+            config: self.config,
             block_hashes: self.block_hashes.clone(),
             transactions: self.transactions.clone(),
-            events_buffer: std::cell::RefCell::new(Vec::new()),
-            metric_tx_amounts: std::cell::Cell::new(0.0_f64),
-            metric_tx_amounts_counter: std::cell::Cell::new(0),
+            events_buffer: Vec::new(),
+            metric_tx_amounts: 0.0_f64,
+            metric_tx_amounts_counter: 0,
+            engine: self.engine.clone(),
             kura: Arc::clone(&self.kura),
         }
     }
@@ -196,9 +181,7 @@ impl WorldStateView {
         self.world
             .account_permission_tokens
             .get(&account.id)
-            .map_or_else(Default::default, |permissions_ref| {
-                permissions_ref.value().clone()
-            })
+            .map_or_else(Default::default, Clone::clone)
             .into_iter()
     }
 
@@ -211,7 +194,7 @@ impl WorldStateView {
     ) -> bool {
         self.world
             .account_permission_tokens
-            .get_mut(account)
+            .get(account)
             .map_or(false, |permissions| permissions.contains(token))
     }
 
@@ -219,7 +202,7 @@ impl WorldStateView {
     ///
     /// Return a Boolean value indicating whether or not the  [`Account`] already had this permission.
     pub fn add_account_permission(
-        &self,
+        &mut self,
         account: &<Account as Identifiable>::Id,
         token: PermissionToken,
     ) -> bool {
@@ -231,7 +214,7 @@ impl WorldStateView {
                     .insert(account.clone(), BTreeSet::from([token]));
                 true
             }
-            Some(mut permissions) => {
+            Some(permissions) => {
                 if permissions.contains(&token) {
                     return true;
                 }
@@ -244,20 +227,19 @@ impl WorldStateView {
     /// Remove a [`permission`](PermissionToken) from the [`Account`] if the account has this permission.
     /// Return a Boolean value indicating whether the [`Account`] had this permission.
     pub fn remove_account_permission(
-        &self,
+        &mut self,
         account: &<Account as Identifiable>::Id,
         token: &PermissionToken,
     ) -> bool {
         self.world
             .account_permission_tokens
             .get_mut(account)
-            .map_or(false, |mut permissions| permissions.remove(token))
+            .map_or(false, |permissions| permissions.remove(token))
     }
 
     fn process_trigger(
-        &self,
+        &mut self,
         id: &TriggerId,
-        engine: wasmtime::Engine,
         action: &dyn ActionTrait<Executable = LoadedExecutable>,
         event: Event,
     ) -> Result<()> {
@@ -270,8 +252,8 @@ impl WorldStateView {
             }
             Wasm(LoadedWasm { module, .. }) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .with_configuration(self.config.borrow().wasm_runtime_config)
-                    .with_engine(engine)
+                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_engine(self.engine.clone()) // Cloning engine is cheep
                     .build()?;
                 wasm_runtime
                     .execute_trigger_module(self, id, authority.clone(), module, event)
@@ -280,14 +262,44 @@ impl WorldStateView {
         }
     }
 
-    fn process_executable(&self, executable: &Executable, authority: AccountId) -> Result<()> {
+    /// Process every trigger in `matched_ids`
+    fn process_triggers(&mut self) -> Result<(), Vec<eyre::Report>> {
+        // Cloning and clearing `self.matched_ids` so that `handle_` call won't deadlock
+        let matched_ids = self.world.triggers.extract_matched_ids();
+        let mut succeed = Vec::<TriggerId>::with_capacity(matched_ids.len());
+        let mut errors = Vec::new();
+        for (event, id) in matched_ids {
+            let action = self
+                .world
+                .triggers
+                .inspect_by_id(&id, |action| action.clone_and_box());
+            if let Some(action) = action {
+                if let Repeats::Exactly(repeats) = action.repeats() {
+                    if *repeats == 0 {
+                        continue;
+                    }
+                }
+                match self.process_trigger(&id, &action, event) {
+                    Ok(_) => succeed.push(id),
+                    Err(error) => errors.push(error),
+                }
+            }
+        }
+
+        self.world.triggers.decrease_repeats(&succeed);
+
+        errors.is_empty().then_some(()).ok_or(errors)
+    }
+
+    fn process_executable(&mut self, executable: &Executable, authority: AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), &authority)
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .with_configuration(self.config.borrow().wasm_runtime_config)
+                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_engine(self.engine.clone()) // Cloning engine is cheep
                     .build()?;
                 wasm_runtime
                     .execute(self, authority, bytes)
@@ -297,7 +309,7 @@ impl WorldStateView {
     }
 
     fn process_instructions(
-        &self,
+        &mut self,
         instructions: impl IntoIterator<Item = InstructionBox>,
         authority: &AccountId,
     ) -> Result<()> {
@@ -323,27 +335,20 @@ impl WorldStateView {
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
     #[iroha_logger::log(skip_all, fields(block_height))]
-    pub fn apply(&self, block: &VersionedCommittedBlock) -> Result<()> {
+    pub fn apply(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
         let hash = block.hash();
         let block = block.as_v1();
         iroha_logger::prelude::Span::current().record("block_height", block.header.height);
         trace!("Applying block");
         let time_event = self.create_time_event(block)?;
-        self.events_buffer
-            .borrow_mut()
-            .push(Event::Time(time_event));
+        self.events_buffer.push(Event::Time(time_event));
 
         self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
 
         self.world.triggers.handle_time_event(time_event);
 
-        let res = self
-            .world
-            .triggers
-            .inspect_matched(|id, engine, action, event| -> Result<()> {
-                self.process_trigger(id, engine, action, event)
-            });
+        let res = self.process_triggers();
 
         if let Err(errors) = res {
             warn!(
@@ -352,19 +357,19 @@ impl WorldStateView {
             );
         }
 
-        self.block_hashes.borrow_mut().push(hash);
+        self.block_hashes.push(hash);
 
         self.apply_parameters();
 
         Ok(())
     }
 
-    fn apply_parameters(&self) {
+    fn apply_parameters(&mut self) {
         use iroha_data_model::parameter::default::*;
         macro_rules! update_params {
             ($ident:ident, $($param:expr => $config:expr),+ $(,)?) => {
-                let mut $ident = self.config.borrow_mut();
                 $(if let Some(param) = self.query_param($param) {
+                    let mut $ident = &mut self.config;
                     $config = param;
                 })+
 
@@ -392,7 +397,7 @@ impl WorldStateView {
     #[inline]
     pub fn latest_block_ref(&self) -> Option<Arc<VersionedCommittedBlock>> {
         self.kura
-            .get_block_by_height(self.block_hashes.borrow().len() as u64)
+            .get_block_by_height(self.block_hashes.len() as u64)
     }
 
     /// Create time event using previous and current blocks
@@ -424,7 +429,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if transaction instruction execution fails
-    fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
+    fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
             self.process_executable(
@@ -467,7 +472,7 @@ impl WorldStateView {
     /// - There is no account with such name.
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
-        &self,
+        &mut self,
         id: &<Asset as Identifiable>::Id,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
@@ -494,7 +499,7 @@ impl WorldStateView {
     pub fn all_blocks_by_value(
         &self,
     ) -> impl DoubleEndedIterator<Item = VersionedCommittedBlock> + '_ {
-        let block_count = self.block_hashes.borrow().len() as u64;
+        let block_count = self.block_hashes.len() as u64;
         (1..=block_count)
             .map(|height| {
                 self.kura
@@ -510,10 +515,9 @@ impl WorldStateView {
         hash: Option<HashOf<VersionedCommittedBlock>>,
     ) -> Vec<HashOf<VersionedCommittedBlock>> {
         hash.map_or_else(
-            || self.block_hashes.borrow().clone(),
+            || self.block_hashes.clone(),
             |block_hash| {
                 self.block_hashes
-                    .borrow()
                     .iter()
                     .skip_while(|&x| *x != block_hash)
                     .skip(1)
@@ -528,8 +532,8 @@ impl WorldStateView {
     /// # Errors
     /// Forward errors from [`Self::modify_world_multiple_events`]
     pub fn modify_world(
-        &self,
-        f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
+        &mut self,
+        f: impl FnOnce(&mut World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
         self.modify_world_multiple_events(move |world| f(world).map(std::iter::once))
     }
@@ -543,10 +547,10 @@ impl WorldStateView {
     /// # Errors
     /// Forward errors from `f`
     pub fn modify_world_multiple_events<I: IntoIterator<Item = WorldEvent>>(
-        &self,
-        f: impl FnOnce(&World) -> Result<I, Error>,
+        &mut self,
+        f: impl FnOnce(&mut World) -> Result<I, Error>,
     ) -> Result<(), Error> {
-        let world_events = f(&self.world)?;
+        let world_events = f(&mut self.world)?;
         let data_events: SmallVec<[DataEvent; 3]> = world_events
             .into_iter()
             .flat_map(WorldEvent::flatten)
@@ -556,7 +560,6 @@ impl WorldStateView {
             self.world.triggers.handle_data_event(event.clone());
         }
         self.events_buffer
-            .borrow_mut()
             .extend(data_events.into_iter().map(Into::into));
 
         Ok(())
@@ -571,7 +574,6 @@ impl WorldStateView {
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
     pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<VersionedCommittedBlock>> {
         self.block_hashes
-            .borrow()
             .iter()
             .skip(height.saturating_sub(1))
             .copied()
@@ -582,10 +584,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain
-    pub fn domain(
-        &self,
-        id: &<Domain as Identifiable>::Id,
-    ) -> Result<DashMapRef<DomainId, Domain>, FindError> {
+    pub fn domain(&self, id: &<Domain as Identifiable>::Id) -> Result<&Domain, FindError> {
         let domain = self
             .world
             .domains
@@ -599,9 +598,9 @@ impl WorldStateView {
     /// # Errors
     /// Fails if there is no domain
     pub fn domain_mut(
-        &self,
+        &mut self,
         id: &<Domain as Identifiable>::Id,
-    ) -> Result<DashMapRefMut<DomainId, Domain>, FindError> {
+    ) -> Result<&mut Domain, FindError> {
         let domain = self
             .world
             .domains
@@ -627,7 +626,7 @@ impl WorldStateView {
         f: impl FnOnce(&Domain) -> Result<T, Infallible>,
     ) -> Result<T, FindError> {
         let domain = self.domain(id)?;
-        let value = f(domain.value()).map_or_else(
+        let value = f(domain).map_or_else(
             |_infallible| unreachable!("Returning `Infallible` should not be possible"),
             |value| value,
         );
@@ -639,7 +638,7 @@ impl WorldStateView {
     /// # Errors
     /// Forward errors from [`Self::modify_domain_multiple_events`]
     pub fn modify_domain(
-        &self,
+        &mut self,
         id: &<Domain as Identifiable>::Id,
         f: impl FnOnce(&mut Domain) -> Result<DomainEvent, Error>,
     ) -> Result<(), Error> {
@@ -652,16 +651,16 @@ impl WorldStateView {
     /// - If there is no domain
     /// - Forward errors from `f`
     pub fn modify_domain_multiple_events<I: IntoIterator<Item = DomainEvent>>(
-        &self,
+        &mut self,
         id: &<Domain as Identifiable>::Id,
         f: impl FnOnce(&mut Domain) -> Result<I, Error>,
     ) -> Result<(), Error> {
         self.modify_world_multiple_events(|world| {
-            let mut domain = world
+            let domain = world
                 .domains
                 .get_mut(id)
                 .ok_or_else(|| FindError::Domain(id.clone()))?;
-            f(domain.value_mut()).map(|events| events.into_iter().map(Into::into))
+            f(domain).map(|events| events.into_iter().map(Into::into))
         })
     }
 
@@ -682,12 +681,13 @@ impl WorldStateView {
     pub fn from_configuration(config: Configuration, world: World, kura: Arc<Kura>) -> Self {
         Self {
             world,
-            config: std::cell::RefCell::new(config),
-            transactions: DashSet::new(),
-            block_hashes: std::cell::RefCell::new(Vec::new()),
-            events_buffer: std::cell::RefCell::new(Vec::new()),
-            metric_tx_amounts: std::cell::Cell::new(0.0_f64),
-            metric_tx_amounts_counter: std::cell::Cell::new(0),
+            config,
+            transactions: HashSet::new(),
+            block_hashes: Vec::new(),
+            events_buffer: Vec::new(),
+            metric_tx_amounts: 0.0_f64,
+            metric_tx_amounts_counter: 0,
+            engine: wasm::create_engine(),
             kura,
         }
     }
@@ -696,7 +696,7 @@ impl WorldStateView {
     /// committed, or [`None`] if it wasn't.
     #[inline]
     pub fn genesis_timestamp(&self) -> Option<u128> {
-        if self.block_hashes.borrow().is_empty() {
+        if self.block_hashes.is_empty() {
             None
         } else {
             let opt = self
@@ -720,12 +720,12 @@ impl WorldStateView {
     /// Height of blockchain
     #[inline]
     pub fn height(&self) -> u64 {
-        self.block_hashes.borrow().len() as u64
+        self.block_hashes.len() as u64
     }
 
     /// Return the hash of the latest block
     pub fn latest_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
-        self.block_hashes.borrow().iter().nth_back(0).copied()
+        self.block_hashes.iter().nth_back(0).copied()
     }
 
     /// Return the view change index of the latest block
@@ -737,7 +737,7 @@ impl WorldStateView {
 
     /// Return the hash of the block one before the latest block
     pub fn previous_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
-        self.block_hashes.borrow().iter().nth_back(1).copied()
+        self.block_hashes.iter().nth_back(1).copied()
     }
 
     /// Get `Account` and pass it to closure.
@@ -762,7 +762,7 @@ impl WorldStateView {
     /// # Errors
     /// Forward errors from [`Self::modify_account_multiple_events`]
     pub fn modify_account(
-        &self,
+        &mut self,
         id: &AccountId,
         f: impl FnOnce(&mut Account) -> Result<AccountEvent, Error>,
     ) -> Result<(), Error> {
@@ -775,7 +775,7 @@ impl WorldStateView {
     /// - If there is no domain or account
     /// - Forward errors from `f`
     pub fn modify_account_multiple_events<I: IntoIterator<Item = AccountEvent>>(
-        &self,
+        &mut self,
         id: &AccountId,
         f: impl FnOnce(&mut Account) -> Result<I, Error>,
     ) -> Result<(), Error> {
@@ -793,7 +793,7 @@ impl WorldStateView {
     /// # Errors
     /// Forward errors from [`Self::modify_asset_multiple_events`]
     pub fn modify_asset(
-        &self,
+        &mut self,
         id: &<Asset as Identifiable>::Id,
         f: impl FnOnce(&mut Asset) -> Result<AssetEvent, Error>,
     ) -> Result<(), Error> {
@@ -810,7 +810,7 @@ impl WorldStateView {
     /// # Panics
     /// If removing asset from account failed
     pub fn modify_asset_multiple_events<I: IntoIterator<Item = AssetEvent>>(
-        &self,
+        &mut self,
         id: &<Asset as Identifiable>::Id,
         f: impl FnOnce(&mut Asset) -> Result<I, Error>,
     ) -> Result<(), Error> {
@@ -834,7 +834,7 @@ impl WorldStateView {
     /// # Errors
     /// Forward errors from [`Self::modify_asset_definition_multiple_events`]
     pub fn modify_asset_definition(
-        &self,
+        &mut self,
         id: &<AssetDefinition as Identifiable>::Id,
         f: impl FnOnce(&mut AssetDefinition) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
@@ -849,7 +849,7 @@ impl WorldStateView {
     /// - If asset definition entry does not exist
     /// - Forward errors from `f`
     pub fn modify_asset_definition_multiple_events<I: IntoIterator<Item = AssetDefinitionEvent>>(
-        &self,
+        &mut self,
         id: &<AssetDefinition as Identifiable>::Id,
         f: impl FnOnce(&mut AssetDefinition) -> Result<I, Error>,
     ) -> Result<(), Error> {
@@ -879,7 +879,7 @@ impl WorldStateView {
         self.world
             .parameters
             .iter()
-            .map(|param| param.clone())
+            .cloned()
             .collect::<Vec<Parameter>>()
     }
 
@@ -895,7 +895,7 @@ impl WorldStateView {
             .parameters
             .get(param)
             .as_ref()
-            .and_then(|param| param.key().val.clone().try_into().ok())
+            .and_then(|param| param.val.clone().try_into().ok())
     }
 
     /// Get `AssetDefinition` immutable view.
@@ -934,7 +934,7 @@ impl WorldStateView {
     /// - [`AssetDefinition`], [`Domain`] not found
     /// - Overflow
     pub fn increase_asset_total_amount<I>(
-        &self,
+        &mut self,
         definition_id: &<AssetDefinition as Identifiable>::Id,
         increment: I,
     ) -> Result<(), Error>
@@ -973,7 +973,7 @@ impl WorldStateView {
     /// - [`AssetDefinition`], [`Domain`] not found
     /// - Not enough quantity
     pub fn decrease_asset_total_amount<I>(
-        &self,
+        &mut self,
         definition_id: &<AssetDefinition as Identifiable>::Id,
         decrement: I,
     ) -> Result<(), Error>
@@ -1110,9 +1110,9 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Forward errors from [`Self::modify_triggers_multiple_events`]
-    pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
+    pub fn modify_triggers<F>(&mut self, f: F) -> Result<(), Error>
     where
-        F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
+        F: FnOnce(&mut TriggerSet) -> Result<TriggerEvent, Error>,
     {
         self.modify_triggers_multiple_events(move |triggers| f(triggers).map(std::iter::once))
     }
@@ -1121,13 +1121,13 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Forward errors from `f`
-    pub fn modify_triggers_multiple_events<I, F>(&self, f: F) -> Result<(), Error>
+    pub fn modify_triggers_multiple_events<I, F>(&mut self, f: F) -> Result<(), Error>
     where
         I: IntoIterator<Item = TriggerEvent>,
-        F: FnOnce(&TriggerSet) -> Result<I, Error>,
+        F: FnOnce(&mut TriggerSet) -> Result<I, Error>,
     {
         self.modify_world_multiple_events(|world| {
-            f(&world.triggers).map(|events| events.into_iter().map(WorldEvent::Trigger))
+            f(&mut world.triggers).map(|events| events.into_iter().map(WorldEvent::Trigger))
         })
     }
 
@@ -1140,7 +1140,7 @@ impl WorldStateView {
     /// then *trigger* will be executed on the **current** block
     /// - If this method is called by ISI inside *trigger*,
     /// then *trigger* will be executed on the **next** block
-    pub fn execute_trigger(&self, trigger_id: TriggerId, authority: &AccountId) {
+    pub fn execute_trigger(&mut self, trigger_id: TriggerId, authority: &AccountId) {
         let event = ExecuteTriggerEvent {
             trigger_id,
             authority: authority.clone(),
@@ -1149,7 +1149,7 @@ impl WorldStateView {
         self.world
             .triggers
             .handle_execute_trigger_event(event.clone());
-        self.events_buffer.borrow_mut().push(event.into());
+        self.events_buffer.push(event.into());
     }
 
     /// Get constant view to a *Runtime Validator*.
@@ -1160,25 +1160,22 @@ impl WorldStateView {
     ///
     /// Panics if validator is not initialized.
     /// Possible only before applying genesis.
-    pub fn validator_view(&self) -> crate::validator::View {
+    pub fn validator_view(&mut self) -> &Validator {
         {
-            let mut upgraded_validator_write = self.world.upgraded_validator.write();
-            if let Some(upgraded_validator) = upgraded_validator_write.take() {
-                let mut validator_write = self.world.validator.write();
-                validator_write.replace(upgraded_validator);
+            if let Some(upgraded_validator) = self.world.upgraded_validator.take() {
+                self.world.validator.replace(upgraded_validator);
             }
         }
 
         #[cfg(test)]
         {
-            let mut validator_write = self.world.validator.write();
-            if validator_write.is_none() {
-                let _validator = validator_write.insert(Validator::default());
-            }
+            self.world.validator.get_or_insert_with(Validator::default);
         }
 
-        let validator_read = self.world.validator.read();
-        crate::validator::View::new(validator_read)
+        self.world
+            .validator
+            .as_ref()
+            .expect("Must be initialized at this point")
     }
 }
 
@@ -1195,7 +1192,7 @@ mod tests {
 
         let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(World::default(), kura);
+        let mut wsv = WorldStateView::new(World::default(), kura);
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -1218,7 +1215,7 @@ mod tests {
 
         let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(World::default(), kura.clone());
+        let mut wsv = WorldStateView::new(World::default(), kura.clone());
 
         for i in 1..=BLOCK_CNT {
             block.header.height = i as u64;

@@ -295,7 +295,7 @@ impl Sumeragi {
 
         topology.update_topology(
             committed_block,
-            self.wsv.peers_ids().iter().map(|id| id.clone()).collect(),
+            self.wsv.peers_ids().iter().cloned().collect(),
         );
 
         self.current_topology = topology;
@@ -322,7 +322,8 @@ impl Sumeragi {
             .apply(committed_block.as_ref())
             .expect("Failed to apply block on WSV. Bailing.");
 
-        self.send_events(self.wsv.events_buffer.replace(Vec::new()));
+        let events_buffer = core::mem::take(&mut self.wsv.events_buffer);
+        self.send_events(events_buffer);
 
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
@@ -1129,7 +1130,7 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world, Arc::clone(&kura));
+        let mut wsv = WorldStateView::new(world, Arc::clone(&kura));
 
         // Create "genesis" block
         // Creating an instruction
@@ -1208,7 +1209,7 @@ mod tests {
     #[test]
     fn block_sync_invalid_soft_fork_block() {
         let (finalized_wsv, kura, mut block) = create_data_for_test();
-        let wsv = finalized_wsv.clone();
+        let mut wsv = finalized_wsv.clone();
 
         kura.store_block(block.clone());
         wsv.apply(&block).expect("Failed to apply block");
@@ -1252,7 +1253,7 @@ mod tests {
     #[test]
     fn block_sync_replace_top_block() {
         let (finalized_wsv, kura, mut block) = create_data_for_test();
-        let wsv = finalized_wsv.clone();
+        let mut wsv = finalized_wsv.clone();
 
         kura.store_block(block.clone());
         wsv.apply(&block).expect("Failed to apply block to wsv");
@@ -1268,7 +1269,7 @@ mod tests {
     #[test]
     fn block_sync_small_view_change_index() {
         let (finalized_wsv, kura, mut block) = create_data_for_test();
-        let wsv = finalized_wsv.clone();
+        let mut wsv = finalized_wsv.clone();
 
         // Increase block view change index
         block.as_mut_v1().header.view_change_index = 42;
