@@ -4,7 +4,6 @@
 //! but instead it is being built by a `client/build.rs`
 
 #![no_std]
-#![no_main]
 #![allow(clippy::all)]
 
 extern crate alloc;
@@ -20,7 +19,7 @@ use iroha_wasm::{
 };
 
 #[iroha_wasm::entrypoint]
-fn trigger_entrypoint() {
+fn main() {
     iroha_wasm::info!("Executing trigger");
 
     let query = QueryBox::from(FindAllAccounts);

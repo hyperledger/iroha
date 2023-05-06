@@ -3243,7 +3243,7 @@
       },
       {
         "name": "signatures",
-        "type": "SortedVec<SignatureOf<TransactionPayload>>"
+        "type": "SignaturesOf<TransactionPayload>"
       }
     ]
   },

@@ -575,7 +575,7 @@ mod tests {
                 extra_types.insert(schema);
             }
         }
-        assert!(extra_types.is_empty(), "Extra types: {:#?}", extra_types);
+        assert!(extra_types.is_empty(), "Extra types: {extra_types:#?}");
 
         let mut missing_types = HashSet::new();
         for (type_id, schema) in &schemas_types {
@@ -585,8 +585,7 @@ mod tests {
         }
         assert!(
             missing_types.is_empty(),
-            "Missing types: {:#?}",
-            missing_types
+            "Missing types: {missing_types:#?}",
         );
     }
 

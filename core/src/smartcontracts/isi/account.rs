@@ -205,7 +205,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<Account, Name, Value> {
+    impl Execute for SetKeyValue<Account> {
         type Error = Error;
 
         #[metrics(+"set_key_value_account_string_value")]
@@ -234,7 +234,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Account, Name> {
+    impl Execute for RemoveKeyValue<Account> {
         type Error = Error;
 
         #[metrics(+"remove_account_key_value")]

@@ -109,6 +109,8 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
             #fn_name(#args)
         }
 
+        // NOTE: Host objects are allways passed by value to wasm
+        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block

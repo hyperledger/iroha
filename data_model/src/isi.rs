@@ -6,8 +6,7 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
-use derive_more::{Constructor, DebugCustom, Display};
-use getset::Getters;
+use derive_more::{DebugCustom, Display};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -62,6 +61,8 @@ macro_rules! isi {
 
 #[model]
 pub mod model {
+    pub use transparent::*;
+
     use super::*;
 
     /// Sized structure for all possible Instructions.
@@ -143,43 +144,42 @@ pub mod model {
         /// `Upgrade` variant.
         Upgrade(UpgradeBox),
     }
+}
+
+mod transparent {
+    // NOTE: instructions in this module don't have to be made opaque with `model!`
+    // because they are never shared between client and server(http)/host(wasm)
+
+    use super::*;
 
     /// Generic instruction to set key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct SetKeyValue<O, K, V>
+    #[derive(Debug, Clone)]
+    pub struct SetKeyValue<O>
     where
         O: Identifiable,
-        K: Into<Value>,
-        V: Into<Value>,
     {
         /// Where to set key value.
         pub object_id: O::Id,
         /// Key.
-        pub key: K,
+        pub key: Name,
         /// Value.
-        pub value: V,
+        pub value: Value,
     }
 
     /// Generic instruction to remove key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct RemoveKeyValue<O, K>
+    #[derive(Debug, Clone)]
+    pub struct RemoveKeyValue<O>
     where
         O: Identifiable,
-        K: Into<Value>,
     {
         /// From where to remove key value.
         pub object_id: O::Id,
         /// Key of the pair to remove.
-        pub key: K,
+        pub key: Name,
     }
 
     /// Generic instruction for a registration of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
+    #[derive(Debug, Clone)]
     pub struct Register<O>
     where
         O: Registered,
@@ -189,10 +189,7 @@ pub mod model {
     }
 
     /// Generic instruction for an unregistration of an object from the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
+    #[derive(Debug, Clone)]
     pub struct Unregister<O>
     where
         O: Registered,
@@ -202,8 +199,7 @@ pub mod model {
     }
 
     /// Generic instruction for a mint of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Mint<D, O>
     where
         D: Identifiable,
@@ -216,8 +212,7 @@ pub mod model {
     }
 
     /// Generic instruction for a burn of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Burn<D, O>
     where
         D: Identifiable,
@@ -230,8 +225,7 @@ pub mod model {
     }
 
     /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Transfer<S: Identifiable, O, D: Identifiable>
     where
         O: Into<Value>,
@@ -245,8 +239,7 @@ pub mod model {
     }
 
     /// Generic instruction for granting permission to an entity.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Grant<D, O>
     where
         D: Registered,
@@ -259,8 +252,7 @@ pub mod model {
     }
 
     /// Generic instruction for revoking permission from an entity.
-    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Revoke<D, O>
     where
         D: Registered,
@@ -273,30 +265,34 @@ pub mod model {
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct SetParameter {
         /// Parameter to be changed.
         pub parameter: Parameter,
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct NewParameter {
         /// Parameter to be changed.
         pub parameter: Parameter,
     }
 
     /// Generic instruction for upgrading runtime objects.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Upgrade<O>
     where
         O: Into<UpgradableBox>,
     {
         /// Object to upgrade.
         pub object: O,
+    }
+
+    /// Generic instruction for executing specified trigger
+    #[derive(Debug, Clone)]
+    pub struct ExecuteTrigger {
+        /// Id of a trigger to execute
+        pub trigger_id: TriggerId,
     }
 }
 
@@ -1135,11 +1131,11 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, Conditional, ExecuteTriggerBox, FailBox, Grant, GrantBox, InstructionBox,
-        Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox, RemoveKeyValue,
-        RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox,
-        SetParameter, SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox, Upgrade,
-        UpgradeBox,
+        Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
+        InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox,
+        RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue,
+        SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox, Unregister,
+        UnregisterBox, Upgrade, UpgradeBox,
     };
 }
 

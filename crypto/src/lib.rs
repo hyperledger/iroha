@@ -353,7 +353,7 @@ impl fmt::Display for PublicKey {
         let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
         let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
 
-        write!(f, "{}{}{}", fn_code, dig_size, key)
+        write!(f, "{fn_code}{dig_size}{key}")
     }
 }
 

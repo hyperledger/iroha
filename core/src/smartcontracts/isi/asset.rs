@@ -38,7 +38,7 @@ pub mod isi {
     use super::*;
     use crate::smartcontracts::account::isi::forbid_minting;
 
-    impl Execute for SetKeyValue<Asset, Name, Value> {
+    impl Execute for SetKeyValue<Asset> {
         type Error = Error;
 
         #[metrics(+"asset_set_key_value")]
@@ -79,7 +79,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Asset, Name> {
+    impl Execute for RemoveKeyValue<Asset> {
         type Error = Error;
 
         #[metrics(+"asset_remove_key_value")]

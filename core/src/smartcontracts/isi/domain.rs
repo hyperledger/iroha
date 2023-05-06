@@ -199,7 +199,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<AssetDefinition, Name, Value> {
+    impl Execute for SetKeyValue<AssetDefinition> {
         type Error = Error;
 
         #[metrics(+"set_key_value_asset_def")]
@@ -227,7 +227,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<AssetDefinition, Name> {
+    impl Execute for RemoveKeyValue<AssetDefinition> {
         type Error = Error;
 
         #[metrics(+"remove_key_value_asset_def")]
@@ -253,7 +253,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<Domain, Name, Value> {
+    impl Execute for SetKeyValue<Domain> {
         type Error = Error;
 
         #[metrics(+"set_key_value_domain")]
@@ -280,7 +280,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Domain, Name> {
+    impl Execute for RemoveKeyValue<Domain> {
         type Error = Error;
 
         #[metrics(+"remove_key_value_domain")]

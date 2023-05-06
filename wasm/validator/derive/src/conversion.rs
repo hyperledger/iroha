@@ -9,7 +9,7 @@ pub fn impl_derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
     impl_from(
         &input.ident,
         &input.generics,
-        &syn::parse_quote!(::iroha_validator::pass_conditions::asset::Owner),
+        &syn::parse_quote!(::iroha_validator::permission::asset::Owner),
         &syn::parse_quote!(asset_id),
     )
     .into()
@@ -23,7 +23,7 @@ pub fn impl_derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenS
     impl_from(
         &input.ident,
         &input.generics,
-        &syn::parse_quote!(::iroha_validator::pass_conditions::asset_definition::Owner),
+        &syn::parse_quote!(::iroha_validator::permission::asset_definition::Owner),
         &syn::parse_quote!(asset_definition_id),
     )
     .into()
@@ -36,7 +36,7 @@ pub fn impl_derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
     impl_from(
         &input.ident,
         &input.generics,
-        &syn::parse_quote!(::iroha_validator::pass_conditions::account::Owner),
+        &syn::parse_quote!(::iroha_validator::permission::account::Owner),
         &syn::parse_quote!(account_id),
     )
     .into()

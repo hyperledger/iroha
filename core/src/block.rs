@@ -346,7 +346,7 @@ impl Revalidate for PendingBlock {
             .map(|tx_v| {
                 let tx = SignedTransaction {
                     payload: tx_v.payload,
-                    signatures: tx_v.signatures.into(),
+                    signatures: tx_v.signatures,
                 };
                 AcceptedTransaction::accept::<IS_GENESIS>(
                     tx,
@@ -379,7 +379,7 @@ impl Revalidate for PendingBlock {
             .map(|tx_r| {
                 let tx = SignedTransaction {
                     payload: tx_r.payload,
-                    signatures: tx_r.signatures.into(),
+                    signatures: tx_r.signatures,
                 };
                 AcceptedTransaction::accept::<IS_GENESIS>(
                     tx,
@@ -490,7 +490,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|tx_v| {
                         let tx = SignedTransaction {
                             payload: tx_v.payload,
-                            signatures: tx_v.signatures.into(),
+                            signatures: tx_v.signatures,
                         };
                         AcceptedTransaction::accept::<IS_GENESIS>(
                             tx,
@@ -523,7 +523,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|tx_r| {
                         let tx = SignedTransaction {
                             payload: tx_r.payload,
-                            signatures: tx_r.signatures.into(),
+                            signatures: tx_r.signatures,
                         };
                         AcceptedTransaction::accept::<IS_GENESIS>(
                             tx,

@@ -205,7 +205,6 @@ impl TransactionValidator {
             payload,
             signatures,
         } = tx;
-        let signatures = signatures.into_iter().collect();
 
         let signed_tx = SignedTransaction {
             payload,

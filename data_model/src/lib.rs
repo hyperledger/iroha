@@ -38,8 +38,8 @@ use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
 use events::FilterBox;
 use getset::Getters;
-pub use iroha_crypto::SignatureOf;
 use iroha_crypto::{Hash, PublicKey};
+pub use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_data_model_derive::{
     model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
 };
