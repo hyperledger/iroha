@@ -19,23 +19,16 @@ macro_rules! deny_unsupported_instruction {
     };
 }
 
-macro_rules! evaluate_field {
-    ($validator:ident, $authority:ident, <$isi:ident as $isi_type:ty>::$field:ident) => {{
-        fn type_check(_isi: &$isi_type) {}
-        type_check($isi);
+macro_rules! evaluate_expr {
+    ($validator:ident, $authority:ident, <$isi:ident as $isi_type:ty>::$field:ident()) => {{
+        $validator.validate_expression($authority, $isi.$field())?;
 
-        let verdict = $validator.validate_expression($authority, $isi.$field().expression());
-        if verdict.is_deny() {
-            return verdict;
-        }
-
-        $isi.$field().evaluate(&Context::new()).dbg_expect(concat!(
-            "Failed to evaluate `",
-            stringify!($field),
-            "` of `",
-            stringify!($isi_type),
-            "`"
-        ))
+        $isi.$field().evaluate(&iroha_wasm::Context::new())
+            // TODO: Should evaluation always be successful by here?
+            .map_err(|error| alloc::format!(
+                "Failed to evaluate field '{}::{}': {error}",
+                stringify!($field), stringify!($isi_type)
+            ))
     }};
 }
 
@@ -43,6 +36,14 @@ macro_rules! evaluate_field {
 ///
 /// This trait is based on the visitor pattern
 pub trait Validate {
+    fn validate_expression<V>(
+        &mut self,
+        authority: &AccountId,
+        expression: &EvaluatesTo<V>,
+    ) -> Verdict {
+        validate_expression(self, authority, expression)
+    }
+
     delegate! {
         // Validate SignedTransaction
         validate_transaction(SignedTransaction),
@@ -52,7 +53,6 @@ pub trait Validate {
         // Validate TransactionPayload
         validate_instruction(&InstructionBox),
         validate_wasm(&WasmSmartContract),
-        validate_expression(&Expression),
         validate_query(&QueryBox),
 
         // Validate InstructionBox
@@ -190,12 +190,7 @@ pub fn validate_transaction<V: Validate + ?Sized>(
     authority: &AccountId,
     transaction: SignedTransaction,
 ) -> Verdict {
-    let verdict = validator.validate_transaction_signatures(authority, transaction.signatures());
-
-    if verdict.is_deny() {
-        return verdict;
-    }
-
+    validator.validate_transaction_signatures(authority, transaction.signatures())?;
     validator.validate_transaction_payload(authority, transaction.payload())
 }
 
@@ -208,12 +203,7 @@ pub fn validate_transaction_payload<V: Validate + ?Sized>(
         Executable::Wasm(wasm) => validator.validate_wasm(authority, wasm),
         Executable::Instructions(instructions) => {
             for isi in instructions {
-                let verdict = validator.validate_instruction(authority, isi);
-
-                if verdict.is_deny() {
-                    return verdict;
-                }
-
+                validator.validate_instruction(authority, isi)?;
                 isi.execute()
             }
 
@@ -304,15 +294,15 @@ pub fn validate_instruction<V: Validate + ?Sized>(
             match isi { $(
                 InstructionBox::$isi(isi) => validator.$validator(authority, isi), )+
                 InstructionBox::NewParameter(isi) => {
-                    let parameter = evaluate_field!(validator, authority, <isi as NewParameterBox>::parameter);
+                    let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter())?;
                     validator.validate_new_parameter(authority, NewParameter{parameter})
                 }
                 InstructionBox::SetParameter(isi) => {
-                    let parameter = evaluate_field!(validator, authority, <isi as SetParameterBox>::parameter);
+                    let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter())?;
                     validator.validate_set_parameter(authority, SetParameter{parameter})
                 }
                 InstructionBox::ExecuteTrigger(isi) => {
-                    let trigger_id = evaluate_field!(validator, authority, <isi as ExecuteTriggerBox>::trigger_id);
+                    let trigger_id = evaluate_expr!(validator, authority, <isi as ExecuteTrigger>::trigger_id())?;
                     validator.validate_execute_trigger(authority, ExecuteTrigger{trigger_id})
                 }
             }
@@ -337,48 +327,56 @@ pub fn validate_instruction<V: Validate + ?Sized>(
     }
 }
 
-pub fn validate_expression<V: Validate + ?Sized>(
+pub fn validate_expression<V: Validate + ?Sized, E>(
     validator: &mut V,
     authority: &<Account as Identifiable>::Id,
-    expression: &Expression,
+    expression: &EvaluatesTo<E>,
 ) -> Verdict {
-    let mut validate_query_in_expression =
-        |expression| validator.validate_expression(authority, expression);
-
-    macro_rules! validate_binary_expression {
-        ($e:ident) => {
-            validate_query_in_expression($e.left().expression())
-                .and_then(|| validate_query_in_expression($e.right().expression()))
-        };
+    macro_rules! validate_binary_math_expression {
+        ($e:ident) => {{
+            validator.validate_expression(authority, $e.left())?;
+            validator.validate_expression(authority, $e.right())
+        }};
     }
 
-    match expression {
-        Expression::Add(expr) => validate_binary_expression!(expr),
-        Expression::Subtract(expr) => validate_binary_expression!(expr),
-        Expression::Multiply(expr) => validate_binary_expression!(expr),
-        Expression::Divide(expr) => validate_binary_expression!(expr),
-        Expression::Mod(expr) => validate_binary_expression!(expr),
-        Expression::RaiseTo(expr) => validate_binary_expression!(expr),
-        Expression::Greater(expr) => validate_binary_expression!(expr),
-        Expression::Less(expr) => validate_binary_expression!(expr),
-        Expression::Equal(expr) => validate_binary_expression!(expr),
-        Expression::Not(expr) => validate_query_in_expression(expr.expression().expression()),
-        Expression::And(expr) => validate_binary_expression!(expr),
-        Expression::Or(expr) => validate_binary_expression!(expr),
-        Expression::If(expr) => validate_query_in_expression(expr.condition().expression())
-            .and_then(|| validate_query_in_expression(expr.then().expression()))
-            .and_then(|| validate_query_in_expression(expr.otherwise().expression())),
-        Expression::Contains(expr) => validate_query_in_expression(expr.collection().expression())
-            .and_then(|| validate_query_in_expression(expr.element().expression())),
+    macro_rules! validate_binary_bool_expression {
+        ($e:ident) => {{
+            validator.validate_expression(authority, $e.left())?;
+            validator.validate_expression(authority, $e.right())
+        }};
+    }
+
+    match expression.expression() {
+        Expression::Add(expr) => validate_binary_math_expression!(expr),
+        Expression::Subtract(expr) => validate_binary_math_expression!(expr),
+        Expression::Multiply(expr) => validate_binary_math_expression!(expr),
+        Expression::Divide(expr) => validate_binary_math_expression!(expr),
+        Expression::Mod(expr) => validate_binary_math_expression!(expr),
+        Expression::RaiseTo(expr) => validate_binary_math_expression!(expr),
+        Expression::Greater(expr) => validate_binary_math_expression!(expr),
+        Expression::Less(expr) => validate_binary_math_expression!(expr),
+        Expression::Equal(expr) => validate_binary_bool_expression!(expr),
+        Expression::Not(expr) => validator.validate_expression(authority, expr.expression()),
+        Expression::And(expr) => validate_binary_bool_expression!(expr),
+        Expression::Or(expr) => validate_binary_bool_expression!(expr),
+        Expression::If(expr) => {
+            validator.validate_expression(authority, expr.condition())?;
+            validator.validate_expression(authority, expr.then())?;
+            validator.validate_expression(authority, expr.otherwise())
+        }
+        Expression::Contains(expr) => {
+            validator.validate_expression(authority, expr.collection())?;
+            validator.validate_expression(authority, expr.element())
+        }
         Expression::ContainsAll(expr) => {
-            validate_query_in_expression(expr.collection().expression())
-                .and_then(|| validate_query_in_expression(expr.elements().expression()))
+            validator.validate_expression(authority, expr.collection())?;
+            validator.validate_expression(authority, expr.elements())
         }
         Expression::ContainsAny(expr) => {
-            validate_query_in_expression(expr.collection().expression())
-                .and_then(|| validate_query_in_expression(expr.elements().expression()))
+            validator.validate_expression(authority, expr.collection())?;
+            validator.validate_expression(authority, expr.elements())
         }
-        Expression::Where(expr) => validate_query_in_expression(expr.expression().expression()),
+        Expression::Where(expr) => validator.validate_expression(authority, expr.expression()),
         Expression::Query(query) => validator.validate_query(authority, query),
         Expression::ContextValue(_) | Expression::Raw(_) => pass!(),
     }
@@ -391,7 +389,9 @@ pub fn validate_register<V: Validate + ?Sized>(
 ) -> Verdict {
     macro_rules! match_all {
         ( $( $validator:ident($object:ident) ),+ $(,)? ) => {
-            match evaluate_field!(validator, authority, <isi as RegisterBox>::object) { $(
+            let object = evaluate_expr!(validator, authority, <isi as Register>::object())?;
+
+            match object { $(
                 RegistrableBox::$object(object) => validator.$validator(authority, Register{object: *object}), )+
             }
         };
@@ -417,7 +417,8 @@ pub fn validate_unregister<V: Validate + ?Sized>(
 ) -> Verdict {
     macro_rules! match_all {
         ( $( $validator:ident($id:ident) ),+ $(,)? ) => {
-            match evaluate_field!(validator, authority, <isi as UnregisterBox>::object_id) { $(
+            let object_id = evaluate_expr!(validator, authority, <isi as Unregister>::object_id())?;
+            match object_id { $(
                 IdBox::$id(object_id) => validator.$validator(authority, Unregister{object_id}), )+
                 _ => deny_unsupported_instruction!(Unregister),
             }
@@ -440,8 +441,8 @@ pub fn validate_mint<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &MintBox,
 ) -> Verdict {
-    let destination_id = evaluate_field!(validator, authority, <isi as MintBox>::destination_id);
-    let object = evaluate_field!(validator, authority, <isi as MintBox>::object);
+    let destination_id = evaluate_expr!(validator, authority, <isi as Mint>::destination_id())?;
+    let object = evaluate_expr!(validator, authority, <isi as Mint>::object())?;
 
     match (destination_id, object) {
         (IdBox::AssetId(destination_id), Value::Numeric(object)) => validator.validate_mint_asset(
@@ -484,8 +485,8 @@ pub fn validate_burn<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &BurnBox,
 ) -> Verdict {
-    let destination_id = evaluate_field!(validator, authority, <isi as BurnBox>::destination_id);
-    let object = evaluate_field!(validator, authority, <isi as BurnBox>::object);
+    let destination_id = evaluate_expr!(validator, authority, <isi as Burn>::destination_id())?;
+    let object = evaluate_expr!(validator, authority, <isi as Burn>::object())?;
 
     match (destination_id, object) {
         (IdBox::AssetId(destination_id), Value::Numeric(object)) => validator.validate_burn_asset(
@@ -512,11 +513,11 @@ pub fn validate_transfer<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &TransferBox,
 ) -> Verdict {
-    let object = evaluate_field!(validator, authority, <isi as TransferBox>::object);
+    let object = evaluate_expr!(validator, authority, <isi as Transfer>::object())?;
 
     let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
-            evaluate_field!(validator, authority, <isi as TransferBox>::source_id),
-            evaluate_field!(validator, authority, <isi as TransferBox>::destination_id),
+            evaluate_expr!(validator, authority, <isi as Transfer>::source_id())?,
+            evaluate_expr!(validator, authority, <isi as Transfer>::destination_id())?,
         ) else {
             deny_unsupported_instruction!(Transfer)
         };
@@ -539,9 +540,9 @@ pub fn validate_set_key_value<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &SetKeyValueBox,
 ) -> Verdict {
-    let object_id = evaluate_field!(validator, authority, <isi as SetKeyValueBox>::object_id);
-    let key = evaluate_field!(validator, authority, <isi as SetKeyValueBox>::key);
-    let value = evaluate_field!(validator, authority, <isi as SetKeyValueBox>::value);
+    let object_id = evaluate_expr!(validator, authority, <isi as SetKeyValue>::object_id())?;
+    let key = evaluate_expr!(validator, authority, <isi as SetKeyValue>::key())?;
+    let value = evaluate_expr!(validator, authority, <isi as SetKeyValue>::value())?;
 
     match object_id {
         IdBox::AssetId(object_id) => validator.validate_set_asset_key_value(
@@ -585,8 +586,8 @@ pub fn validate_remove_key_value<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &RemoveKeyValueBox,
 ) -> Verdict {
-    let object_id = evaluate_field!(validator, authority, <isi as RemoveKeyValueBox>::object_id);
-    let key = evaluate_field!(validator, authority, <isi as RemoveKeyValueBox>::key);
+    let object_id = evaluate_expr!(validator, authority, <isi as RemoveKeyValue>::object_id())?;
+    let key = evaluate_expr!(validator, authority, <isi as RemoveKeyValue>::key())?;
 
     match object_id {
         IdBox::AssetId(object_id) => {
@@ -611,8 +612,8 @@ pub fn validate_grant<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &GrantBox,
 ) -> Verdict {
-    let destination_id = evaluate_field!(validator, authority, <isi as GrantBox>::destination_id);
-    let object = evaluate_field!(validator, authority, <isi as GrantBox>::object);
+    let destination_id = evaluate_expr!(validator, authority, <isi as Grant>::destination_id())?;
+    let object = evaluate_expr!(validator, authority, <isi as Grant>::object())?;
 
     match (object, destination_id) {
         (Value::PermissionToken(object), IdBox::AccountId(destination_id)) => validator
@@ -640,8 +641,8 @@ pub fn validate_revoke<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &RevokeBox,
 ) -> Verdict {
-    let destination_id = evaluate_field!(validator, authority, <isi as RevokeBox>::destination_id);
-    let object = evaluate_field!(validator, authority, <isi as RevokeBox>::object);
+    let destination_id = evaluate_expr!(validator, authority, <isi as Revoke>::destination_id())?;
+    let object = evaluate_expr!(validator, authority, <isi as Revoke>::object())?;
 
     match (destination_id, object) {
         (IdBox::AccountId(destination_id), Value::PermissionToken(object)) => validator
@@ -669,7 +670,7 @@ pub fn validate_upgrade<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &UpgradeBox,
 ) -> Verdict {
-    let object = evaluate_field!(validator, authority, <isi as UpgradeBox>::object);
+    let object = evaluate_expr!(validator, authority, <isi as Upgrade>::object())?;
 
     match object {
         UpgradableBox::Validator(object) => {
@@ -683,16 +684,17 @@ pub fn validate_if<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &Conditional,
 ) -> Verdict {
-    let condition = evaluate_field!(validator, authority, <isi as Conditional>::condition);
+    let condition = evaluate_expr!(validator, authority, <isi as Conditional>::condition())?;
 
     if condition {
-        // TODO: Should we not validate both?
-        return validator.validate_instruction(authority, isi.then());
+        validator.validate_instruction(authority, isi.then())?;
     }
-    isi.otherwise().as_ref().map_or_else(
-        || pass!(),
-        |otherwise| validator.validate_instruction(authority, otherwise),
-    )
+
+    if let Some(otherwise) = isi.otherwise() {
+        validator.validate_instruction(authority, otherwise)?;
+    }
+
+    pass!()
 }
 
 pub fn validate_pair<V: Validate + ?Sized>(
@@ -700,9 +702,8 @@ pub fn validate_pair<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &Pair,
 ) -> Verdict {
-    validator
-        .validate_instruction(authority, isi.left_instruction())
-        .and_then(|| validator.validate_instruction(authority, isi.right_instruction()))
+    validator.validate_instruction(authority, isi.left_instruction())?;
+    validator.validate_instruction(authority, isi.right_instruction())
 }
 
 pub fn validate_sequence<V: Validate + ?Sized>(
@@ -711,11 +712,7 @@ pub fn validate_sequence<V: Validate + ?Sized>(
     isi: &SequenceBox,
 ) -> Verdict {
     for instruction in isi.instructions() {
-        let verdict = validator.validate_instruction(authority, instruction);
-
-        if verdict.is_deny() {
-            return verdict;
-        }
+        validator.validate_instruction(authority, instruction)?;
     }
 
     pass!()

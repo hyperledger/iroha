@@ -18,32 +18,15 @@ pub mod default;
 pub mod permission;
 pub mod visitor;
 
-/// Shortcut for `return Verdict::Pass`.
+/// Shortcut for `return Ok(())`.
 #[macro_export]
 macro_rules! pass {
     () => {
-        return $crate::iroha_wasm::data_model::validator::Verdict::Pass
+        return Ok(())
     };
 }
 
-/// Macro to return [`Verdict::Pass`](crate::data_model::validator::Verdict::Pass)
-/// if the expression is `true`.
-///
-/// # Example
-///
-/// ```no_run
-/// pass_if!(asset_id.account_id() == authority);
-/// ```
-#[macro_export]
-macro_rules! pass_if {
-    ($e:expr) => {
-        if $e {
-            return $crate::iroha_wasm::data_model::validator::Verdict::Pass;
-        }
-    };
-}
-
-/// Shortcut for `return Verdict::Deny(...)`.
+/// Shortcut for `return Err(DenialReason)`.
 ///
 /// Supports [`format!`](alloc::format) syntax as well as any expression returning [`String`](alloc::string::String).
 ///
@@ -57,48 +40,9 @@ macro_rules! pass_if {
 /// ```
 #[macro_export]
 macro_rules! deny {
-        ($l:literal $(,)?) => {
-            return $crate::iroha_wasm::data_model::validator::Verdict::Deny(
-                ::alloc::fmt::format(::core::format_args!($l))
-            )
-        };
-        ($e:expr $(,)?) =>{
-            return $crate::iroha_wasm::data_model::validator::Verdict::Deny($e)
-        };
-        ($fmt:expr, $($arg:tt)*) => {
-            return $crate::iroha_wasm::data_model::validator::Verdict::Deny(
-                ::alloc::format!($fmt, $($arg)*)
-            )
-        };
-    }
-
-/// Macro to return [`Verdict::Deny`](crate::data_model::validator::Verdict::Deny)
-/// if the expression is `true`.
-///
-/// # Example
-///
-/// ```no_run
-/// deny_if!(asset_id.account_id() != authority, "You have to be an asset owner");
-/// deny_if!(asset_id.account_id() != authority, "You have to be an {} owner", asset_id);
-/// deny_if!(asset_id.account_id() != authority, construct_reason(&asset_id));
-/// ```
-#[macro_export]
-macro_rules! deny_if {
-        ($e:expr, $l:literal $(,)?) => {
-            if $e {
-                deny!($l);
-            }
-        };
-        ($e:expr, $r:expr $(,)?) =>{
-            if $e {
-                deny!($r);
-            }
-        };
-        ($e:expr, $fmt:expr, $($arg:tt)*) => {
-            if $e {
-                deny!($fmt, $($arg)*);
-            }
-        };
+        ($l:literal $(,)?) => {return Err(::alloc::fmt::format(::core::format_args!($l)))};
+        ($e:expr $(,)?) => {return Err($e)};
+        ($fmt:expr, $($arg:tt)*) => {return Err(::alloc::format!($fmt, $($arg)*)) };
     }
 
 /// Macro to parse literal as a type. Panics if failed.
@@ -165,7 +109,7 @@ pub mod prelude {
 
     #[cfg(feature = "default-validator")]
     pub use super::DefaultValidator;
-    pub use crate::{declare_tokens, deny, pass, pass_if, visitor::Validate};
+    pub use crate::{declare_tokens, deny, pass, visitor::Validate};
 }
 
 #[cfg(test)]
@@ -173,61 +117,35 @@ mod tests {
     //! Tests in this modules can't be doc-tests because of `compile_error!` on native target
     //! and `webassembly-test-runner` on wasm target.
 
+    use iroha_wasm::data_model::validator::DenialReason;
     use webassembly_test::webassembly_test;
 
-    use crate::{alloc::borrow::ToOwned as _, data_model::validator::Verdict, deny};
+    use crate::{alloc::borrow::ToOwned as _, deny};
 
     #[webassembly_test]
     fn test_deny() {
         let a = || deny!("Some reason");
-        assert_eq!(a(), Verdict::Deny("Some reason".to_owned()));
+        assert_eq!(a(), Err::<(), DenialReason>("Some reason".to_owned()));
 
         let get_reason = || "Reason from expression".to_owned();
         let b = || deny!(get_reason());
-        assert_eq!(b(), Verdict::Deny("Reason from expression".to_owned()));
+        assert_eq!(
+            b(),
+            Err::<(), DenialReason>("Reason from expression".to_owned())
+        );
 
         let mes = "Format message";
         let c = || deny!("Reason: {}", mes);
-        assert_eq!(c(), Verdict::Deny("Reason: Format message".to_owned()));
+        assert_eq!(
+            c(),
+            Err::<(), DenialReason>("Reason: Format message".to_owned())
+        );
 
         let mes = "Advanced format message";
         let d = || deny!("Reason: {mes}");
         assert_eq!(
             d(),
-            Verdict::Deny("Reason: Advanced format message".to_owned())
-        );
-    }
-
-    #[webassembly_test]
-    fn test_deny_if() {
-        let a = || {
-            deny_if!(true, "Some reason");
-            unreachable!()
-        };
-        assert_eq!(a(), Verdict::Deny("Some reason".to_owned()));
-
-        let get_reason = || "Reason from expression".to_owned();
-        let b = || {
-            deny_if!(true, get_reason());
-            unreachable!()
-        };
-        assert_eq!(b(), Verdict::Deny("Reason from expression".to_owned()));
-
-        let mes = "Format message";
-        let c = || {
-            deny_if!(true, "Reason: {}", mes);
-            unreachable!()
-        };
-        assert_eq!(c(), Verdict::Deny("Reason: Format message".to_owned()));
-
-        let mes = "Advanced format message";
-        let d = || {
-            deny_if!(true, "Reason: {mes}");
-            unreachable!()
-        };
-        assert_eq!(
-            d(),
-            Verdict::Deny("Reason: Advanced format message".to_owned())
+            Err::<(), DenialReason>("Reason: Advanced format message".to_owned())
         );
     }
 }

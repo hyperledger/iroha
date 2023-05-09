@@ -78,8 +78,11 @@ pub mod asset {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            pass_if!(self.asset_id.account_id() == authority);
-            deny!("Can't access asset owned by another account")
+            if self.asset_id.account_id() == authority {
+                pass!();
+            }
+
+            deny!("Can't access asset owned by another account");
         }
     }
 }
@@ -115,11 +118,11 @@ pub mod asset_definition {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            pass_if!(is_asset_definition_owner(
-                self.asset_definition_id,
-                authority
-            ));
-            deny!("Can't access asset definition owned by another account")
+            if is_asset_definition_owner(self.asset_definition_id, authority) {
+                pass!();
+            }
+
+            deny!("Can't access asset definition owned by another account");
         }
     }
 }
@@ -137,8 +140,11 @@ pub mod account {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            pass_if!(self.account_id == authority);
-            deny!("Can't access another account")
+            if self.account_id == authority {
+                pass!();
+            }
+
+            deny!("Can't access another account");
         }
     }
 }
@@ -170,8 +176,11 @@ pub mod trigger {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            pass_if!(is_trigger_owner(self.trigger_id.clone(), authority));
-            deny!("Can't give permission to access trigger owned by another account")
+            if is_trigger_owner(self.trigger_id.clone(), authority) {
+                pass!();
+            }
+
+            deny!("Can't give permission to access trigger owned by another account");
         }
     }
 }
@@ -201,7 +210,7 @@ pub struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
     fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
-        deny!("This operation is always denied and only allowed inside the genesis block")
+        deny!("This operation is always denied and only allowed inside the genesis block");
     }
 }
 

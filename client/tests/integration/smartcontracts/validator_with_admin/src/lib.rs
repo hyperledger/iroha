@@ -11,7 +11,10 @@ struct Validator(DefaultValidator);
 
 impl Validate for Validator {
     fn validate_transfer(&mut self, authority: &AccountId, isi: &TransferBox) -> Verdict {
-        pass_if!(*authority == parse!("admin@admin" as <Account as Identifiable>::Id));
+        if parse!("admin@admin" as <Account as Identifiable>::Id) == *authority {
+            pass!()
+        }
+
         self.0.validate_transfer(authority, isi)
     }
 }
@@ -32,7 +35,7 @@ pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Verdict 
         NeedsValidationBox::Instruction(instruction) => {
             let verdict = validator.validate_instruction(&authority, &instruction);
 
-            if !verdict.is_deny() {
+            if verdict.is_ok() {
                 instruction.execute();
             }
 

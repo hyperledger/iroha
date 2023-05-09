@@ -112,6 +112,10 @@ pub(crate) use tokens;
 pub struct DefaultValidator;
 
 impl Validate for DefaultValidator {
+    //fn evaluator(&mut self) -> E {
+    //    self.0
+    //}
+
     custom_impls! {
         // Peer validation
         validate_unregister_peer(Unregister<Peer>),
@@ -191,8 +195,14 @@ pub mod peer {
         authority: &AccountId,
         _isi: Unregister<Peer>,
     ) -> Verdict {
-        pass_if!(tokens::CanUnregisterAnyPeer {}.is_owned_by(authority));
-        deny!("Can't unregister peer")
+        const CAN_UNREGISTER_PEER_TOKEN: tokens::CanUnregisterAnyPeer =
+            tokens::CanUnregisterAnyPeer {};
+
+        if CAN_UNREGISTER_PEER_TOKEN.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't unregister peer");
     }
 }
 
@@ -225,8 +235,12 @@ pub mod domain {
     ) -> Verdict {
         let domain_id = isi.object_id;
 
-        pass_if!(tokens::CanUnregisterDomain { domain_id }.is_owned_by(authority));
-        deny!("Can't unregister domain")
+        let can_unregister_domain_token = tokens::CanUnregisterDomain { domain_id };
+        if can_unregister_domain_token.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't unregister domain");
     }
 
     #[allow(missing_docs)]
@@ -237,8 +251,12 @@ pub mod domain {
     ) -> Verdict {
         let domain_id = isi.object_id;
 
-        pass_if!(tokens::CanSetKeyValueInDomain { domain_id }.is_owned_by(authority));
-        deny!("Can't set key value in domain metadata")
+        let can_set_key_value_in_domain_token = tokens::CanSetKeyValueInDomain { domain_id };
+        if can_set_key_value_in_domain_token.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't set key value in domain metadata");
     }
 
     #[allow(missing_docs)]
@@ -249,8 +267,12 @@ pub mod domain {
     ) -> Verdict {
         let domain_id = isi.object_id;
 
-        pass_if!(tokens::CanRemoveKeyValueInDomain { domain_id }.is_owned_by(authority));
-        deny!("Can't remove key value in domain metadata")
+        let can_remove_key_value_in_domain_token = tokens::CanRemoveKeyValueInDomain { domain_id };
+        if can_remove_key_value_in_domain_token.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't remove key value in domain metadata");
     }
 }
 
@@ -277,6 +299,10 @@ pub mod account {
         ]
     );
 
+    fn is_authority(account_id: &AccountId, authority: &AccountId) -> bool {
+        account_id == authority
+    }
+
     #[allow(missing_docs)]
     pub fn validate_unregister_account<V: Validate + ?Sized>(
         _validator: &mut V,
@@ -285,10 +311,15 @@ pub mod account {
     ) -> Verdict {
         let account_id = isi.object_id;
 
-        pass_if!(&account_id == authority);
-        pass_if!(tokens::CanUnregisterAccount { account_id }.is_owned_by(authority));
+        if is_authority(&account_id, authority) {
+            pass!();
+        }
+        let can_unregister_user_account = tokens::CanUnregisterAccount { account_id };
+        if can_unregister_user_account.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't unregister another account")
+        deny!("Can't unregister another account");
     }
 
     #[allow(missing_docs)]
@@ -299,10 +330,15 @@ pub mod account {
     ) -> Verdict {
         let account_id = isi.destination_id;
 
-        pass_if!(&account_id == authority);
-        pass_if!(tokens::CanMintUserPublicKeys { account_id }.is_owned_by(authority));
+        if is_authority(&account_id, authority) {
+            pass!();
+        }
+        let can_mint_user_public_keys = tokens::CanMintUserPublicKeys { account_id };
+        if can_mint_user_public_keys.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't mint public keys of another account")
+        deny!("Can't mint public keys of another account");
     }
 
     #[allow(missing_docs)]
@@ -313,10 +349,15 @@ pub mod account {
     ) -> Verdict {
         let account_id = isi.destination_id;
 
-        pass_if!(&account_id == authority);
-        pass_if!(tokens::CanBurnUserPublicKeys { account_id }.is_owned_by(authority));
+        if is_authority(&account_id, authority) {
+            pass!();
+        }
+        let can_burn_user_public_keys = tokens::CanBurnUserPublicKeys { account_id };
+        if can_burn_user_public_keys.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't burn public keys of another account")
+        deny!("Can't burn public keys of another account");
     }
 
     #[allow(missing_docs)]
@@ -327,10 +368,16 @@ pub mod account {
     ) -> Verdict {
         let account_id = isi.destination_id;
 
-        pass_if!(&account_id == authority);
-        pass_if!(tokens::CanMintUserSignatureCheckConditions { account_id }.is_owned_by(authority));
+        if is_authority(&account_id, authority) {
+            pass!();
+        }
+        let can_mint_user_signature_check_conditions_token =
+            tokens::CanMintUserSignatureCheckConditions { account_id };
+        if can_mint_user_signature_check_conditions_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't mint signature check conditions of another account")
+        deny!("Can't mint signature check conditions of another account");
     }
 
     #[allow(missing_docs)]
@@ -341,10 +388,16 @@ pub mod account {
     ) -> Verdict {
         let account_id = isi.object_id;
 
-        pass_if!(&account_id == authority);
-        pass_if!(tokens::CanSetKeyValueInUserAccount { account_id }.is_owned_by(authority));
+        if is_authority(&account_id, authority) {
+            pass!();
+        }
+        let can_set_key_value_in_user_account_token =
+            tokens::CanSetKeyValueInUserAccount { account_id };
+        if can_set_key_value_in_user_account_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't set value to the metadata of another account")
+        deny!("Can't set value to the metadata of another account");
     }
 
     #[allow(missing_docs)]
@@ -355,10 +408,16 @@ pub mod account {
     ) -> Verdict {
         let account_id = isi.object_id;
 
-        pass_if!(&account_id == authority);
-        pass_if!(tokens::CanRemoveKeyValueInUserAccount { account_id }.is_owned_by(authority));
+        if is_authority(&account_id, authority) {
+            pass!();
+        }
+        let can_remove_key_value_in_user_account_token =
+            tokens::CanRemoveKeyValueInUserAccount { account_id };
+        if can_remove_key_value_in_user_account_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't remove value from the metadata of another account")
+        deny!("Can't remove value from the metadata of another account");
     }
 }
 
@@ -391,13 +450,17 @@ pub mod asset_definition {
     ) -> Verdict {
         let asset_definition_id = isi.object_id;
 
-        pass_if!(is_asset_definition_owner(&asset_definition_id, authority));
-        pass_if!(tokens::CanUnregisterAssetDefinition {
-            asset_definition_id
+        if is_asset_definition_owner(&asset_definition_id, authority) {
+            pass!();
         }
-        .is_owned_by(authority));
+        let can_unregister_asset_definition_token = tokens::CanUnregisterAssetDefinition {
+            asset_definition_id,
+        };
+        if can_unregister_asset_definition_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't unregister assets registered by other accounts")
+        deny!("Can't unregister assets registered by other accounts");
     }
 
     #[allow(missing_docs)]
@@ -406,13 +469,17 @@ pub mod asset_definition {
         authority: &AccountId,
         isi: Transfer<Account, AssetDefinition, Account>,
     ) -> Verdict {
-        let source_account_id = isi.source_id;
-        let asset_definition = isi.object;
+        let source_id = isi.source_id;
+        let destination_id = isi.object;
 
-        pass_if!(source_account_id == *authority);
-        pass_if!(is_asset_definition_owner(asset_definition.id(), authority));
+        if &source_id == authority {
+            pass!();
+        }
+        if is_asset_definition_owner(destination_id.id(), authority) {
+            pass!();
+        }
 
-        deny!("Can't transfer asset definition of another account")
+        deny!("Can't transfer asset definition of another account");
     }
 
     #[allow(missing_docs)]
@@ -423,13 +490,17 @@ pub mod asset_definition {
     ) -> Verdict {
         let asset_definition_id = isi.object_id;
 
-        pass_if!(is_asset_definition_owner(&asset_definition_id, authority));
-        pass_if!(tokens::CanSetKeyValueInAssetDefinition {
-            asset_definition_id
+        if is_asset_definition_owner(&asset_definition_id, authority) {
+            pass!();
         }
-        .is_owned_by(authority));
+        let can_set_key_value_in_asset_definition_token = tokens::CanSetKeyValueInAssetDefinition {
+            asset_definition_id,
+        };
+        if can_set_key_value_in_asset_definition_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't set value to the asset definition metadata created by another account")
+        deny!("Can't set value to the asset definition metadata created by another account");
     }
 
     #[allow(missing_docs)]
@@ -440,13 +511,18 @@ pub mod asset_definition {
     ) -> Verdict {
         let asset_definition_id = isi.object_id;
 
-        pass_if!(is_asset_definition_owner(&asset_definition_id, authority));
-        pass_if!(tokens::CanRemoveKeyValueInAssetDefinition {
-            asset_definition_id
+        if is_asset_definition_owner(&asset_definition_id, authority) {
+            pass!();
         }
-        .is_owned_by(authority));
+        let can_remove_key_value_in_asset_definition_token =
+            tokens::CanRemoveKeyValueInAssetDefinition {
+                asset_definition_id,
+            };
+        if can_remove_key_value_in_asset_definition_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't remove value from the asset definition metadata created by another account")
+        deny!("Can't remove value from the asset definition metadata created by another account");
     }
 }
 
@@ -556,6 +632,10 @@ pub mod asset {
         }
     }
 
+    fn is_authority(asset_id: &AssetId, authority: &AccountId) -> bool {
+        asset_id.account_id() == authority
+    }
+
     #[allow(missing_docs)]
     pub fn validate_register_asset<V: Validate + ?Sized>(
         _validator: &mut V,
@@ -564,16 +644,17 @@ pub mod asset {
     ) -> Verdict {
         let asset = isi.object;
 
-        pass_if!(is_asset_definition_owner(
-            asset.id().definition_id(),
-            authority
-        ));
-        pass_if!(tokens::CanRegisterAssetsWithDefinition {
-            asset_definition_id: asset.id().definition_id().clone()
+        if is_asset_definition_owner(asset.id().definition_id(), authority) {
+            pass!();
         }
-        .is_owned_by(authority));
+        let can_register_assets_with_definition_token = tokens::CanRegisterAssetsWithDefinition {
+            asset_definition_id: asset.id().definition_id().clone(),
+        };
+        if can_register_assets_with_definition_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't register assets with definitions registered by other accounts")
+        deny!("Can't register assets with definitions registered by other accounts");
     }
 
     #[allow(missing_docs)]
@@ -584,18 +665,25 @@ pub mod asset {
     ) -> Verdict {
         let asset_id = isi.object_id;
 
-        pass_if!(asset_id.account_id() == authority);
-        pass_if!(is_asset_definition_owner(
-            asset_id.definition_id(),
-            authority
-        ));
-        pass_if!(tokens::CanUnregisterAssetsWithDefinition {
-            asset_definition_id: asset_id.definition_id().clone()
+        if is_authority(&asset_id, authority) {
+            pass!();
         }
-        .is_owned_by(authority));
-        pass_if!(tokens::CanUnregisterUserAsset { asset_id }.is_owned_by(authority));
+        if is_asset_definition_owner(asset_id.definition_id(), authority) {
+            pass!();
+        }
+        let can_unregister_assets_with_definition_token =
+            tokens::CanUnregisterAssetsWithDefinition {
+                asset_definition_id: asset_id.definition_id().clone(),
+            };
+        if can_unregister_assets_with_definition_token.is_owned_by(authority) {
+            pass!();
+        }
+        let can_unregister_user_asset_token = tokens::CanUnregisterUserAsset { asset_id };
+        if can_unregister_user_asset_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't unregister asset from another account")
+        deny!("Can't unregister asset from another account");
     }
 
     #[allow(missing_docs)]
@@ -606,16 +694,17 @@ pub mod asset {
     ) -> Verdict {
         let asset_id = isi.destination_id;
 
-        pass_if!(is_asset_definition_owner(
-            asset_id.definition_id(),
-            authority
-        ));
-        pass_if!(tokens::CanMintAssetsWithDefinition {
-            asset_definition_id: asset_id.definition_id().clone()
+        if is_asset_definition_owner(asset_id.definition_id(), authority) {
+            pass!();
         }
-        .is_owned_by(authority));
+        let can_mint_assets_with_definition_token = tokens::CanMintAssetsWithDefinition {
+            asset_definition_id: asset_id.definition_id().clone(),
+        };
+        if can_mint_assets_with_definition_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't mint assets with definitions registered by other accounts")
+        deny!("Can't mint assets with definitions registered by other accounts");
     }
 
     #[allow(missing_docs)]
@@ -626,18 +715,24 @@ pub mod asset {
     ) -> Verdict {
         let asset_id = isi.destination_id;
 
-        pass_if!(asset_id.account_id() == authority);
-        pass_if!(is_asset_definition_owner(
-            asset_id.definition_id(),
-            authority
-        ));
-        pass_if!(tokens::CanBurnAssetsWithDefinition {
-            asset_definition_id: asset_id.definition_id().clone()
+        if is_authority(&asset_id, authority) {
+            pass!()
         }
-        .is_owned_by(authority));
-        pass_if!(tokens::CanBurnUserAsset { asset_id }.is_owned_by(authority));
+        if is_asset_definition_owner(asset_id.definition_id(), authority) {
+            pass!();
+        }
+        let can_burn_assets_with_definition_token = tokens::CanBurnAssetsWithDefinition {
+            asset_definition_id: asset_id.definition_id().clone(),
+        };
+        if can_burn_assets_with_definition_token.is_owned_by(authority) {
+            pass!();
+        }
+        let can_burn_user_asset_token = tokens::CanBurnUserAsset { asset_id };
+        if can_burn_user_asset_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't burn assets from another account")
+        deny!("Can't burn assets from another account");
     }
 
     #[allow(missing_docs)]
@@ -647,17 +742,25 @@ pub mod asset {
         isi: Transfer<Asset, NumericValue, Account>,
     ) -> Verdict {
         let asset_id = isi.source_id;
-        pass_if!(asset_id.account_id() == authority);
-        pass_if!(is_asset_definition_owner(
-            asset_id.definition_id(),
-            authority
-        ));
-        pass_if!(tokens::CanTransferAssetsWithDefinition {
-            asset_definition_id: asset_id.definition_id().clone()
+
+        if is_authority(&asset_id, authority) {
+            pass!();
         }
-        .is_owned_by(authority));
-        pass_if!(tokens::CanTransferUserAsset { asset_id }.is_owned_by(authority));
-        deny!("Can't transfer assets of another account")
+        if is_asset_definition_owner(asset_id.definition_id(), authority) {
+            pass!();
+        }
+        let can_transfer_assets_with_definition_token = tokens::CanTransferAssetsWithDefinition {
+            asset_definition_id: asset_id.definition_id().clone(),
+        };
+        if can_transfer_assets_with_definition_token.is_owned_by(authority) {
+            pass!()
+        }
+        let can_transfer_user_asset_token = tokens::CanTransferUserAsset { asset_id };
+        if can_transfer_user_asset_token.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't transfer assets of another account");
     }
 
     #[allow(missing_docs)]
@@ -668,10 +771,15 @@ pub mod asset {
     ) -> Verdict {
         let asset_id = isi.object_id;
 
-        pass_if!(asset_id.account_id() == authority);
-        pass_if!(tokens::CanSetKeyValueInUserAsset { asset_id }.is_owned_by(authority));
+        if is_authority(&asset_id, authority) {
+            pass!();
+        }
+        let can_set_key_value_in_user_asset_token = tokens::CanSetKeyValueInUserAsset { asset_id };
+        if can_set_key_value_in_user_asset_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't set value to the asset metadata of another account")
+        deny!("Can't set value to the asset metadata of another account");
     }
 
     #[allow(missing_docs)]
@@ -682,10 +790,16 @@ pub mod asset {
     ) -> Verdict {
         let asset_id = isi.object_id;
 
-        pass_if!(asset_id.account_id() == authority);
-        pass_if!(tokens::CanRemoveKeyValueInUserAsset { asset_id }.is_owned_by(authority));
+        if is_authority(&asset_id, authority) {
+            pass!();
+        }
+        let can_remove_key_value_in_user_asset_token =
+            tokens::CanRemoveKeyValueInUserAsset { asset_id };
+        if can_remove_key_value_in_user_asset_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't remove value from the asset metadata of another account")
+        deny!("Can't remove value from the asset metadata of another account");
     }
 }
 
@@ -726,13 +840,19 @@ pub mod parameter {
 
         impl ValidateGrantRevoke for CanCreateParameters {
             fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-                pass_if!(CanGrantPermissionToCreateParameters.is_owned_by(authority));
-                deny!("Can't grant permission to create new configuration parameters without permission from genesis")
+                if CanGrantPermissionToCreateParameters.is_owned_by(authority) {
+                    pass!();
+                }
+
+                deny!("Can't grant permission to create new configuration parameters without permission from genesis");
             }
 
             fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-                pass_if!(CanRevokePermissionToCreateParameters.is_owned_by(authority));
-                deny!("Can't revoke permission to create new configuration parameters without permission from genesis")
+                if CanRevokePermissionToCreateParameters.is_owned_by(authority) {
+                    pass!();
+                }
+
+                deny!("Can't revoke permission to create new configuration parameters without permission from genesis");
             }
         }
 
@@ -752,13 +872,19 @@ pub mod parameter {
 
         impl ValidateGrantRevoke for CanSetParameters {
             fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-                pass_if!(CanGrantPermissionToSetParameters.is_owned_by(authority));
-                deny!("Can't grant permission to set configuration parameters without permission from genesis")
+                if !CanGrantPermissionToSetParameters.is_owned_by(authority) {
+                    pass!();
+                }
+
+                deny!("Can't grant permission to set configuration parameters without permission from genesis");
             }
 
             fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-                pass_if!(CanRevokePermissionToSetParameters.is_owned_by(authority));
-                deny!("Can't revoke permission to set configuration parameters without permission from genesis")
+                if CanRevokePermissionToSetParameters.is_owned_by(authority) {
+                    pass!();
+                }
+
+                deny!("Can't revoke permission to set configuration parameters without permission from genesis");
             }
         }
     }
@@ -769,8 +895,11 @@ pub mod parameter {
         authority: &AccountId,
         _isi: NewParameter,
     ) -> Verdict {
-        pass_if!(tokens::CanCreateParameters.is_owned_by(authority));
-        deny!("Can't create new configuration parameters without permission")
+        if !tokens::CanCreateParameters.is_owned_by(authority) {
+            deny!("Can't create new configuration parameters without permission");
+        }
+
+        pass!();
     }
 
     #[allow(missing_docs, clippy::needless_pass_by_value)]
@@ -779,8 +908,11 @@ pub mod parameter {
         authority: &AccountId,
         _isi: SetParameter,
     ) -> Verdict {
-        pass_if!(tokens::CanSetParameters.is_owned_by(authority));
-        deny!("Can't set configuration parameters without permission")
+        if !tokens::CanSetParameters.is_owned_by(authority) {
+            deny!("Can't set configuration parameters without permission");
+        }
+
+        pass!();
     }
 }
 
@@ -824,7 +956,7 @@ pub mod role {
                                 &concrete_token,
                                 $authority,
                             );
-                            if verdict.is_deny() {
+                            if verdict.is_err() {
                                 return verdict;
                             }
                             // Continue because token can correspond to only one concrete token
@@ -849,8 +981,14 @@ pub mod role {
         authority: &AccountId,
         _isi: Unregister<Role>,
     ) -> Verdict {
-        pass_if!(tokens::CanUnregisterAnyRole {}.is_owned_by(authority));
-        deny!("Can't unregister role")
+        const CAN_UNREGISTER_ROLE_TOKEN: tokens::CanUnregisterAnyRole =
+            tokens::CanUnregisterAnyRole {};
+
+        if CAN_UNREGISTER_ROLE_TOKEN.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't unregister role");
     }
 
     #[allow(missing_docs)]
@@ -920,8 +1058,13 @@ pub mod trigger {
     ) -> Verdict {
         let trigger_id = isi.object_id;
 
-        pass_if!(is_trigger_owner(trigger_id.clone(), authority));
-        pass_if!(tokens::CanUnregisterUserTrigger { trigger_id }.is_owned_by(authority));
+        if is_trigger_owner(trigger_id.clone(), authority) {
+            pass!();
+        }
+        let can_unregister_user_trigger_token = tokens::CanUnregisterUserTrigger { trigger_id };
+        if can_unregister_user_trigger_token.is_owned_by(authority) {
+            pass!();
+        }
 
         deny!("Can't unregister trigger owned by another account")
     }
@@ -934,10 +1077,15 @@ pub mod trigger {
     ) -> Verdict {
         let trigger_id = isi.destination_id;
 
-        pass_if!(is_trigger_owner(trigger_id.clone(), authority));
-        pass_if!(tokens::CanMintUserTrigger { trigger_id }.is_owned_by(authority));
+        if is_trigger_owner(trigger_id.clone(), authority) {
+            pass!();
+        }
+        let can_mint_user_trigger_token = tokens::CanMintUserTrigger { trigger_id };
+        if can_mint_user_trigger_token.is_owned_by(authority) {
+            pass!();
+        }
 
-        deny!("Can't mint execution count for trigger owned by another account")
+        deny!("Can't mint execution count for trigger owned by another account");
     }
 
     #[allow(missing_docs)]
@@ -948,12 +1096,15 @@ pub mod trigger {
     ) -> Verdict {
         let trigger_id = isi.trigger_id;
 
-        pass_if!(tokens::CanExecuteUserTrigger {
-            trigger_id: trigger_id.clone()
+        if is_trigger_owner(trigger_id.clone(), authority) {
+            pass!();
         }
-        .is_owned_by(authority));
-        pass_if!(is_trigger_owner(trigger_id, authority));
-        deny!("Can't execute trigger owned by another account")
+        let can_execute_trigger_token = tokens::CanExecuteUserTrigger { trigger_id };
+        if can_execute_trigger_token.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't execute trigger owned by another account");
     }
 }
 
@@ -988,7 +1139,7 @@ pub mod permission_token {
         _authority: &AccountId,
         _isi: Register<PermissionTokenDefinition>,
     ) -> Verdict {
-        deny!("Registering new permission token is allowed only in genesis")
+        deny!("Registering new permission token is allowed only in genesis");
     }
 
     #[allow(missing_docs)]
@@ -1033,7 +1184,12 @@ pub mod validator {
         authority: &AccountId,
         _isi: Upgrade<iroha_validator::data_model::validator::Validator>,
     ) -> Verdict {
-        pass_if!(tokens::CanUpgradeValidator {}.is_owned_by(authority));
-        deny!("Can't upgrade validator")
+        const CAN_UPGRADE_VALIDATOR_TOKEN: tokens::CanUpgradeValidator =
+            tokens::CanUpgradeValidator {};
+        if CAN_UPGRADE_VALIDATOR_TOKEN.is_owned_by(authority) {
+            pass!();
+        }
+
+        deny!("Can't upgrade validator");
     }
 }

@@ -22,7 +22,7 @@ pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Verdict 
         NeedsValidationBox::Instruction(instruction) => {
             let verdict = validator.validate_instruction(&authority, &instruction);
 
-            if !verdict.is_deny() {
+            if verdict.is_ok() {
                 instruction.execute();
             }
 

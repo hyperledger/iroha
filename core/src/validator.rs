@@ -88,11 +88,9 @@ impl Validator {
             &operation,
         )?;
 
-        Result::<(), data_model_validator::DenialReason>::from(verdict).map_err(|reason| {
-            Error::ValidatorDeny {
-                operation: operation.clone(),
-                reason,
-            }
+        verdict.map_err(|reason| Error::ValidatorDeny {
+            operation: operation.clone(),
+            reason,
         })
     }
 }

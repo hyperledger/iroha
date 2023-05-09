@@ -503,7 +503,7 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesT
     }
 }
 
-impl<V: TryFrom<Value>> EvaluatesTo<V> {
+impl<V> EvaluatesTo<V> {
     /// Expression
     #[inline]
     // TODO: getset would return &Box<Expression>
