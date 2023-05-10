@@ -12,14 +12,14 @@ use derive_more::Display;
 use getset::Getters;
 #[cfg(feature = "std")]
 use iroha_crypto::SignatureOf;
-use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
+use iroha_crypto::{Hash, HashOf, MerkleTree, SignaturesOf};
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::{
-    committed::{CommittedBlock, VersionedCommittedBlock},
+    committed::{CommittedBlock, PartialBlockHash, VersionedCommittedBlock},
     header::BlockHeader,
 };
 use crate::{events::prelude::*, model, peer, transaction::prelude::*};
@@ -83,6 +83,27 @@ mod header {
         pub const fn is_genesis(&self) -> bool {
             self.height == 1
         }
+        /// Serialize the header's data for hashing purposes.
+        pub fn payload(&self) -> Vec<u8> {
+            let mut data = Vec::new();
+            data.extend(&self.timestamp.to_le_bytes());
+            data.extend(&self.consensus_estimation.to_le_bytes());
+            data.extend(&self.height.to_le_bytes());
+            data.extend(&self.view_change_index.to_le_bytes());
+            if let Some(hash) = self.previous_block_hash.as_ref() {
+                data.extend(hash.as_ref());
+            }
+            if let Some(hash) = self.transactions_hash.as_ref() {
+                data.extend(hash.as_ref());
+            }
+            if let Some(hash) = self.rejected_transactions_hash.as_ref() {
+                data.extend(hash.as_ref());
+            }
+            for id in &self.committed_with_topology {
+                data.extend(id.payload());
+            }
+            data
+        }
     }
 
     impl PartialOrd for BlockHeader {
@@ -112,6 +133,33 @@ mod committed {
     #[model]
     pub mod model {
         use super::*;
+
+        /// The hash of a [`VersionedCommittedBlock`] used for signing in consensus.
+        /// The normal [`Hashof<VersionedCommittedBlock>`] will change based on who
+        /// has signed the block. If you want to compare the contents of a block only
+        /// use this hash instead.
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[display(fmt = "({internal})")]
+        #[repr(transparent)]
+        #[serde(transparent)]
+        #[ffi_type(unsafe {robust})]
+        pub struct PartialBlockHash {
+            /// The hash value.
+            pub internal: Hash,
+        }
 
         /// The `CommittedBlock` struct represents a block accepted by consensus
         #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
@@ -178,12 +226,21 @@ mod committed {
             }
         }
 
-        /// Calculate the hash of the current block.
-        /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
+        /// Calculate the [`PartialBlockHash`] of this block.
         #[cfg(feature = "std")]
         #[inline]
+        pub fn partial_hash(&self) -> PartialBlockHash {
+            match self {
+                Self::V1(v1) => v1.partial_hash(),
+            }
+        }
+
+        /// Calculate the [`HashOf<VersionedCommittedBlock>`] for this block.
+        #[cfg(feature = "std")]
         pub fn hash(&self) -> HashOf<Self> {
-            self.as_v1().hash().transmute()
+            match self {
+                Self::V1(v1) => v1.hash().transmute(),
+            }
         }
 
         /// Return signatures that are verified with the `hash` of this block
@@ -213,12 +270,26 @@ mod committed {
     }
 
     impl CommittedBlock {
-        /// Calculate the hash of the current block.
-        /// `CommitedBlock` should have the same hash as `ValidBlock`.
+        /// Calculate the partial hash of the current block.
+        /// [`CommitedBlock`] should have the same partial hash as [`PendingBlock`].
+        #[cfg(feature = "std")]
+        #[inline]
+        pub fn partial_hash(&self) -> PartialBlockHash {
+            PartialBlockHash {
+                internal: Hash::new(self.header.payload()),
+            }
+        }
+        /// Calculate the complete hash of the block that includes signatures.
         #[cfg(feature = "std")]
         #[inline]
         pub fn hash(&self) -> HashOf<Self> {
-            HashOf::new(&self.header).transmute()
+            let mut data = Vec::new();
+            data.extend(self.header.payload());
+            for s in self.signatures.iter() {
+                data.extend(s.key_payload());
+                data.extend(s.signature_payload());
+            }
+            Hash::new(&data).typed()
         }
 
         /// Return signatures that are verified with the `hash` of this block

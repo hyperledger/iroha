@@ -65,6 +65,13 @@ impl PeerId {
             public_key: public_key.clone(),
         }
     }
+    /// Serialize the data contained in this Id for use in hashing.
+    pub fn payload(&self) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend(self.address.bytes());
+        data.extend(self.public_key.payload());
+        data
+    }
 }
 
 impl Peer {
