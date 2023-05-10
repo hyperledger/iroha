@@ -1,16 +1,16 @@
-//! Build script to extract git hash of iroha build and to check runtime permission validators
+//! Build script to extract git hash of iroha build and to check runtime validator
 
 use eyre::{eyre, Result};
 use vergen::{vergen, Config};
 
-const PERMISSION_VALIDATORS_PATH: &str = "../permission_validators";
+const DEFAULT_VALIDATOR_PATH: &str = "../default_validator";
 
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={}", PERMISSION_VALIDATORS_PATH);
+    println!("cargo:rerun-if-changed={}", DEFAULT_VALIDATOR_PATH);
 
     extract_git_hash()?;
-    check_permission_validators()
+    check_default_validator()
 }
 
 fn extract_git_hash() -> Result<()> {
@@ -21,8 +21,9 @@ fn extract_git_hash() -> Result<()> {
     vergen(config).map_err(|err| eyre!(Box::new(err)))
 }
 
-fn check_permission_validators() -> Result<()> {
-    iroha_wasm_builder::Builder::new(PERMISSION_VALIDATORS_PATH)
+/// Apply `cargo check` to the smartcontract.
+fn check_default_validator() -> Result<()> {
+    iroha_wasm_builder::Builder::new(DEFAULT_VALIDATOR_PATH)
         .format()
         .check()?;
     Ok(())

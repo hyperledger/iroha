@@ -7,27 +7,34 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use derive_more::Display;
 use iroha_crypto::SignatureOf;
+use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+pub use self::model::*;
 use self::{
-    account::*, asset::*, block::*, domain::*, peer::*, permissions::*, role::*, transaction::*,
+    account::*, asset::*, block::*, domain::*, peer::*, permission::*, role::*, transaction::*,
     trigger::*,
 };
-use crate::{account::Account, model, Identifiable, Value};
+use crate::{account::Account, Identifiable, Value};
 
-macro_rules! query {
-    ($($meta:meta)* $item:item) => {
-        crate::model! {
+macro_rules! queries {
+    ($($($meta:meta)* $item:item)+) => {
+        pub use self::model::*;
+
+        #[iroha_data_model_derive::model]
+        pub mod model{
+            use super::*; $(
+
             #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
             #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
             #[derive(serde::Deserialize, serde::Serialize)]
             #[derive(iroha_schema::IntoSchema)]
             $($meta)*
-            $item
+            $item )+
         }
     };
 }
@@ -38,10 +45,28 @@ pub trait Query: Into<QueryBox> {
     type Output: Into<Value> + TryFrom<Value>;
 }
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
     pub enum QueryBox {
         /// [`FindAllAccounts`] variant.
@@ -145,32 +170,21 @@ pub mod role {
 
     use crate::prelude::*;
 
-    query! {
+    queries! {
         /// [`FindAllRoles`] Iroha Query finds all [`Role`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all roles")]
         #[ffi_type]
         pub struct FindAllRoles;
-    }
 
-    impl Query for FindAllRoles {
-        type Output = Vec<Role>;
-    }
-
-    query! {
         /// [`FindAllRoleIds`] Iroha Query finds [`Id`](crate::RoleId)s of
         /// all [`Role`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all role ids")]
         #[ffi_type]
         pub struct FindAllRoleIds;
-    }
 
-    impl Query for FindAllRoleIds {
-        type Output = Vec<<Role as Identifiable>::Id>;
-    }
 
-    query! {
         /// [`FindRoleByRoleId`] Iroha Query finds the [`Role`] which has the given [`Id`](crate::RoleId)
         #[derive(Display)]
         #[display(fmt = "Find `{id}` role")]
@@ -181,13 +195,7 @@ pub mod role {
             /// `Id` of the [`Role`] to find
             pub id: EvaluatesTo<<Role as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindRoleByRoleId {
-        type Output = Role;
-    }
-
-    query! {
         /// [`FindRolesByAccountId`] Iroha Query finds all [`Role`]s for a specified account.
         #[derive(Display)]
         #[display(fmt = "Find all roles for `{id}` account")]
@@ -200,8 +208,20 @@ pub mod role {
         }
     }
 
+    impl Query for FindAllRoles {
+        type Output = Vec<Role>;
+    }
+
+    impl Query for FindAllRoleIds {
+        type Output = Vec<<Role as Identifiable>::Id>;
+    }
+
     impl Query for FindRolesByAccountId {
         type Output = Vec<<Role as Identifiable>::Id>;
+    }
+
+    impl Query for FindRoleByRoleId {
+        type Output = Role;
     }
 
     impl FindRoleByRoleId {
@@ -226,7 +246,7 @@ pub mod role {
     }
 }
 
-pub mod permissions {
+pub mod permission {
     //! Queries related to [`PermissionToken`].
 
     #[cfg(not(feature = "std"))]
@@ -236,19 +256,13 @@ pub mod permissions {
 
     use crate::{permission, prelude::*};
 
-    query! {
+    queries! {
         /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-        /// [`PermissionTokenDefinition`][crate::permission::token::PermissionTokenDefinition]s
+        /// [`PermissionTokenDefinition`][crate::permission::PermissionTokenDefinition]s
         #[derive(Copy, Display)]
         #[ffi_type]
         pub struct FindAllPermissionTokenDefinitions;
-    }
 
-    impl Query for FindAllPermissionTokenDefinitions {
-        type Output = Vec<PermissionTokenDefinition>;
-    }
-
-    query! {
         /// [`FindPermissionTokensByAccountId`] Iroha Query finds all [`PermissionToken`]s
         /// for a specified account.
         #[derive(Display)]
@@ -260,13 +274,7 @@ pub mod permissions {
             /// `Id` of an account to find.
             pub id: EvaluatesTo<<Account as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindPermissionTokensByAccountId {
-        type Output = Vec<permission::PermissionToken>;
-    }
-
-    query! {
         /// [`DoesAccountHavePermission`] Iroha Query checks if the account has the specified permission.
         #[derive(Display)]
         #[display(fmt = "Check if `{account_id}` account has `{permission_token}` permission token")]
@@ -277,6 +285,14 @@ pub mod permissions {
             /// `PermissionToken` to check for.
             pub permission_token: permission::PermissionToken,
         }
+    }
+
+    impl Query for FindAllPermissionTokenDefinitions {
+        type Output = Vec<PermissionTokenDefinition>;
+    }
+
+    impl Query for FindPermissionTokensByAccountId {
+        type Output = Vec<permission::PermissionToken>;
     }
 
     impl Query for DoesAccountHavePermissionToken {
@@ -324,20 +340,14 @@ pub mod account {
 
     use crate::prelude::*;
 
-    query! {
+    queries! {
         // TODO: Better to have find all account ids query instead.
         /// [`FindAllAccounts`] Iroha Query finds all [`Account`]s presented.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all accounts")]
         #[ffi_type]
         pub struct FindAllAccounts;
-    }
 
-    impl Query for FindAllAccounts {
-        type Output = Vec<Account>;
-    }
-
-    query! {
         /// [`FindAccountById`] Iroha Query finds an [`Account`] by it's identification.
         #[derive(Display)]
         #[display(fmt = "Find `{id}` account")]
@@ -348,13 +358,7 @@ pub mod account {
             /// `Id` of an account to find.
             pub id: EvaluatesTo<<Account as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAccountById {
-        type Output = Account;
-    }
-
-    query! {
         /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds a [`Value`]
         /// of the key-value metadata pair in the specified account.
         #[derive(Display)]
@@ -366,13 +370,7 @@ pub mod account {
             /// Key of the specific key-value in the Account's metadata.
             pub key: EvaluatesTo<Name>,
         }
-    }
 
-    impl Query for FindAccountKeyValueByIdAndKey {
-        type Output = Value;
-    }
-
-    query! {
         /// [`FindAccountsByName`] Iroha Query gets [`Account`]s name as input and
         /// finds all [`Account`]s with this name.
         #[derive(Display)]
@@ -384,13 +382,8 @@ pub mod account {
             /// `name` of accounts to find.
             pub name: EvaluatesTo<Name>,
         }
-    }
 
-    impl Query for FindAccountsByName {
-        type Output = Vec<Account>;
-    }
 
-    query! {
         /// [`FindAccountsByDomainId`] Iroha Query gets [`Domain`]s id as input and
         /// finds all [`Account`]s under this [`Domain`].
         #[derive(Display)]
@@ -402,13 +395,7 @@ pub mod account {
             /// `Id` of the domain under which accounts should be found.
             pub domain_id: EvaluatesTo<DomainId>,
         }
-    }
 
-    impl Query for FindAccountsByDomainId {
-        type Output = Vec<Account>;
-    }
-
-    query! {
         /// [`FindAccountsWithAsset`] Iroha Query gets [`AssetDefinition`]s id as input and
         /// finds all [`Account`]s storing [`Asset`] with such definition.
         #[derive(Display)]
@@ -420,6 +407,26 @@ pub mod account {
             /// `Id` of the definition of the asset which should be stored in founded accounts.
             pub asset_definition_id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
         }
+    }
+
+    impl Query for FindAllAccounts {
+        type Output = Vec<Account>;
+    }
+
+    impl Query for FindAccountById {
+        type Output = Account;
+    }
+
+    impl Query for FindAccountKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
+    impl Query for FindAccountsByName {
+        type Output = Vec<Account>;
+    }
+
+    impl Query for FindAccountsByDomainId {
+        type Output = Vec<Account>;
     }
 
     impl Query for FindAccountsWithAsset {
@@ -489,35 +496,25 @@ pub mod asset {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use iroha_data_model_derive::model;
 
+    pub use self::model::*;
     use crate::prelude::*;
 
-    query! {
+    queries! {
         /// [`FindAllAssets`] Iroha Query finds all [`Asset`]s presented in Iroha Peer.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all assets")]
         #[ffi_type]
         pub struct FindAllAssets;
-    }
 
-    impl Query for FindAllAssets {
-        type Output = Vec<Asset>;
-    }
-
-    query! {
         /// [`FindAllAssetsDefinitions`] Iroha Query finds all [`AssetDefinition`]s presented
         /// in Iroha Peer.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all asset definitions")]
         #[ffi_type]
         pub struct FindAllAssetsDefinitions; // TODO: Should it be renamed to [`FindAllAssetDefinitions`?
-    }
 
-    impl Query for FindAllAssetsDefinitions {
-        type Output = Vec<AssetDefinition>;
-    }
-
-    query! {
         /// [`FindAssetById`] Iroha Query finds an [`Asset`] by it's identification in Iroha [`Peer`].
         #[derive(Display)]
         #[display(fmt = "Find `{id}` asset")]
@@ -528,13 +525,7 @@ pub mod asset {
             /// `Id` of an [`Asset`] to find.
             pub id: EvaluatesTo<<Asset as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAssetById {
-        type Output = Asset;
-    }
-
-    query! {
         /// [`FindAssetDefinitionById`] Iroha Query finds an [`AssetDefinition`] by it's identification in Iroha [`Peer`].
         #[derive(Display)]
         #[display(fmt = "Find `{id}` asset definition")]
@@ -545,13 +536,7 @@ pub mod asset {
             /// `Id` of an [`AssetDefinition`] to find.
             pub id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAssetDefinitionById {
-        type Output = AssetDefinition;
-    }
-
-    query! {
         /// [`FindAssetsByName`] Iroha Query gets [`Asset`]s name as input and
         /// finds all [`Asset`]s with it in Iroha [`Peer`].
         #[derive(Display)]
@@ -563,13 +548,7 @@ pub mod asset {
             /// [`Name`] of [`Asset`]s to find.
             pub name: EvaluatesTo<Name>,
         }
-    }
 
-    impl Query for FindAssetsByName {
-        type Output = Vec<Asset>;
-    }
-
-    query! {
         /// [`FindAssetsByAccountId`] Iroha Query gets [`AccountId`] as input and find all [`Asset`]s
         /// owned by the [`Account`] in Iroha Peer.
         #[derive(Display)]
@@ -581,13 +560,7 @@ pub mod asset {
             /// [`AccountId`] under which assets should be found.
             pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAssetsByAccountId {
-        type Output = Vec<Asset>;
-    }
-
-    query! {
         /// [`FindAssetsByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and
         /// finds all [`Asset`]s with this [`AssetDefinition`] in Iroha Peer.
         #[derive(Display)]
@@ -599,13 +572,7 @@ pub mod asset {
             /// [`AssetDefinitionId`] with type of [`Asset`]s should be found.
             pub asset_definition_id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAssetsByAssetDefinitionId {
-        type Output = Vec<Asset>;
-    }
-
-    query! {
         /// [`FindAssetsByDomainId`] Iroha Query gets [`Domain`]s id as input and
         /// finds all [`Asset`]s under this [`Domain`] in Iroha [`Peer`].
         #[derive(Display)]
@@ -617,13 +584,7 @@ pub mod asset {
             /// `Id` of the domain under which assets should be found.
             pub domain_id: EvaluatesTo<<Domain as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAssetsByDomainId {
-        type Output = Vec<Asset>;
-    }
-
-    query! {
         /// [`FindAssetsByDomainIdAndAssetDefinitionId`] Iroha Query gets [`DomainId`] and
         /// [`AssetDefinitionId`] as inputs and finds [`Asset`]s under the [`Domain`]
         /// with this [`AssetDefinition`] in Iroha [`Peer`].
@@ -636,13 +597,7 @@ pub mod asset {
             /// [`AssetDefinitionId`] assets of which type should be found.
             pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
         }
-    }
 
-    impl Query for FindAssetsByDomainIdAndAssetDefinitionId {
-        type Output = Vec<Asset>;
-    }
-
-    query! {
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
         /// parameter's value if [`Asset`] is presented in Iroha Peer.
         #[derive(Display)]
@@ -654,13 +609,7 @@ pub mod asset {
             /// `Id` of an [`Asset`] to find quantity of.
             pub id: EvaluatesTo<<Asset as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindAssetQuantityById {
-        type Output = NumericValue;
-    }
-
-    query! {
         /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
         /// if [`AssetDefinitionId`] is presented in Iroha Peer.
         /// In case of `Store` asset value type total quantity is sum of assets through all accounts with provided [`AssetDefinitionId`].
@@ -673,13 +622,7 @@ pub mod asset {
             /// `Id` of an [`Asset`] to find quantity of.
             pub id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindTotalAssetQuantityByAssetDefinitionId {
-        type Output = NumericValue;
-    }
-
-    query! {
         /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`Value`]
         /// of the key-value pair stored in this asset.
         #[derive(Display)]
@@ -691,13 +634,7 @@ pub mod asset {
             /// The key of the key-value pair stored in the asset.
             pub key: EvaluatesTo<Name>,
         }
-    }
 
-    impl Query for FindAssetKeyValueByIdAndKey {
-        type Output = Value;
-    }
-
-    query! {
         /// [`FindAssetDefinitionKeyValueByIdAndKey`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`Value`]
         /// of the key-value pair stored in this asset definition.
         #[derive(Display)]
@@ -709,13 +646,7 @@ pub mod asset {
             /// The key of the key-value pair stored in the asset.
             pub key: EvaluatesTo<Name>,
         }
-    }
 
-    impl Query for FindAssetDefinitionKeyValueByIdAndKey {
-        type Output = Value;
-    }
-
-    query! {
         /// [`IsAssetDefinitionOwner`] Iroha Query checks if provided account is the asset definition owner.
         #[derive(Display)]
         #[display(fmt = "Check if `{account_id}` is creator of `{asset_definition_id}` asset")]
@@ -726,6 +657,57 @@ pub mod asset {
             /// `Id` of a possible owner [`Account`].
             pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
         }
+    }
+    impl Query for FindAllAssets {
+        type Output = Vec<Asset>;
+    }
+
+    impl Query for FindAllAssetsDefinitions {
+        type Output = Vec<AssetDefinition>;
+    }
+
+    impl Query for FindAssetById {
+        type Output = Asset;
+    }
+
+    impl Query for FindAssetDefinitionById {
+        type Output = AssetDefinition;
+    }
+
+    impl Query for FindAssetsByName {
+        type Output = Vec<Asset>;
+    }
+
+    impl Query for FindAssetsByAccountId {
+        type Output = Vec<Asset>;
+    }
+
+    impl Query for FindAssetsByAssetDefinitionId {
+        type Output = Vec<Asset>;
+    }
+
+    impl Query for FindAssetsByDomainId {
+        type Output = Vec<Asset>;
+    }
+
+    impl Query for FindAssetsByDomainIdAndAssetDefinitionId {
+        type Output = Vec<Asset>;
+    }
+
+    impl Query for FindAssetQuantityById {
+        type Output = NumericValue;
+    }
+
+    impl Query for FindTotalAssetQuantityByAssetDefinitionId {
+        type Output = NumericValue;
+    }
+
+    impl Query for FindAssetKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
+    impl Query for FindAssetDefinitionKeyValueByIdAndKey {
+        type Output = Value;
     }
 
     impl Query for IsAssetDefinitionOwner {
@@ -867,19 +849,13 @@ pub mod domain {
 
     use crate::prelude::*;
 
-    query! {
+    queries! {
         /// [`FindAllDomains`] Iroha Query finds all [`Domain`]s presented in Iroha [`Peer`].
         #[derive(Copy, Display)]
         #[display(fmt = "Find all domains")]
         #[ffi_type]
         pub struct FindAllDomains;
-    }
 
-    impl Query for FindAllDomains {
-        type Output = Vec<Domain>;
-    }
-
-    query! {
         /// [`FindDomainById`] Iroha Query finds a [`Domain`] by it's identification in Iroha [`Peer`].
         #[derive(Display)]
         #[display(fmt = "Find `{id}` domain")]
@@ -890,13 +866,8 @@ pub mod domain {
             /// `Id` of the domain to find.
             pub id: EvaluatesTo<<Domain as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindDomainById {
-        type Output = Domain;
-    }
 
-    query! {
         /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`Value`] of the key-value metadata pair
         /// in the specified domain.
         #[derive(Display)]
@@ -908,6 +879,18 @@ pub mod domain {
             /// Key of the specific key-value in the domain's metadata.
             pub key: EvaluatesTo<Name>,
         }
+    }
+
+    impl Query for FindAllDomains {
+        type Output = Vec<Domain>;
+    }
+
+    impl Query for FindDomainById {
+        type Output = Domain;
+    }
+
+    impl Query for FindDomainKeyValueByIdAndKey {
+        type Output = Value;
     }
 
     impl FindDomainById {
@@ -930,10 +913,6 @@ pub mod domain {
         }
     }
 
-    impl Query for FindDomainKeyValueByIdAndKey {
-        type Output = Value;
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllDomains, FindDomainById, FindDomainKeyValueByIdAndKey};
@@ -951,25 +930,24 @@ pub mod peer {
     use super::Query;
     use crate::{parameter::Parameter, peer::Peer};
 
-    query! {
+    queries! {
         /// [`FindAllPeers`] Iroha Query finds all trusted [`Peer`]s presented in current Iroha [`Peer`].
         #[derive(Copy, Display)]
         #[display(fmt = "Find all peers")]
         #[ffi_type]
         pub struct FindAllPeers;
-    }
 
-    impl Query for FindAllPeers {
-        type Output = Vec<Peer>;
-    }
 
-    query! {
         /// [`FindAllParameters`] Iroha Query finds all [`Peer`]s parameters.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all peers parameters")]
         // TODO: Unused query. Remove?
         #[ffi_type]
         pub struct FindAllParameters;
+    }
+
+    impl Query for FindAllPeers {
+        type Output = Vec<Peer>;
     }
 
     impl Query for FindAllParameters {
@@ -991,58 +969,47 @@ pub mod trigger {
 
     use super::Query;
     use crate::{
-        domain::prelude::*, events::FilterBox, expression::EvaluatesTo, trigger::Trigger,
-        Identifiable, Name, Value,
+        domain::prelude::*,
+        events::FilterBox,
+        expression::EvaluatesTo,
+        prelude::InstructionBox,
+        trigger::{OptimizedExecutable, Trigger, TriggerId},
+        Executable, Identifiable, Name, Value,
     };
 
-    query! {
+    queries! {
         /// Find all currently active (as in not disabled and/or expired)
         /// trigger IDs.
         #[derive(Copy, Display)]
         #[display(fmt = "Find all trigger ids")]
         #[ffi_type]
         pub struct FindAllActiveTriggerIds;
-    }
 
-    impl Query for FindAllActiveTriggerIds {
-        type Output = Vec<<Trigger<FilterBox> as Identifiable>::Id>;
-    }
 
-    query! {
         /// Find Trigger given its ID.
         #[derive(Display)]
         #[display(fmt = "Find `{id}` trigger")]
         #[repr(transparent)]
-        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>`
+        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggerById {
             /// The Identification of the trigger to be found.
-            pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+            pub id: EvaluatesTo<TriggerId>,
         }
-    }
 
-    impl Query for FindTriggerById {
-        type Output = Trigger<FilterBox>;
-    }
 
-    query! {
         /// Find Trigger's metadata key-value pairs.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` trigger")]
         #[ffi_type]
         pub struct FindTriggerKeyValueByIdAndKey {
             /// The Identification of the trigger to be found.
-            pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+            pub id: EvaluatesTo<TriggerId>,
             /// The key inside the metadata dictionary to be returned.
             pub key: EvaluatesTo<Name>,
         }
-    }
 
-    impl Query for FindTriggerKeyValueByIdAndKey {
-        type Output = Value;
-    }
 
-    query! {
         /// Find [`Trigger`]s under the given [`DomainId`].
         #[derive(Display)]
         #[display(fmt = "Find trigger under `{domain_id}` domain")]
@@ -1055,13 +1022,25 @@ pub mod trigger {
         }
     }
 
+    impl Query for FindAllActiveTriggerIds {
+        type Output = Vec<TriggerId>;
+    }
+
+    impl Query for FindTriggerById {
+        type Output = Trigger<FilterBox, OptimizedExecutable>;
+    }
+
+    impl Query for FindTriggerKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
     impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<FilterBox>>;
+        type Output = Vec<Trigger<FilterBox, OptimizedExecutable>>;
     }
 
     impl FindTriggerById {
         /// Construct [`FindTriggerById`].
-        pub fn new(id: impl Into<EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<TriggerId>>) -> Self {
             Self { id: id.into() }
         }
     }
@@ -1069,7 +1048,7 @@ pub mod trigger {
     impl FindTriggerKeyValueByIdAndKey {
         /// Construct [`FindTriggerKeyValueByIdAndKey`].
         pub fn new(
-            id: impl Into<EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>>,
+            id: impl Into<EvaluatesTo<TriggerId>>,
             key: impl Into<EvaluatesTo<Name>>,
         ) -> Self {
             Self {
@@ -1116,19 +1095,13 @@ pub mod transaction {
         Identifiable,
     };
 
-    query! {
+    queries! {
         /// [`FindAllTransactions`] Iroha Query lists all transactions included in a blockchain
         #[derive(Copy, Display)]
         #[display(fmt = "Find all transactions")]
         #[ffi_type]
         pub struct FindAllTransactions;
-    }
 
-    impl Query for FindAllTransactions {
-        type Output = Vec<TransactionQueryResult>;
-    }
-
-    query! {
         /// [`FindTransactionsByAccountId`] Iroha Query finds all transactions included in a blockchain
         /// for the account
         #[derive(Display)]
@@ -1140,13 +1113,7 @@ pub mod transaction {
             /// Signer's [`AccountId`] under which transactions should be found.
             pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
         }
-    }
 
-    impl Query for FindTransactionsByAccountId {
-        type Output = Vec<TransactionValue>;
-    }
-
-    query! {
         /// [`FindTransactionByHash`] Iroha Query finds a transaction (if any)
         /// with corresponding hash value
         #[derive(Display)]
@@ -1158,6 +1125,14 @@ pub mod transaction {
             /// Transaction hash.
             pub hash: EvaluatesTo<Hash>,
         }
+    }
+
+    impl Query for FindAllTransactions {
+        type Output = Vec<TransactionQueryResult>;
+    }
+
+    impl Query for FindTransactionsByAccountId {
+        type Output = Vec<TransactionValue>;
     }
 
     impl Query for FindTransactionByHash {
@@ -1203,33 +1178,21 @@ pub mod block {
         prelude::EvaluatesTo,
     };
 
-    query! {
+    queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
         /// height in descending order
         #[derive(Copy, Display)]
         #[display(fmt = "Find all blocks")]
         #[ffi_type]
         pub struct FindAllBlocks;
-    }
 
-    impl Query for FindAllBlocks {
-        type Output = Vec<VersionedCommittedBlock>;
-    }
-
-    query! {
         /// [`FindAllBlockHeaders`] Iroha Query lists all block headers
         /// sorted by height in descending order
         #[derive(Copy, Display)]
         #[display(fmt = "Find all block headers")]
         #[ffi_type]
         pub struct FindAllBlockHeaders;
-    }
 
-    impl Query for FindAllBlockHeaders {
-        type Output = Vec<BlockHeader>;
-    }
-
-    query! {
         /// [`FindBlockHeaderByHash`] Iroha Query finds block header by block hash
         #[derive(Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
@@ -1240,6 +1203,14 @@ pub mod block {
             /// Block hash.
             pub hash: EvaluatesTo<Hash>,
         }
+    }
+
+    impl Query for FindAllBlocks {
+        type Output = Vec<VersionedCommittedBlock>;
+    }
+
+    impl Query for FindAllBlockHeaders {
+        type Output = Vec<BlockHeader>;
     }
 
     impl Query for FindBlockHeaderByHash {
@@ -1263,6 +1234,9 @@ pub mod block {
 pub mod http {
     //! Structures related to sending queries over HTTP
 
+    use iroha_data_model_derive::model;
+
+    pub use self::model::*;
     use super::*;
     use crate::{pagination::prelude::*, predicate::PredicateBox, sorting::prelude::*};
 
@@ -1270,7 +1244,10 @@ pub mod http {
     declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
     declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone)]
         #[repr(transparent)]
@@ -1304,7 +1281,9 @@ pub mod http {
         }
 
         /// Sized container for all possible Query results.
-        #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
         #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
         #[serde(transparent)]
         #[repr(transparent)]
@@ -1391,33 +1370,50 @@ pub mod error {
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
+    use iroha_data_model_derive::model;
     use iroha_macro::FromVariant;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
 
+    pub use self::model::*;
     use super::*;
-    use crate::{block::VersionedCommittedBlock, permission, prelude::*};
+    use crate::{block::VersionedCommittedBlock, permission, prelude::*, validator};
 
-    model! {
+    #[model]
+    pub mod model {
+        use super::*;
+
         /// Query errors.
         #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, IntoSchema)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         pub enum QueryExecutionFailure {
             /// Query has wrong signature.
             #[display(fmt = "Query has the wrong signature: {_0}")]
-            Signature(#[skip_from] #[skip_try_from] String),
+            Signature(
+                #[skip_from]
+                #[skip_try_from]
+                String,
+            ),
             /// Query is not allowed.
             #[display(fmt = "Query is not allowed: {_0}")]
-            Permission(permission::validator::DenialReason),
+            Permission(validator::DenialReason),
             /// Query has wrong expression.
             #[display(fmt = "Query has a malformed expression: {_0}")]
-            Evaluate(#[skip_from] #[skip_try_from] String),
+            Evaluate(
+                #[skip_from]
+                #[skip_try_from]
+                String,
+            ),
             /// Query found nothing.
             #[display(fmt = "Query found nothing: {_0}")]
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
             /// Query found wrong type of asset.
             #[display(fmt = "Query found wrong type of asset: {_0}")]
-            Conversion(#[skip_from] #[skip_try_from] String),
+            Conversion(
+                #[skip_from]
+                #[skip_try_from]
+                String,
+            ),
             /// Query without account.
             #[display(fmt = "Unauthorized query: account not provided")]
             Unauthorized,
@@ -1461,9 +1457,6 @@ pub mod error {
             /// Failed to find [`PermissionToken`] by id.
             #[display(fmt = "Failed to find permission definition token by id: `{_0}`")]
             PermissionTokenDefinition(PermissionTokenId),
-            /// Failed to find [`Validator`](permission::Validator) by id.
-            #[display(fmt = "Failed to find permission validator by id: `{_0}`")]
-            Validator(permission::validator::ValidatorId),
             /// Failed to find specified [`Parameter`] variant.
             #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
             Parameter(ParameterId),
@@ -1480,7 +1473,7 @@ pub mod prelude {
     pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
-        peer::prelude::*, permissions::prelude::*, role::prelude::*, transaction::*,
+        peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
         trigger::prelude::*, Query, QueryBox,
     };
 }

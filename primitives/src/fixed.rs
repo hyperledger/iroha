@@ -230,10 +230,11 @@ mod ffi {
     #![allow(unsafe_code)]
     use super::*;
 
-    iroha_ffi::ffi_type! {unsafe impl Transparent for Fixed[Base] validated with {|_| true}}
-
-    // SAFETY: Type is robust with respect to the inner type
-    unsafe impl iroha_ffi::ir::InfallibleTransmute for Fixed {}
+    iroha_ffi::ffi_type! {
+        unsafe impl Transparent for Fixed {
+            type Target = Base;
+        }
+    }
 }
 
 /// Export of inner items.

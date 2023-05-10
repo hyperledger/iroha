@@ -8,15 +8,22 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::{fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
+use std::{
+    fmt::Debug,
+    fs::{self, File},
+    io::BufReader,
+    ops::Deref,
+    path::{Path, PathBuf},
+};
 
-use derive_more::Deref;
-use eyre::{bail, eyre, Result, WrapErr};
+use derive_more::{Deref, From};
+use eyre::{bail, eyre, ErrReport, Result, WrapErr};
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
+    validator::Validator,
 };
 use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::IntoSchema;
@@ -70,9 +77,16 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .clone()
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         )?;
-        let transactions = raw_block
-            .transactions
-            .iter()
+        let transactions_iter = raw_block.transactions.into_iter();
+        #[cfg(not(test))]
+        let transactions_iter = transactions_iter.chain(std::iter::once(GenesisTransaction {
+            isi: SmallVec(smallvec![UpgradeBox::new(Validator::try_from(
+                raw_block.validator
+            )?)
+            .into()]),
+        }));
+
+        let transactions = transactions_iter
             .map(|raw_transaction| {
                 raw_transaction.sign_and_accept(genesis_key_pair.clone(), tx_limits)
             })
@@ -93,12 +107,92 @@ impl GenesisNetworkTrait for GenesisNetwork {
 }
 
 /// [`RawGenesisBlock`] is an initial block of the network
-#[derive(Debug, Clone, Default, Deserialize, Serialize, IntoSchema)]
-#[serde(transparent)]
-#[repr(transparent)]
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 pub struct RawGenesisBlock {
     /// Transactions
     pub transactions: SmallVec<[GenesisTransaction; 2]>,
+    /// Runtime Validator
+    pub validator: ValidatorMode,
+}
+
+/// Ways to provide validator either directly as base64 encoded string or as path to wasm file
+#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, From)]
+#[serde(untagged)]
+pub enum ValidatorMode {
+    /// Path to validator wasm file
+    // In the first place to initially try to parse path
+    Path(ValidatorPath),
+    /// Validator encoded as base64 string
+    Inline(Validator),
+}
+
+impl ValidatorMode {
+    fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
+        if let Self::Path(path) = self {
+            path.set_genesis_path(genesis_path);
+        }
+    }
+}
+
+impl TryFrom<ValidatorMode> for Validator {
+    type Error = ErrReport;
+
+    fn try_from(value: ValidatorMode) -> Result<Self> {
+        match value {
+            ValidatorMode::Inline(validator) => Ok(validator),
+            ValidatorMode::Path(ValidatorPath {
+                validator_path: relative_validator_path,
+            }) => {
+                let wasm = fs::read(&relative_validator_path)
+                    .wrap_err(format!("Failed to open {:?}", &relative_validator_path))?;
+                Ok(Validator::new(WasmSmartContract::from_compiled(wasm)))
+            }
+        }
+    }
+}
+
+/// Path to the validator relative to genesis location
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorPath {
+    /// Path to validator.
+    /// If path is absolute it will be used directly otherwise it will be treated as relative to genesis location.
+    pub validator_path: PathBuf,
+}
+
+// Manual implementation because we want `PathBuf` appear as `String` in schema
+impl iroha_schema::TypeId for ValidatorPath {
+    fn id() -> String {
+        "ValidatorPath".to_string()
+    }
+}
+impl iroha_schema::IntoSchema for ValidatorPath {
+    fn type_name() -> String {
+        "ValidatorPath".to_string()
+    }
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(iroha_schema::Metadata::Struct(
+                iroha_schema::NamedFieldsMeta {
+                    declarations: vec![iroha_schema::Declaration {
+                        name: String::from(stringify!(validator_relative_path)),
+                        ty: core::any::TypeId::of::<String>(),
+                    }],
+                },
+            ));
+            <String as iroha_schema::IntoSchema>::update_schema_map(map);
+        }
+    }
+}
+
+impl ValidatorPath {
+    fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
+        let path_to_validator = genesis_path
+            .as_ref()
+            .parent()
+            .expect("Genesis must be in some directory")
+            .join(&self.validator_path);
+        self.validator_path = path_to_validator;
+    }
 }
 
 impl RawGenesisBlock {
@@ -119,21 +213,12 @@ impl RawGenesisBlock {
             iroha_logger::warn!(%size, threshold = %Self::WARN_ON_GENESIS_GTE, "Genesis is quite large, it will take some time to apply it");
         }
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader).wrap_err(format!(
+        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err(format!(
             "Failed to deserialize raw genesis block from {:?}",
             &path
-        ))
-    }
-
-    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`Account`].
-    pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
-        RawGenesisBlock {
-            transactions: SmallVec(smallvec![GenesisTransaction::new(
-                account_name,
-                domain_id,
-                public_key,
-            )]),
-        }
+        ))?;
+        raw_genesis_block.validator.set_genesis_path(path);
+        Ok(raw_genesis_block)
     }
 }
 
@@ -152,34 +237,17 @@ impl GenesisTransaction {
     /// # Errors
     /// Fails if signing or accepting fails
     pub fn sign_and_accept(
-        &self,
+        self,
         genesis_key_pair: KeyPair,
         limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
-        let transaction = TransactionBuilder::new(
-            AccountId::genesis(),
-            self.isi.clone(),
-            GENESIS_TRANSACTIONS_TTL_MS,
-        )
-        .sign(genesis_key_pair)?;
+        let transaction =
+            TransactionBuilder::new(AccountId::genesis(), self.isi, GENESIS_TRANSACTIONS_TTL_MS)
+                .sign(genesis_key_pair)?;
 
         AcceptedTransaction::accept::<true>(transaction, limits)
             .wrap_err("Failed to accept transaction")
             .map(Into::into)
-    }
-
-    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
-    pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
-        Self {
-            isi: SmallVec(smallvec![
-                RegisterBox::new(Domain::new(domain_id.clone())).into(),
-                RegisterBox::new(Account::new(
-                    AccountId::new(account_name, domain_id),
-                    [public_key],
-                ))
-                .into()
-            ]),
-        }
     }
 }
 
@@ -188,21 +256,32 @@ impl GenesisTransaction {
 /// produced. Use with caution in tests and other things
 /// to register domains and accounts.
 #[must_use]
-#[repr(transparent)]
-pub struct RawGenesisBlockBuilder {
+pub struct RawGenesisBlockBuilder<S> {
     transaction: GenesisTransaction,
+    state: S,
 }
 
 /// `Domain` subsection of the `RawGenesisBlockBuilder`. Makes
 /// it easier to create accounts and assets without needing to
 /// provide a `DomainId`.
 #[must_use]
-pub struct RawGenesisDomainBuilder {
+pub struct RawGenesisDomainBuilder<S> {
     transaction: GenesisTransaction,
     domain_id: DomainId,
+    state: S,
 }
 
-impl RawGenesisBlockBuilder {
+mod validator_state {
+    use super::ValidatorMode;
+
+    #[cfg_attr(test, derive(Clone))]
+    pub struct Set(pub ValidatorMode);
+
+    #[derive(Clone, Copy)]
+    pub struct Unset;
+}
+
+impl RawGenesisBlockBuilder<validator_state::Unset> {
     /// Initiate the building process.
     pub fn new() -> Self {
         // Do not add `impl Default`. While it can technically be
@@ -213,12 +292,26 @@ impl RawGenesisBlockBuilder {
             transaction: GenesisTransaction {
                 isi: SmallVec::new(),
             },
+            state: validator_state::Unset,
         }
     }
 
+    /// Set the validator.
+    pub fn validator(
+        self,
+        validator: impl Into<ValidatorMode>,
+    ) -> RawGenesisBlockBuilder<validator_state::Set> {
+        RawGenesisBlockBuilder {
+            transaction: self.transaction,
+            state: validator_state::Set(validator.into()),
+        }
+    }
+}
+
+impl<S> RawGenesisBlockBuilder<S> {
     /// Create a domain and return a domain builder which can
     /// be used to create assets and accounts.
-    pub fn domain(self, domain_name: Name) -> RawGenesisDomainBuilder {
+    pub fn domain(self, domain_name: Name) -> RawGenesisDomainBuilder<S> {
         self.domain_with_metadata(domain_name, Metadata::default())
     }
 
@@ -228,7 +321,7 @@ impl RawGenesisBlockBuilder {
         mut self,
         domain_name: Name,
         metadata: Metadata,
-    ) -> RawGenesisDomainBuilder {
+    ) -> RawGenesisDomainBuilder<S> {
         let domain_id = DomainId::new(domain_name);
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
         self.transaction
@@ -237,23 +330,28 @@ impl RawGenesisBlockBuilder {
         RawGenesisDomainBuilder {
             transaction: self.transaction,
             domain_id,
-        }
-    }
-
-    /// Finish building and produce a `RawGenesisBlock`.
-    pub fn build(self) -> RawGenesisBlock {
-        RawGenesisBlock {
-            transactions: SmallVec(smallvec![self.transaction]),
+            state: self.state,
         }
     }
 }
 
-impl RawGenesisDomainBuilder {
+impl RawGenesisBlockBuilder<validator_state::Set> {
+    /// Finish building and produce a `RawGenesisBlock`.
+    pub fn build(self) -> RawGenesisBlock {
+        RawGenesisBlock {
+            transactions: SmallVec(smallvec![self.transaction]),
+            validator: self.state.0,
+        }
+    }
+}
+
+impl<S> RawGenesisDomainBuilder<S> {
     /// Finish this domain and return to
     /// genesis block building.
-    pub fn finish_domain(self) -> RawGenesisBlockBuilder {
+    pub fn finish_domain(self) -> RawGenesisBlockBuilder<S> {
         RawGenesisBlockBuilder {
             transaction: self.transaction,
+            state: self.state,
         }
     }
 
@@ -308,6 +406,12 @@ mod tests {
 
     use super::*;
 
+    fn dummy_validator() -> ValidatorMode {
+        ValidatorMode::Path(ValidatorPath {
+            validator_path: "./validator.wasm".into(),
+        })
+    }
+
     #[test]
     #[allow(clippy::expect_used)]
     fn load_new_genesis_block() -> Result<()> {
@@ -319,7 +423,12 @@ mod tests {
         };
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
-            RawGenesisBlock::new("alice".parse()?, "wonderland".parse()?, alice_public_key),
+            RawGenesisBlockBuilder::new()
+                .domain("wonderland".parse()?)
+                .account("alice".parse()?, alice_public_key)
+                .finish_domain()
+                .validator(dummy_validator())
+                .build(),
             Some(
                 &ConfigurationProxy {
                     account_public_key: Some(genesis_public_key),
@@ -336,7 +445,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     #[test]
     fn genesis_block_builder_example() {
-        let public_key = "ed0120204e9593c3ffaf4464a6189233811c297dd4ce73aba167867e4fbd4f8c450acb";
+        let public_key = "ed0120204E9593C3FFAF4464A6189233811C297DD4CE73ABA167867E4FBD4F8C450ACB";
         let mut genesis_builder = RawGenesisBlockBuilder::new();
 
         genesis_builder = genesis_builder
@@ -352,7 +461,8 @@ mod tests {
             .asset("hats".parse().unwrap(), AssetValueType::BigQuantity)
             .finish_domain();
 
-        let finished_genesis_block = genesis_builder.build();
+        // In real cases validator should be constructed from a wasm blob
+        let finished_genesis_block = genesis_builder.validator(dummy_validator()).build();
         {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(

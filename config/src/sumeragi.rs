@@ -9,9 +9,9 @@ use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
 
 /// Default Amount of time peer waits for transactions before creating a block.
-pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+pub const DEFAULT_BLOCK_TIME_MS: u64 = 2000;
 /// Default amount of time allocated for voting on a block before a peer can ask for a view change.
-pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 2000;
+pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
@@ -21,8 +21,6 @@ const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
     DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
 
-cfg_if::cfg_if! {
-    if #[cfg(debug_assertions)] {
 // Generate `ConfigurationView` without keys
 view! {
     /// `Sumeragi` configuration.
@@ -52,44 +50,10 @@ view! {
         pub gossip_batch_size: u32,
         /// Period in milliseconds for pending transaction gossiping between peers.
         pub gossip_period_ms: u64,
-
+        #[cfg(debug_assertions)]
         /// Only used in testing. Causes the genesis peer to withhold blocks when it
         /// is the proxy tail.
         pub debug_force_soft_fork: bool,
-    }
-}
-    } else {
-// Generate `ConfigurationView` without keys
-view! {
-    /// `Sumeragi` configuration.
-    /// [`struct@Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
-    /// and a list of `TRUSTED_PEERS`.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
-    #[serde(rename_all = "UPPERCASE")]
-    #[config(env_prefix = "SUMERAGI_")]
-    pub struct Configuration {
-        /// The key pair consisting of a private and a public key.
-        //TODO: consider putting a `#[serde(skip)]` on the proxy struct here
-        #[view(ignore)]
-        pub key_pair: KeyPair,
-        /// Current Peer Identification.
-        pub peer_id: PeerId,
-        /// The period of time a peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
-        pub block_time_ms: u64,
-        /// Optional list of predefined trusted peers.
-        pub trusted_peers: TrustedPeers,
-        /// The period of time a peer waits for `CommitMessage` from the proxy tail.
-        pub commit_time_limit_ms: u64,
-        /// The limits to which transactions must adhere
-        pub transaction_limits: TransactionLimits,
-        /// Buffer capacity of actor's MPSC channel
-        pub actor_channel_capacity: u32,
-        /// Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
-        pub gossip_batch_size: u32,
-        /// Period in milliseconds for pending transaction gossiping between peers.
-        pub gossip_period_ms: u64,
-    }
-}
     }
 }
 

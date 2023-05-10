@@ -56,10 +56,10 @@ fn impl_token(
         impl #impl_generics ::iroha_validator::traits::Token for #ident #ty_generics
         #where_clause
         {
-            fn definition_id() -> ::iroha_validator::data_model::permission::token::PermissionTokenId {
+            fn definition_id() -> ::iroha_validator::data_model::permission::PermissionTokenId {
                 ::iroha_validator::parse!(
                     #definition_id as <
-                        ::iroha_validator::data_model::permission::token::PermissionTokenDefinition
+                        ::iroha_validator::data_model::permission::PermissionTokenDefinition
                         as
                         ::iroha_validator::data_model::prelude::Identifiable
                     >::Id
@@ -103,9 +103,7 @@ fn impl_try_from_permission_token(
     let field_initializers = fields.iter().map(|field| {
         let field_ident = field.ident.as_ref().expect("Field must have an identifier");
         let field_literal = proc_macro2::Literal::string(&field_ident.to_string());
-        let syn::Type::Path(field_type) = &field.ty else {
-            panic!("Field must have a type path");
-        };
+        let field_type = &field.ty;
 
         let code = quote! {
             #field_ident: <

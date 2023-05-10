@@ -1,15 +1,18 @@
-use iroha_ffi::{ffi_export, ir::Transmute, FfiType};
+use iroha_ffi::{ffi_export, FfiType};
+
+type WrapperInner = u32;
 
 /// Wrapper
 #[derive(FfiType)]
 #[repr(transparent)]
-pub struct Wrapper(u32);
+pub struct Wrapper(WrapperInner);
 
-unsafe impl Transmute for Wrapper {
-    type Target = u32;
+iroha_ffi::ffi_type! {
+    unsafe impl Transparent for Wrapper {
+        type Target = WrapperInner;
 
-    unsafe fn is_valid(inner: &Self::Target) -> bool {
-        *inner != 0
+        validation_fn=unsafe {|target| *target != 0},
+        niche_value=0
     }
 }
 

@@ -15,9 +15,7 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use data_model::{
-    permission::validator::NeedsPermissionBox, prelude::*, query::error::QueryExecutionFailure,
-};
+use data_model::{prelude::*, query::error::QueryExecutionFailure, validator::NeedsValidationBox};
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
@@ -117,7 +115,7 @@ impl iroha_data_model::evaluate::Context for Context {
     }
 }
 
-/// Query the authority of the smart contract, trigger or permission validator
+/// Query the authority of the smart contract
 pub fn query_authority() -> <Account as Identifiable>::Id {
     #[cfg(not(test))]
     use host::query_authority as host_query_authority;
@@ -143,12 +141,12 @@ pub fn query_triggering_event() -> Event {
     unsafe { decode_with_length_prefix_from_raw(host_query_triggering_event()) }
 }
 
-/// Query an operation which needs to be validated by a permission validator.
+/// Query an operation which is to be validated
 ///
 /// # Traps
 ///
-/// Host side will generate a trap if this function was not called from a permission validator.
-pub fn query_operation_to_validate() -> NeedsPermissionBox {
+/// Host side will generate a trap if this function was not called from a validator.
+pub fn query_operation_to_validate() -> NeedsValidationBox {
     #[cfg(not(test))]
     use host::query_operation_to_validate as host_query_operation_to_validate;
     #[cfg(test)]
@@ -351,13 +349,13 @@ mod tests {
         ))
         .into()
     }
-    fn get_test_operation() -> NeedsPermissionBox {
+    fn get_test_operation() -> NeedsValidationBox {
         let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
         let rose_definition_id: <AssetDefinition as Identifiable>::Id =
             "rose#wonderland".parse().expect("Valid");
         let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
 
-        NeedsPermissionBox::Instruction(MintBox::new(1u32, alice_rose_id).into())
+        NeedsValidationBox::Instruction(MintBox::new(1u32, alice_rose_id).into())
     }
 
     #[no_mangle]
@@ -392,18 +390,6 @@ mod tests {
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_query_operation_to_validate_mock() -> *const u8 {
         ManuallyDrop::new(encode_with_length_prefix(&get_test_operation())).as_ptr()
-    }
-
-    #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_evaluate_on_host_mock(
-        ptr: *const u8,
-        len: usize,
-    ) -> *const u8 {
-        let bytes = slice::from_raw_parts(ptr, len);
-        let expression = ExpressionBox::decode_all(&mut &*bytes).unwrap();
-        assert_eq!(*expression, *get_test_expression().expression());
-
-        ManuallyDrop::new(encode_with_length_prefix(&Value::from(EXPRESSION_RESULT))).as_ptr()
     }
 
     #[webassembly_test]

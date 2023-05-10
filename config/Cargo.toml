@@ -25,6 +25,13 @@ json5 = "0.4.1"
 thiserror = "1.0.38"
 derive_more = "0.99.17"
 cfg-if = "1.0.0"
+path-absolutize = "3.0.14"
 
 [dev-dependencies]
 proptest = "1.0.0"
+
+[features]
+default = []
+tokio-console = []
+# Workaround to avoid activating `tokio-console` with `--all-features` flag, because `tokio-console` require `tokio_unstable` rustc flag
+no-tokio-console = []

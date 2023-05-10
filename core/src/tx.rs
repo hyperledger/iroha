@@ -28,7 +28,7 @@ use crate::{
 
 /// Used to validate transaction and thus move transaction lifecycle forward
 ///
-/// Permission validation is skipped for genesis.
+/// Validation is skipped for genesis.
 #[derive(Clone, Copy)]
 pub struct TransactionValidator {
     /// [`TransactionLimits`] field
@@ -44,7 +44,7 @@ impl TransactionValidator {
     /// Move transaction lifecycle forward by checking if the
     /// instructions can be applied to the `WorldStateView`.
     ///
-    /// Permission validation is skipped for genesis.
+    /// Validation is skipped for genesis.
     ///
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).
@@ -116,25 +116,27 @@ impl TransactionValidator {
 
         if !is_genesis {
             debug!("Validating transaction: {:?}", tx);
-
-            let AcceptedTransaction {
-                payload,
-                signatures,
-            } = tx.clone();
-            let signatures = signatures.into_iter().collect();
-
-            let signed_tx = SignedTransaction {
-                payload,
-                signatures,
-            };
-            Self::validate_with_runtime_validators(
-                &signed_tx.payload.account_id.clone(),
-                signed_tx,
-                wsv,
-            )?;
+            Self::validate_with_runtime_validator(account_id, tx.clone(), wsv)?;
         }
 
-        self.validate_and_execute_instructions(tx, wsv, is_genesis)?;
+        match tx.payload.instructions {
+            Executable::Instructions(instructions) => {
+                // Non-genesis instructions have been executed in `validate_with_runtime_validators()`.
+                if is_genesis {
+                    for instruction in instructions {
+                        instruction
+                            .clone()
+                            .execute(account_id.clone(), wsv)
+                            .map_err(|reason| InstructionExecutionFail {
+                                instruction,
+                                reason: reason.to_string(),
+                            })
+                            .map_err(TransactionRejectionReason::InstructionExecution)?;
+                    }
+                }
+            }
+            Executable::Wasm(bytes) => self.validate_wasm(account_id.clone(), wsv, bytes)?,
+        }
 
         (!is_genesis).then(|| debug!("Validation successful"));
         Ok(())
@@ -165,66 +167,53 @@ impl TransactionValidator {
         Ok(())
     }
 
-    fn validate_and_execute_instructions(
+    fn validate_wasm(
         &self,
-        tx: AcceptedTransaction,
+        account_id: <Account as Identifiable>::Id,
         wsv: &WorldStateView,
-        is_genesis: bool,
+        wasm: WasmSmartContract,
     ) -> Result<(), TransactionRejectionReason> {
-        let account_id = tx.payload.account_id;
-
-        match tx.payload.instructions {
-            Executable::Instructions(instructions) => {
-                for instruction in instructions {
-                    if !is_genesis {
-                        debug!("Validating instruction: {:?}", instruction);
-                        Self::validate_with_runtime_validators(
-                            &account_id,
-                            instruction.clone(),
-                            wsv,
-                        )?;
-                    }
-
-                    instruction
-                        .clone()
-                        .execute(account_id.clone(), wsv)
-                        .map_err(|reason| InstructionExecutionFail {
-                            instruction,
-                            reason: reason.to_string(),
-                        })
-                        .map_err(TransactionRejectionReason::InstructionExecution)?;
-                }
-                Ok(())
-            }
-            Executable::Wasm(bytes) => {
-                let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .build()
-                    .map_err(|reason| WasmExecutionFail {
-                        reason: reason.to_string(),
-                    })
-                    .map_err(TransactionRejectionReason::WasmExecution)?;
-                wasm_runtime
-                    .validate(
-                        wsv,
-                        account_id,
-                        bytes,
-                        self.transaction_limits.max_instruction_number,
-                    )
-                    .map_err(|reason| WasmExecutionFail {
-                        reason: reason.to_string(),
-                    })
-                    .map_err(TransactionRejectionReason::WasmExecution)
-            }
-        }
+        debug!("Validating wasm");
+        let mut wasm_runtime = wasm::RuntimeBuilder::new()
+            .build()
+            .map_err(|reason| WasmExecutionFail {
+                reason: reason.to_string(),
+            })
+            .map_err(TransactionRejectionReason::WasmExecution)?;
+        wasm_runtime
+            .validate(
+                wsv,
+                account_id,
+                wasm,
+                self.transaction_limits.max_instruction_number,
+            )
+            .map_err(|reason| WasmExecutionFail {
+                reason: reason.to_string(),
+            })
+            .map_err(TransactionRejectionReason::WasmExecution)
     }
 
-    fn validate_with_runtime_validators(
+    /// Validate transaction with runtime validators.
+    ///
+    /// Note: transaction instructions will be executed on the given `wsv`.
+    fn validate_with_runtime_validator(
         authority: &<Account as Identifiable>::Id,
-        operation: impl Into<iroha_data_model::permission::validator::NeedsPermissionBox>,
+        tx: AcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
-        wsv.validators_view()
-            .validate(wsv, authority, operation)
+        let AcceptedTransaction {
+            payload,
+            signatures,
+        } = tx;
+        let signatures = signatures.into_iter().collect();
+
+        let signed_tx = SignedTransaction {
+            payload,
+            signatures,
+        };
+
+        wsv.validator_view()
+            .validate(wsv, authority, signed_tx)
             .map_err(|err| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {
                     reason: err.to_string(),

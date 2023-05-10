@@ -1,37 +1,28 @@
 #[cfg(not(feature = "std"))]
 use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
-use core::{hash, marker::PhantomData, num::NonZeroU8};
+use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
 use iroha_ffi::FfiType;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::DeserializeFromStr;
 #[cfg(feature = "std")]
 use ursa::blake2::{
     digest::{Update, VariableOutput},
     VarBlake2b,
 };
 
-use crate::ffi;
+use crate::{ffi, hex_decode, Error};
 
 ffi::ffi_item! {
     /// Hash of Iroha entities. Currently supports only blake2b-32.
     /// The least significant bit of hash is set to 1.
-    #[derive(
-        DebugCustom,
-        Display,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Hash,
-        TypeId
-    )]
-    #[display(fmt = "{}", "hex::encode(self.as_ref())")]
-    #[debug(fmt = "{}", "hex::encode(self.as_ref())")]
+    #[allow(clippy::unsafe_derive_deserialize)] // NOTE: Unsafe invariants are maintained in `FromStr`
+    #[derive(DebugCustom, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, TypeId)]
+    #[display(fmt = "{}", "hex::encode_upper(self.as_ref())")]
+    #[debug(fmt = "{}", "hex::encode_upper(self.as_ref())")]
     #[repr(C)]
     pub struct Hash {
         more_significant_bits: [u8; Self::LENGTH - 1],
@@ -40,11 +31,13 @@ ffi::ffi_item! {
 }
 
 // NOTE: Hash is FFI serialized as an array (a pointer in a function call, by value when part of a struct)
-iroha_ffi::ffi_type! {unsafe impl Transparent for Hash[[u8; Hash::LENGTH]] validated with {Hash::is_lsb_1} }
+iroha_ffi::ffi_type! {
+    unsafe impl Transparent for Hash {
+        type Target = [u8; Hash::LENGTH];
 
-impl iroha_ffi::option::Niche for Hash {
-    // NOTE: Any value that has lsb=0 is a niche value
-    const NICHE_VALUE: Self::ReprC = [0; Hash::LENGTH];
+        validation_fn=unsafe {Hash::is_lsb_1},
+        niche_value = [0; Hash::LENGTH]
+    }
 }
 
 impl Hash {
@@ -54,10 +47,10 @@ impl Hash {
     /// Wrap the given bytes; they must be prehashed with `VarBlake2b`
     pub fn prehashed(mut hash: [u8; Self::LENGTH]) -> Self {
         hash[Self::LENGTH - 1] |= 1;
-        #[allow(unsafe_code)]
         // SAFETY:
         // - any `u8` value after bitwise or with 1 will be at least 1
         // - `Hash` and `[u8; Hash::LENGTH]` have the same memory layout
+        #[allow(unsafe_code)]
         unsafe {
             core::mem::transmute(hash)
         }
@@ -119,20 +112,7 @@ impl Serialize for Hash {
         S: serde::Serializer,
     {
         let hash: &[u8; Self::LENGTH] = self.as_ref();
-        hash.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Hash {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::Error as _;
-        <[u8; Self::LENGTH]>::deserialize(deserializer)
-            .and_then(|hash| {
-                Hash::is_lsb_1(&hash)
-                    .then_some(hash)
-                    .ok_or_else(|| D::Error::custom("expect least significant bit of hash to be 1"))
-            })
-            .map(Self::prehashed)
+        hex::encode_upper(hash).serialize(serializer)
     }
 }
 
@@ -160,6 +140,24 @@ impl Encode for Hash {
     #[inline]
     fn encoded_size(&self) -> usize {
         self.as_ref().encoded_size()
+    }
+}
+
+impl FromStr for Hash {
+    type Err = Error;
+
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
+        let hash: [u8; Self::LENGTH] = hex_decode(key)?.try_into().map_err(|hash_vec| {
+            Error::Parse(format!(
+                "Unable to parse {hash_vec:?} as [u8; {}]",
+                Self::LENGTH
+            ))
+        })?;
+
+        Hash::is_lsb_1(&hash)
+            .then_some(hash)
+            .ok_or_else(|| Error::Parse("expect least significant bit of hash to be 1".to_owned()))
+            .map(Self::prehashed)
     }
 }
 
@@ -310,7 +308,7 @@ mod tests {
         hasher.finalize_variable(|res| {
             assert_eq!(
                 res[..],
-                hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
+                hex!("BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2")[..]
             );
         })
     }

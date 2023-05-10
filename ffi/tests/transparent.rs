@@ -11,7 +11,7 @@ use iroha_ffi::{
 iroha_ffi::def_ffi_fn! { dealloc }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
-#[ffi_type(unsafe {robust})]
+#[ffi_type(unsafe{robust})]
 #[repr(transparent)]
 pub struct GenericTransparentStruct<P>(u64, PhantomData<P>);
 
@@ -22,13 +22,40 @@ impl<P> GenericTransparentStruct<P> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
-#[ffi_type(unsafe {robust})]
+#[ffi_type(unsafe{robust})]
 #[repr(transparent)]
 pub struct TransparentStruct {
     payload: GenericTransparentStruct<()>,
     _zst1: [u8; 0],
     _zst2: (),
     _zst3: PhantomData<String>,
+}
+
+type NonRobustTransparentInner = [u8; 4];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
+#[repr(transparent)]
+pub struct NonRobustTransparent(NonRobustTransparentInner);
+
+iroha_ffi::ffi_type! {
+    unsafe impl Transparent for NonRobustTransparent {
+        type Target = NonRobustTransparentInner;
+
+        validation_fn=unsafe {|target| target != &[0; 4]},
+        niche_value=[0; 4]
+    }
+}
+
+/// Return array as pointer
+#[ffi_export]
+pub fn array_of_transparent(arr: &mut [TransparentStruct; 1]) -> &mut [TransparentStruct; 1] {
+    arr
+}
+
+/// Return array as pointer
+#[ffi_export]
+pub fn transparent_with_niche(arr: Option<NonRobustTransparent>) -> Option<NonRobustTransparent> {
+    arr
 }
 
 #[ffi_export]
@@ -69,6 +96,47 @@ pub fn vec_to_vec(value: Vec<TransparentStruct>) -> Vec<TransparentStruct> {
 #[ffi_export]
 pub fn slice_to_slice(value: &[TransparentStruct]) -> &[TransparentStruct] {
     value
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_transparent_array_ref() {
+    let value = TransparentStruct::new(GenericTransparentStruct::new(42));
+
+    let mut array = [value; 1];
+    let ptr: *mut [u64; 1] = (&mut array).into_ffi(&mut ());
+    let mut output = MaybeUninit::new(core::ptr::null_mut());
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __array_of_transparent(ptr, output.as_mut_ptr())
+        );
+
+        assert_eq!(
+            &[value; 1],
+            <&[TransparentStruct; 1]>::try_from_ffi(output.assume_init(), &mut ()).unwrap()
+        );
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_option_of_transparent() {
+    let value = Some(NonRobustTransparent([1; 4]));
+    let mut output = MaybeUninit::new([0u8; 4]);
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __transparent_with_niche(value.into_ffi(&mut ()), output.as_mut_ptr())
+        );
+
+        assert_eq!(
+            value,
+            FfiConvert::try_from_ffi(output.assume_init(), &mut ()).unwrap()
+        );
+    }
 }
 
 #[test]
@@ -139,9 +207,8 @@ fn transparent_slice_to_slice() {
             )
         );
 
-        let mut store = ();
         let output: &[TransparentStruct] =
-            FfiConvert::try_from_ffi(output.assume_init(), &mut store).expect("Invalid output");
+            FfiOutPtrRead::try_read_out(output.assume_init()).expect("Invalid output");
         assert_eq!(output, transparent_struct_slice);
     }
 }

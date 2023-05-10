@@ -1,0 +1,19 @@
+error[E0277]: the trait bound `bool: ReprC` is not satisfied
+ --> tests/ui_fail/non_robust_repr_c.rs:4:38
+  |
+4 | #[derive(Clone, Copy, PartialEq, Eq, FfiType)]
+  |                                      ^^^^^^^ the trait `ReprC` is not implemented for `bool`
+  |
+  = help: the following other types implement trait `ReprC`:
+            *const R
+            *mut R
+            FfiTuple10<A, B, C, D, E, F, G, H, I, J>
+            FfiTuple11<A, B, C, D, E, F, G, H, I, J, K>
+            FfiTuple12<A, B, C, D, E, F, G, H, I, J, K, L>
+            FfiTuple1<A>
+            FfiTuple2<A, B>
+            FfiTuple3<A, B, C>
+          and $N others
+  = help: see issue #48214
+  = help: add `#![feature(trivial_bounds)]` to the crate attributes to enable
+  = note: this error originates in the derive macro `FfiType` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -124,20 +124,30 @@ impl ConfigurationProxy {
         if let Some(tx_ttl) = self.transaction_time_to_live_ms {
             // Really small TTL would be detrimental to performance
             if tx_ttl < TTL_TOO_SMALL_THRESHOLD {
-                eyre::bail!(
-                    ConfigError::ProxyBuildError("`TRANSACTION_TIME_TO_LIVE_MS`, network throughput may be compromised for values less than {TTL_TOO_SMALL_THRESHOLD}".to_owned())
-                );
+                eyre::bail!(ConfigError::InsaneValue {
+                    field: "TRANSACTION_TIME_TO_LIVE_MS",
+                    value: tx_ttl.to_string(),
+                    message: format!(", because if it's smaller than {TTL_TOO_SMALL_THRESHOLD}, Iroha wouldn't be able to produce blocks on time.")
+                });
             }
             // Timeouts bigger than transaction TTL don't make sense as then transaction would be discarded before this timeout
             if let Some(timeout) = self.transaction_status_timeout_ms {
                 if timeout > tx_ttl {
-                    eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_STATUS_TIMEOUT_MS`: {timeout} bigger than `TRANSACTION_TIME_TO_LIVE_MS`: {self.transaction_status_timeout_ms}. Consider making it smaller".to_owned()));
+                    eyre::bail!(ConfigError::InsaneValue {
+                        field: "TRANSACTION_STATUS_TIMEOUT_MS",
+                        value: timeout.to_string(),
+                        message: format!(", because it should be smaller than `TRANSACTION_TIME_TO_LIVE_MS`, which is {tx_ttl}")
+                    })
                 }
             }
         }
         if let Some(tx_limits) = self.transaction_limits {
             if *tx_limits.max_wasm_size_bytes() < WASM_SIZE_TOO_SMALL_THRESHOLD {
-                eyre::bail!(ConfigError::ProxyBuildError("`TRANSACTION_LIMITS` parameter's `max_wasm_size` field too small at {tx_limits.max_wasm_size_bytes}. Consider making it bigger than {WASM_SIZE_TOO_SMALL_THRESHOLD}".to_owned()));
+                eyre::bail!(ConfigError::InsaneValue {
+                    field: "TRANSACTION_LIMITS",
+                    value: format!("{}", tx_limits.max_wasm_size_bytes()),
+                    message: String::new()
+                });
             }
         }
         if let Some(api_url) = &self.torii_api_url {
@@ -147,16 +157,20 @@ impl ConfigurationProxy {
                 Some((protocol, _)) => {
                     // TODO: this is neither robust, nor useful. This should be enforced as a `FromStr` implementation.
                     if protocol != "http" {
-                        eyre::bail!(ConfigError::ProxyBuildError(
-                            "`TORII_API_URL` string: `{api_url}` only supports the `HTTP` protocol currently".to_owned()
-                        ));
+                        eyre::bail!(ConfigError::InsaneValue {
+                            field: "TORII_API_URL",
+                            value: api_url.to_string(),
+                            message: ", because we only support HTTP".to_owned(),
+                        });
                     }
                 }
                 _ => {
-                    eyre::bail!(ConfigError::ProxyBuildError(
-                        "`TORII_API_URL` string: `{api_url}` should provide a connection protocol"
-                            .to_owned()
-                    ));
+                    eyre::bail!(ConfigError::InsaneValue {
+                        field: "TORII_API_URL",
+                        value: api_url.to_string(),
+                        message: ", because it's missing the connection protocol (e.g. `http://`)"
+                            .to_owned(),
+                    });
                 }
             }
         }
@@ -166,21 +180,27 @@ impl ConfigurationProxy {
             match split {
                 Some((protocol, endpoint)) => {
                     if protocol != "http" {
-                        eyre::bail!(ConfigError::ProxyBuildError(
-                            "`TORII_TELEMETRY_URL` string: `{telemetry_url}` only supports HTTP"
-                                .to_owned()
-                        ));
+                        eyre::bail!(ConfigError::InsaneValue {
+                            value: telemetry_url.to_string(),
+                            field: "TORII_TELEMETRY_URL",
+                            message: ", because we only support HTTP".to_owned(),
+                        });
                     }
                     if endpoint.split(':').count() != 2 {
-                        eyre::bail!(ConfigError::ProxyBuildError(
-                            "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection port, e.g. `http://127.0.0.1:8180`".to_owned()
-                        ));
+                        eyre::bail!(ConfigError::InsaneValue{
+                            value: telemetry_url.to_string(),
+                            field: "TORII_TELEMETRY_URL",
+                            message: ". You haven't provided a connection port, e.g. `8180` in `http://127.0.0.1:8180`".to_owned(),
+                        });
                     }
                 }
                 _ => {
-                    eyre::bail!(ConfigError::ProxyBuildError(
-                        "`TORII_TELEMETRY_URL` string: `{telemetry_url}` should provide a connection protocol".to_owned()
-                    ));
+                    eyre::bail!(ConfigError::InsaneValue {
+                        value: telemetry_url.to_string(),
+                        field: "TORII_TELEMETRY_URL",
+                        message: ", because it's missing the connection protocol (e.g. `http://`)"
+                            .to_owned()
+                    });
                 }
             }
         }

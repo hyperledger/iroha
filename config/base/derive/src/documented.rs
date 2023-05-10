@@ -193,7 +193,13 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
             quote! {
                 [stringify!(#ident)] => {
                     serde_json::to_value(&#l_value)
-                        .map_err(|e| ::iroha_config_base::derive::Error::field_error(stringify!(#ident), e))?
+                        .map_err(
+							|error|
+							::iroha_config_base::derive::Error::FieldDeserialization {
+								field: stringify!(#ident),
+								error
+							}
+						)?
                 }
                 #inner_thing2
             }

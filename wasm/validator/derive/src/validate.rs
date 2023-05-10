@@ -15,7 +15,7 @@ pub fn impl_derive_validate(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics ::iroha_validator::traits::Validate for #ident #ty_generics
+        impl #impl_generics ::iroha_validator::traits::ValidateGrantRevoke for #ident #ty_generics
         #where_clause
         {
             #validate_grant_impl
@@ -197,7 +197,7 @@ fn gen_validate_impl(isi_name: IsiName, pass_condition: &Type) -> proc_macro2::T
         fn #fn_name(
             &self,
             authority: &<::iroha_validator::data_model::account::Account as ::iroha_validator::data_model::prelude::Identifiable>::Id
-        ) -> ::iroha_validator::data_model::permission::validator::Verdict {
+        ) -> ::iroha_validator::data_model::validator::Verdict {
             let condition = <#pass_condition as ::core::convert::From<&Self>>::from(&self);
             <
                 #pass_condition

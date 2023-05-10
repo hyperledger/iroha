@@ -6,7 +6,6 @@
 )]
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
-use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::*;
 use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
@@ -15,8 +14,27 @@ use iroha_macro::*;
 use iroha_p2p::Post;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
+use tokio::sync::mpsc;
 
-use crate::{kura::Kura, sumeragi::Sumeragi, NetworkMessage};
+use crate::{kura::Kura, sumeragi::Sumeragi, IrohaNetwork, NetworkMessage};
+
+/// [`BlockSynchronizer`] actor handle.
+#[derive(Clone)]
+pub struct BlockSynchronizerHandle {
+    message_sender: mpsc::Sender<message::Message>,
+}
+
+impl BlockSynchronizerHandle {
+    /// Send [`message::Message`] to [`BlockSynchronizer`] actor.
+    ///
+    /// # Errors
+    /// Fail if [`BlockSynchronizer`] actor is shutdown.
+    pub async fn message(&self, message: message::Message) {
+        self.message_sender.send(message).await.expect(
+            "BlockSynchronizer must handle messages until there is at least one handle to it",
+        )
+    }
+}
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
@@ -26,42 +44,51 @@ pub struct BlockSynchronizer {
     peer_id: PeerId,
     gossip_period: Duration,
     block_batch_size: u32,
-    broker: Broker,
-    actor_channel_capacity: u32,
+    network: IrohaNetwork,
 }
 
-#[async_trait::async_trait]
-impl Actor for BlockSynchronizer {
-    fn actor_channel_capacity(&self) -> u32 {
-        self.actor_channel_capacity
+impl BlockSynchronizer {
+    /// Start [`Self`] actor.
+    pub fn start(self) -> BlockSynchronizerHandle {
+        let (message_sender, message_receiver) = mpsc::channel(1);
+        tokio::task::spawn(self.run(message_receiver));
+        BlockSynchronizerHandle { message_sender }
     }
 
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.broker.subscribe::<message::Message, _>(ctx);
-        ctx.notify_every::<message::ReceiveUpdates>(self.gossip_period);
+    /// [`Self`] task.
+    async fn run(mut self, mut message_receiver: mpsc::Receiver<message::Message>) {
+        let mut gossip_period = tokio::time::interval(self.gossip_period);
+        loop {
+            tokio::select! {
+                _ = gossip_period.tick() => self.request_block().await,
+                msg = message_receiver.recv() => {
+                    let Some(msg) = msg else {
+                        info!("All handler to BlockSynchronizer are dropped. Shutting down...");
+                        break;
+                    };
+                    msg.handle_message(&mut self).await;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
     }
-}
 
-#[async_trait::async_trait]
-impl Handler<message::ReceiveUpdates> for BlockSynchronizer {
-    type Result = ();
-    async fn handle(&mut self, _: message::ReceiveUpdates) {
-        if let Some(random_peer) = self.sumeragi.get_random_peer_for_block_sync() {
+    /// Sends request for latest blocks to a random peer
+    async fn request_block(&mut self) {
+        if let Some(random_peer) = self.network.online_peers(Self::random_peer) {
             self.request_latest_blocks_from_peer(random_peer.id().clone())
                 .await;
         }
     }
-}
 
-#[async_trait::async_trait]
-impl Handler<message::Message> for BlockSynchronizer {
-    type Result = ();
-    async fn handle(&mut self, message: message::Message) {
-        message.handle_message(self).await;
+    /// Get a random online peer.
+    pub fn random_peer(peers: &std::collections::HashSet<PeerId>) -> Option<Peer> {
+        use rand::{seq::IteratorRandom, SeedableRng};
+
+        let rng = &mut rand::rngs::StdRng::from_entropy();
+        peers.iter().choose(rng).map(|id| Peer::new(id.clone()))
     }
-}
 
-impl BlockSynchronizer {
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
         let (latest_hash, previous_hash) = {
@@ -73,7 +100,7 @@ impl BlockSynchronizer {
             previous_hash,
             self.peer_id.clone(),
         ))
-        .send_to(self.broker.clone(), peer_id)
+        .send_to(&self.network, peer_id)
         .await;
     }
 
@@ -83,7 +110,7 @@ impl BlockSynchronizer {
         sumeragi: Arc<Sumeragi>,
         kura: Arc<Kura>,
         peer_id: PeerId,
-        broker: Broker,
+        network: IrohaNetwork,
     ) -> Self {
         Self {
             peer_id,
@@ -91,8 +118,7 @@ impl BlockSynchronizer {
             kura,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
-            broker,
-            actor_channel_capacity: config.actor_channel_capacity,
+            network,
         }
     }
 }
@@ -100,15 +126,9 @@ impl BlockSynchronizer {
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
     use super::*;
-    use crate::{block::VersionedCandidateCommittedBlock, sumeragi::view_change::ProofChain};
+    use crate::sumeragi::view_change::ProofChain;
 
-    /// Message to initiate receiving of latest blocks from other peers
-    ///
-    /// Every `gossip_period` peer will poll one randomly selected peer for latest blocks
-    #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
-    pub struct ReceiveUpdates;
-
-    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
+    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 
     impl VersionedMessage {
         /// Convert from `&VersionedMessage` to V1 reference
@@ -163,21 +183,21 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
-        pub blocks: Vec<VersionedCandidateCommittedBlock>,
+        pub blocks: Vec<VersionedCommittedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
-        pub const fn new(blocks: Vec<VersionedCandidateCommittedBlock>, peer_id: PeerId) -> Self {
+        pub const fn new(blocks: Vec<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
             Self { blocks, peer_id }
         }
     }
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[version_with_scale(n = 1, versioned = "VersionedMessage")]
-    #[derive(Debug, Clone, Decode, Encode, FromVariant, iroha_actor::Message)]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant)]
     pub enum Message {
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(GetBlocksAfter),
@@ -222,7 +242,7 @@ pub mod message {
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
-                        .map(|block| VersionedCommittedBlock::clone(&block).into())
+                        .map(|block| VersionedCommittedBlock::clone(&block))
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {
@@ -233,16 +253,16 @@ pub mod message {
                     } else {
                         trace!(hash=?previous_hash, "Sharing blocks after hash");
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
-                            .send_to(block_sync.broker.clone(), peer_id.clone())
+                            .send_to(&block_sync.network, peer_id.clone())
                             .await;
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
-                    use crate::sumeragi::message::{BlockSyncUpdate, Message, MessagePacket};
+                    use crate::sumeragi::message::{Message, MessagePacket};
                     for block in blocks.clone() {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
                             ProofChain::default(),
-                            Message::BlockSyncUpdate(BlockSyncUpdate { block }),
+                            Message::BlockSyncUpdate(block.into()),
                         ));
                     }
                 }
@@ -252,13 +272,13 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         #[iroha_futures::telemetry_future]
         #[log("TRACE")]
-        pub async fn send_to(self, broker: Broker, peer: PeerId) {
+        pub async fn send_to(self, network: &IrohaNetwork, peer: PeerId) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
             let message = Post {
                 data,
-                peer: peer.clone(),
+                peer_id: peer.clone(),
             };
-            broker.issue_send(message).await;
+            network.post(message);
         }
     }
 }

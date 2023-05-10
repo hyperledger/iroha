@@ -7,7 +7,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
 use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
@@ -24,20 +24,32 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionFailure as Error, MathError},
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
+    trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
+use parking_lot::RwLock;
 
+#[cfg(test)]
+use crate::validator::MockValidator as Validator;
+#[cfg(not(test))]
+use crate::validator::Validator;
 use crate::{
     kura::Kura,
     prelude::*,
-    smartcontracts::{triggers::set::Set as TriggerSet, wasm, Execute},
+    smartcontracts::{
+        triggers::{
+            self,
+            set::{LoadedExecutable, Set as TriggerSet},
+        },
+        wasm, Execute,
+    },
     DomainsMap, Parameters, PeersIds,
 };
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct World {
     /// Iroha config parameters.
     pub(crate) parameters: Parameters,
@@ -53,8 +65,28 @@ pub struct World {
     pub(crate) permission_token_definitions: crate::PermissionTokenDefinitionsMap,
     /// Triggers
     pub(crate) triggers: TriggerSet,
-    /// Chain of *runtime* validators
-    pub(crate) validators: crate::validator::Chain,
+    /// Runtime Validator
+    pub(crate) validator: RwLock<Option<Validator>>,
+    /// New version of Validator, which will replace `validator` on the next
+    /// [`validator_view()`}(WorldStateView::validator_view call.
+    pub(crate) upgraded_validator: RwLock<Option<Validator>>,
+}
+
+impl Clone for World {
+    #[cfg_attr(test, allow(clippy::clone_on_copy))]
+    fn clone(&self) -> Self {
+        Self {
+            parameters: self.parameters.clone(),
+            trusted_peers_ids: self.trusted_peers_ids.clone(),
+            domains: self.domains.clone(),
+            roles: self.roles.clone(),
+            account_permission_tokens: self.account_permission_tokens.clone(),
+            permission_token_definitions: self.permission_token_definitions.clone(),
+            triggers: self.triggers.clone(),
+            validator: RwLock::new(self.validator.read().clone()),
+            upgraded_validator: RwLock::new(self.upgraded_validator.read().clone()),
+        }
+    }
 }
 
 impl World {
@@ -140,12 +172,12 @@ impl WorldStateView {
     }
 
     /// Return a set of all permission tokens granted to this account.
-    pub fn account_permission_tokens(&self, account: &Account) -> Vec<PermissionToken> {
-        let mut tokens: Vec<PermissionToken> =
+    pub fn account_permission_tokens(&self, account: &Account) -> BTreeSet<PermissionToken> {
+        let mut tokens: BTreeSet<PermissionToken> =
             self.account_inherent_permission_tokens(account).collect();
         for role_id in &account.roles {
             if let Some(role) = self.world.roles.get(role_id) {
-                tokens.append(&mut role.permissions.iter().cloned().collect());
+                tokens.append(&mut role.permissions.clone());
             }
         }
         tokens
@@ -189,14 +221,18 @@ impl WorldStateView {
         // `match` here instead of `map_or_else` to avoid cloning token into each closure
         match self.world.account_permission_tokens.get_mut(account) {
             None => {
-                let mut permissions = Permissions::new();
-                permissions.insert(token);
                 self.world
                     .account_permission_tokens
-                    .insert(account.clone(), permissions);
+                    .insert(account.clone(), BTreeSet::from([token]));
                 true
             }
-            Some(mut permissions) => permissions.insert(token),
+            Some(mut permissions) => {
+                if permissions.contains(&token) {
+                    return true;
+                }
+                permissions.insert(token);
+                false
+            }
         }
     }
 
@@ -216,21 +252,24 @@ impl WorldStateView {
     fn process_trigger(
         &self,
         id: &TriggerId,
-        action: &dyn ActionTrait,
+        engine: wasmtime::Engine,
+        action: &dyn ActionTrait<Executable = LoadedExecutable>,
         event: Event,
     ) -> Result<()> {
+        use triggers::set::LoadedExecutable::*;
         let authority = action.technical_account();
 
         match action.executable() {
-            Executable::Instructions(instructions) => {
+            Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
-            Executable::Wasm(bytes) => {
+            Wasm(module) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
                     .with_configuration(self.config.wasm_runtime_config)
+                    .with_engine(engine)
                     .build()?;
                 wasm_runtime
-                    .execute_trigger(self, id, authority.clone(), bytes, event)
+                    .execute_trigger_module(self, id, authority.clone(), module, event)
                     .map_err(Into::into)
             }
         }
@@ -278,14 +317,18 @@ impl WorldStateView {
     /// you likely have data corruption.
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
+    #[iroha_logger::log(skip_all, fields(block_height))]
     pub fn apply(&self, block: &VersionedCommittedBlock) -> Result<()> {
-        debug!(?block, "Applying block to wsv");
-        let time_event = self.create_time_event(block.as_v1())?;
+        let hash = block.hash();
+        let block = block.as_v1();
+        iroha_logger::prelude::Span::current().record("block_height", block.header.height);
+        trace!("Applying block");
+        let time_event = self.create_time_event(block)?;
         self.events_buffer
             .borrow_mut()
             .push(Event::Time(time_event));
 
-        self.execute_transactions(block.as_v1())?;
+        self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
 
         self.world.triggers.handle_time_event(time_event);
@@ -293,8 +336,8 @@ impl WorldStateView {
         let res = self
             .world
             .triggers
-            .inspect_matched(|id, action, event| -> Result<()> {
-                self.process_trigger(id, action, event)
+            .inspect_matched(|id, engine, action, event| -> Result<()> {
+                self.process_trigger(id, engine, action, event)
             });
 
         if let Err(errors) = res {
@@ -304,7 +347,7 @@ impl WorldStateView {
             );
         }
 
-        self.block_hashes.borrow_mut().push(block.hash());
+        self.block_hashes.borrow_mut().push(hash);
 
         Ok(())
     }
@@ -1070,37 +1113,33 @@ impl WorldStateView {
         self.events_buffer.borrow_mut().push(event.into());
     }
 
-    /// The same as [`Self::modify_validator_multiple_events`] except closure `f` returns a single [`PermissionValidatorEvent`].
+    /// Get constant view to a *Runtime Validator*.
     ///
-    /// # Errors
-    /// Forward errors from [`Self::modify_validators_multiple_events`]
-    pub fn modify_validators<F>(&self, f: F) -> Result<(), Error>
-    where
-        F: FnOnce(&crate::validator::Chain) -> Result<PermissionValidatorEvent, Error>,
-    {
-        self.modify_validators_multiple_events(move |chain| f(chain).map(std::iter::once))
-    }
+    /// Performs lazy upgrade of the validator if [`Upgrade`] instruction was executed.
+    ///
+    /// # Panic
+    ///
+    /// Panics if validator is not initialized.
+    /// Possible only before applying genesis.
+    pub fn validator_view(&self) -> crate::validator::View {
+        {
+            let mut upgraded_validator_write = self.world.upgraded_validator.write();
+            if let Some(upgraded_validator) = upgraded_validator_write.take() {
+                let mut validator_write = self.world.validator.write();
+                validator_write.replace(upgraded_validator);
+            }
+        }
 
-    /// Get [`crate::validator::Chain`] and pass it to `closure` to modify it
-    ///
-    /// # Errors
-    /// Forward errors from `f`
-    pub fn modify_validators_multiple_events<I, F>(&self, f: F) -> Result<(), Error>
-    where
-        I: IntoIterator<Item = PermissionValidatorEvent>,
-        F: FnOnce(&crate::validator::Chain) -> Result<I, Error>,
-    {
-        self.modify_world_multiple_events(|world| {
-            f(&world.validators)
-                .map(|events| events.into_iter().map(WorldEvent::PermissionValidator))
-        })
-    }
+        #[cfg(test)]
+        {
+            let mut validator_write = self.world.validator.write();
+            if validator_write.is_none() {
+                let _validator = validator_write.insert(Validator::default());
+            }
+        }
 
-    /// Get constant view to the chain of validators.
-    ///
-    /// View guarantees that no interior-mutability can be performed.
-    pub fn validators_view(&self) -> crate::validator::ChainView {
-        self.world.validators.view()
+        let validator_read = self.world.validator.read();
+        crate::validator::View::new(validator_read)
     }
 }
 
@@ -1109,13 +1148,13 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
-    use crate::block::SignedBlock;
+    use crate::block::PendingBlock;
 
     #[test]
     fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = SignedBlock::new_dummy().commit_unchecked();
+        let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(World::default(), kura);
 
@@ -1138,7 +1177,7 @@ mod tests {
     fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = SignedBlock::new_dummy().commit_unchecked();
+        let mut block = PendingBlock::new_dummy().commit_unchecked();
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(World::default(), kura.clone());
 

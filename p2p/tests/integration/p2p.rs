@@ -1,6 +1,7 @@
 #![allow(clippy::restriction)]
 
 use std::{
+    collections::HashSet,
     fmt::Debug,
     str::FromStr,
     sync::{
@@ -10,19 +11,15 @@ use std::{
 };
 
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha_actor::{broker::*, prelude::*};
 use iroha_config_base::proxy::Builder;
-use iroha_crypto::{KeyPair, PublicKey};
+use iroha_crypto::KeyPair;
+use iroha_data_model::prelude::PeerId;
 use iroha_logger::{prelude::*, Configuration, ConfigurationProxy, Level};
-use iroha_p2p::{
-    network::{ConnectedPeers, GetConnectedPeers},
-    peer::PeerId,
-    *,
-};
+use iroha_p2p::{network::message::*, NetworkHandle};
 use parity_scale_codec::{Decode, Encode};
-use tokio::time::Duration;
+use tokio::{sync::mpsc, time::Duration};
 
-#[derive(iroha_actor::Message, Clone, Debug, Decode, Encode)]
+#[derive(Clone, Debug, Decode, Encode)]
 struct TestMessage(String);
 
 fn gen_address_with_port(port: u16) -> String {
@@ -53,17 +50,14 @@ async fn network_create() {
     let delay = Duration::from_millis(200);
     setup_logger();
     info!("Starting network tests...");
-    let address = gen_address_with_port(11_000);
-    let broker = Broker::new();
+    let address = gen_address_with_port(12_000);
     let public_key = iroha_crypto::PublicKey::from_str(
-        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
     )
     .unwrap();
-    let network =
-        Network::<TestMessage>::new(broker.clone(), address.clone(), public_key.clone(), 100)
-            .await
-            .unwrap();
-    network.start().await;
+    let network = NetworkHandle::start(address.clone(), public_key.clone())
+        .await
+        .unwrap();
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
@@ -71,44 +65,41 @@ async fn network_create() {
         address: address.clone(),
         public_key: public_key.clone(),
     };
-    broker
-        .issue_send(ConnectPeer {
-            peer: peer1.clone(),
-        })
-        .await;
+    let topology = HashSet::from([peer1.clone()]);
+    network.update_topology(UpdateTopology(topology));
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
-    broker
-        .issue_send(Post {
-            data: TestMessage("Some data to send to peer".to_owned()),
-            peer: peer1,
-        })
-        .await;
+    network.post(Post {
+        data: TestMessage("Some data to send to peer".to_owned()),
+        peer_id: peer1,
+    });
 
     tokio::time::sleep(delay).await;
 }
 
 #[derive(Debug)]
 pub struct TestActor {
-    broker: Broker,
     messages: Arc<AtomicU32>,
+    receiver: mpsc::Receiver<TestMessage>,
 }
 
-#[async_trait::async_trait]
-impl Actor for TestActor {
-    async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        self.broker.subscribe::<TestMessage, _>(ctx);
-    }
-}
-
-#[async_trait::async_trait]
-impl Handler<TestMessage> for TestActor {
-    type Result = ();
-
-    async fn handle(&mut self, msg: TestMessage) -> Self::Result {
-        info!(?msg, "Actor received message");
-        let _ = self.messages.fetch_add(1, Ordering::SeqCst);
+impl TestActor {
+    fn start(messages: Arc<AtomicU32>) -> mpsc::Sender<TestMessage> {
+        let (sender, receiver) = mpsc::channel(10);
+        let mut test_actor = Self { messages, receiver };
+        tokio::task::spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(msg) = test_actor.receiver.recv() => {
+                        info!(?msg, "Actor received message");
+                        test_actor.messages.fetch_add(1, Ordering::SeqCst);
+                    },
+                    else => break,
+                }
+            }
+        });
+        sender
     }
 }
 
@@ -116,85 +107,73 @@ impl Handler<TestMessage> for TestActor {
 /// This peer connects to our second network, emulating some distant peer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_networks() {
-    let delay = Duration::from_millis(200);
+    let delay = Duration::from_millis(300);
     setup_logger();
     let public_key1 = iroha_crypto::PublicKey::from_str(
-        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
     )
     .unwrap();
     let public_key2 = iroha_crypto::PublicKey::from_str(
-        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c1",
+        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C1",
     )
     .unwrap();
     info!("Starting first network...");
-    let address1 = gen_address_with_port(11_005);
+    let address1 = gen_address_with_port(12_005);
 
-    let broker1 = Broker::new();
-    let network1 =
-        Network::<TestMessage>::new(broker1.clone(), address1.clone(), public_key1.clone(), 100)
-            .await
-            .unwrap();
-    let network1 = network1.start().await;
+    let network1 = NetworkHandle::start(address1.clone(), public_key1.clone())
+        .await
+        .unwrap();
     tokio::time::sleep(delay).await;
 
     info!("Starting second network...");
-    let address2 = gen_address_with_port(11_010);
-    let broker2 = Broker::new();
-    let network2 =
-        Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key2.clone(), 100)
-            .await
-            .unwrap();
-    let network2 = network2.start().await;
+    let address2 = gen_address_with_port(12_010);
+    let network2 = NetworkHandle::start(address2.clone(), public_key2.clone())
+        .await
+        .unwrap();
     tokio::time::sleep(delay).await;
 
     let messages2 = Arc::new(AtomicU32::new(0));
-    let actor2 = TestActor {
-        broker: broker2.clone(),
-        messages: Arc::clone(&messages2),
-    };
-    actor2.start().await;
+    let actor2 = TestActor::start(Arc::clone(&messages2));
+    network2.subscribe_to_peers_messages(actor2);
     tokio::time::sleep(delay).await;
 
-    info!("Connecting to peer...");
+    info!("Connecting peers...");
+    let peer1 = PeerId {
+        address: address1.clone(),
+        public_key: public_key1,
+    };
     let peer2 = PeerId {
         address: address2.clone(),
         public_key: public_key2,
     };
-    // Connecting to second peer from network1
-    broker1
-        .issue_send(ConnectPeer {
-            peer: peer2.clone(),
-        })
-        .await;
+    let topology1 = HashSet::from([peer2.clone()]);
+    let topology2 = HashSet::from([peer1.clone()]);
+    // Connect peers with each other
+    network1.update_topology(UpdateTopology(topology1.clone()));
+    network2.update_topology(UpdateTopology(topology2));
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
-    broker1
-        .issue_send(Post {
-            data: TestMessage("Some data to send to peer".to_owned()),
-            peer: peer2.clone(),
-        })
-        .await;
+    network1.post(Post {
+        data: TestMessage("Some data to send to peer".to_owned()),
+        peer_id: peer2,
+    });
 
     tokio::time::sleep(delay).await;
     assert_eq!(messages2.load(Ordering::SeqCst), 1);
 
-    let connected_peers1: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers1.peers.len(), 1);
+    let connected_peers1 = network1.online_peers(HashSet::len);
+    assert_eq!(connected_peers1, 1);
 
-    let connected_peers2: ConnectedPeers = network2.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers2.peers.len(), 1);
+    let connected_peers2 = network2.online_peers(HashSet::len);
+    assert_eq!(connected_peers2, 1);
 
     // Connecting to the same peer from network1
-    broker1
-        .issue_send(ConnectPeer {
-            peer: peer2.clone(),
-        })
-        .await;
+    network1.update_topology(UpdateTopology(topology1));
     tokio::time::sleep(delay).await;
 
-    let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers.peers.len(), 1);
+    let connected_peers = network1.online_peers(HashSet::len);
+    assert_eq!(connected_peers, 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -214,43 +193,42 @@ async fn multiple_networks() {
     info!("Starting...");
 
     let delay = Duration::from_millis(200);
-    tokio::time::sleep(delay).await;
 
     let mut peers = Vec::new();
     for i in 0_u16..10_u16 {
-        let addr = gen_address_with_port(11_015 + (i * 5));
-        peers.push(addr);
+        let address = gen_address_with_port(12_015 + (i * 5));
+        let keypair = KeyPair::generate().unwrap();
+        peers.push(PeerId {
+            address,
+            public_key: keypair.public_key().clone(),
+        });
     }
 
-    let mut brokers = Vec::new();
+    let mut networks = Vec::new();
     let mut peer_ids = Vec::new();
     let msgs = Arc::new(AtomicU32::new(0));
     peers
         .iter()
-        .map(|addr| start_network(addr.clone(), peers.clone(), Arc::clone(&msgs)))
+        .map(|peer| start_network(peer.clone(), peers.clone(), Arc::clone(&msgs)))
         .collect::<FuturesUnordered<_>>()
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .for_each(|(address, broker, public_key)| {
-            brokers.push(broker);
-            let peer_id = PeerId {
-                address,
-                public_key,
-            };
+        .for_each(|(peer_id, handle)| {
+            networks.push(handle);
             peer_ids.push(peer_id);
         });
 
     tokio::time::sleep(delay * 3).await;
 
     info!("Sending posts...");
-    for b in &brokers {
+    for network in &networks {
         for id in &peer_ids {
             let post = Post {
                 data: TestMessage(String::from("Some data to send to peer")),
-                peer: id.clone(),
+                peer_id: id.clone(),
             };
-            b.issue_send(post).await;
+            network.post(post);
         }
     }
     info!("Posts sent");
@@ -260,60 +238,45 @@ async fn multiple_networks() {
 }
 
 async fn start_network(
-    addr: String,
-    peers: Vec<String>,
+    peer: PeerId,
+    peers: Vec<PeerId>,
     messages: Arc<AtomicU32>,
-) -> (String, Broker, PublicKey) {
-    info!(peer_addr = %addr, "Starting network");
+) -> (PeerId, NetworkHandle<TestMessage>) {
+    info!(peer_addr = %peer.address, "Starting network");
 
-    let keypair = KeyPair::generate().unwrap();
-    let broker = Broker::new();
     // This actor will get the messages from other peers and increment the counter
-    let actor = TestActor {
-        broker: broker.clone(),
-        messages,
-    };
-    actor.start().await;
+    let actor = TestActor::start(messages);
 
-    let network = Network::<TestMessage>::new(
-        broker.clone(),
-        addr.clone(),
-        keypair.public_key().clone(),
-        100,
-    )
-    .await
-    .unwrap();
-    let network = network.start().await;
+    let PeerId {
+        address,
+        public_key,
+    } = peer.clone();
+    let mut network = NetworkHandle::start(address, public_key).await.unwrap();
+    network.subscribe_to_peers_messages(actor);
     // The most needed delay!!!
     let delay: u64 = rand::random();
     tokio::time::sleep(Duration::from_millis(250 + (delay % 500))).await;
 
-    let mut conn_count = 0_usize;
-    let mut test_count = 0_usize;
-    for p in &peers {
-        if *p != addr {
-            let peer = PeerId {
-                address: p.clone(),
-                public_key: keypair.public_key().clone(),
-            };
+    let topology = peers
+        .into_iter()
+        .filter(|p| p != &peer)
+        .collect::<HashSet<_>>();
+    let conn_count = topology.len();
+    network.update_topology(UpdateTopology(topology));
 
-            broker.issue_send(ConnectPeer { peer }).await;
-            conn_count += 1_usize;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::timeout(Duration::from_millis(1000), async {
+        let mut connections = network.wait_online_peers_update(HashSet::len).await;
+        while conn_count != connections {
+            info!(peer_addr = %peer.address, %connections);
+            connections = network.wait_online_peers_update(HashSet::len).await;
         }
-    }
-    while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
-        let connections = result.peers.len();
-        info!(peer_addr = %addr, %connections);
-        if connections == conn_count || test_count >= 10_usize {
-            break;
-        }
-        test_count += 1_usize;
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-    }
-    info!(peer_addr = %addr, %conn_count, "Got all connections!");
+    })
+    .await
+    .expect("Failed to get all connections");
 
-    (addr, broker, keypair.public_key().clone())
+    info!(peer_addr = %peer.address, %conn_count, "Got all connections!");
+
+    (peer, network)
 }
 
 #[test]

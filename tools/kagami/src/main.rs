@@ -58,6 +58,8 @@ pub enum Args {
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
+    /// Generate validator
+    Validator(validator::Args),
     /// Generate docker-compose configuration
     Swarm(swarm::Args),
 }
@@ -73,6 +75,7 @@ impl<T: Write> RunArgs<T> for Args {
             Config(args) => args.run(writer),
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
+            Validator(args) => args.run(writer),
             Swarm(_) => Ok(()),
         }
     }
@@ -150,12 +153,16 @@ mod crypto {
                 writeln!(writer, "{}", &key_pair.public_key().digest_function())?;
             } else {
                 let key_pair = self.key_pair()?;
-                writeln!(writer, "Public key (multihash): {}", &key_pair.public_key())?;
-                writeln!(writer, "Private key: {}", &key_pair.private_key())?;
                 writeln!(
                     writer,
-                    "Digest function: {}",
-                    &key_pair.public_key().digest_function()
+                    "Public key (multihash): \"{}\"",
+                    &key_pair.public_key()
+                )?;
+                writeln!(
+                    writer,
+                    "Private key ({}): \"{}\"",
+                    &key_pair.public_key().digest_function(),
+                    &key_pair.private_key()
                 )?;
             }
             Ok(())
@@ -216,26 +223,37 @@ mod schema {
 }
 
 mod genesis {
+    use std::path::PathBuf;
+
     use clap::{Parser, Subcommand};
     use iroha_data_model::{
         asset::AssetValueType,
         isi::{MintBox, RegisterBox},
         metadata::Limits,
-        permission::{validator, Validator},
         prelude::AssetId,
+        validator::Validator,
         IdBox,
     };
-    use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder};
+    use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder, ValidatorMode, ValidatorPath};
 
     use super::*;
 
-    #[derive(Parser, Debug, Clone, Copy)]
+    #[derive(Parser, Debug, Clone)]
+    #[clap(group = ArgGroup::new("validator").required(true))]
     pub struct Args {
+        /// If this option provided validator will be inlined in the genesis.
+        #[clap(long, group = "validator")]
+        inlined_validator: bool,
+        /// If this option provided validator won't be included in the genesis and only path to the validator will be included.
+        /// Path is either absolute path to validator or relative to genesis location.
+        /// Validator can be generated using `kagami validator` command.
+        #[clap(long, group = "validator")]
+        compiled_validator_path: Option<PathBuf>,
         #[clap(subcommand)]
         mode: Option<Mode>,
     }
 
-    #[derive(Subcommand, Debug, Clone, Copy, Default)]
+    #[derive(Subcommand, Debug, Clone, Default)]
     pub enum Mode {
         /// Generate default genesis
         #[default]
@@ -262,13 +280,26 @@ mod genesis {
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            if self.inlined_validator {
+                eprintln!("WARN: You're using genesis with inlined validator.");
+                eprintln!("Consider providing validator in separate file `--compiled-validator-path PATH`.");
+                eprintln!("Use `--help` to get more information.");
+            }
+            let validator_path = self
+                .compiled_validator_path
+                .and_then(|validator_path| (!self.inlined_validator).then_some(validator_path));
             let genesis = match self.mode.unwrap_or_default() {
-                Mode::Default => generate_default(),
+                Mode::Default => generate_default(validator_path),
                 Mode::Synthetic {
                     domains,
                     accounts_per_domain,
                     assets_per_domain,
-                } => generate_synthetic(domains, accounts_per_domain, assets_per_domain),
+                } => generate_synthetic(
+                    validator_path,
+                    domains,
+                    accounts_per_domain,
+                    assets_per_domain,
+                ),
             }?;
             writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
                 .wrap_err("Failed to write serialized genesis to the buffer.")
@@ -276,13 +307,20 @@ mod genesis {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn generate_default() -> color_eyre::Result<RawGenesisBlock> {
+    pub fn generate_default(
+        validator_path: Option<PathBuf>,
+    ) -> color_eyre::Result<RawGenesisBlock> {
         let mut meta = Metadata::new();
         meta.insert_with_limits(
             "key".parse()?,
             "value".to_owned().into(),
             Limits::new(1024, 1024),
         )?;
+
+        let validator = match validator_path {
+            Some(validator_path) => ValidatorMode::Path(ValidatorPath { validator_path }),
+            None => ValidatorMode::Inline(construct_validator()?),
+        };
 
         let mut genesis = RawGenesisBlockBuilder::new()
             .domain_with_metadata("wonderland".parse()?, meta.clone())
@@ -298,6 +336,7 @@ mod genesis {
             .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
             .asset("cabbage".parse()?, AssetValueType::Quantity)
             .finish_domain()
+            .validator(validator)
             .build();
 
         let mint = MintBox::new(
@@ -397,8 +436,6 @@ mod genesis {
             .isi
             .push(register_user_metadata_access);
 
-        genesis.transactions[0].isi.push(register_validator()?);
-
         Ok(genesis)
     }
 
@@ -410,11 +447,22 @@ mod genesis {
             .collect())
     }
 
+    fn construct_validator() -> color_eyre::Result<Validator> {
+        let wasm_blob = crate::validator::construct_validator()?;
+        Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
+    }
+
     fn generate_synthetic(
+        validator_path: Option<PathBuf>,
         domains: u64,
         accounts_per_domain: u64,
         assets_per_domain: u64,
     ) -> color_eyre::Result<RawGenesisBlock> {
+        let validator = match validator_path {
+            Some(validator_path) => ValidatorMode::Path(ValidatorPath { validator_path }),
+            None => ValidatorMode::Inline(construct_validator()?),
+        };
+
         // Add default `Domain` and `Account` to still be able to query
         let mut builder = RawGenesisBlockBuilder::new()
             .domain("wonderland".parse()?)
@@ -437,7 +485,7 @@ mod genesis {
 
             builder = domain_builder.finish_domain();
         }
-        let mut genesis = builder.build();
+        let mut genesis = builder.validator(validator).build();
 
         let mints = {
             let mut acc = Vec::new();
@@ -466,26 +514,6 @@ mod genesis {
             .extend(register_permission_token_definitions()?);
 
         Ok(genesis)
-    }
-
-    fn register_validator() -> color_eyre::Result<InstructionBox> {
-        const PERMISSION_VALIDATOR_PATH: &str = "../../permission_validators";
-
-        let build_dir = tempfile::tempdir()
-            .wrap_err("Failed to create temp dir for runtime validator output")?;
-
-        let wasm_blob = iroha_wasm_builder::Builder::new(PERMISSION_VALIDATOR_PATH)
-            .out_dir(build_dir.path())
-            .build()?
-            .optimize()?
-            .into_bytes();
-
-        Ok(RegisterBox::new(Validator::new(
-            "permission_validator%genesis@genesis".parse()?,
-            validator::ValidatorType::Instruction,
-            WasmSmartContract::new(wasm_blob),
-        ))
-        .into())
     }
 }
 
@@ -541,11 +569,11 @@ mod config {
                         password: SmallStr::from_str("ilovetea"),
                     })),
                     public_key: Some(PublicKey::from_str(
-                        "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+                        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
                     )?),
                     private_key: Some(PrivateKey::from_hex(
                         Algorithm::Ed25519,
-                        "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                        "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     )?),
                     ..ConfigurationProxy::default()
                 }
@@ -722,25 +750,34 @@ mod tokens {
     pub struct Args;
 
     pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
-        // TODO: Not hardcode this. Instead get this info from validator it-self
+        // TODO: Not hardcode this. Instead get this info from validator itself
         Ok(vec![
             // Account
-            token_with_account_id("can_remove_key_value_in_user_account")?,
+            token_with_account_id("can_unregister_account")?,
+            token_with_account_id("can_mint_user_public_keys")?,
+            token_with_account_id("can_burn_user_public_keys")?,
+            token_with_account_id("can_mint_user_signature_check_conditions")?,
             token_with_account_id("can_set_key_value_in_user_account")?,
+            token_with_account_id("can_remove_key_value_in_user_account")?,
             // Asset
+            token_with_asset_definition_id("can_register_assets_with_definition")?,
+            token_with_asset_definition_id("can_unregister_assets_with_definition")?,
+            token_with_asset_definition_id("can_unregister_user_assets")?,
             token_with_asset_definition_id("can_burn_assets_with_definition")?,
             token_with_asset_id("can_burn_user_asset")?,
             token_with_asset_definition_id("can_mint_assets_with_definition")?,
-            token_with_asset_id("can_remove_key_value_in_user_asset")?,
-            token_with_asset_id("can_set_key_value_in_user_asset")?,
             token_with_asset_definition_id("can_transfer_assets_with_definition")?,
             token_with_asset_id("can_transfer_user_asset")?,
-            token_with_asset_definition_id("can_unregister_assets_with_definition")?,
-            token_with_asset_id("can_unregister_user_assets")?,
+            token_with_asset_id("can_set_key_value_in_user_asset")?,
+            token_with_asset_id("can_remove_key_value_in_user_asset")?,
             // Asset definition
-            token_with_asset_definition_id("can_remove_key_value_in_asset_definition")?,
-            token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
             token_with_asset_definition_id("can_unregister_asset_definition")?,
+            token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
+            token_with_asset_definition_id("can_remove_key_value_in_asset_definition")?,
+            // Domain
+            token_with_domain_id("can_unregister_domain")?,
+            token_with_domain_id("can_set_key_value_in_domain")?,
+            token_with_domain_id("can_remove_key_value_in_domain")?,
             // Parameter
             bare_token("can_grant_permission_to_create_parameters")?,
             bare_token("can_revoke_permission_to_create_parameters")?,
@@ -748,6 +785,16 @@ mod tokens {
             bare_token("can_grant_permission_to_set_parameters")?,
             bare_token("can_revoke_permission_to_set_parameters")?,
             bare_token("can_set_parameters")?,
+            // Peer
+            bare_token("can_unregister_any_peer")?,
+            // Role
+            bare_token("can_unregister_any_role")?,
+            // Trigger
+            token_with_trigger_id("can_execute_user_trigger")?,
+            token_with_trigger_id("can_unregister_user_trigger")?,
+            token_with_trigger_id("can_mint_user_trigger")?,
+            // Validator
+            bare_token("can_upgrade_validator")?,
         ])
     }
 
@@ -756,18 +803,28 @@ mod tokens {
     }
 
     fn token_with_asset_definition_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([("asset_definition_id".parse()?, ValueKind::Id)]))
+        token_with_id_param(token_id, "asset_definition_id")
     }
 
     fn token_with_asset_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([("asset_id".parse()?, ValueKind::Id)]))
+        token_with_id_param(token_id, "asset_id")
     }
 
     fn token_with_account_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        token_with_id_param(token_id, "account_id")
+    }
+
+    fn token_with_domain_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        token_with_id_param(token_id, "domain_id")
+    }
+
+    fn token_with_trigger_id(token_id: &str) -> Result<PermissionTokenDefinition> {
+        token_with_id_param(token_id, "trigger_id")
+    }
+
+    fn token_with_id_param(token_id: &str, param_name: &str) -> Result<PermissionTokenDefinition> {
         Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([("account_id".parse()?, ValueKind::Id)]))
+            .with_params([(param_name.parse()?, ValueKind::Id)]))
     }
 
     impl<T: Write> RunArgs<T> for Args {
@@ -780,6 +837,34 @@ mod tokens {
             )
             .wrap_err("Failed to write serialized token map into the buffer.")
         }
+    }
+}
+
+mod validator {
+    use super::*;
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            writer
+                .write_all(&construct_validator()?)
+                .wrap_err("Failed to write wasm validator into the buffer.")
+        }
+    }
+
+    pub fn construct_validator() -> color_eyre::Result<Vec<u8>> {
+        let build_dir = tempfile::tempdir()
+            .wrap_err("Failed to create temp dir for runtime validator output")?;
+
+        let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
+            .out_dir(build_dir.path())
+            .build()?
+            .optimize()?
+            .into_bytes();
+
+        Ok(wasm_blob)
     }
 }
 

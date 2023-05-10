@@ -112,6 +112,7 @@ impl Kura {
     /// Fails if:
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
+    #[iroha_logger::log(skip_all, name = "kura_init")]
     pub fn init(&self) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
         let block_store = self.block_store.lock();
 
@@ -143,7 +144,7 @@ impl Kura {
                 }
             }
         }
-        info!(block_count = block_hashes.len(), "Init complete");
+        info!(block_count = block_hashes.len(), "Kura init complete");
 
         // The none value is set in order to indicate that the blocks exist on disk but
         // are not yet loaded.
@@ -156,6 +157,7 @@ impl Kura {
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
+    #[iroha_logger::log(skip_all)]
     fn kura_receive_blocks_loop(
         kura: &Kura,
         mut shutdown_receiver: tokio::sync::oneshot::Receiver<()>,

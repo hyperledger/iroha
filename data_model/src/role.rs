@@ -7,13 +7,13 @@ use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-use iroha_data_model_derive::IdEqOrdHash;
+use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+pub use self::model::*;
 use crate::{
-    model,
     permission::{PermissionToken, Permissions},
     Identifiable, Name, Registered,
 };
@@ -21,9 +21,29 @@ use crate::{
 /// Collection of [`RoleId`](Id)s
 pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
-model! {
+#[model]
+pub mod model {
+    use super::*;
+
     /// Identification of a role.
-    #[derive(Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Constructor, FromStr, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Constructor,
+        FromStr,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[getset(get = "pub")]
     #[serde(transparent)]
     #[repr(transparent)]
@@ -34,7 +54,9 @@ model! {
     }
 
     /// Role is a tag for a set of permission tokens.
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[display(fmt = "{id}")]
     #[ffi_type]
     pub struct Role {
@@ -45,7 +67,9 @@ model! {
     }
 
     /// Builder for [`Role`]
-    #[derive(Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     #[serde(transparent)]
     #[repr(transparent)]
     #[ffi_type(opaque)]

@@ -22,6 +22,9 @@ API_STARTING_PORT='8080'
 declare -A telemetry_ports
 TELEMETRY_STARTING_PORT='8180'
 
+declare -A tokio_console_ports
+TOKIO_CONSOLE_STARTING_PORT='5555'
+
 function generate_p2p_port {
     P2P_PORT=$(($P2P_STARTING_PORT + $1))
     p2p_ports[$1]=$P2P_PORT
@@ -35,6 +38,11 @@ function generate_api_port {
 function generate_telemetry_port {
     TELEMETRY_PORT=$(($TELEMETRY_STARTING_PORT + $1))
     telemetry_ports[$1]=$TELEMETRY_PORT
+}
+
+function generate_tokio_console_port {
+    TOKIO_CONSOLE_PORT=$(($TOKIO_CONSOLE_STARTING_PORT + $1))
+    tokio_console_ports[$1]=$TOKIO_CONSOLE_PORT
 }
 
 function generate_peer_key_pair {
@@ -68,7 +76,7 @@ function generate_trusted_peers {
 function set_up_peers_common {
     PEERS="$TEST/peers"
     mkdir -p "$PEERS"
-    cp ./configs/peer/{config.json,genesis.json} "$PEERS"
+    cp ./configs/peer/{config.json,genesis.json,validator.wasm} "$PEERS"
     cp ./target/debug/iroha "$PEERS" || {
         # TODO this can fail for other reasons as well.
         echo 'Please build the `iroha` binary, by running:'
@@ -90,6 +98,7 @@ function bulk_export {
     export IROHA2_CONFIG_PATH
     export IROHA2_GENESIS_PATH
     export SUMERAGI_DEBUG_FORCE_SOFT_FORK
+    export TOKIO_CONSOLE_ADDR
 }
 
 function run_peer () {
@@ -106,6 +115,7 @@ function run_peer () {
     IROHA_PUBLIC_KEY="${public_keys[$1]}"
     IROHA_PRIVATE_KEY="${private_keys[$1]}"
     SUMERAGI_DEBUG_FORCE_SOFT_FORK="false"
+    TOKIO_CONSOLE_ADDR="$HOST:${tokio_console_ports[$1]}"
     exec -a "iroha$1" "$TEST/peers/iroha" "$2" > "$PEER/.log" & disown
 }
 
@@ -117,6 +127,7 @@ function run_n_peers {
        generate_api_port $peer
        generate_telemetry_port $peer
        generate_peer_key_pair $peer
+       generate_tokio_console_port $peer
     done
     SUMERAGI_TRUSTED_PEERS="$(generate_trusted_peers $1)"
     for peer in $(seq 1 $(($1-1)))

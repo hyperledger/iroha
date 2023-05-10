@@ -161,11 +161,35 @@
       }
     ]
   },
-  "Action<FilterBox>": {
+  "Action<FilterBox, Executable>": {
     "Struct": [
       {
         "name": "executable",
         "type": "Executable"
+      },
+      {
+        "name": "repeats",
+        "type": "Repeats"
+      },
+      {
+        "name": "technical_account",
+        "type": "AccountId"
+      },
+      {
+        "name": "filter",
+        "type": "FilterBox"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
+  },
+  "Action<FilterBox, OptimizedExecutable>": {
+    "Struct": [
+      {
+        "name": "executable",
+        "type": "OptimizedExecutable"
       },
       {
         "name": "repeats",
@@ -292,6 +316,10 @@
       {
         "name": "mintable",
         "type": "Mintable"
+      },
+      {
+        "name": "logo",
+        "type": "Option<IpfsPath>"
       },
       {
         "name": "metadata",
@@ -790,12 +818,12 @@
         "type": "PermissionTokenEvent"
       },
       {
-        "name": "PermissionValidator",
-        "type": "PermissionValidatorEvent"
-      },
-      {
         "name": "Configuration",
         "type": "ConfigurationEvent"
+      },
+      {
+        "name": "Validator",
+        "type": "ValidatorEvent"
       }
     ]
   },
@@ -1045,6 +1073,14 @@
       }
     ]
   },
+  "EvaluatesTo<UpgradableBox>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
   "EvaluatesTo<Value>": {
     "Struct": [
       {
@@ -1099,7 +1135,7 @@
     "Struct": [
       {
         "name": "trigger_id",
-        "type": "TriggerId"
+        "type": "EvaluatesTo<TriggerId>"
       }
     ]
   },
@@ -1716,10 +1752,6 @@
         "type": "PermissionTokenId"
       },
       {
-        "name": "Validator",
-        "type": "ValidatorId"
-      },
-      {
         "name": "Parameter",
         "type": "ParameterId"
       }
@@ -1899,10 +1931,6 @@
         "type": "PermissionTokenId"
       },
       {
-        "name": "ValidatorId",
-        "type": "ValidatorId"
-      },
-      {
         "name": "ParameterId",
         "type": "ParameterId"
       }
@@ -1948,7 +1976,7 @@
       },
       {
         "name": "Trigger",
-        "type": "Trigger<FilterBox>"
+        "type": "TriggerBox"
       },
       {
         "name": "Role",
@@ -1957,10 +1985,6 @@
       {
         "name": "PermissionTokenDefinition",
         "type": "PermissionTokenDefinition"
-      },
-      {
-        "name": "Validator",
-        "type": "Validator"
       },
       {
         "name": "Parameter",
@@ -2049,6 +2073,10 @@
       {
         "name": "NewParameter",
         "type": "NewParameterBox"
+      },
+      {
+        "name": "Upgrade",
+        "type": "UpgradeBox"
       }
     ]
   },
@@ -2294,6 +2322,10 @@
         "type": "Mintable"
       },
       {
+        "name": "logo",
+        "type": "Option<IpfsPath>"
+      },
+      {
         "name": "metadata",
         "type": "Metadata"
       }
@@ -2365,6 +2397,18 @@
       {
         "name": "Fixed",
         "type": "Fixed"
+      }
+    ]
+  },
+  "OptimizedExecutable": {
+    "Enum": [
+      {
+        "name": "WasmInternalRepr",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "Instructions",
+        "type": "Vec<InstructionBox>"
       }
     ]
   },
@@ -2599,18 +2643,6 @@
       {
         "name": "name",
         "type": "Name"
-      }
-    ]
-  },
-  "PermissionValidatorEvent": {
-    "Enum": [
-      {
-        "name": "Added",
-        "type": "ValidatorId"
-      },
-      {
-        "name": "Removed",
-        "type": "ValidatorId"
       }
     ]
   },
@@ -2944,6 +2976,10 @@
       {
         "name": "transactions",
         "type": "Vec<GenesisTransaction>"
+      },
+      {
+        "name": "validator",
+        "type": "ValidatorMode"
       }
     ]
   },
@@ -3469,7 +3505,7 @@
       }
     ]
   },
-  "Trigger<FilterBox>": {
+  "Trigger<FilterBox, Executable>": {
     "Struct": [
       {
         "name": "id",
@@ -3477,7 +3513,31 @@
       },
       {
         "name": "action",
-        "type": "Action<FilterBox>"
+        "type": "Action<FilterBox, Executable>"
+      }
+    ]
+  },
+  "Trigger<FilterBox, OptimizedExecutable>": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "TriggerId"
+      },
+      {
+        "name": "action",
+        "type": "Action<FilterBox, OptimizedExecutable>"
+      }
+    ]
+  },
+  "TriggerBox": {
+    "Enum": [
+      {
+        "name": "Raw",
+        "type": "Trigger<FilterBox, Executable>"
+      },
+      {
+        "name": "Optimized",
+        "type": "Trigger<FilterBox, OptimizedExecutable>"
       }
     ]
   },
@@ -3569,6 +3629,22 @@
       }
     ]
   },
+  "UpgradableBox": {
+    "Enum": [
+      {
+        "name": "Validator",
+        "type": "Validator"
+      }
+    ]
+  },
+  "UpgradeBox": {
+    "Struct": [
+      {
+        "name": "object",
+        "type": "EvaluatesTo<UpgradableBox>"
+      }
+    ]
+  },
   "ValidTransaction": {
     "Struct": [
       {
@@ -3584,44 +3660,35 @@
   "Validator": {
     "Struct": [
       {
-        "name": "id",
-        "type": "ValidatorId"
-      },
-      {
-        "name": "validator_type",
-        "type": "ValidatorType"
-      },
-      {
         "name": "wasm",
         "type": "WasmSmartContract"
       }
     ]
   },
-  "ValidatorId": {
-    "Struct": [
+  "ValidatorEvent": {
+    "Enum": [
       {
-        "name": "name",
-        "type": "Name"
-      },
-      {
-        "name": "owned_by",
-        "type": "AccountId"
+        "name": "Upgraded"
       }
     ]
   },
-  "ValidatorType": {
+  "ValidatorMode": {
     "Enum": [
       {
-        "name": "Transaction"
+        "name": "Path",
+        "type": "ValidatorPath"
       },
       {
-        "name": "Instruction"
-      },
+        "name": "Inline",
+        "type": "Validator"
+      }
+    ]
+  },
+  "ValidatorPath": {
+    "Struct": [
       {
-        "name": "Query"
-      },
-      {
-        "name": "Expression"
+        "name": "validator_relative_path",
+        "type": "String"
       }
     ]
   },
@@ -3710,6 +3777,10 @@
       {
         "name": "Numeric",
         "type": "NumericValue"
+      },
+      {
+        "name": "Validator",
+        "type": "Validator"
       }
     ]
   },
@@ -3777,6 +3848,9 @@
       },
       {
         "name": "Numeric"
+      },
+      {
+        "name": "Validator"
       }
     ]
   },

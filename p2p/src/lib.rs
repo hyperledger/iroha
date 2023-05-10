@@ -7,26 +7,43 @@ use std::{io, net::AddrParseError};
 use iroha_crypto::ursa::{
     encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError,
 };
-pub use network::{ConnectPeer, DisconnectPeer, NetworkBase, Post};
+pub use network::message::*;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
-pub mod handshake;
 pub mod network;
 pub mod peer;
 
 /// The main type to use for secure communication.
-pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
+pub type NetworkHandle<T> = network::NetworkBaseHandle<T, X25519Sha256, ChaCha20Poly1305>;
+
+pub mod boilerplate {
+    //! Module containing trait shorthands. Remove when trait aliases
+    //! are stable <https://github.com/rust-lang/rust/issues/41517>
+
+    use iroha_crypto::ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
+
+    use super::*;
+
+    /// Shorthand for traits required for payload
+    pub trait Pload: Encode + Decode + Send + Clone + 'static {}
+    impl<T> Pload for T where T: Encode + Decode + Send + Clone + 'static {}
+
+    /// Shorthand for traits required for key exchange
+    pub trait Kex: KeyExchangeScheme + Send + 'static {}
+    impl<T> Kex for T where T: KeyExchangeScheme + Send + 'static {}
+
+    /// Shorthand for traits required for encryptor
+    pub trait Enc: Encryptor + Send + 'static {}
+    impl<T> Enc for T where T: Encryptor + Send + 'static {}
+}
 
 /// Errors used in [`crate`].
-#[derive(Debug, Error, iroha_actor::Message)]
+#[derive(Debug, Error)]
 pub enum Error {
     /// Failed to read or write
-    #[error("Failed IO operation.")]
+    #[error("Failed IO operation: {0}.")]
     Io(#[source] std::sync::Arc<io::Error>),
-    /// Failed to read or write
-    #[error("Failed handshake")]
-    Handshake(#[from] HandshakeError),
     /// Failed to read or write
     #[error("Message improperly formatted")]
     Format,
@@ -42,17 +59,9 @@ pub enum Error {
     /// Failed to parse address
     #[error("Failed to parse socket address.")]
     Addr(#[from] AddrParseError),
-}
-
-/// Error during handshake process.
-#[derive(Debug, Error, Clone)]
-pub enum HandshakeError {
-    /// Peer was in an incorrect state
-    #[error("Peer was in an incorrect state. {0}")]
-    State(String),
-    /// Handshake Length
-    #[error("Handshake Length {0} exceeds maximum: {}", peer::MAX_HANDSHAKE_LENGTH)]
-    Length(usize),
+    /// Connection reset by peer
+    #[error("Connection reset by peer in te middle of message transfer.")]
+    ConnectionResetByPeer,
 }
 
 /// Error in the cryptographic processes.
@@ -86,22 +95,58 @@ impl From<io::Error> for Error {
 /// Result shorthand.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-/// Message read from the other peer, serialized into bytes
-#[derive(Debug, Clone, Encode, Decode, iroha_actor::Message)]
-pub struct Message(pub Vec<u8>);
+/// Module for unbounded channel with attached length of the channel.
+pub(crate) mod unbounded_with_len {
+    use std::sync::{atomic::AtomicUsize, Arc};
 
-/// Result of reading from [`peer::Peer`]
-#[derive(Debug, iroha_actor::Message)]
-pub struct MessageResult(pub Result<Message, Error>);
+    use tokio::sync::mpsc;
 
-impl MessageResult {
-    /// Constructor for positive result
-    pub const fn new_message(message: Message) -> Self {
-        Self(Ok(message))
+    /// Create unbounded channel with attached length.
+    pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let len = Arc::new(AtomicUsize::new(1));
+        (
+            Sender {
+                sender,
+                len: Arc::clone(&len),
+            },
+            Receiver { receiver, len },
+        )
     }
 
-    /// Constructor for negative result
-    pub const fn new_error(error: Error) -> Self {
-        Self(Err(error))
+    pub struct Receiver<T> {
+        receiver: mpsc::UnboundedReceiver<T>,
+        len: Arc<AtomicUsize>,
+    }
+
+    #[derive(Clone)]
+    pub struct Sender<T> {
+        sender: mpsc::UnboundedSender<T>,
+        len: Arc<AtomicUsize>,
+    }
+
+    impl<T> Receiver<T> {
+        pub async fn recv(&mut self) -> Option<T>
+        where
+            T: Send,
+        {
+            let message = self.receiver.recv().await?;
+            self.len.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            Some(message)
+        }
+
+        pub fn len(&self) -> usize {
+            self.len
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .saturating_sub(1)
+        }
+    }
+
+    impl<T> Sender<T> {
+        pub fn send(&self, message: T) -> Result<(), mpsc::error::SendError<T>> {
+            self.sender.send(message)?;
+            self.len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
     }
 }

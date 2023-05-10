@@ -43,7 +43,6 @@ iroha_core = { version = "=2.0.0-pre-rc.13", path = "../core" }
 iroha_macro = { version = "=2.0.0-pre-rc.13", path = "../macro" }
 iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre-rc.13", path = "../futures" }
-iroha_actor = { version = "=2.0.0-pre-rc.13", path = "../actor" }
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["http"] }
 iroha_telemetry = { version = "=2.0.0-pre-rc.13", path = "../telemetry", optional = true }
 iroha_version = { version = "=2.0.0-pre-rc.13", path = "../version", features = ["http"] }
@@ -53,10 +52,13 @@ iroha_p2p = { version = "=2.0.0-pre-rc.13", path = "../p2p" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.13", path = "../schema/gen", optional = true }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
 iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../genesis" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
+
 
 async-trait = "0.1.60"
 color-eyre = "0.6.2"
 eyre = "0.6.8"
+tracing = "0.1.37"
 futures = { version = "0.3.25", default-features = false, features = ["std", "async-await"] }
 parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
 serde = { version = "1.0.151", features = ["derive"] }
@@ -69,6 +71,7 @@ once_cell = "1.16.0"
 owo-colors = { version = "3.5.0", features = ["supports-colors"] }
 supports-color = "2.0.0"
 thread-local-panic-hook = { version = "0.1.0", optional = true }
+tempfile = "3.3.0"
 
 [build-dependencies]
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }

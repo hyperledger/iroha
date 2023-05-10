@@ -40,12 +40,12 @@ pub mod tests {
     /// Key-pair used by default for test purposes
     #[allow(clippy::expect_used)]
     fn placeholder_keypair() -> KeyPair {
-        let public_key = "ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+        let public_key = "ed01204CFFD0EE429B1BDD36B3910EC570852B8BB63F18750341772FB46BC856C5CAAF"
             .parse()
             .expect("Public key not in mulithash format");
         let private_key = PrivateKey::from_hex(
             iroha_crypto::Algorithm::Ed25519,
-            "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+            "D748E18CE60CB30DEA3E73C9019B7AF45A8D465E3D71BCC9A5EF99A008205E534CFFD0EE429B1BDD36B3910EC570852B8BB63F18750341772FB46BC856C5CAAF"
         ).expect("Private key not hex encoded");
 
         KeyPair::new(public_key, private_key).expect("Key pair mismatch")

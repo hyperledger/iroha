@@ -52,6 +52,7 @@ pub fn build_schemas() -> MetaMap {
         VersionedPaginatedQueryResult,
         VersionedSignedQuery,
         VersionedPendingTransactions,
+        UpgradableBox,
     }
 }
 
@@ -63,7 +64,7 @@ types!(
     AccountId,
     AccountPermissionChanged,
     AccountRoleChanged,
-    Action<FilterBox>,
+    Action<FilterBox, Executable>,
     Add,
     Algorithm,
     And,
@@ -116,8 +117,7 @@ types!(
     Box<Peer>,
     Box<PermissionTokenDefinition>,
     Box<Role>,
-    Box<Trigger<FilterBox>>,
-    Box<Validator>,
+    Box<Trigger<FilterBox, Executable>>,
     Box<Value>,
     Box<ValuePredicate>,
     Box<VersionedRejectedTransaction>,
@@ -156,6 +156,7 @@ types!(
     EvaluatesTo<RegistrableBox>,
     EvaluatesTo<RoleId>,
     EvaluatesTo<TriggerId>,
+    EvaluatesTo<UpgradableBox>,
     EvaluatesTo<Value>,
     EvaluatesTo<Vec<Value>>,
     EvaluatesTo<bool>,
@@ -311,7 +312,6 @@ types!(
     PermissionTokenDefinition,
     PermissionTokenEvent,
     PermissionTokenId,
-    PermissionValidatorEvent,
     PipelineEntityKind,
     PipelineEvent,
     PipelineEventFilter,
@@ -369,7 +369,7 @@ types!(
     TransactionRejectionReason,
     TransactionValue,
     TransferBox,
-    Trigger<FilterBox>,
+    Trigger<FilterBox, Executable>,
     TriggerEvent,
     TriggerEventFilter,
     TriggerFilter,
@@ -377,10 +377,10 @@ types!(
     TriggerNumberOfExecutionsChanged,
     UnregisterBox,
     UnsatisfiedSignatureConditionFail,
+    UpgradableBox,
     ValidTransaction,
     Validator,
-    ValidatorId,
-    ValidatorType,
+    ValidatorEvent,
     Value,
     ValueKind,
     ValueOfKey,
@@ -442,8 +442,8 @@ mod tests {
             },
             BlockHeader, CommittedBlock, VersionedCommittedBlock,
         },
-        domain::{IpfsPath, NewDomain},
-        permission::validator::{Validator, ValidatorId, ValidatorType},
+        domain::NewDomain,
+        ipfs::IpfsPath,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
             numerical::{Interval, SemiInterval, SemiRange},
@@ -454,6 +454,7 @@ mod tests {
         prelude::*,
         query::error::{FindError, QueryExecutionFailure},
         transaction::error::{TransactionExpired, TransactionLimitError},
+        validator::Validator,
         ValueKind, VersionedCommittedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;
@@ -605,5 +606,14 @@ mod tests {
             missing_schemas.is_empty(),
             "Missing schemas: \n{missing_schemas:#?}"
         );
+    }
+
+    #[test]
+    // NOTE: This test guards from incorrect implementation where
+    // `SortedVec<T>` and `Vec<T>` start stepping over each other
+    fn no_schema_type_overlap() {
+        let mut schemas = super::build_schemas();
+        <Vec<PublicKey>>::update_schema_map(&mut schemas);
+        <BTreeSet<SignedTransaction>>::update_schema_map(&mut schemas);
     }
 }

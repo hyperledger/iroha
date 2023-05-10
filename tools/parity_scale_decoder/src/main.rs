@@ -29,8 +29,8 @@ use iroha_data_model::{
         },
         BlockHeader, CommittedBlock, VersionedCommittedBlock,
     },
-    domain::{IpfsPath, NewDomain},
-    permission::validator::{Validator, ValidatorId, ValidatorType},
+    domain::NewDomain,
+    ipfs::IpfsPath,
     predicate::{
         ip_addr::{Ipv4Predicate, Ipv6Predicate},
         numerical::{Interval, SemiInterval, SemiRange},
@@ -41,6 +41,7 @@ use iroha_data_model::{
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
     transaction::error::{TransactionExpired, TransactionLimitError},
+    validator::Validator,
     ValueKind, VersionedCommittedBlockWrapper,
 };
 use iroha_primitives::{
@@ -214,7 +215,7 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 mod tests {
     use std::str::FromStr as _;
 
-    use iroha_data_model::{domain::IpfsPath, prelude::*};
+    use iroha_data_model::{ipfs::IpfsPath, prelude::*};
 
     use super::*;
 
@@ -266,7 +267,7 @@ mod tests {
         );
         let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
-        let action = Action::new(
+        let action = Action::<FilterBox, Executable>::new(
             vec![MintBox::new(1_u32, rose_id).into()],
             Repeats::Indefinitely,
             account_id,
@@ -276,7 +277,11 @@ mod tests {
         );
         let trigger = Trigger::new(trigger_id, action);
 
-        decode_sample("trigger.bin", String::from("Trigger<FilterBox>"), &trigger);
+        decode_sample(
+            "trigger.bin",
+            String::from("Trigger<FilterBox, Executable>"),
+            &trigger,
+        );
     }
 
     fn decode_sample<T: Debug>(sample_path: &str, type_id: String, expected: &T) {

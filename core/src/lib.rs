@@ -14,7 +14,7 @@ pub mod wsv;
 use core::time::Duration;
 
 use dashmap::{DashMap, DashSet};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{permission::Permissions, prelude::*};
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
 
@@ -27,7 +27,7 @@ use crate::{
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Specialized type of Iroha Network
-pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
+pub type IrohaNetwork = iroha_p2p::NetworkHandle<NetworkMessage>;
 
 /// Ids of peers.
 pub type PeersIds = DashSet<<Peer as Identifiable>::Id>;
@@ -52,7 +52,7 @@ pub type PermissionTokenDefinitionsMap =
 pub type EventsSender = broadcast::Sender<Event>;
 
 /// The network message
-#[derive(Clone, Debug, Encode, Decode, iroha_actor::Message)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub enum NetworkMessage {
     /// Blockchain message
     SumeragiPacket(Box<SumeragiPacket>),

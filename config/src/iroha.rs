@@ -2,7 +2,6 @@
 #![allow(clippy::std_instead_of_core)]
 use std::fmt::Debug;
 
-use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -88,48 +87,56 @@ impl ConfigurationProxy {
     /// # Errors
     /// - If the relevant uppermost Iroha config fields were not provided.
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn finish(&mut self) -> Result<()> {
+    pub fn finish(&mut self) -> Result<(), ConfigError> {
         if let Some(sumeragi_proxy) = &mut self.sumeragi {
             // First, iroha public/private key and sumeragi keypair are interchangeable, but
             // the user is allowed to provide only the former, and keypair is generated automatically,
             // bailing out if key_pair provided in sumeragi no matter its value
             if sumeragi_proxy.key_pair.is_some() {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "Sumeragi should not be provided with `key_pair` directly as it is instantiated via Iroha config. Please set the `KEY_PAIR` to `null` or omit them entirely."
-                        .to_owned()))
+                return Err(ConfigError::ProvidedInferredField {
+                    field: "key_pair",
+                    message: "Sumeragi should not be provided with `KEY_PAIR` directly. That value is computed from the other config parameters. Please set the `KEY_PAIR` to `null` or omit entirely."
+                });
             }
             if let (Some(public_key), Some(private_key)) = (&self.public_key, &self.private_key) {
                 sumeragi_proxy.key_pair =
                     Some(KeyPair::new(public_key.clone(), private_key.clone())?);
             } else {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "Iroha public and private key not supplied, instantiating `sumeragi` keypair is impossible. Please provide `PRIVATE_KEY` and `PUBLIC_KEY` variables."
-                        .to_owned()
-                ))
+                return Err(ConfigError::MissingField {
+                    field: "PUBLIC_KEY and PRIVATE_KEY",
+                    message: "The sumeragi keypair is not provided in the example configuration. It's done this way to ensure you don't re-use the example keys in production, and know how to generate new keys. Please have a look at \n\nhttps://hyperledger.github.io/iroha-2-docs/guide/configure/keys.html\n\nto learn more.\n\n-----",
+                });
             }
             // Second, torii gateway and sumeragi peer id are interchangeable too; the latter is derived from the
             // former and overwritten silently in case of difference
             if let Some(torii_proxy) = &mut self.torii {
                 if sumeragi_proxy.peer_id.is_none() {
-                    sumeragi_proxy.peer_id = Some(iroha_data_model::peer::PeerId::new(
-                        &torii_proxy.p2p_addr.clone().ok_or_else(|| {
-                            eyre::eyre!("Torii `p2p_addr` field has `None` value")
-                        })?,
+                    sumeragi_proxy.peer_id = Some(iroha_data_model::prelude::PeerId::new(
+                        &torii_proxy
+                            .p2p_addr
+                            .clone()
+                            .ok_or(ConfigError::MissingField {
+                                field: "p2p_addr",
+                                message:
+                                    "`p2p_addr` should not be set to `null` or `None` explicitly.",
+                            })?,
                         &self.public_key.clone().expect(
                             "Iroha `public_key` should have been initialized above at the latest",
                         ),
                     ));
                 } else {
                     // TODO: should we just warn the user that this value will be ignored?
-                    eyre::bail!(ConfigError::ProxyBuildError(
-                        "Sumeragi should not be provided with `peer_id` directly. It is computed from the other provided values.".to_owned()
-                    ))
+                    // TODO: Consider eliminating this value from the public API.
+                    return Err(ConfigError::ProvidedInferredField {
+                        field: "PEER_ID",
+                        message: "The `peer_id` is computed from the key and address. You should remove it from the config.",
+                    });
                 }
             } else {
-                eyre::bail!(ConfigError::ProxyBuildError(
-                    "Torii config should have at least `p2p_addr` provided for sumeragi finalisation"
-                        .to_owned()
-                ))
+                return Err(ConfigError::MissingField{
+                    field: "p2p_addr",
+                    message: "Torii config should have at least `p2p_addr` provided for sumeragi finalisation",
+                });
             }
             // Finally, if trusted peers were not supplied, we can fall back to inserting itself as
             // the only trusted one
@@ -151,10 +158,9 @@ impl ConfigurationProxy {
     /// - Finalisation fails
     /// - Building fails, e.g. any of the inner fields had a `None` value when that
     /// is not allowed by the defaults.
-    pub fn build(mut self) -> Result<Configuration> {
+    pub fn build(mut self) -> Result<Configuration, ConfigError> {
         self.finish()?;
         <Self as iroha_config_base::proxy::Builder>::build(self)
-            .wrap_err("Failed to build `Configuration` from `ConfigurationProxy`")
     }
 }
 
@@ -174,11 +180,11 @@ mod tests {
     pub fn placeholder_keypair() -> KeyPair {
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            "282ED9F3CF92811C3818DBC4AE594ED59DC1A2F78E4241E31924E101D6B1FB831C61FAF8FE94E253B93114240394F79A607B7FA55F9E5A41EBEC74B88055768B"
         ).expect("Private key not hex encoded");
 
         KeyPair::new(
-            "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            "ed01201C61FAF8FE94E253B93114240394F79A607B7FA55F9E5A41EBEC74B88055768B"
                 .parse()
                 .expect("Public key not in mulithash format"),
             private_key,
@@ -253,7 +259,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn parse_trusted_peers_fail_duplicate_peer_id() {
-        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address":"127.0.0.1:1337", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address":"localhost:1338", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address": "195.162.0.1:23", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}]"#;
+        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"127.0.0.1:1337", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"localhost:1338", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address": "195.162.0.1:23", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}]"#;
         let _result: TrustedPeers =
             serde_json::from_str(trusted_peers_string).expect("Failed to parse Trusted Peers");
     }

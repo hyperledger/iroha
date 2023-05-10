@@ -112,8 +112,35 @@ where
         .with(layer)
         .with(filter)
         .with(storage_layer)
+        .with(tracing_error::ErrorLayer::default())
         .with(bunyan_layer);
-    add_telemetry_and_set_default(configuration, subscriber)
+
+    add_tokio_console_subscriber(configuration, subscriber)
+}
+
+fn add_tokio_console_subscriber<
+    S: Subscriber + Send + Sync + 'static + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+>(
+    configuration: &Configuration,
+    subscriber: S,
+) -> Result<Telemetries> {
+    #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+    {
+        let console_subscriber = console_subscriber::ConsoleLayer::builder()
+            .server_addr(
+                configuration
+                    .tokio_console_addr
+                    .parse::<std::net::SocketAddr>()
+                    .expect("Invalid address for tokio console"),
+            )
+            .spawn();
+
+        add_telemetry_and_set_default(configuration, subscriber.with(console_subscriber))
+    }
+    #[cfg(any(not(feature = "tokio-console"), feature = "no-tokio-console"))]
+    {
+        add_telemetry_and_set_default(configuration, subscriber)
+    }
 }
 
 fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
@@ -292,5 +319,5 @@ pub fn install_panic_hook() -> Result<(), Report> {
 pub mod prelude {
     //! Module with most used items. Needs to be imported when using `log` macro to avoid `tracing` crate dependency
 
-    pub use tracing::{self, debug, error, info, instrument as log, trace, warn};
+    pub use tracing::{self, debug, error, info, instrument as log, span, trace, warn, Span};
 }

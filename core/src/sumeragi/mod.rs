@@ -8,19 +8,16 @@
 )]
 use std::{
     fmt::{self, Debug, Formatter},
-    marker::PhantomData,
     sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
 
 use eyre::{Result, WrapErr as _};
-use iroha_actor::{broker::Broker, Addr};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{HashOf, KeyPair, SignatureOf};
 use iroha_data_model::{block::*, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
-use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 
@@ -35,7 +32,6 @@ use main_loop::State;
 use parking_lot::{Mutex, MutexGuard};
 
 use self::{
-    main_loop::{NoFault, SumeragiWithFault},
     message::{Message, *},
     view_change::{Proof, ProofChain},
 };
@@ -43,13 +39,6 @@ use crate::{
     block::*, kura::Kura, prelude::*, queue::Queue, tx::TransactionValidator, EventsSender,
     IrohaNetwork, NetworkMessage,
 };
-
-trait Consensus {
-    fn round(
-        &mut self,
-        transactions: Vec<VersionedAcceptedTransaction>,
-    ) -> Option<VersionedPendingBlock>;
-}
 
 /*
 The values in the following struct are not atomics because the code that
@@ -66,7 +55,7 @@ struct LastUpdateMetricsData {
 /// `Sumeragi` is the implementation of the consensus.
 #[derive(Debug)]
 pub struct Sumeragi {
-    internal: SumeragiWithFault<NoFault>,
+    internal: main_loop::Sumeragi,
     config: Configuration,
     metrics: Metrics,
     last_update_metrics_mutex: Mutex<LastUpdateMetricsData>,
@@ -82,20 +71,18 @@ impl Sumeragi {
         wsv: WorldStateView,
         transaction_validator: TransactionValidator,
         queue: Arc<Queue>,
-        broker: Broker,
         kura: Arc<Kura>,
-        network: Addr<IrohaNetwork>,
+        network: IrohaNetwork,
     ) -> Self {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         Self {
-            internal: SumeragiWithFault::new(
+            internal: main_loop::Sumeragi::new(
                 configuration,
                 queue,
                 events_sender,
                 wsv,
                 transaction_validator,
-                broker,
                 kura,
                 network,
                 message_receiver,
@@ -128,9 +115,8 @@ impl Sumeragi {
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .internal
-            .current_online_peers
-            .lock()
-            .len()
+            .network
+            .online_peers(std::collections::HashSet::len)
             .try_into()
             .expect("casting usize to u64");
 
@@ -212,16 +198,6 @@ impl Sumeragi {
     /// Access node metrics.
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
-    }
-
-    /// Get a random online peer for use in block synchronization.
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    pub fn get_random_peer_for_block_sync(&self) -> Option<Peer> {
-        use rand::{seq::SliceRandom, SeedableRng};
-
-        let rng = &mut rand::rngs::StdRng::from_entropy();
-        let peers = self.internal.current_online_peers.lock();
-        peers.choose(rng).map(|id| Peer::new(id.clone()))
     }
 
     /// Access the world state view object in a locking fashion.
@@ -326,12 +302,6 @@ impl Sumeragi {
         ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
 
-    /// Update the sumeragi internal online peers list.
-    #[allow(clippy::expect_used)]
-    pub fn update_online_peers(&self, online_peers: Vec<PeerId>) {
-        *self.internal.current_online_peers.lock() = online_peers;
-    }
-
     /// Deposit a sumeragi network message.
     #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
@@ -358,13 +328,13 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// Valid Block
-    pub block: SignedBlock,
+    pub block: PendingBlock,
 }
 
 impl VotingBlock {
     /// Construct new `VotingBlock` with current time.
     #[allow(clippy::expect_used)]
-    pub fn new(block: SignedBlock) -> VotingBlock {
+    pub fn new(block: PendingBlock) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
@@ -372,7 +342,7 @@ impl VotingBlock {
     }
     /// Construct new `VotingBlock` with the given time.
     #[allow(clippy::expect_used)]
-    pub(crate) fn voted_at(block: SignedBlock, voted_at: Instant) -> VotingBlock {
+    pub(crate) fn voted_at(block: PendingBlock, voted_at: Instant) -> VotingBlock {
         VotingBlock { block, voted_at }
     }
 }

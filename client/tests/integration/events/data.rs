@@ -85,7 +85,10 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         isi_calls = isi_calls
     );
 
-    transaction_execution_should_produce_events(WasmSmartContract::new(wat.into_bytes()), 10_615)
+    transaction_execution_should_produce_events(
+        WasmSmartContract::from_compiled(wat.into_bytes()),
+        10_615,
+    )
 }
 
 fn transaction_execution_should_produce_events(
@@ -157,26 +160,28 @@ fn produce_multiple_events() -> Result<()> {
     init_receiver.recv()?;
 
     // Registering role
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let role_id = <Role as Identifiable>::Id::from_str("TEST_ROLE")?;
-    let token_1 = PermissionToken::new("test_permission_token_1".parse().expect("valid"));
-    let token_2 = PermissionToken::new("test_permission_token_2".parse().expect("valid"));
-    let permission_token_definition_1 =
-        PermissionTokenDefinition::new(token_1.definition_id().clone());
-    let permission_token_definition_2 =
-        PermissionTokenDefinition::new(token_2.definition_id().clone());
+    let token_1 = PermissionToken::new(
+        "can_remove_key_value_in_user_account"
+            .parse()
+            .expect("valid"),
+    )
+    .with_params([(
+        "account_id".parse().expect("valid"),
+        alice_id.clone().into(),
+    )]);
+    let token_2 = PermissionToken::new("can_set_key_value_in_user_account".parse().expect("valid"))
+        .with_params([("account_id".parse().expect("valid"), alice_id.into())]);
     let role = iroha_data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
-    let instructions = [
-        RegisterBox::new(permission_token_definition_1.clone()).into(),
-        RegisterBox::new(permission_token_definition_2.clone()).into(),
-        RegisterBox::new(role.clone()).into(),
-    ];
+    let instructions = [RegisterBox::new(role.clone()).into()];
     client.submit_all_blocking(instructions)?;
 
-    // Grants role to Alice
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    // Grants role to Bob
+    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
+    let grant_role = GrantBox::new(role_id.clone(), bob_id.clone());
     client.submit_blocking(grant_role)?;
 
     // Unregister role
@@ -184,23 +189,6 @@ fn produce_multiple_events() -> Result<()> {
     client.submit_blocking(unregister_role)?;
 
     // Inspect produced events
-    let expected_permission_events: Vec<DataEvent> = [
-        WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
-            permission_token_definition_1,
-        )),
-        WorldEvent::PermissionToken(PermissionTokenEvent::DefinitionCreated(
-            permission_token_definition_2,
-        )),
-    ]
-    .into_iter()
-    .flat_map(WorldEvent::flatten)
-    .collect();
-
-    for expected_event in expected_permission_events {
-        let event = event_receiver.recv()??.try_into()?;
-        assert_eq!(expected_event, event);
-    }
-
     let event: DataEvent = event_receiver.recv()??.try_into()?;
     assert!(matches!(event, DataEvent::Role(_)));
     if let DataEvent::Role(role_event) = event {
@@ -217,37 +205,37 @@ fn produce_multiple_events() -> Result<()> {
     let expected_domain_events: Vec<DataEvent> = [
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
-                account_id: alice_id.clone(),
+                account_id: bob_id.clone(),
                 permission_id: token_1.definition_id().clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
-                account_id: alice_id.clone(),
+                account_id: bob_id.clone(),
                 permission_id: token_2.definition_id().clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
             AccountRoleChanged {
-                account_id: alice_id.clone(),
+                account_id: bob_id.clone(),
                 role_id: role_id.clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
-                account_id: alice_id.clone(),
+                account_id: bob_id.clone(),
                 permission_id: token_1.definition_id().clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
-                account_id: alice_id.clone(),
+                account_id: bob_id.clone(),
                 permission_id: token_2.definition_id().clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
             AccountRoleChanged {
-                account_id: alice_id,
+                account_id: bob_id,
                 role_id: role_id.clone(),
             },
         ))),

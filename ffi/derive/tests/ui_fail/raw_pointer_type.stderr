@@ -1,0 +1,11 @@
+error: Raw pointer found. If the pointer doesn't own the data, attach `#[ffi_type(unsafe {non_owning})` to the field. Otherwise, mark the entire type as opaque with `#[ffi_type(opaque)]`
+ --> tests/ui_fail/raw_pointer_type.rs:6:23
+  |
+6 | pub struct FfiStruct1(*mut u32);
+  |                       ^^^^^^^^
+
+error: Raw pointer found. If the pointer doesn't own the data, attach `#[ffi_type(unsafe {non_owning})` to the field. Otherwise, mark the entire type as opaque with `#[ffi_type(opaque)]`
+  --> tests/ui_fail/raw_pointer_type.rs:12:7
+   |
+12 |     B(*mut u32),
+   |       ^^^^^^^^

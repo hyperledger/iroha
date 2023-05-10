@@ -12,7 +12,6 @@ use std::{
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_actor::{broker::*, prelude::*};
 use iroha_client::client::Client;
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
@@ -53,12 +52,12 @@ pub struct Network {
 pub fn get_key_pair() -> KeyPair {
     KeyPair::new(
         PublicKey::from_str(
-            r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
+            "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
         )
         .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0",
+            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
         ).expect("Private key not hex encoded")
     ).expect("Key pair mismatch")
 }
@@ -76,10 +75,9 @@ impl TestGenesis for GenesisNetwork {
 
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let content = std::fs::read_to_string(manifest_dir.join("../../configs/peer/genesis.json"))
-            .expect("Failed to read data from configs/peer/genesis.json");
-        let mut genesis: RawGenesisBlock =
-            json5::from_str(&content).expect("Failed to deserialize genesis block from config");
+        let mut genesis =
+            RawGenesisBlock::from_path(manifest_dir.join("../../configs/peer/genesis.json"))
+                .expect("Failed to deserialize genesis block from file");
 
         let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
             .expect("valid names");
@@ -104,12 +102,24 @@ impl TestGenesis for GenesisNetwork {
             "asset_definition_id".parse().expect("valid names"),
             IdBox::from(rose_definition_id).into(),
         )]);
-        genesis.transactions[0]
-            .isi
-            .push(GrantBox::new(mint_rose_permission, alice_id.clone()).into());
-        genesis.transactions[0]
-            .isi
-            .push(GrantBox::new(burn_rose_permission, alice_id).into());
+        let unregister_any_peer_permission =
+            PermissionToken::new("can_unregister_any_peer".parse().expect("valid names"));
+        let unregister_any_role_permission =
+            PermissionToken::new("can_unregister_any_role".parse().expect("valid names"));
+        let upgrade_validator_permission =
+            PermissionToken::new("can_upgrade_validator".parse().expect("valid names"));
+
+        for permission in [
+            mint_rose_permission,
+            burn_rose_permission,
+            unregister_any_peer_permission,
+            unregister_any_role_permission,
+            upgrade_validator_permission,
+        ] {
+            genesis.transactions[0]
+                .isi
+                .push(GrantBox::new(permission, alice_id.clone()).into());
+        }
 
         GenesisNetwork::from_configuration(
             submit_genesis,
@@ -122,39 +132,6 @@ impl TestGenesis for GenesisNetwork {
 }
 
 impl Network {
-    /// Send message to an actor instance on peers.
-    ///
-    /// # Panics
-    /// Programmer error. `self.peers()` should already have `iroha`.
-    pub async fn send_to_actor_on_peers<M, A>(
-        &self,
-        select_actor: impl Fn(&Iroha) -> &Addr<A>,
-        msg: M,
-    ) -> Vec<(M::Result, PeerId)>
-    where
-        M: Message + Clone + Send + 'static,
-        M::Result: Send,
-        A: Actor + ContextHandler<M>,
-    {
-        let fut = self
-            .peers()
-            .map(|peer| {
-                (
-                    select_actor(peer.iroha.as_ref().expect("Already initialised")),
-                    peer.id.clone(),
-                )
-            })
-            .map(|(actor, peer_id)| async { (actor.send(msg.clone()).await, peer_id) })
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<_>>();
-        time::timeout(Duration::from_secs(60), fut)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|(result, peer_id)| (result.expect("Always `Ok`"), peer_id))
-            .collect()
-    }
-
     /// Collect the freeze handles from all the peers in the network.
     #[cfg(debug_assertions)]
     pub fn get_freeze_status_handles(&self) -> Vec<Arc<AtomicBool>> {
@@ -396,8 +373,6 @@ pub struct Peer {
     pub telemetry_address: String,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
-    /// Broker
-    pub broker: Broker,
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
     /// Iroha itself
@@ -470,14 +445,13 @@ impl Peer {
             api_addr = %self.api_address,
             telemetry_addr = %self.telemetry_address
         );
-        let broker = self.broker.clone();
         let telemetry =
             iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, broker, telemetry)
+                let mut iroha = Iroha::with_genesis(genesis, configuration, telemetry)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
@@ -538,7 +512,6 @@ impl Peer {
             telemetry_address,
             shutdown,
             iroha: None,
-            broker: Broker::new(),
             temp_dir: None,
         })
     }

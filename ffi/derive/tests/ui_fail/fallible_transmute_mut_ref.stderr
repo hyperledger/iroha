@@ -1,18 +1,18 @@
 error[E0277]: the trait bound `Wrapper: InfallibleTransmute` is not satisfied
-  --> tests/ui_fail/fallible_transmute_mut_ref.rs:18:1
+  --> tests/ui_fail/fallible_transmute_mut_ref.rs:21:1
    |
-18 | #[ffi_export]
+21 | #[ffi_export]
    | ^^^^^^^^^^^^^ the trait `InfallibleTransmute` is not implemented for `Wrapper`
    |
    = help: the following other types implement trait `InfallibleTransmute`:
-             BTreeMap<K, V>
-             BTreeSet<K>
              ManuallyDrop<T>
              [R; N]
              i128
              i16
              i32
              i64
+             i8
+             u128
            and $N others
    = note: required for `&mut Wrapper` to implement `Ir`
    = note: required for `&mut Wrapper` to implement `FfiType`

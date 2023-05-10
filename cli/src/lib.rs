@@ -13,15 +13,13 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use eyre::ContextCompat as _;
-use iroha_actor::{broker::*, prelude::*};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
     path::Path as ConfigPath,
 };
 use iroha_core::{
-    block_sync::BlockSynchronizer,
+    block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
@@ -32,11 +30,11 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
-use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
+use iroha_genesis::GenesisNetwork;
+use iroha_logger::prelude::span;
 use tokio::{
     signal,
-    sync::{broadcast, Notify},
+    sync::{broadcast, mpsc, Notify},
     task,
 };
 use torii::Torii;
@@ -44,6 +42,7 @@ use torii::Torii;
 mod event;
 pub mod samples;
 mod stream;
+pub mod style;
 pub mod torii;
 
 /// Arguments for Iroha2.  Configuration for arguments is parsed from
@@ -77,8 +76,16 @@ impl Default for Arguments {
     }
 }
 
-/// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
-/// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
+/// Iroha is an
+/// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
+/// of the system. It configures, coordinates and manages transactions
+/// and queries processing, work of consensus and storage.
+///
+/// # Usage
+/// Construct and then `start` or `start_as_task`. If you experience
+/// an immediate shutdown after constructing Iroha, then you probably
+/// forgot this step.
+#[must_use = "run `.start().await?` to not immediately stop Iroha"]
 pub struct Iroha {
     /// Queue of transactions
     pub queue: Arc<Queue>,
@@ -86,14 +93,10 @@ pub struct Iroha {
     pub sumeragi: Arc<Sumeragi>,
     /// Kura — block storage
     pub kura: Arc<Kura>,
-    /// Block synchronization actor
-    pub block_sync: AlwaysAddr<BlockSynchronizer>,
     /// Torii web server
     pub torii: Option<Torii>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
-    /// Relay that redirects messages from the network subsystem to core subsystems.
-    _sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>, // TODO: figure out if truly unused.
     /// A boolean value indicating whether or not the peers will recieve data from the network. Used in
     /// sumeragi testing.
     #[cfg(debug_assertions)]
@@ -102,41 +105,47 @@ pub struct Iroha {
 
 impl Drop for Iroha {
     fn drop(&mut self) {
-        // Drop thread handles first
+        iroha_logger::trace!("Iroha instance dropped");
         let _thread_handles = core::mem::take(&mut self.thread_handlers);
+        iroha_logger::debug!(
+            "Thread handles dropped. Dependent processes going for a graceful shutdown"
+        )
     }
 }
 
-struct FromNetworkBaseRelay {
+struct NetworkRelay {
     sumeragi: Arc<Sumeragi>,
-    broker: Broker,
+    block_sync: BlockSynchronizerHandle,
+    network: IrohaNetwork,
+    shutdown_notify: Arc<Notify>,
     #[cfg(debug_assertions)]
     freeze_status: Arc<AtomicBool>,
 }
 
-#[async_trait::async_trait]
-impl Actor for FromNetworkBaseRelay {
-    async fn on_start(&mut self, ctx: &mut iroha_actor::prelude::Context<Self>) {
-        // to start connections
-        self.broker.subscribe::<NetworkBaseRelayOnlinePeers, _>(ctx);
-        self.broker.subscribe::<iroha_core::NetworkMessage, _>(ctx);
+impl NetworkRelay {
+    fn start(self) {
+        tokio::task::spawn(self.run());
     }
-}
 
-#[async_trait::async_trait]
-impl Handler<NetworkBaseRelayOnlinePeers> for FromNetworkBaseRelay {
-    type Result = ();
-
-    async fn handle(&mut self, msg: NetworkBaseRelayOnlinePeers) {
-        self.sumeragi.update_online_peers(msg.online_peers);
+    async fn run(mut self) {
+        let (sender, mut receiver) = mpsc::channel(1);
+        self.network.subscribe_to_peers_messages(sender);
+        #[allow(clippy::redundant_pub_crate)]
+        loop {
+            tokio::select! {
+                // Receive message from network
+                Some(msg) = receiver.recv() => self.handle_message(msg).await,
+                _ = self.shutdown_notify.notified() => {
+                    iroha_logger::info!("NetworkRelay is being shut down.");
+                    break;
+                }
+                else => break,
+            }
+            tokio::task::yield_now().await;
+        }
     }
-}
 
-#[async_trait::async_trait]
-impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
-    type Result = ();
-
-    async fn handle(&mut self, msg: iroha_core::NetworkMessage) -> Self::Result {
+    async fn handle_message(&mut self, msg: iroha_core::NetworkMessage) {
         use iroha_core::NetworkMessage::*;
 
         #[cfg(debug_assertions)]
@@ -148,79 +157,13 @@ impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
             SumeragiPacket(data) => {
                 self.sumeragi.incoming_message(data.into_v1());
             }
-            BlockSync(data) => self.broker.issue_send(data.into_v1()).await,
+            BlockSync(data) => self.block_sync.message(data.into_v1()).await,
             Health => {}
         }
     }
 }
 
 impl Iroha {
-    /// To make `Iroha` peer work all actors should be started first.
-    /// After that moment it you can start it with listening to torii events.
-    ///
-    /// # Side effect
-    /// - Prints welcome message in the log
-    ///
-    /// # Errors
-    /// - Reading genesis from disk
-    /// - Reading telemetry configs
-    /// - telemetry setup
-    /// - Initialization of [`Sumeragi`]
-    #[allow(clippy::non_ascii_literal)]
-    pub async fn new(args: &Arguments) -> Result<Self> {
-        let mut config = args
-            .config_path
-            .first_existing_path()
-            .map_or_else(
-                || {
-                    eprintln!(
-                        "Configuration file not found. Using environment variables as fallback."
-                    );
-                    ConfigurationProxy::default()
-                },
-                |path| ConfigurationProxy::from_path(&path.as_path()),
-            )
-            .override_with(ConfigurationProxy::from_env())
-            .build()?;
-
-        if style::should_disable_color() {
-            config.disable_panic_terminal_colors = true;
-            // Remove terminal colors to comply with XDG
-            // specifications, Rust's conventions as well as remove
-            // escape codes from logs redirected from STDOUT. If you
-            // need syntax highlighting, use JSON logging instead.
-            config.logger.terminal_colors = false;
-        }
-
-        let telemetry = iroha_logger::init(&config.logger)?;
-        iroha_logger::info!(
-            git_commit_sha = env!("VERGEN_GIT_SHA"),
-            "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha {}!",
-            env!("CARGO_PKG_VERSION")
-        );
-
-        let genesis = if let Some(genesis_path) = &args.genesis_path {
-            GenesisNetwork::from_configuration(
-                args.submit_genesis,
-                RawGenesisBlock::from_path(
-                    genesis_path
-                        .first_existing_path()
-                        .wrap_err_with(|| {
-                            format!("Genesis block file {genesis_path:?} doesn't exist")
-                        })?
-                        .as_ref(),
-                )?,
-                Some(&config.genesis),
-                &config.sumeragi.transaction_limits,
-            )
-            .wrap_err("Failed to initialize genesis.")?
-        } else {
-            None
-        };
-
-        Self::with_genesis(genesis, config, Broker::new(), telemetry).await
-    }
-
     fn prepare_panic_hook(notify_shutdown: Arc<Notify>) {
         #[cfg(not(feature = "test-network"))]
         use std::panic::set_hook;
@@ -274,30 +217,17 @@ impl Iroha {
     /// - Reading telemetry configs
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
-    #[allow(clippy::too_many_lines)] // This is actually easier to understand as a linear sequence of init statements.
+    #[allow(clippy::too_many_lines)]
+    #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
-        broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
-        if !config.disable_panic_terminal_colors {
-            if let Err(e) = color_eyre::install() {
-                let error_message = format!("{e:#}");
-                iroha_logger::error!(error = %error_message, "Tried to `color_eyre::install()` twice",);
-            }
-        }
         let listen_addr = config.torii.p2p_addr.clone();
-        iroha_logger::info!(%listen_addr, "Starting peer");
-        let network = IrohaNetwork::new(
-            broker.clone(),
-            listen_addr,
-            config.public_key.clone(),
-            config.network.actor_channel_capacity,
-        )
-        .await
-        .wrap_err("Unable to start P2P-network")?;
-        let network_addr = network.start().await;
+        let network = IrohaNetwork::start(listen_addr, config.public_key.clone())
+            .await
+            .wrap_err("Unable to start P2P-network")?;
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
@@ -316,11 +246,13 @@ impl Iroha {
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
+            let span = span!(tracing::Level::TRACE, "genesis").entered();
             let wsv_clone = wsv.clone();
 
             transaction_validator
                 .validate_every(genesis.iter().cloned(), &wsv_clone)
                 .wrap_err("Transaction validation failed in genesis block")?;
+            span.exit();
         }
 
         let block_hashes = kura.init()?;
@@ -344,23 +276,10 @@ impl Iroha {
                 wsv,
                 transaction_validator,
                 Arc::clone(&queue),
-                broker.clone(),
                 Arc::clone(&kura),
-                network_addr.clone(),
+                network.clone(),
             ),
         );
-
-        let freeze_status = Arc::new(AtomicBool::new(false));
-
-        let sumeragi_relay = FromNetworkBaseRelay {
-            sumeragi: Arc::clone(&sumeragi),
-            broker: broker.clone(),
-            #[cfg(debug_assertions)]
-            freeze_status: freeze_status.clone(),
-        }
-        .start()
-        .await
-        .expect_running();
 
         let sumeragi_thread_handler =
             Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis, &block_hashes);
@@ -370,11 +289,21 @@ impl Iroha {
             Arc::clone(&sumeragi),
             Arc::clone(&kura),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
-            broker.clone(),
+            network.clone(),
         )
-        .start()
-        .await
-        .expect_running();
+        .start();
+
+        let freeze_status = Arc::new(AtomicBool::new(false));
+
+        NetworkRelay {
+            sumeragi: Arc::clone(&sumeragi),
+            block_sync,
+            network: network.clone(),
+            shutdown_notify: Arc::clone(&notify_shutdown),
+            #[cfg(debug_assertions)]
+            freeze_status: freeze_status.clone(),
+        }
+        .start();
 
         let torii = Torii::from_configuration(
             config.clone(),
@@ -394,10 +323,8 @@ impl Iroha {
             queue,
             sumeragi,
             kura,
-            block_sync,
             torii,
             thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
-            _sumeragi_relay: sumeragi_relay,
             #[cfg(debug_assertions)]
             freeze_status,
         })
@@ -514,82 +441,23 @@ fn genesis_domain(configuration: &Configuration) -> Domain {
     domain
 }
 
-pub mod style {
-    //! Style and colouration of Iroha CLI outputs.
-    use owo_colors::{OwoColorize, Style};
-
-    /// Styling information set at run-time for pretty-printing with colour
-    #[derive(Clone, Copy, Debug)]
-    pub struct Styling {
-        /// Positive highlight
-        pub positive: Style,
-        /// Negative highlight. Usually error message.
-        pub negative: Style,
-        /// Neutral highlight
-        pub highlight: Style,
-        /// Minor message
-        pub minor: Style,
-    }
-
-    impl Default for Styling {
-        fn default() -> Self {
-            Self {
-                positive: Style::new().green().bold(),
-                negative: Style::new().red().bold(),
-                highlight: Style::new().bold(),
-                minor: Style::new().green(),
-            }
-        }
-    }
-
-    /// Determine if message colourisation is to be enabled
-    pub fn should_disable_color() -> bool {
-        supports_color::on(supports_color::Stream::Stdout).is_none()
-            || std::env::var("TERMINAL_COLORS")
-                .map(|s| !s.as_str().parse().unwrap_or(true))
-                .unwrap_or(false)
-    }
-
-    impl Styling {
-        #[must_use]
-        /// Constructor
-        pub fn new() -> Self {
-            if should_disable_color() {
-                Self::no_color()
-            } else {
-                Self::default()
-            }
-        }
-
-        fn no_color() -> Self {
-            Self {
-                positive: Style::new(),
-                negative: Style::new(),
-                highlight: Style::new(),
-                minor: Style::new(),
-            }
-        }
-
-        /// Produce documentation for argument group
-        pub fn or(&self, arg_group: &[&str; 2]) -> String {
-            format!(
-                "`{}` (short `{}`)",
-                arg_group[0].style(self.positive),
-                arg_group[1].style(self.minor)
-            )
-        }
-
-        /// Convenience method for ".json or .json5" pattern
-        pub fn with_json_file_ext(&self, name: &str) -> String {
-            let json = format!("{name}.json");
-            let json5 = format!("{name}.json5");
-            format!(
-                "`{}` or `{}`",
-                json.style(self.highlight),
-                json5.style(self.highlight)
-            )
-        }
-    }
+/// Combine configuration proxies from several locations, preferring `ENV` vars over config file
+///
+/// # Errors
+/// - if config fails to build
+pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configuration> {
+    args.config_path
+        .first_existing_path()
+        .map_or_else(
+            || {
+                eprintln!("Configuration file not found. Using environment variables as fallback.");
+                ConfigurationProxy::default()
+            },
+            |path| ConfigurationProxy::from_path(&path.as_path()),
+        )
+        .override_with(ConfigurationProxy::from_env())
+        .build()
+        .map_err(Into::into)
 }
 
 #[cfg(not(feature = "test-network"))]

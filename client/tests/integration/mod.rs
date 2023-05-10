@@ -30,3 +30,4 @@ mod tx_history;
 mod tx_rollback;
 mod unregister_peer;
 mod unstable_network;
+mod upgrade;

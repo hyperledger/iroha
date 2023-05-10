@@ -28,14 +28,9 @@ mod validate;
 ///
 /// where `<type>` is one of:
 ///
-/// - `authority` is a signer account id who submits an operation
-/// - `transaction` is a transaction that is being validated
-/// - `instruction` is an instruction that is being validated
-/// - `query` is a query that is being validated
-/// - `expression` is an expression that is being validated
+/// - `authority`: optional, represents a signer account id who submits an operation
+/// - `operation`: mandatory, represents an operation that is being validated
 ///
-/// Exactly one parameter of *operation to validate* kind must be specified.
-/// `authority` is optional.
 /// Parameters will be passed to the entrypoint function in the order they are specified.
 ///
 /// ## Authority
@@ -43,25 +38,10 @@ mod validate;
 /// A real function parameter type corresponding to the `authority` should have
 /// `iroha_validator::data_model::prelude::AccountId` type.
 ///
-/// ## Transaction
+/// ## Operation
 ///
 /// A real function parameter type corresponding to the `transaction` should have
-/// `iroha_validator::data_model::prelude::Transaction` type.
-///
-/// ## Instruction
-///
-/// A real function parameter type corresponding to the `instruction` should have
-/// `iroha_validator::data_model::prelude::InstructionBox` type.
-///
-/// ## Query
-///
-/// A real function parameter type corresponding to the `query` should have
-/// `iroha_validator::data_model::prelude::QueryBox` type.
-///
-/// ## Expression
-///
-/// A real function parameter type corresponding to the `expression` should have
-/// `iroha_validator::data_model::prelude::Expression` type.
+/// `iroha_validator::data_model::prelude::NeedsValidationBox` type.
 ///
 /// # Panics
 ///
@@ -77,27 +57,30 @@ mod validate;
 /// ```ignore
 /// use iroha_validator::prelude::*;
 ///
-/// #[entrypoint(params = "[query]")]
-/// pub fn validate(_: QueryBox) -> Verdict {
-///     Verdict::Deny("No queries are allowed".to_owned())
+/// #[entrypoint(params = "[operation]")]
+/// pub fn validate(operation: NeedsValidationBox) -> Verdict {
+///     if let NeedsValidationBox::Query(_) = operation {
+///         deny!("No queries are allowed")
+///     }
+///
+///     pass!()
 /// }
 /// ```
 ///
-/// Using both `authority` and `instruction` parameters:
+/// Using both `authority` and `operation` parameters:
 ///
 /// ```ignore
 /// use iroha_validator::prelude::*;
 ///
-/// #[entrypoint(params = "[authority, instruction]")]
-/// pub fn validate(authority: AccountId, _: InstructionBox) -> Verdict {
-///     let admin_domain = "admin_domain".parse()
-///         .dbg_expect("Failed to parse `admin_domain` as a domain id");
+/// #[entrypoint(params = "[authority, operation]")]
+/// pub fn validate(authority: AccountId, _: NeedsValidationBox) -> Verdict {
+///     let admin_domain = parse!("admin_domain" as AccountId);
 ///
 ///     if authority.domain_id != admin_domain {
-///         Verdict::Deny("No queries are allowed".to_owned())
+///         deny!("No operations are allowed")
 ///     }
 ///
-///     Verdict::Pass
+///     pass!()
 /// }
 /// ```
 ///
@@ -113,15 +96,19 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```ignore
 /// use iroha_validator::{pass_conditions, prelude::*};
 ///
-/// #[derive(Token, Validate, pass_conditions::derive_conversions::asset::Owner)]
+/// #[derive(Token, ValidateGrantRevoke, pass_conditions::derive_conversions::asset::Owner)]
 /// #[validate(pass_conditions::asset::Owner)]
 /// struct CanDoSomethingWithAsset {
 ///     some_data: String,
 ///     asset_id: <Asset as Identifiable>::Id,
 /// }
 ///
-/// #[entrypoint(params = "[authority, instruction]")]
-/// fn validate(authority: <Account as Identifiable>::Id, instruction: InstructionBox) -> Verdict {
+/// #[entrypoint(params = "[authority, operation]")]
+/// fn validate(authority: <Account as Identifiable>::Id, operation: NeedsValidationBox) -> Verdict {
+///     let NeedsValidationBox::Instruction(instruction) = operation else {
+///         pass!();
+///     };
+///
 ///     validate_grant_revoke!(<CanDoSomethingWithAsset>, (authority, instruction));
 ///
 ///     CanDoSomethingWithAsset {
@@ -135,7 +122,7 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
     token::impl_derive_token(input)
 }
 
-/// Derive macro for `Validate` trait.
+/// Derive macro for `ValidateGrantRevoke` trait.
 ///
 /// # Attributes
 ///
@@ -171,10 +158,10 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 ///
 /// With that you can easily derive one of most popular implementations to remove boilerplate code.
 ///
-/// ## Manual `Validate` implementation VS Custom *Pass Condition*
+/// ## Manual `ValidateGrantRevoke` implementation VS Custom *Pass Condition*
 ///
 /// General advice is to use custom *Pass Condition* if you need this custom validation
-/// multiple times in different tokens. Otherwise, you can implement `Validate` trait manually.
+/// multiple times in different tokens. Otherwise, you can implement `ValidateGrantRevoke` trait manually.
 ///
 /// In future there will be combinators like `&&` and `||` to combine multiple *Pass Conditions*.
 ///
@@ -186,18 +173,21 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 // Example:
 //
 // ```
-// #[derive(Token, Validate)]
+// #[derive(Token, ValidateGrantRevoke)]
 // #[validate(Creator || Admin)]
 // pub struct CanDoSomethingWithAsset {
 //     ...
 // }
 // ```
-#[proc_macro_derive(Validate, attributes(validate, validate_grant, validate_revoke))]
+#[proc_macro_derive(
+    ValidateGrantRevoke,
+    attributes(validate, validate_grant, validate_revoke)
+)]
 pub fn derive_validate(input: TokenStream) -> TokenStream {
     validate::impl_derive_validate(input)
 }
 
-/// Should be used together with [`Validate`] derive macro to derive a conversion
+/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `pass_conditions::asset_definition::Owner` type.
 ///
 /// Requires `asset_definition_id` field in the token.
@@ -209,7 +199,7 @@ pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenStream
     conversion::impl_derive_ref_into_asset_definition_owner(input)
 }
 
-/// Should be used together with [`Validate`] derive macro to derive a conversion
+/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `pass_conditions::asset::Owner` type.
 ///
 /// Requires `asset_id` field in the token.
@@ -221,7 +211,7 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
     conversion::impl_derive_ref_into_asset_owner(input)
 }
 
-/// Should be used together with [`Validate`] derive macro to derive a conversion
+/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
 /// from your token to a `pass_conditions::account::Owner` type.
 ///
 /// Requires `account_id` field in the token.

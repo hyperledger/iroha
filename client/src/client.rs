@@ -430,7 +430,7 @@ impl Client {
         &self,
         transaction: SignedTransaction,
     ) -> Result<HashOf<VersionedSignedTransaction>> {
-        iroha_logger::trace!(tx=?transaction);
+        iroha_logger::trace!(tx=?transaction, "Submitting");
         let (req, hash, resp_handler) =
             self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
         let response = req
@@ -1567,7 +1567,7 @@ pub mod trigger {
     }
 }
 
-pub mod permissions {
+pub mod permission {
     //! Module with queries for permission tokens
     use super::*;
 
@@ -1681,13 +1681,13 @@ mod tests {
 
         let cfg = ConfigurationProxy {
             public_key: Some(
-                "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     .parse()
                     .expect("Public key not in mulithash format"),
             ),
             private_key: Some(iroha_crypto::PrivateKey::from_hex(
             iroha_crypto::Algorithm::Ed25519,
-            "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
             ).expect("Private key not hex encoded")),
             account_id: Some(
                 "alice@wonderland"
