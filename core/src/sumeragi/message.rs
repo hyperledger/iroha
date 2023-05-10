@@ -6,7 +6,7 @@
     clippy::module_name_repetitions
 )]
 
-use iroha_crypto::{HashOf, SignaturesOf};
+use iroha_crypto::{HashOf, SignatureOf, SignaturesOf};
 use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_macro::*;
 use iroha_version::prelude::*;
@@ -116,7 +116,7 @@ impl BlockCreated {
     }
     /// Get hash of block.
     pub fn hash(&self) -> HashOf<PendingBlock> {
-        self.block.hash()
+        self.block.partial_hash()
     }
 }
 
@@ -130,11 +130,11 @@ pub struct BlockSigned {
     pub signatures: SignaturesOf<PendingBlock>,
 }
 
-impl From<PendingBlock> for BlockSigned {
-    fn from(block: PendingBlock) -> Self {
+impl From<&PendingBlock> for BlockSigned {
+    fn from(block: &PendingBlock) -> Self {
         Self {
-            hash: block.hash(),
-            signatures: block.signatures,
+            hash: block.partial_hash(),
+            signatures: block.signatures.clone(),
         }
     }
 }
@@ -144,7 +144,7 @@ impl From<PendingBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<VersionedCommittedBlock>,
+    pub hash: iroha_data_model::block::PartialBlockHash,
     /// Set of signatures.
     pub signatures: SignaturesOf<VersionedCommittedBlock>,
 }
@@ -152,8 +152,14 @@ pub struct BlockCommitted {
 impl From<VersionedCommittedBlock> for BlockCommitted {
     fn from(block: VersionedCommittedBlock) -> Self {
         Self {
-            hash: block.hash().transmute(),
-            signatures: block.as_v1().signatures.clone().transmute(),
+            hash: block.partial_hash(),
+            signatures: block
+                .signatures()
+                .into_iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<SignatureOf<VersionedCommittedBlock>>>()
+                .try_into()
+                .expect("Can't send a committed block message without signatures."),
         }
     }
 }

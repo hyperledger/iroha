@@ -103,6 +103,16 @@ impl Signature {
 
         Ok(())
     }
+
+    /// Get the payload of the public key in this signature.
+    pub fn key_payload(&self) -> &[u8] {
+        self.public_key.payload()
+    }
+
+    /// Get the encrypted payload of this signature.
+    pub fn signature_payload(&self) -> &[u8] {
+        &self.payload
+    }
 }
 
 // TODO: Enable in ffi_import
