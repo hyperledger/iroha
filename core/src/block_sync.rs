@@ -7,7 +7,7 @@
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_config::block_sync::Configuration;
-use iroha_crypto::*;
+use iroha_crypto::HashOf;
 use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
 use iroha_logger::prelude::*;
 use iroha_macro::*;

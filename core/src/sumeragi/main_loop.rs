@@ -1,5 +1,7 @@
 //! The main event loop that powers sumeragi.
 #![allow(clippy::cognitive_complexity)]
+use std::sync::mpsc;
+
 use iroha_crypto::HashOf;
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
 use iroha_p2p::UpdateTopology;
@@ -281,11 +283,11 @@ impl Sumeragi {
         .build();
 
         {
-            info!(block_hash = %block.hash(), "Publishing genesis block.");
+            info!(block_partial_hash = %block.partial_hash(), "Publishing genesis block.");
 
             info!(
                 role = ?self.current_topology.role(&self.peer_id),
-                block_hash = %block.hash(),
+                block_partial_hash = %block.partial_hash(),
                 "Created a block to commit.",
             );
 
@@ -549,9 +551,9 @@ fn handle_message(
             {
                 error!(%addr, %role, "Received BlockCommitted message, but shouldn't");
             } else if let Some(mut voted_block) = voting_block.take() {
-                let voting_block_hash = voted_block.block.hash();
+                let voting_block_hash = voted_block.block.partial_hash();
 
-                if hash == voting_block_hash.transmute() {
+                if hash.internal == voting_block_hash.into() {
                     // The manipulation of the topology relies upon all peers seeing the same signature set.
                     // Therefore we must clear the signatures and accept what the proxy tail giveth.
                     voted_block.block.signatures.clear();
@@ -576,34 +578,34 @@ fn handle_message(
             }
         }
         (Message::BlockCreated(block_created), Role::ValidatingPeer) => {
-            if let Some(block) = vote_for_block(sumeragi, block_created) {
-                let block_hash = block.block.hash();
+            if let Some(v_block) = vote_for_block(sumeragi, block_created) {
+                let block_hash = v_block.block.partial_hash();
 
                 let msg = MessagePacket::new(
                     view_change_proof_chain.clone(),
-                    BlockSigned::from(block.block.clone()),
+                    BlockSigned::from(&v_block.block),
                 );
 
                 sumeragi.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
                 info!(%addr, %block_hash, "Block validated, signed and forwarded");
 
-                *voting_block = Some(block);
+                *voting_block = Some(v_block);
             }
         }
         (Message::BlockCreated(block_created), Role::ObservingPeer) => {
-            if let Some(block) = vote_for_block(sumeragi, block_created) {
+            if let Some(v_block) = vote_for_block(sumeragi, block_created) {
                 if current_view_change_index >= 1 {
-                    let block_hash = block.block.hash();
+                    let block_hash = v_block.block.partial_hash();
 
                     let msg = MessagePacket::new(
                         view_change_proof_chain.clone(),
-                        BlockSigned::from(block.block.clone()),
+                        BlockSigned::from(&v_block.block),
                     );
 
                     sumeragi.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
                     info!(%addr, %block_hash, "Block validated, signed and forwarded");
                 }
-                *voting_block = Some(block);
+                *voting_block = Some(v_block);
             }
         }
         (Message::BlockCreated(block_created), Role::ProxyTail) => {
@@ -627,7 +629,7 @@ fn handle_message(
             let valid_signatures = current_topology.filter_signatures_by_roles(roles, &signatures);
 
             if let Some(voted_block) = voting_block.as_mut() {
-                let voting_block_hash = voted_block.block.hash();
+                let voting_block_hash = voted_block.block.partial_hash();
 
                 if hash == voting_block_hash {
                     add_signatures::<true>(voted_block, valid_signatures);
@@ -686,7 +688,7 @@ fn process_message_independent(
 
                     sumeragi.send_events(&new_block);
                     if current_topology.is_consensus_required() {
-                        info!(%addr, hash=%new_block.hash(), "Block created");
+                        info!(%addr, partial_hash=%new_block.partial_hash(), "Block created");
                         *voting_block = Some(VotingBlock::new(new_block.clone()));
 
                         let msg = MessagePacket::new(
@@ -922,7 +924,7 @@ pub(crate) fn run(
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
                 // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
-                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.hash(), "Block not committed in due time, requesting view change...");
+                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.partial_hash(), "Block not committed in due time, requesting view change...");
             } else {
                 // NOTE: Suspecting the leader node because it hasn't produced a block
                 // If the current node has a transaction, the leader should have as well
@@ -1030,7 +1032,7 @@ fn vote_for_block(sumeragi: &Sumeragi, block_created: BlockCreated) -> Option<Vo
         .is_empty()
     {
         error!(
-            %addr, %role, leader=%sumeragi.current_topology.leader().address, hash=%block.hash(),
+            %addr, %role, leader=%sumeragi.current_topology.leader().address, hash=%block.partial_hash(),
             "The block is rejected as it is not signed by the leader."
         );
 
@@ -1039,7 +1041,7 @@ fn vote_for_block(sumeragi: &Sumeragi, block_created: BlockCreated) -> Option<Vo
 
     if block.header.committed_with_topology != sumeragi.current_topology.sorted_peers {
         error!(
-            %addr, %role, block_topology=?block.header.committed_with_topology, my_topology=?sumeragi.current_topology, hash=%block.hash(),
+            %addr, %role, block_topology=?block.header.committed_with_topology, my_topology=?sumeragi.current_topology, hash=%block.partial_hash(),
             "The block is rejected as because the topology field is incorrect."
         );
 
